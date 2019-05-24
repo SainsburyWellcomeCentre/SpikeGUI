@@ -1190,12 +1190,14 @@ class WorkerThread(QThread):
 
         # reduces the arrays to the matching cells
         for i in range(len(i_grp_rot)):
-            #
+            # retrieves the matching rotation/visual indices
             ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_obj_vis)
+
+            # retrieves the CW vs BL/CCW vs BL significance scores
             _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
             _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
 
-            # determines the reaction type from the score phase types
+            # from this, determine the reaction type from the score phase types (append proportion/N-value arrays)
             #   0 = None
             #   1 = Rotation Only
             #   2 = Visual Only
@@ -1204,7 +1206,8 @@ class WorkerThread(QThread):
             pr_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
             r_data.ds_gtype_N.append(len(ind_rot))
 
-            # determines the preferred directions
+            # determines which cells have significance for both rotation/visual stimuli. from this determine the
+            # preferred direction from the CW vs CCW spiking rates
             is_both_ds = ds_gtype == 3
             pref_rot_dir = sf_score_rot[i_grp_rot[i][ind_rot]][is_both_ds, -1]
             pref_vis_dir = sf_score_vis[i_grp_vis[i][ind_vis]][is_both_ds, -1]
@@ -1222,12 +1225,12 @@ class WorkerThread(QThread):
             #   2 = Visual preferred only
             #   3 = Congruent (preferred direction is different)
             #   4 = Incongruent (preferred direction is the same)
-            pd_type = 0 * np.ones(len(pref_rot_dir), dtype=int)
-            pd_type_rng = cfcn.arr_range(pref_dir_comb, 1)
-            pd_type[pref_dir_comb[:, 1] == 0] = 1
-            pd_type[pref_dir_comb[:, 0] == 0] = 2
-            pd_type[np.logical_and(pd_type == 0, pd_type_rng > 0)] = 3
-            pd_type[np.logical_and(pd_type == 0, pd_type_rng == 0)] = 4
+            pd_type = np.zeros(len(pref_rot_dir), dtype=int)
+            pd_type_rng, pd_type_min = cfcn.arr_range(pref_dir_comb, 1), np.min(pref_dir_comb, axis=1)
+            pd_type[np.logical_and(pref_dir_comb[:, 0] > 0, pref_dir_comb[:, 1] == 0)] = 1
+            pd_type[np.logical_and(pref_dir_comb[:, 0] == 0, pref_dir_comb[:, 1] > 0)] = 2
+            pd_type[np.logical_and(pd_type_min > 0, pd_type_rng != 0)] = 3
+            pd_type[np.logical_and(pd_type_min > 0, pd_type_rng == 0)] = 4
 
             # calculates the preferred direction type count/proportions
             r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 5))
@@ -1235,8 +1238,9 @@ class WorkerThread(QThread):
 
             # sets the indices of the temporary group type into the total array
             ind_bl, ind_bl_rot = cf.det_cell_match_indices(r_obj_black, [0, i], r_data.r_obj_rot_ds)
-            r_data.ds_gtype[ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]] = ds_gtype
-            r_data.pd_type[ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]] = pd_type
+            ind_comb = ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]
+            r_data.ds_gtype[ind_comb] = ds_gtype
+            r_data.pd_type[ind_comb[is_both_ds]] = pd_type
 
         # combines the relative proportion lists into a single array (direction selectivity/preferred direction)
         r_data.ds_gtype_pr = np.vstack(pr_type_tmp).T

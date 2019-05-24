@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import xlsxwriter
 from random import sample
-import sys
 
 import seaborn as sns
 sns.set()
@@ -20,16 +19,17 @@ sns.set_style('whitegrid')
 sns.set_context('paper', font_scale=1.2)
 # sns.set_context('talk', font_scale=1.2)
 
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.style
 import matplotlib.gridspec as gridspec
 from matplotlib.colors import to_rgba_array
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
+
+import matplotlib as mpl
 from matplotlib.pyplot import rc
+import matplotlib.style
 
 #
 import mplcursors
@@ -672,10 +672,14 @@ class AnalysisGUI(QMainWindow):
                         # case is a single experiment is being analysed
                         i_expt = [cf.get_expt_index(calc_para['calc_exp_name'], self.data._cluster)]
 
+                    # sets the action type indices for each combination (over each type)
                     act_type = [[] for _ in range(len(c_type))]
                     for i in range(len(c_type)):
                         # memory allocation
-                        act_type[i] = np.zeros(self.data._cluster[i_expt[i]]['nC'], dtype=int)
+                        j = i_expt[i]
+                        act_type[i] = np.zeros(self.data._cluster[j]['nC'], dtype=int)
+                        _cl_ind = cfcn.get_inclusion_filt_indices(self.data._cluster[j], self.data.exc_gen_filt)
+                        cl_ind, act_type[i][np.logical_not(_cl_ind)] = np.where(_cl_ind)[0], -1
 
                         # removes any cross-over points between the excitatory/inhibitory lists
                         if len(c_type[i][0]) and len(c_type[i][1]):
@@ -684,11 +688,11 @@ class AnalysisGUI(QMainWindow):
                                 a = 1
 
                             # sets the inhibitory/excitatory flags
-                            act_type[i][np.unique(c_type[i][0][:, 0])] = 1
-                            act_type[i][np.unique(c_type[i][1][:, 0])] = 2
+                            act_type[i][cl_ind[np.unique(c_type[i][0][:, 0])]] = 1
+                            act_type[i][cl_ind[np.unique(c_type[i][1][:, 0])]] = 2
 
                     # sets the action data into the classification class object
-                    self.data.classify.set_action_data(self.data, calc_para, c_type, t_dur, t_event,
+                    self.data.classify.set_action_data(calc_para, c_type, t_dur, t_event,
                                                        ci_lo, ci_hi, ccG_T, i_expt, act_type)
 
                 elif self.worker[iw].thread_job_secondary == 'Shuffled Cluster Distances':
@@ -950,7 +954,7 @@ class AnalysisGUI(QMainWindow):
                 # if the user chose to continue, then update the comparison indices
                 ind = [exp_name.index(comp_dlg.list_fixed.selectedItems()[0].text()),
                        exp_name.index(comp_dlg.list_free.selectedItems()[0].text())]
-                data_fix, data_free = self.get_comp_datasets(ind)
+                data_fix, data_free = self.get_comp_datasets(ind, is_full=True)
 
                 # sets the fixed/free experiment text labels
                 fix_name = cf.extract_file_name(data_fix['expFile'])
@@ -1505,13 +1509,28 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # sets the acceptance flags based on the method
+        comp = dcopy(self.data.comp)
         if self.is_multi:
             # case is multi-experiment files have been loaded
             data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
         else:
             # retrieves the fixed/free datasets
-            comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, _ = self.get_comp_datasets()
+            _data_fix, data_free = self.get_comp_datasets(is_full=True)
+
+            # retrieves the fixed/free cluster inclusion indices
+            cl_inc_fix = cfcn.get_inclusion_filt_indices(_data_fix, self.data.exc_gen_filt)
+            cl_inc_free = cfcn.get_inclusion_filt_indices(data_free, self.data.exc_gen_filt)
+
+            # removes any excluded cells from the free dataset
+            ii = np.where(comp.i_match >= 0)[0]
+            jj = comp.i_match[ii]
+            comp.i_match[ii[np.logical_not(cl_inc_free[jj])]] = -1
+            comp.i_match_old[ii[np.logical_not(cl_inc_free[jj])]] = -1
+
+            # reduces down the match indices to only include the feasible fixed dataset indices
+            comp.i_match, comp.i_match_old = comp.i_match[cl_inc_fix], comp.i_match_old[cl_inc_fix]
+            comp.is_accept, comp.is_accept_old = comp.is_accept[cl_inc_fix], comp.is_accept_old[cl_inc_fix]
 
         # sets the match/acceptance flags
         if m_type == 'New Method':
@@ -1580,7 +1599,7 @@ class AnalysisGUI(QMainWindow):
         else:
             # retrieves the fixed/free datasets
             comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, data_free = self.get_comp_datasets(is_full=True)
 
         # check to see if the cluster index is feasible
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, data_fix['nC'])
@@ -1686,7 +1705,7 @@ class AnalysisGUI(QMainWindow):
                                                     for x in self.data.cluster]))
         else:
             # case is only single experiment files have been loaded
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, data_free = self.get_comp_datasets(is_full=True)
 
         # ensures the data files are stored in lists
         if not isinstance(data_fix, list):
@@ -1821,7 +1840,7 @@ class AnalysisGUI(QMainWindow):
         else:
             # retrieves the fixed/free datasets
             comp, n_pts = self.data.comp, self.data.comp.n_pts
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, data_free = self.get_comp_datasets(is_full=True)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -1887,7 +1906,7 @@ class AnalysisGUI(QMainWindow):
         else:
             # retrieves the fixed/free datasets
             comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, data_free = self.get_comp_datasets(is_full=True)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -2211,8 +2230,8 @@ class AnalysisGUI(QMainWindow):
         # retrieves the action types
         if self.data.classify.action_set:
             lg_str += ['Inhibitory', 'Excitatory']
-            act_str = ['None', 'Inhibitory', 'Excitatory']
-            act_type = np.array(cf.flat_list([self.data.classify.act_type[i] for i in i_expt]))
+            act_str, _act_type = ['None', 'Inhibitory', 'Excitatory'], dcopy(self.data.classify.act_type)
+            act_type = np.array(cf.flat_list([_act_type[i][_act_type[i] >= 0] for i in i_expt]))
 
         ##############################################
         ####    CLUSTERING METRIC CALCULATIONS    ####
@@ -3502,7 +3521,7 @@ class AnalysisGUI(QMainWindow):
 
         # if there are no valid selections, then exit
         if np.all(np.array([len(x) for x in i_cell_sig]) == 0):
-            e_str = 'The Rotational Analysis filter configuration does not produce any matching results.' \
+            e_str = 'The Rotational Analysis filter configuration does not produce any matching results.\n' \
                     'Re-run the function by selecting a different filter configuration.'
             cf.show_error(e_str, 'No Matching Results!')
             self.calc_ok = False
@@ -3524,10 +3543,12 @@ class AnalysisGUI(QMainWindow):
                 continue
 
             pref_cw_dir[i_filt] = np.zeros(n_cell, dtype=bool)
-
             tt_filt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
-            roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
-            roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
+
+            # roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
+            # roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
+            roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+            roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
 
             # calculates the roc curves overall trials (for each cell)
             for i_cell in range(n_cell):
@@ -5168,29 +5189,25 @@ class AnalysisGUI(QMainWindow):
             # memory allocation
             sf_type_pr = np.empty(n_sub - 1, dtype=object)
             sf_score = cf.calc_dirsel_scores(s_plt, sf_stats, p_value=p_value)
-            score_min, score_sum = np.min(sf_score, axis=1), np.sum(sf_score, axis=1)
+            score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
 
             # determines the reaction type from the score phase types
             #   0 = None
             #   1 = Inhibited
             #   2 = Excited
             #   3 = Mixed
-            sf_type = np.max(sf_score, axis=1) + (np.sum(sf_score, axis=1) == 3).astype(int)
+            sf_type = np.max(sf_score[:, :2], axis=1) + (np.sum(sf_score[:, :2], axis=1) == 3).astype(int)
             sf_type_pr[0] = np.vstack([cf.calc_rel_prop(sf_type[x], 4) for x in i_grp[0]]).T
 
-            # Get all motion sensitive cells (sf_type > 0)
-            #  - From this pool of cells, get anything which has significant CW/CCW difference
-            #  - From the remaining cells
+            # determines all motion sensitive cells (sf_type > 0)
+            is_mot_sens = sf_type > 0
 
             # determines the direction selective cells, which must meet the following conditions:
             #  1) one direction only produces a significant result, OR
             #  2) both directions are significant AND the CW/CCW comparison is significant
             one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
-            both_dir_sig = np.min(sf_score, axis=1) > 0                     # cells where both CW/CCW is significant
-            comb_dir_sig = sf_stats[2] < p_value                            # cells where CW/CCW difference is significant
-
-            # determines the cells that are motion sensitive
-            is_mot_sens = sf_type > 0
+            both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
+            comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
 
             # determines which cells are direction selective (removes non-motion sensitive cells)
             is_dir_sel = np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
@@ -6053,19 +6070,19 @@ class AnalysisGUI(QMainWindow):
         else:
             return pp(x[0])
 
-    def get_comp_datasets(self, ind=None):
+    def get_comp_datasets(self, ind=None, is_full=False):
         '''
 
         :return:
         '''
 
         if ind is None:
-            if self.data.cluster is None:
+            if (self.data.cluster is None) or is_full:
                 return self.data._cluster[self.data.comp.ind[0]], self.data._cluster[self.data.comp.ind[1]]
             else:
                 return self.data.cluster[self.data.comp.ind[0]], self.data.cluster[self.data.comp.ind[1]]
         else:
-            if self.data.cluster is None:
+            if (self.data.cluster is None) or is_full:
                 return self.data._cluster[ind[0]], self.data._cluster[ind[1]]
             else:
                 return self.data.cluster[ind[0]], self.data.cluster[ind[1]]
@@ -6240,7 +6257,7 @@ class AnalysisGUI(QMainWindow):
             c['isiHist'], c['ptsHist'], c['nC'] = c['isiHist'][cl_inc], c['ptsHist'][cl_inc], np.sum(cl_inc)
 
             # reduces down the rotational analysis information (if present in current data file)
-            if 'rotInfo' in c:
+            if c['rotInfo'] is not None:
                 rI = c['rotInfo']
                 for tt in rI['t_spike']:
                     rI['t_spike'][tt] = rI['t_spike'][tt][cl_inc, :, :]
@@ -8069,12 +8086,17 @@ class ClassifyData(object):
             i_expt = self.expt_name.index(ex_name)
             ii = expt_id == ex_name
 
+            #
+            cl_ind = cfcn.get_inclusion_filt_indices(data._cluster[i_expt], data.exc_gen_filt)
+            self.x_clust[i_expt] = -np.ones((len(cl_ind), np.shape(x_clust)[1]))
+            self.grp_str[i_expt] = np.array(['N/A'] * len(cl_ind))
+
             # sets the values into the classification object
             self.class_para[i_expt] = dcopy(class_para)
-            self.x_clust[i_expt] = x_clust[ii, :]
-            self.grp_str[i_expt] = grp_str[ii]
+            self.x_clust[i_expt][cl_ind, :] = x_clust[ii, :]
+            self.grp_str[i_expt][cl_ind] = grp_str[ii]
 
-    def set_action_data(self, data, action_para, c_type, t_dur, t_event, ci_lo, ci_hi, ccG_T, i_expt, act_type):
+    def set_action_data(self, action_para, c_type, t_dur, t_event, ci_lo, ci_hi, ccG_T, i_expt, act_type):
         '''
 
         :param c_type:

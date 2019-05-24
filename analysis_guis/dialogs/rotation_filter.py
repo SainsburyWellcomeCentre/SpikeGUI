@@ -22,7 +22,8 @@ txt_font_bold = cf.create_font_obj(size=8, is_bold=True, font_weight=75)
 button_font = cf.create_font_obj(size=9, is_bold=True, font_weight=75)
 grp_font = cf.create_font_obj(size=10, is_bold=True, font_weight=75)
 
-# lambda function declarations
+# other function declarations
+dcopy = copy.deepcopy
 get_field = lambda wfm_para, f_key: np.unique(cf.flat_list([list(x[f_key]) for x in wfm_para]))
 
 ########################################################################################################################
@@ -49,7 +50,7 @@ class RotationFilter(QDialog):
             self.is_multi_cell = True
 
             if self.is_gen:
-                self.rmv_fields = ['t_type']
+                self.rmv_fields = ['t_type', 'record_coord', 'sig_type', 'match_type']
                 self.is_ud = False
             else:
                 self.rmv_fields = None
@@ -116,7 +117,9 @@ class RotationFilter(QDialog):
         '''
 
         if self.is_exc:
-            if self.is_ud:
+            if self.is_gen:
+                title = "General Exclusion Filter"
+            elif self.is_ud:
                 title = "Rotational Exclusion Filter"
             else:
                 title = "UniformDrift Exclusion Filter"
@@ -244,15 +247,16 @@ class RotationFilter(QDialog):
 
         # memory allocation
         self.h_grpbx = np.empty((self.n_grp+1,1), dtype=object)
-        self.grp_width = width - (2 * dX)
+        self.grp_width, n_grp = width - (2 * dX), dcopy(self.n_grp)
 
         # creates the main layout widget
         mainLayout = QGridLayout()
 
         # creates the progressbar and layout objects
         for i_grp in range(self.n_grp):
-            self.create_single_group(i_grp)
-            mainLayout.addWidget(self.h_grpbx[i_grp][0], i_grp, 0)
+            if self.fields[i_grp][2] in self.f_data:
+                self.create_single_group(i_grp)
+                mainLayout.addWidget(self.h_grpbx[i_grp][0], i_grp, 0)
 
         # creates the control buttons
         self.create_control_buttons()

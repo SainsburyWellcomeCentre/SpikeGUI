@@ -245,7 +245,10 @@ class InfoDialog(QDialog):
         # retrieves the cluster data
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
-        cl_inc = cfcn.get_inclusion_filt_indices(c_data, self.data.exc_gen_filt)
+
+        # determines the indices that are excluded due to the general filter
+        cl_inc = cfcn.get_inclusion_filt_indices(c_data, self.main_obj.data.exc_gen_filt)
+        cl_exc = np.where(np.logical_xor(c_data['expInfo']['clInclude'], cl_inc))[0]
 
         # sets the experiment information fields
         cl_info = [
@@ -273,7 +276,7 @@ class InfoDialog(QDialog):
             # sets the label value
             if tt[1] == 'special':
                 if tt[0] == 'Include?':
-                    nw_data = np.array(c_data['expInfo']['clInclude'])
+                    nw_data = cl_inc
 
                 if tt[0] == 'Channel\nDepth ({0}m)'.format(cf._mu):
                     ch_map = c_data['expInfo']['channel_map']
@@ -288,12 +291,9 @@ class InfoDialog(QDialog):
                 elif tt[0] == 'Matching\nCluster':
                     if self.data.comp.is_set:
                         #
-                        data_fix, data_free = self.main_obj.get_comp_datasets()
+                        data_fix, data_free = self.main_obj.get_comp_datasets(is_full=True)
                         i_fix = np.where(self.data.comp.is_accept)[0]
                         i_free = self.data.comp.i_match[self.data.comp.is_accept]
-
-                        nw_data = np.array(['N/A'] * nC)
-                        nw_data[cl_inc] = '---'
 
                         if is_fixed:
                             clustID = data_free['clustID']
@@ -302,21 +302,23 @@ class InfoDialog(QDialog):
                             clustID = data_fix['clustID']
                             i_ref, i_comp = i_free, i_fix
 
+                        nw_data = np.array(['N/A'] * nC)
                         nw_data[i_ref] = np.array([clustID[x] for x in i_comp])
+                        nw_data[np.logical_not(cl_inc)] = 'N/A'
                     else:
                         nw_data = np.array(['---'] * nC)
 
                 elif tt[0] == 'Spike\nClassification':
                     if self.data.classify.class_set:
                         nw_data = np.array(['N/A'] * nC)
-                        nw_data[cl_inc] = self.data.classify.grp_str[i_expt]
+                        nw_data[cl_inc] = self.data.classify.grp_str[i_expt][cl_inc]
                     else:
                         nw_data = np.array(['---'] * nC)
 
                 elif tt[0] == 'Action\nType':
                     if self.data.classify.action_set:
                         nw_data, act_str = np.array(['N/A'] * nC), np.array(['---', 'Inhibitory', 'Excitatory'])
-                        nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt]]
+                        nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt][cl_inc]]
                     else:
                         nw_data = np.array(['---'] * nC)
 
@@ -324,15 +326,12 @@ class InfoDialog(QDialog):
                 nw_data = np.array(eval('c_data["{0}"]'.format(tt[1]))).astype(str)
 
             # appends the new data to the table data array
-            try:
-                t_data[:, itt] = nw_data
-            except:
-                a = 1
+            t_data[:, itt] = nw_data
 
         # creates the label objects
         col_hdr = [tt[0] for tt in cl_info]
         h_table = cf.create_table(None, txt_font, data=t_data, col_hdr=col_hdr, n_row=nC, max_disprows=20,
-                                  check_col=[0], check_fcn=self.includeCheck)
+                                  check_col=[0], check_fcn=self.includeCheck, exc_rows=cl_exc)
         h_table.verticalHeader().setVisible(False)
 
         nrow_table = min(15, nC)
@@ -347,9 +346,22 @@ class InfoDialog(QDialog):
         :return:
         '''
 
-        # flag that an update is required and updates the inclusion flag for the cell
-        self.main_obj.data.req_update = True
-        self.data._cluster[self.h_grpbx[0].currentIndex()]['expInfo']['clInclude'][i_row] = state > 0
+        # retrieves the base inclusion indices
+        i_expt = self.h_grpbx[0].currentIndex()
+        cl_inc = self.data._cluster[i_expt]['expInfo']['clInclude']
+
+        # determines the indices that are excluded due to the general filter
+        cl_inc_full = cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt], self.main_obj.data.exc_gen_filt)
+        cl_inc_xor = np.logical_xor(cl_inc, cl_inc_full)
+
+        # determines if the selected row is part of the general exclusion filter indices
+        if cl_inc_xor[i_row]:
+            # if so, then output a message and revert back to the original state
+            a = 1
+        else:
+            # flag that an update is required and updates the inclusion flag for the cell
+            self.main_obj.data.req_update = True
+            cl_inc[i_row] = state > 0
 
     def refresh_fields(self):
         '''

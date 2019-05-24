@@ -10,7 +10,7 @@ from numpy import ndarray
 from skimage import measure
 
 # pyqt5 module import
-from PyQt5.QtGui import QFont, QFontMetrics
+from PyQt5.QtGui import QFont, QFontMetrics, QColor
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGroupBox, QPushButton, QListWidget, QComboBox, QMenuBar, QProgressBar, QHeaderView,
                              QMenu, QAction, QLabel, QWidget, QLineEdit, QCheckBox, QMessageBox, QTableWidget,
@@ -609,8 +609,8 @@ def create_checkcombo(parent, font, text, dim=None, name=None, cb_fcn=None,
     # returns the listbox object
     return h_chkcombo
 
-def create_table(parent, font, data=None, col_hdr=None, row_hdr=None, n_row=None,
-                 dim=None, name=None, cb_fcn=None, combo_fcn=None, max_disprows=3, check_col=None, check_fcn=None):
+def create_table(parent, font, data=None, col_hdr=None, row_hdr=None, n_row=None, dim=None, name=None,
+                 cb_fcn=None, combo_fcn=None, max_disprows=3, check_col=None, check_fcn=None, exc_rows=None):
     '''
 
     :param parent:
@@ -691,12 +691,26 @@ def create_table(parent, font, data=None, col_hdr=None, row_hdr=None, n_row=None
                         h_layout.setContentsMargins(0, 0, 0, 0)
                         h_cell.setLayout(h_layout)
 
-                        #
+                        # if the row is excluded
+                        if exc_rows is not None:
+                            if i_row in exc_rows:
+                                item = QTableWidgetItem('')
+                                item.setBackground(QColor(200, 200, 200))
+                                h_table.setItem(i_row, i_col, item)
+
+                                h_cell.setEnabled(False)
+
+                        # continues to the next column
                         h_table.setCellWidget(i_row, i_col, h_cell)
                         continue
 
                 # retrieves the current cell object and determines if is a combobox object
                 item = QTableWidgetItem(data[i_row, i_col])
+
+                # resets the background colour (if the row is excluded)
+                if exc_rows is not None:
+                    if i_row in exc_rows:
+                        item.setBackground(QColor(200, 200, 200))
 
                 # adds the item to the table
                 item.setTextAlignment(Qt.AlignHCenter)

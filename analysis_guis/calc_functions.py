@@ -25,7 +25,8 @@ try:
 except:
     pass
 
-# lambda function declarations
+# other function declarations
+dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
 
 ########################################################################################################################
@@ -1047,7 +1048,7 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
     '''
 
     # applies the general exclusion filter (for the fields that have been set)
-    cl_inc = c['expInfo']['clInclude']
+    cl_inc = dcopy(c['expInfo']['clInclude'])
     for exc_gen in exc_gen_filt:
         ex_g = exc_gen_filt[exc_gen]
         for ex_gt in ex_g:
