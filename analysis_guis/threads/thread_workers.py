@@ -1219,6 +1219,10 @@ class WorkerThread(QThread):
             # _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][is_both_ds, :]
             # pref_dir_comb = np.vstack((pref_rot_dir, pref_vis_dir)).T
 
+            # make the calculations simpler (look at what is significantly direction selective)
+            #   => Look at relative ratio of CCW/CW to check congruency
+            #   => Have this an option (to exclude None, Rotation/Visual only) to have Congruency)
+
             # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
             #   0 = None
             #   1 = Rotation preferred only

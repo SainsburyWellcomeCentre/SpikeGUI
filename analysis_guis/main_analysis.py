@@ -43,10 +43,10 @@ rpy2.robjects.numpy2ri.activate()
 r_stats = importr("stats")
 r_pROC = importr("pROC")
 
-try:
-    r_pHOC = importr("PMCMRplus")
-except:
-    pass
+# try:
+#     r_pHOC = importr("PMCMRplus")
+# except:
+#     pass
 
 from scipy.signal import medfilt
 from scipy.optimize import curve_fit
@@ -4343,13 +4343,13 @@ class AnalysisGUI(QMainWindow):
                 '''
 
                 # calculates the kruskal-wallis
-                try:
-                    ph_stats = r_pHOC.kwAllPairsDunnTest(FloatVector(y_grp), FloatVector(i_grp),
-                                                         p_adjust_method="bonferroni")
-                    return ph_stats[ph_stats.names.index('p.value')][0]
-                except:
-                    kw_stats = r_stats.kruskal_test(FloatVector(y_grp), FloatVector(i_grp))
-                    return kw_stats[kw_stats.names.index('p.value')][0]
+                # try:
+                #     ph_stats = r_pHOC.kwAllPairsDunnTest(FloatVector(y_grp), FloatVector(i_grp),
+                #                                          p_adjust_method="bonferroni")
+                #     return ph_stats[ph_stats.names.index('p.value')][0]
+                # except:
+                kw_stats = r_stats.kruskal_test(FloatVector(y_grp), FloatVector(i_grp))
+                return kw_stats[kw_stats.names.index('p.value')][0]
 
             # initialisations
             roc_auc_b = dcopy(roc_auc[0])

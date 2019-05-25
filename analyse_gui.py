@@ -12,9 +12,9 @@ import seaborn as sns
 sns.set_palette(sns.color_palette("husl"))
 
 if __name__ == '__main__':
-
     if sys.platform == 'linux':
         QApplication.setStyle('windows')
+
 
     # runs the analysis GUIs
     app = QApplication([])

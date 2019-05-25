@@ -1265,7 +1265,7 @@ def get_plot_col(n_plot=1, i_ofs=0):
     return c
 
 
-def det_valid_rotation_expt(data, is_ud=False, t_type=None):
+def det_valid_rotation_expt(data, is_ud=False, t_type=None, min_count=2):
     '''
 
     :return: 
@@ -1279,7 +1279,7 @@ def det_valid_rotation_expt(data, is_ud=False, t_type=None):
                                                     if y else False for x, y in zip(data._cluster, is_valid)]
     elif t_type is not None:
         # if the trial types are given, then ensure that at least 2 trial types are within the experiment
-        is_valid = [sum([z in x['rotInfo']['trial_type'] for z in t_type]) >= 2
+        is_valid = [sum([z in x['rotInfo']['trial_type'] for z in t_type]) >= min_count
                                                     if y else False for x, y in zip(data._cluster, is_valid)]
 
     # returns the array
@@ -1509,7 +1509,7 @@ def det_reqd_cond_types(data, t_type):
     :return:
     '''
 
-    is_rot_expt = det_valid_rotation_expt(data, t_type=t_type)
+    is_rot_expt = det_valid_rotation_expt(data, t_type=t_type, min_count=1)
     return [[z for z in t_type if z in x['rotInfo']['trial_type']]
                                                 for x, y in zip(data._cluster, is_rot_expt) if y]
 
