@@ -1805,8 +1805,7 @@ def calc_roc_conf_intervals(p_data):
     '''
 
     # parameters and input arguments
-    c_lvl = 0.99
-    roc, grp_stype, n_boot = p_data[0], p_data[1], p_data[2]
+    roc, grp_stype, n_boot, c_lvl = p_data[0], p_data[1], p_data[2], p_data[3]
 
     # calculates the roc curve integral
     results = _ci_auc(roc, method=grp_stype[0].lower(), boot_n=n_boot, conf_level=c_lvl, progress='none')
@@ -1831,7 +1830,6 @@ def calc_cell_group_types(auc_sig, stats_type):
     #  * Motion Sensitive - either (one direction only is significant), OR (both are significant AND
     #                       the CW/CCW phase difference is significant)
     n_sig = np.sum(auc_sig[:, :2], axis=1)
-
     is_ms = n_sig > 0
 
     #

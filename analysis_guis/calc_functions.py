@@ -1059,3 +1059,14 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
 
     # returns the cluster inclusion index array
     return cl_inc
+
+
+def calc_roc_curves_pool(p_data):
+    '''
+
+    :param p_data:
+    :return:
+    '''
+
+    x, y = p_data[0], p_data[1]
+    return cf.calc_roc_curves(None, None, x_grp=x, y_grp=y)

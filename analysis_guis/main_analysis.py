@@ -441,7 +441,7 @@ class AnalysisGUI(QMainWindow):
         # global parameters
         g_para = {'n_hist': '100', 'n_spike': '1000', 'd_max': '2', 'r_max': '100.0',
                   'sig_corr_min': '0.95', 'sig_diff_max': '0.30', 'isi_corr_min': '0.65', 'sig_feat_min': '0.50',
-                  'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'z_max': '1.00'}
+                  'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'roc_clvl': '0.99'}
         def_dir = {'configDir': data_dir, 'inputDir': data_dir, 'dataDir': data_dir, 'figDir': data_dir}
 
         # sets the final default data dictionary
@@ -1234,7 +1234,7 @@ class AnalysisGUI(QMainWindow):
             ['Signal Feature Score Weight', 'w_sig_feat', 'Number', '', True, False, 4, _blue],
             ['Signal Comparison Score Weight', 'w_sig_comp', 'Number', '', True, False, 4, _blue],
             ['ISI Score Weight', 'w_isi', 'Number', '', True, False, 5, _blue],
-            ['Maximum Z-Score Tolerance', 'z_max', 'Number', '', True, False, 5, _gray],
+            ['ROC Conf. Interval Level', 'roc_clvl', 'Number', '', True, False, 5, _gray],
         ]
 
         # opens up the config dialog box and retrieves the final file information
@@ -1460,7 +1460,7 @@ class AnalysisGUI(QMainWindow):
                 self.set_group_enabled_props(self.grp_prog, True)
 
                 # runs the worker thread
-                fcn_para = [calc_para, plot_para, self.data, self.fcn_data.pool]
+                fcn_para = [calc_para, plot_para, self.data, self.fcn_data.pool, self.def_data['g_para']]
 
                 # runs the calculation on the next available thread
                 iw = self.det_avail_thread_worker()
@@ -2150,8 +2150,8 @@ class AnalysisGUI(QMainWindow):
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
     ######################################################
 
-    def plot_classification_metrics(self, exp_name, all_expt, c_met1, c_met2, c_met3, use_3met, use_pca,
-                                    class_type, plot_grid=True):
+    def plot_classification_metrics(self, exp_name, all_expt, c_met1, c_met2, c_met3, use_3met,
+                                    class_type, use_pca=False, plot_grid=True):
         '''
 
         :return:
@@ -4591,8 +4591,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].axis([0, 1, 0, 1])
 
         # determines
-        n_DS0 = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
-        n_DS = np.vstack((n_DS0[0, :], np.sum(n_DS0[1:, ], axis=0)))
+        n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
 
         #
         n_PD0 = np.vstack(r_data.pd_type_N)
@@ -5605,17 +5604,18 @@ class AnalysisGUI(QMainWindow):
         # creates the colours (if not provided)
         if c is None:
             c = cf.get_plot_col(np.size(n_DS, axis=1))
-            c2 = cf.get_plot_col(2, np.size(n_DS, axis=1))
+            c2 = cf.get_plot_col(4, np.size(n_DS, axis=1))
 
         # creates the title text object
         t_str = '{0} N-Values'.format(stats_type)
         row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+        col_hdr = ['None', 'Rotation', 'Visual', 'Both', 'Total']
         h_title = ax.text(0.5, 1, t_str, fontsize=15, horizontalalignment='center')
 
         # sets up the n-value table
         t_props_1 = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(int), row_hdr,
-                                    ['Insensitive', 'Sensitive', 'Total'], c + [(0.75, 0.75, 0.75)],
-                                    c2[0:2]  + [(0.75, 0.75, 0.75)], None, n_row=n_row, n_col=n_col, h_title=h_title)
+                                      col_hdr, c + [(0.75, 0.75, 0.75)], c2[0:4]  + [(0.75, 0.75, 0.75)], None,
+                                      n_row=n_row, n_col=n_col, h_title=h_title)
 
         # calculates the height between the title and the top of the table
         dh_title = h_title.get_position()[1] - (t_props_1[0]._bbox[1] + t_props_1[0]._bbox[3])
@@ -5624,11 +5624,11 @@ class AnalysisGUI(QMainWindow):
         #
         if n_PD is not None:
             # sets the prederred direction parameters
-            cPD = cf.get_plot_col(5, np.size(n_PD, axis=1))
-            col_hdr = ['None', 'Rotation', 'Visual', 'Incongruent', 'Congruent']
+            cPD = cf.get_plot_col(2, np.size(n_PD, axis=1))
+            col_hdr = ['Congruent', 'Incongruent']
 
             # creates the title text object
-            t_str_pd = 'Preferred Direction N-Values'.format(stats_type)
+            t_str_pd = 'Congruency N-Values'.format(stats_type)
             h_title_pd = ax.text(0.5, 1, t_str_pd, fontsize=15, horizontalalignment='center')
 
             # sets up the n-value table
@@ -6436,8 +6436,8 @@ class AnalysisFunctions(object):
             'c_met3': {'type': 'L', 'text': 'Metric #3', 'def_val': c_metric[2], 'list': c_metric},
             'use_3met': {'type': 'B', 'text': 'Use 3 Metrics For Classification', 'def_val': False,
                       'link_para': ['c_met3', False]},
-            'use_pca': {'type': 'B', 'text': 'Use PCA For Classification', 'def_val': False,
-                        'link_para': [['c_met1', True], ['c_met2', True], ['c_met3', True], ['use_3met', True]]},
+            # 'use_pca': {'type': 'B', 'text': 'Use PCA For Classification', 'def_val': False,
+            #             'link_para': [['c_met1', True], ['c_met2', True], ['c_met3', True], ['use_3met', True]]},
             'class_type': {'type': 'L', 'text': 'Classification Method', 'def_val': class_type[0], 'list': class_type},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -7093,7 +7093,7 @@ class AnalysisFunctions(object):
             'use_resp_grp_type': {
                 'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_ud_expt
             },
-            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': True},
+            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -7112,7 +7112,7 @@ class AnalysisFunctions(object):
         ##########################################
 
         # initialisations
-        comb_type = ['Direction Selectivity', 'Preferred Direction']
+        comb_type = ['Direction Selectivity', 'Congruency']
 
         # ====> Combined Stimuli Statistics
         para = {
