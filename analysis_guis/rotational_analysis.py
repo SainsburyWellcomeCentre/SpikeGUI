@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (QMessageBox)
 date2sec = lambda t: np.sum([3600 * t.hour, 60 * t.minute, t.second])
 trig_count = lambda data, cond: len(np.where(np.diff(data[cond]['cpg_ttlStim']) > 1)[0]) + 1
 ss_scale = lambda x: np.min([np.max([x, -1.0]), 1.0])
+valid_ind_func = lambda c, tt: [False if x['rotInfo'] is None else (tt in x['rotInfo']['trial_type']) for x in c]
 
 # fixed parameters
 DEGREES_PER_VOLT = 20
@@ -622,7 +623,7 @@ def setup_filter_permutations(d_clust, rot_filt):
 
     # ensures all trial types are included (if running a rotational analysis expt with 'all' trial types)
     if ('All' in rot_filt['t_type']) and (not rot_filt['is_ud'][0]):
-        t_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in d_clust]))
+        t_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] if x['rotInfo'] is not None else [] for x in d_clust]))
         rot_filt['t_type'] = t_type[t_type != 'UniformDrifting']
 
     # determines which fields have multiple selections
@@ -754,7 +755,9 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     # ensures that the experiments meet the conditions in the list
     for i_expt in range(n_expt):
         # determines if the trial type exists in the current experiment
-        is_ok[i_expt] = t_type in d_clust[i_expt]['rotInfo']['trial_type']
+        if 'rotInfo' in d_clust[i_expt]:
+            is_ok[i_expt] = t_type in d_clust[i_expt]['rotInfo']['trial_type']
+
         if not is_ok[i_expt]:
             # if not, then continue
             continue
@@ -805,6 +808,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
             # sets the indices of the values that are to be kept
             ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
             ind_tr = np.ones(np.size(t_spike[i_expt], axis=1), dtype=bool)
+            cl_inc = cfcn.get_inclusion_filt_indices(data._cluster[i_expt], data.exc_gen_filt)
 
             # goes through the filter fields removing entries that don't meet the criteria
             for iccf, ccf in enumerate(cc_filt_str):
@@ -881,7 +885,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                 # removes any infeasible clusters
                 if ind_cl_nw is not None:
-                    ind_cl = np.logical_and(ind_cl, np.array(ind_cl_nw))
+                    ind_cl_nw = np.array(ind_cl_nw)[cl_inc]
+                    ind_cl = np.logical_and(ind_cl, ind_cl_nw)
 
 
             # removes the infeasible cluster rows/trial columns
@@ -1024,7 +1029,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
 
         # sets the experiment indices that belong to the current trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
-        valid_ind = np.where([tt in x['rotInfo']['trial_type'] for x in data.cluster])[0]
+        valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
 
         # sets the cell indices to be analysed
         if is_full_rs:
@@ -1125,9 +1130,9 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True
         n_cell = np.size(r_obj.t_spike[i_filt], axis=0)
         n_trial_max = np.max([np.size(x, axis=0) for x in r_obj.wvm_para[i_filt]])
 
-        #
+        # determines the experiments which contain the trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
-        valid_ind = np.where([tt in x['rotInfo']['trial_type'] for x in data.cluster])[0]
+        valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
 
         # calculates the position/velocity for each cell
         for i_cell in range(n_cell):

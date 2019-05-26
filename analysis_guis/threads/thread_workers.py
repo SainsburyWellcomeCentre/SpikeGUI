@@ -104,7 +104,7 @@ class WorkerThread(QThread):
         elif self.thread_job_primary == 'run_calc_func':
             # case is the calculation functions
             calc_para, plot_para = self.thread_job_para[0], self.thread_job_para[1]
-            data, pool = self.thread_job_para[2], self.thread_job_para[3]
+            data, pool, g_para = self.thread_job_para[2], self.thread_job_para[3], self.thread_job_para[4]
 
             if self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
@@ -116,7 +116,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # case is the shuffled cluster distances
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, False, 100.)
+                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.)
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Whole Experiment)':
                 if plot_para['use_resp_grp_type']:
@@ -124,30 +124,30 @@ class WorkerThread(QThread):
                         self.is_ok = False
 
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, False, 33.)
-                self.calc_phase_roc_curves(data, 33.)
-                self.calc_phase_roc_significance(calc_para, data, pool, 66.)
+                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.)
+                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Single Cell)':
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
-                self.calc_kinematic_roc_curves(data, pool, calc_para, 50.)
+                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
-                self.calc_kinematic_roc_curves(data, pool, calc_para, 50.)
+                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
-                self.calc_kinematic_roc_curves(data, pool, calc_para, 50.)
+                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, True, 33.)
-                self.calc_phase_roc_curves(data, 33.)
-                self.calc_phase_roc_significance(calc_para, data, pool, 66.)
+                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.)
+                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Motion/Direction Selectivity Cell Grouping Scatterplot':
                 if plot_para['use_resp_grp_type']:
@@ -155,9 +155,9 @@ class WorkerThread(QThread):
                         self.is_ok = False
 
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, True, 33.)
-                self.calc_phase_roc_curves(data, 33.)
-                self.calc_phase_roc_significance(calc_para, data, pool, 66.)
+                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.)
+                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
                 # calculates the direction/selection group types
@@ -554,7 +554,7 @@ class WorkerThread(QThread):
             '''
 
             # parameters
-            z_max = float(g_para['z_max'])
+            z_max = 1.0
             sig_corr_min = float(g_para['sig_corr_min'])
 
             # calculates the inter-signal euclidean distances
@@ -878,7 +878,7 @@ class WorkerThread(QThread):
                 if (i_phs + 1) == len(phase_str):
                     r_data.phase_roc_xy[i_cell] = cf.get_roc_xy_values(r_data.phase_roc[i_cell, i_phs])
 
-    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, calc_cell_grp, pW):
+    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW):
         '''
 
         :param calc_para:
@@ -889,7 +889,7 @@ class WorkerThread(QThread):
         '''
 
         # parameters and initialisations
-        r_obj_sig, plot_scope = None, 'Whole Experiment'
+        r_obj_sig, plot_scope, c_lvl = None, 'Whole Experiment', float(g_para['roc_clvl'])
         phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
 
         # initisalises the rotational filter (if not initialised already)
@@ -915,7 +915,13 @@ class WorkerThread(QThread):
             r_data.cond_ci_lo, r_data.cond_ci_hi, r_data.r_obj_cond = {}, {}, {}
 
         for i_rr, rr in enumerate(r_obj.rot_filt_tot):
+            # sets the trial type
             tt = rr['t_type'][0]
+
+            # updates the progress bar string
+            w_str = 'ROC Curve Calculations ({0})...'.format(tt)
+            self.work_progress.emit(w_str, pW * (i_rr / r_obj.n_filt))
+
             if tt not in r_data.cond_roc:
                 # array dimensions
                 t_spike = r_obj.t_spike[i_rr]
@@ -934,7 +940,6 @@ class WorkerThread(QThread):
                 r_data.r_obj_cond[tt] = dcopy(r_obj)
 
                 # calculates the roc curves/integrals for all cells over each phase
-                w_str = 'ROC Curve Calculations ({0})...'.format(tt)
                 for i_phs, p_str in enumerate(phase_str):
                     # updates the progress bar string
                     self.work_progress.emit(w_str, pW * ((i_rr / r_obj.n_filt) + (i_phs / len(phase_str))))
@@ -971,7 +976,7 @@ class WorkerThread(QThread):
                 # calculates the confidence intervals (if required)
                 if calc_ci:
                     conf_int = self.calc_roc_conf_intervals(pool, r_data.cond_roc[tt][:, 2],
-                                                            calc_para['auc_stype'], calc_para['n_boot'])
+                                                            calc_para['auc_stype'], calc_para['n_boot'], c_lvl)
                     r_data.cond_ci_lo[tt][:, is_boot] = conf_int[:, 0]
                     r_data.cond_ci_hi[tt][:, is_boot] = conf_int[:, 1]
 
@@ -991,12 +996,12 @@ class WorkerThread(QThread):
                                                  True, plot_scope, False)
 
             # calculates the condition cell group types
-            self.calc_phase_roc_significance(calc_para, data, pool, None, c_type='cond',
+            self.calc_phase_roc_significance(calc_para, g_para, data, pool, None, c_type='cond',
                                              roc=r_data.cond_roc[tt], auc=r_data.cond_roc_auc[tt],
                                              g_type=r_data.cond_gtype[tt], auc_sig=r_data.cond_auc_sig[tt],
                                              r_obj=r_obj_sig)
 
-    def calc_phase_roc_significance(self, calc_para, data, pool, pW, c_type='phase',
+    def calc_phase_roc_significance(self, calc_para, g_para, data, pool, pW, c_type='phase',
                                     roc=None, auc=None, g_type=None, auc_sig=None, r_obj=None):
         '''
 
@@ -1007,7 +1012,7 @@ class WorkerThread(QThread):
         '''
 
         # sets the roc objects/integrals (if not provided)
-        r_data = data.rotation
+        r_data, c_lvl = data.rotation, float(g_para['roc_clvl'])
         if c_type == 'phase':
             # case is the significance tests are being calculated for the phase
             r_data.phase_grp_stats_type = calc_para['grp_stype']
@@ -1090,7 +1095,7 @@ class WorkerThread(QThread):
                     self.work_progress.emit(w_str, pW * (1. + i_phs / len(phase_str)))
 
                 # calculates the confidence intervals for the current
-                conf_int = self.calc_roc_conf_intervals(pool, roc[:, i_phs], phase_stype, n_boot)
+                conf_int = self.calc_roc_conf_intervals(pool, roc[:, i_phs], phase_stype, n_boot, c_lvl)
 
                 # determines the significance for each cell in the phase
                 auc_ci_lo = (auc[:, i_phs] + conf_int[:, 1]) < 0.5
@@ -1100,7 +1105,7 @@ class WorkerThread(QThread):
         # calculates the cell group types
         g_type[:, i_col] = cf.calc_cell_group_types(auc_sig, calc_para['grp_stype'])
 
-    def calc_roc_conf_intervals(self, pool, roc, phase_stype, n_boot):
+    def calc_roc_conf_intervals(self, pool, roc, phase_stype, n_boot, c_lvl):
         '''
 
         :param r_data:
@@ -1110,7 +1115,7 @@ class WorkerThread(QThread):
         # sets the parameters for the multi-processing pool
         p_data = []
         for i_cell in range(len(roc)):
-            p_data.append([roc[i_cell], phase_stype, n_boot])
+            p_data.append([roc[i_cell], phase_stype, n_boot, c_lvl])
 
         # returns the rotation data class object
         return np.array(pool.map(cf.calc_roc_conf_intervals, p_data))
@@ -1133,10 +1138,33 @@ class WorkerThread(QThread):
 
             # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
             sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj)
-            s_plt, _, sf_stats, i_grp = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type)
+            s_plt, sf_trend, sf_stats, i_grp = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type)
+
+            # calculates the ratio of the
+            r_CCW_CW = np.array(s_plt[2][1]) / np.array(s_plt[2][0])
 
             # returns the direction selectivity scores
-            return cf.calc_dirsel_scores(s_plt, sf_stats, p_value), i_grp
+            return cf.calc_dirsel_scores(s_plt, sf_stats, p_value), i_grp, r_CCW_CW
+
+        def det_dirsel_cells(sf_score):
+            '''
+
+            :param sf_score:
+            :return:
+            '''
+
+            # calculates the minimum/sum scores
+            score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
+
+            # determines the direction selective cells, which must meet the following conditions:
+            #  1) one direction only produces a significant result, OR
+            #  2) both directions are significant AND the CW/CCW comparison is significant
+            one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
+            both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
+            comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
+
+            # determines which cells are direction selective (removes non-motion sensitive cells)
+            return np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
 
         # initialises the rotation filter (if not set)
         rot_filt = plot_para['rot_filt']
@@ -1180,8 +1208,8 @@ class WorkerThread(QThread):
             return False
 
         # calculate the visual/rotation stats scores
-        sf_score_rot, i_grp_rot = calc_combined_spiking_stats(r_data.r_obj_rot_ds, p_value)
-        sf_score_vis, i_grp_vis = calc_combined_spiking_stats(r_obj_vis, p_value, ind_type)
+        sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data.r_obj_rot_ds, p_value)
+        sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_obj_vis, p_value, ind_type)
 
         # memory allocation
         pr_type_tmp, pd_type_tmp, r_data.ds_gtype_N, r_data.pd_type_N = [], [], [], []
@@ -1194,24 +1222,26 @@ class WorkerThread(QThread):
             ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_obj_vis)
 
             # retrieves the CW vs BL/CCW vs BL significance scores
-            _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
-            _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
+            is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]])
+            is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]])
+
+            # _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
+            # _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
 
             # from this, determine the reaction type from the score phase types (append proportion/N-value arrays)
             #   0 = None
             #   1 = Rotation Only
             #   2 = Visual Only
             #   3 = Both
-            ds_gtype = (np.sum(_sf_score_rot, axis=1) > 0) + 2 * (np.sum(_sf_score_vis, axis=1) > 0)
+            ds_gtype = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
             pr_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
             r_data.ds_gtype_N.append(len(ind_rot))
 
             # determines which cells have significance for both rotation/visual stimuli. from this determine the
             # preferred direction from the CW vs CCW spiking rates
             is_both_ds = ds_gtype == 3
-            pref_rot_dir = sf_score_rot[i_grp_rot[i][ind_rot]][is_both_ds, -1]
-            pref_vis_dir = sf_score_vis[i_grp_vis[i][ind_vis]][is_both_ds, -1]
-            pref_dir_comb = np.vstack((pref_rot_dir, pref_vis_dir)).T
+            r_CCW_CW_comb = np.vstack((r_CCW_CW_rot[i_grp_rot[i][ind_rot]][is_both_ds],
+                                       r_CCW_CW_vis[i_grp_vis[i][ind_vis]][is_both_ds])).T
 
             # # determines the preferred directions
             # is_both_ds = ds_gtype == 3
@@ -1224,21 +1254,14 @@ class WorkerThread(QThread):
             #   => Have this an option (to exclude None, Rotation/Visual only) to have Congruency)
 
             # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
-            #   0 = None
-            #   1 = Rotation preferred only
-            #   2 = Visual preferred only
-            #   3 = Congruent (preferred direction is different)
-            #   4 = Incongruent (preferred direction is the same)
-            pd_type = np.zeros(len(pref_rot_dir), dtype=int)
-            pd_type_rng, pd_type_min = cfcn.arr_range(pref_dir_comb, 1), np.min(pref_dir_comb, axis=1)
-            pd_type[np.logical_and(pref_dir_comb[:, 0] > 0, pref_dir_comb[:, 1] == 0)] = 1
-            pd_type[np.logical_and(pref_dir_comb[:, 0] == 0, pref_dir_comb[:, 1] > 0)] = 2
-            pd_type[np.logical_and(pd_type_min > 0, pd_type_rng != 0)] = 3
-            pd_type[np.logical_and(pd_type_min > 0, pd_type_rng == 0)] = 4
+            #   0 = Congruent (preferred direction is different)
+            #   1 = Incongruent (preferred direction is the same)
+            pd_type = np.zeros(sum(is_both_ds), dtype=int)
+            pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 1
 
             # calculates the preferred direction type count/proportions
-            r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 5))
-            pd_type_tmp.append(cf.calc_rel_prop(pd_type, 5))
+            r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 2))
+            pd_type_tmp.append(cf.calc_rel_prop(pd_type, 2))
 
             # sets the indices of the temporary group type into the total array
             ind_bl, ind_bl_rot = cf.det_cell_match_indices(r_obj_black, [0, i], r_data.r_obj_rot_ds)
@@ -1352,33 +1375,14 @@ class WorkerThread(QThread):
                     r_data.vel_sf[tt][:, :, i_cell] /= dt_bin_vel
                     r_data.spd_sf[tt][:, :, i_cell] /= dt_bin_spd
 
-    def calc_kinematic_roc_curves(self, data, pool, calc_para, pW0):
+    def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0):
         '''
 
         :param calc_para:
         :return:
         '''
 
-        # def resample_spike_freq(data, r_data, rr, ind, n_rs=100):
-        #     '''
-        #
-        #     :param sf:
-        #     :param n_shuffle:
-        #     :return:
-        #     '''
-        #
-        #     # sets the index dictionary
-        #     indD = {'ind_filt': ind[0], 'ind_bin': ind[1], 'ind_cell': ind[2]}
-        #
-        #     # resamples the spike frequencies twice for the dependent/independent values
-        #     sf_x = rot.calc_resampled_vel_spike_freq(data, None, r_data.r_obj_kine, [r_data.vel_bin], n_rs, indD)
-        #     sf_y = rot.calc_resampled_vel_spike_freq(data, None, r_data.r_obj_kine, [r_data.vel_bin], n_rs, indD)
-        #
-        #
-        #     #
-        #     return sf_x, sf_y
-
-        def resample_spike_freq(sf, n_rs=1000):
+        def resample_spike_freq(pool, sf, n_rs=100):
             '''
 
             :param data:
@@ -1389,23 +1393,28 @@ class WorkerThread(QThread):
             :return:
             '''
 
+            # array dimensioning
+            n_trial = len(sf)
+            n_trial_h = int(np.floor(n_trial / 2))
+
             # initialisations and memory allocation
-            n_trial, A = len(sf), np.empty(n_rs, dtype=object)
-            sf_x, sf_y, n_trial_h = dcopy(A), dcopy(A), int(np.floor(n_trial / 2))
+            p_data = [[] for _ in range(n_rs)]
 
             # returns the shuffled spike frequency arrays
             for i_rs in range(n_rs):
                 ind0 = np.random.permutation(n_trial)
-                sf_x[i_rs], sf_y[i_rs] = sf[ind0[:n_trial_h]], sf[ind0[n_trial_h:(2 * n_trial_h)]]
+                p_data[i_rs].append(np.sort(sf[ind0[:n_trial_h]]))
+                p_data[i_rs].append(np.sort(sf[ind0[n_trial_h:(2 * n_trial_h)]]))
 
-            _roc = [cf.calc_roc_curves(None, None, x_grp=x, y_grp=y) for x, y in zip(sf_x, sf_y)]
+            #
+            _roc = pool.map(cfcn.calc_roc_curves_pool, p_data)
             _roc_xy = cfcn.calc_avg_roc_curve([cf.get_roc_xy_values(x) for x in _roc])
 
             # returns the arrays
             return _roc_xy[:, 0], _roc_xy[:, 1]
 
         # initialisations
-        r_data, pW1 = data.rotation, 50.
+        r_data, pW1, c_lvl = data.rotation, 50., float(g_para['roc_clvl'])
 
         # checks to see if the dependent speed has changed
         if 'spd_x_rng' in calc_para:
@@ -1485,7 +1494,7 @@ class WorkerThread(QThread):
                         else:
                             # case is single bin comparison
                             if (i_bin == r_data.i_bin_vel[0]) or (i_bin == r_data.i_bin_vel[1]):
-                                vel_sf_x, vel_sf_y = resample_spike_freq(vel_sf[ii_v, i_bin, ic])
+                                vel_sf_x, vel_sf_y = resample_spike_freq(pool, vel_sf[ii_v, i_bin, ic])
                             else:
                                 vel_sf_x = vel_sf[ii_v, i_bin, ic]
                                 if r_data.vel_xi[i_bin] < 0:
@@ -1504,7 +1513,7 @@ class WorkerThread(QThread):
                             calc_roc = True
                             if (i_bin == r_data.i_bin_spd):
                                 # spd_sf_x, spd_sf_y = resample_spike_freq(data, r_data, rr, [i_rr, i_bin, ic])
-                                spd_sf_x, spd_sf_y = resample_spike_freq(spd_sf[ii_s, i_bin, ic])
+                                spd_sf_x, spd_sf_y = resample_spike_freq(pool, spd_sf[ii_s, i_bin, ic])
                             else:
                                 spd_sf_x, spd_sf_y = spd_sf[ii_s, r_data.i_bin_spd, ic], spd_sf[ii_s, i_bin, ic]
 
@@ -1536,15 +1545,16 @@ class WorkerThread(QThread):
                     # calculates the confidence intervals (if required)
                     if calc_ci:
                         # calculates the velocity confidence intervals
+                        auc_type, n_boot = calc_para['auc_stype'], calc_para['n_boot']
                         conf_int_vel = self.calc_roc_conf_intervals(pool, r_data.vel_roc[tt][ic, :],
-                                                                    calc_para['auc_stype'], calc_para['n_boot'])
+                                                                    auc_type, n_boot, c_lvl)
                         r_data.vel_ci_lo[tt][ic, :, is_boot] = conf_int_vel[:, 0]
                         r_data.vel_ci_hi[tt][ic, :, is_boot] = conf_int_vel[:, 1]
 
                         # calculates the speed confidence intervals
                         if not r_data.pn_comp:
                             conf_int_spd = self.calc_roc_conf_intervals(pool, r_data.spd_roc[tt][ic, :],
-                                                                        calc_para['auc_stype'], calc_para['n_boot'])
+                                                                        auc_type, n_boot, c_lvl)
                             r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
                             r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
 
