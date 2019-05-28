@@ -39,7 +39,7 @@ _roc_test = SignatureTranslatedFunction(r_pROC.roc_test,
 lin_func = lambda x, a: a * x
 spike_count_fcn = lambda t_sp: np.array([len(x) for x in t_sp])
 swap_array = lambda x1, x2, is_swap: np.array([x if is_sw else y for x, y, is_sw in zip(x1, x2, is_swap)])
-combine_spike_freq = lambda sp_freq, i_dim: flat_list([list(sp_freq[i_filt][:, i_dim]) for i_filt in range(len(sp_freq))])
+# combine_spike_freq = lambda sp_freq, i_dim: flat_list([list(sp_freq[i_filt][:, i_dim]) for i_filt in range(len(sp_freq))])
 calc_rel_prop = lambda x, n: 100 * np.array([sum(x == i) for i in range(n)]) / len(x)
 calc_rel_count = lambda x, n: np.array([sum(x == i) for i in range(n)])
 
@@ -1565,15 +1565,21 @@ def calc_phase_spike_freq(r_obj):
     '''
 
     # sets the spiking frequency across all trials
-    sp_f0 = [sp_freq_fcn(x, y[0]) for x, y in zip(r_obj.t_spike, r_obj.t_phase)]
+    sp_f0 = [sp_freq_fcn(x, y[0]) if np.size(x, axis=0) else None for x, y in zip(r_obj.t_spike, r_obj.t_phase)]
     if r_obj.is_single_cell:
-        sp_f = [np.squeeze(x) for x in sp_f0]
+        sp_f = [np.squeeze(x) if x is not None else None for x in sp_f0]
     else:
         # if not single cell, then calculate average over all trials
-        sp_f = [np.mean(x, axis=1) for x in sp_f0]
+        sp_f = [np.mean(x, axis=1) if x is not None else None for x in sp_f0]
 
     # returns the total/mean spiking frequency arrays
     return sp_f0, sp_f
+
+
+def combine_spike_freq(sp_freq, i_dim):
+
+    return flat_list([list(sp_freq[i_filt][:, i_dim]) if sp_freq[i_filt] is not None else []
+                      for i_filt in range(len(sp_freq))])
 
 
 def setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub=3, plot_trend=False, is_3d=False):
@@ -1597,13 +1603,14 @@ def setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub=3, plot_tre
             # case is uniform drifting
             if (i_sub + 1) == n_sub:
                 # case is the CW vs CCW phase
-                sp_sub = [np.vstack((sp_f[x][:, 1], sp_f[y][:, 1])).T for x, y in zip(ind_type[0], ind_type[1])]
-                sp_f0_sub = [combine_stacks(sp_f0[x][:, :, 1], sp_f0[y][:, :, 1]) for x, y in
-                             zip(ind_type[0], ind_type[1])]
+                sp_sub = [np.vstack((sp_f[x][:, 1], sp_f[y][:, 1])).T if sp_f0[x] is not None else None
+                          for x, y in zip(ind_type[0], ind_type[1])]
+                sp_f0_sub = [combine_stacks(sp_f0[x][:, :, 1], sp_f0[y][:, :, 1]) if sp_f0[x] is not None else None
+                             for x, y in zip(ind_type[0], ind_type[1])]
             else:
                 # case is the CW/CCW vs BL phases
                 sp_sub = np.array(sp_f)[ind_type[i_sub]]
-                sp_f0_sub = [sp_f0[x] for x in ind_type[i_sub]]
+                sp_f0_sub = [sp_f0[x] if sp_f0[x] is not None else [] for x in ind_type[i_sub]]
 
             # sets the plot values
             s_plt[i_sub] = [combine_spike_freq(sp_sub, i) for i in range(2)]
@@ -1634,7 +1641,8 @@ def setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub=3, plot_tre
 
             # sets the cell group indices (over each filter type)
             if i_sub == 0:
-                ii = np.append(0, np.cumsum([np.size(x, axis=0) for x in sp_f0]))
+                N = [np.size(x, axis=0) if x is not None else 0 for x in sp_f0]
+                ii = np.append(0, np.cumsum(N))
 
     # sets the indices for each filter type grouping
     if (not is_3d):
@@ -1684,13 +1692,14 @@ def calc_spike_freq_correlation(sp_f, ind):
 
     # memory allocation
     n_filt = np.size(sp_f, axis=0)
-    sp_corr = np.zeros((n_filt, 1))
+    sp_corr = np.nan * np.ones((n_filt, 1))
 
     #
     for i_filt in range(n_filt):
         # sets the x/y points for the correlation calculation
-        x, y = sp_f[i_filt][:, ind[0]], sp_f[i_filt][:, ind[1]]
-        sp_corr[i_filt], _ = curve_fit(lin_func, x, y)
+        if sp_f[i_filt] is not None:
+            x, y = sp_f[i_filt][:, ind[0]], sp_f[i_filt][:, ind[1]]
+            sp_corr[i_filt], _ = curve_fit(lin_func, x, y)
 
     # returns the correlation array
     return sp_corr

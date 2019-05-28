@@ -1183,94 +1183,125 @@ class WorkerThread(QThread):
         plot_exp_name, plot_all_expt = plot_para['plot_exp_name'], plot_para['plot_all_expt']
         r_data.ds_p_value = dcopy(p_value)
 
+        # determines what type of visual experiment is being used for comparison (if provided)
+        if 'vis_expt_type' in calc_para:
+            # case is a calculation parameter is set
+            ud_rot_expt = calc_para['vis_expt_type'] == 'UniformDrifting'
+        else:
+            # case is no calculation parameter is set, so use uniform drifting
+            ud_rot_expt = True
+
         # sets up the black-only rotation filter object
         r_filt_black = cf.init_rotation_filter_data(False)
         r_obj_black = RotationFilteredData(data, r_filt_black, None, plot_exp_name, plot_all_expt, p_scope, False)
 
-        # retrieves the rotational filtered data
+        # retrieves the rotational filtered data (black conditions only)
         r_filt_rot['t_type'], r_filt_rot['is_ud'] = ['Black'], [False]
-        r_data.r_obj_rot_ds = RotationFilteredData(data, r_filt_rot, None, plot_exp_name, plot_all_expt, p_scope,
-                                                   False)
+        r_data.r_obj_rot_ds = RotationFilteredData(data, r_filt_rot, None, plot_exp_name, plot_all_expt,
+                                                   p_scope, False)
 
-        # retrieves the uniform-drifting filtered data (split into CW/CCW phases)
-        r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
-        r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
-                                                       p_scope, calc_para['t_phase'], calc_para['t_ofs'])
-        if r_obj_vis is None:
-            # output an error to screen
-            e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
-                    '  * Analysis Duration + Offset = {0}\n s. * Experiment Phase Duration = {1} s.\n\n' \
-                    'Enter a correct analysis duration/offset combination before re-running ' \
-                    'the function.'.format(calc_para['t_phase'] + calc_para['t_ofs'], 2.0)
-            self.work_error.emit(e_str, 'Incorrect Analysis Function Parameters')
+        # retrieves the visual filtered data
+        if ud_rot_expt:
+            # case is uniform-drifting experiments (split into CW/CCW phases)
+            r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
+            r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
+                                                           p_scope, calc_para['t_phase'], calc_para['t_ofs'])
+            if r_obj_vis is None:
+                # output an error to screen
+                e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
+                        '  * Analysis Duration + Offset = {0}\n s. * Experiment Phase Duration = {1} s.\n\n' \
+                        'Enter a correct analysis duration/offset combination before re-running ' \
+                        'the function.'.format(calc_para['t_phase'] + calc_para['t_ofs'], 2.0)
+                self.work_error.emit(e_str, 'Incorrect Analysis Function Parameters')
 
-            # return a false value indicating the calculation is invalid
-            return False
+                # return a false value indicating the calculation is invalid
+                return False
+        else:
+            # case is motor-drifting experiments
+
+            # retrieves the filtered data from the loaded datasets
+            r_filt_vis['t_type'], r_filt_vis['is_ud'], ind_type = ['MotorDrifting'], [False], None
+            r_data.r_obj_vis = RotationFilteredData(data, r_filt_rot, None, plot_exp_name, plot_all_expt,
+                                                    p_scope, False)
+
+            # FINISH ME!
+            a = 1
 
         # calculate the visual/rotation stats scores
         sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data.r_obj_rot_ds, p_value)
         sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_obj_vis, p_value, ind_type)
 
         # memory allocation
-        pr_type_tmp, pd_type_tmp, r_data.ds_gtype_N, r_data.pd_type_N = [], [], [], []
+        ds_type_tmp, ms_type_tmp, pd_type_tmp = [], [], []
+        r_data.ms_gtype_N, r_data.ds_gtype_N, r_data.pd_type_N = [], [], []
         A = -np.ones(np.size(r_obj_black.t_spike[0], axis=0), dtype=int)
-        r_data.ds_gtype, r_data.pd_type = dcopy(A), dcopy(A)
+        r_data.ds_gtype, r_data.ms_gtype, r_data.pd_type = dcopy(A), dcopy(A), dcopy(A)
 
         # reduces the arrays to the matching cells
         for i in range(len(i_grp_rot)):
-            # retrieves the matching rotation/visual indices
-            ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_obj_vis)
+            if len(i_grp_rot[i]):
+                # retrieves the matching rotation/visual indices
+                ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_obj_vis)
 
-            # retrieves the CW vs BL/CCW vs BL significance scores
-            is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]])
-            is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]])
+                # determines the motion sensitivity from the score phase types (append proportion/N-value arrays)
+                #   0 = None
+                #   1 = Rotation Only
+                #   2 = Visual Only
+                #   3 = Both
+                _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
+                _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
+                ms_gtype = (np.sum(_sf_score_rot, axis=1) > 0) + 2 * (np.sum(_sf_score_vis, axis=1) > 0)
+                ms_type_tmp.append(cf.calc_rel_prop(ms_gtype, 4))
+                r_data.ms_gtype_N.append(len(ind_rot))
 
-            # _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
-            # _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
+                # determines the direction selectivity type from the score phase types (append proportion/N-value arrays)
+                #   0 = None
+                #   1 = Rotation Only
+                #   2 = Visual Only
+                #   3 = Both
+                is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]])
+                is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]])
+                ds_gtype = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
+                ds_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
+                r_data.ds_gtype_N.append(len(ind_rot))
 
-            # from this, determine the reaction type from the score phase types (append proportion/N-value arrays)
-            #   0 = None
-            #   1 = Rotation Only
-            #   2 = Visual Only
-            #   3 = Both
-            ds_gtype = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
-            pr_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
-            r_data.ds_gtype_N.append(len(ind_rot))
+                # determines which cells have significance for both rotation/visual stimuli. from this determine the
+                # preferred direction from the CW vs CCW spiking rates
+                is_both_ds = ds_gtype == 3
+                r_CCW_CW_comb = np.vstack((r_CCW_CW_rot[i_grp_rot[i][ind_rot]][is_both_ds],
+                                           r_CCW_CW_vis[i_grp_vis[i][ind_vis]][is_both_ds])).T
 
-            # determines which cells have significance for both rotation/visual stimuli. from this determine the
-            # preferred direction from the CW vs CCW spiking rates
-            is_both_ds = ds_gtype == 3
-            r_CCW_CW_comb = np.vstack((r_CCW_CW_rot[i_grp_rot[i][ind_rot]][is_both_ds],
-                                       r_CCW_CW_vis[i_grp_vis[i][ind_vis]][is_both_ds])).T
+                # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
+                #   0 = Congruent (preferred direction is different)
+                #   1 = Incongruent (preferred direction is the same)
+                pd_type = np.zeros(sum(is_both_ds), dtype=int)
+                pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 1
 
-            # # determines the preferred directions
-            # is_both_ds = ds_gtype == 3
-            # _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][is_both_ds, :]
-            # _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][is_both_ds, :]
-            # pref_dir_comb = np.vstack((pref_rot_dir, pref_vis_dir)).T
+                # calculates the preferred direction type count/proportions
+                r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 2))
+                pd_type_tmp.append(cf.calc_rel_prop(pd_type, 2))
 
-            # make the calculations simpler (look at what is significantly direction selective)
-            #   => Look at relative ratio of CCW/CW to check congruency
-            #   => Have this an option (to exclude None, Rotation/Visual only) to have Congruency)
+                # sets the indices of the temporary group type into the total array
+                ind_bl, ind_bl_rot = cf.det_cell_match_indices(r_obj_black, [0, i], r_data.r_obj_rot_ds)
+                ind_comb = ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]
 
-            # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
-            #   0 = Congruent (preferred direction is different)
-            #   1 = Incongruent (preferred direction is the same)
-            pd_type = np.zeros(sum(is_both_ds), dtype=int)
-            pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 1
+                # sets the final motion sensitivity, direction selectivity and congruency values
+                r_data.ms_gtype[ind_comb] = ms_gtype
+                r_data.ds_gtype[ind_comb] = ds_gtype
+                r_data.pd_type[ind_comb[is_both_ds]] = pd_type
+            else:
+                # appends the counts to the motion sensitive/direction selectivity arrays
+                r_data.ms_gtype_N.append(0)
+                r_data.ds_gtype_N.append(0)
 
-            # calculates the preferred direction type count/proportions
-            r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 2))
-            pd_type_tmp.append(cf.calc_rel_prop(pd_type, 2))
+                # appends NaN arrays to the temporary arrays
+                ms_type_tmp.append(np.array([np.nan] * 4))
+                ds_type_tmp.append(np.array([np.nan] * 4))
+                pd_type_tmp.append(np.array([np.nan] * 2))
 
-            # sets the indices of the temporary group type into the total array
-            ind_bl, ind_bl_rot = cf.det_cell_match_indices(r_obj_black, [0, i], r_data.r_obj_rot_ds)
-            ind_comb = ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]
-            r_data.ds_gtype[ind_comb] = ds_gtype
-            r_data.pd_type[ind_comb[is_both_ds]] = pd_type
-
-        # combines the relative proportion lists into a single array (direction selectivity/preferred direction)
-        r_data.ds_gtype_pr = np.vstack(pr_type_tmp).T
+        # combines the relative proportion lists into a single array ()
+        r_data.ms_gtype_pr = np.vstack(ms_type_tmp).T
+        r_data.ds_gtype_pr = np.vstack(ds_type_tmp).T
         r_data.pd_type_pr = np.vstack(pd_type_tmp).T
 
         # return a true flag to indicate the analysis was valid
