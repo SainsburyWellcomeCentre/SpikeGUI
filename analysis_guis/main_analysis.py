@@ -586,7 +586,8 @@ class AnalysisGUI(QMainWindow):
                     #
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                     has_ud_expt = any(cf.det_valid_rotation_expt(self.data, True))
-                    has_both = has_ud_expt and has_rot_expt
+                    has_md_expt = any(cf.det_valid_rotation_expt(self.data, t_type=['MotorDrifting']))
+                    has_both = has_ud_expt and (has_rot_expt or has_md_expt)
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, True]
                     new_func_types = func_types[np.array(is_keep)]
 
@@ -4557,23 +4558,30 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations and memory allocation
-        n_grp, r_data = [4, 5], self.data.rotation
-        stat_type, c = 'Combined Stimuli Response', [cf.get_plot_col(x) for x in n_grp]
+        n_grp, r_data = [2, 4, 2], self.data.rotation
+        stats_type = ['Combined Stimuli Response', 'Direction Selectivity', 'Congruency']
 
         #
-        if plot_type == 'Direction Selectivity':
-            plt_vals, i_grp = dcopy(r_data.ds_gtype_pr), 0
+        if plot_type == 'Motion Sensitivity':
+            plt_vals, i_grp = dcopy(r_data.ms_gtype_pr), 0
+            lg_str = ['None', 'Rotation', 'Visual', 'Both']
+        elif plot_type == 'Direction Selectivity':
+            plt_vals, i_grp = dcopy(r_data.ds_gtype_pr), 1
             lg_str = ['None', 'Rotation', 'Visual', 'Both']
         else:
-            plt_vals, i_grp = dcopy(r_data.pd_type_pr), 1
-            lg_str = ['None', 'Rotation', 'Visual', 'Incongruent', 'Congruent']
+            plt_vals, i_grp = dcopy(r_data.pd_type_pr), 2
+            lg_str = ['Incongruent', 'Congruent']
 
         # creates the plot outlay and titles
         self.init_plot_axes(n_row=1, n_col=2)
-        x_ticklbl = ['#{0} - {1}'.format(i+1, x) for i, x in enumerate(dcopy(r_data.r_obj_rot_ds.lg_str))]
+        if r_data.r_obj_rot_ds.n_filt == 1:
+            x_ticklbl = ['#1 - All Cells']
+        else:
+            x_ticklbl = ['#{0} - {1}'.format(i+1, x) for i, x in enumerate(dcopy(r_data.r_obj_rot_ds.lg_str))]
 
         # creates the bar graph
-        h_bar = cf.create_stacked_bar(self.plot_fig.ax[0], plt_vals, c[i_grp])
+        c = cf.get_plot_col(len(lg_str))
+        h_bar = cf.create_stacked_bar(self.plot_fig.ax[0], plt_vals, c)
         self.plot_fig.ax[0].set_xticklabels(x_ticklbl)
         self.plot_fig.ax[0].grid(plot_grid)
 
@@ -4583,23 +4591,72 @@ class AnalysisGUI(QMainWindow):
         cf.reset_axes_dim(self.plot_fig.ax[0], 'bottom', 0.0375, True)
 
         # creates the bar graph
-        self.plot_fig.ax[0].legend([x[0] for x in h_bar], lg_str, ncol=n_grp[i_grp], loc='upper center',
+        self.plot_fig.ax[0].legend([x[0] for x in h_bar], lg_str, ncol=len(lg_str), loc='upper center',
                                    columnspacing=0.125, bbox_to_anchor=(0.5, 1.05))
 
+        #######################################
+        ####    STATISTICS TABLE OUTPUT    ####
+        #######################################
+
+        # enforces tight layout format
+        self.plot_fig.fig.tight_layout()
+
         # calculates the number of direction sensitive/insensitive cells (over all conditions)
-        self.plot_fig.ax[1].axis('off')
-        self.plot_fig.ax[1].axis([0, 1, 0, 1])
+        ax = self.plot_fig.ax[1]
+        ax.axis('off')
+        ax.axis([0, 1, 0, 1])
 
-        # determines
-        n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
-
-        #
+        # sets the initial motion sensitivity/congruency table values
+        n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
         n_PD0 = np.vstack(r_data.pd_type_N)
+
+        # sets the final table values
+        n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
+        n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
         n_PD = np.vstack((n_PD0, np.sum(n_PD0, axis=0)))
 
-        #
-        self.create_spike_freq_stats_table(self.plot_fig.ax[1], n_DS, r_data.r_obj_rot_ds.n_filt,
-                                           stat_type, n_row=1, n_col=2, n_PD=n_PD)
+        # creates the title text object
+        cT = cf.get_plot_col(max(n_grp), n_grp[i_grp])
+        t_str = ['{0} N-Values'.format(x) for x in stats_type]
+        row_hdr = ['#{0}'.format(x + 1) for x in range(r_data.r_obj_rot_ds.n_filt)] + ['Total']
+        col_hdr = [['Insensitive', 'Sensitive', 'Total'],
+                   ['None', 'Rotation', 'Visual', 'Both', 'Total'],
+                   ['Incongruent', 'Congruent', 'Total']]
+        h_title = [ax.text(0.5, 1, x, fontsize=15, horizontalalignment='center') for x in t_str]
+
+        # initialisations
+        t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
+        t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, n_PD]
+
+        # sets up the n-value table
+        for i in range(len(t_props)):
+            # creates the new table
+            nT = n_grp[i]
+            t_props[i] = cf.add_plot_table(self.plot_fig, ax, table_font, t_data[i].astype(int), row_hdr, col_hdr[i],
+                                           cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT]  + [(0.75, 0.75, 0.75)],
+                                           None, n_row=1, n_col=2, h_title=h_title[i])
+
+            # calculates the height between the title and the top of the table
+            if i == 0:
+                dh_title = h_title[0].get_position()[1] - (t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3])
+                c_hght = t_props[i][0]._bbox[3] / (n_filt + 1)
+            else:
+                # resets the bottom location of the upper table
+                t_props[i][0]._bbox[1] = t_props[i - 1][0]._bbox[1] - (t_props[i - 1][0]._bbox[3] + 2 * c_hght)
+
+                # resets the titla position
+                t_pos = list(h_title[i].get_position())
+                t_pos[1] = t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3] + dh_title
+                h_title[i].set_position(tuple(t_pos))
+
+
+            # # resets the bottom location of the upper table
+            # t_props_pd[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + 2 * c_hght)
+            #
+            # # resets the titla position
+            # t_pos = list(h_title_pd.get_position())
+            # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
+            # h_title_pd.set_position(tuple(t_pos))
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -6781,8 +6838,13 @@ class AnalysisFunctions(object):
         mean_type = ['Mean', 'Median']
         # k_grp_type = ['Discriminating Cells', 'Non-Discriminating Cells', 'All Cells']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
-        has_ud_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), True))
         roc_vel_bin = ['5', '10', '20', '40']
+
+        # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
+        has_ud_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), True))
+        has_md_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=['MotorDrifting']))
+        vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
+        vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
 
         # velocity/speed ranges
         dv, v_rng = 5, 80
@@ -7112,13 +7174,17 @@ class AnalysisFunctions(object):
         ##########################################
 
         # initialisations
-        comb_type = ['Direction Selectivity', 'Congruency']
+        comb_type = ['Motion Sensitivity', 'Direction Selectivity', 'Congruency']
 
         # ====> Combined Stimuli Statistics
         para = {
             # calculation parameters
             't_phase': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
             't_ofs': {'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            'vis_expt_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
+                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
+            },
             'p_value': {'gtype': 'C', 'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
 
             # plotting parameters
@@ -7140,8 +7206,6 @@ class AnalysisFunctions(object):
                       name='Rotation/Visual Stimuli Response Statistics',
                       func='plot_combined_stimuli_stats',
                       para=para)
-
-
 
         ##########################################
         ####    SINGLE EXPERIMENT FUNCTIONS   ####
@@ -8174,6 +8238,9 @@ class RotationData(object):
 
         # direction selection group type parameters
         self.r_obj_rot_ds = None                #
+        self.ms_gtype = None
+        self.ms_gtype_pr = None
+        self.ms_gtype_N = None
         self.ds_gtype = None
         self.ds_gtype_pr = None
         self.ds_gtype_N = None

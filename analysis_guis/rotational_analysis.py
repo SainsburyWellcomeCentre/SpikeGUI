@@ -808,7 +808,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
             # sets the indices of the values that are to be kept
             ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
             ind_tr = np.ones(np.size(t_spike[i_expt], axis=1), dtype=bool)
-            cl_inc = cfcn.get_inclusion_filt_indices(data._cluster[i_expt], data.exc_gen_filt)
+            cl_inc = cfcn.get_inclusion_filt_indices(d_clust[i_expt], data.exc_gen_filt)
 
             # goes through the filter fields removing entries that don't meet the criteria
             for iccf, ccf in enumerate(cc_filt_str):

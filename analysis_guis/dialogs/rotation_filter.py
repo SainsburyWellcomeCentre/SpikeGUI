@@ -553,8 +553,9 @@ class RotationFilteredData(object):
 
         # applies the filter and sets up the other plotting field values
         self.apply_rotation_filter(data)
-        self.set_final_spike_array(data, i_cluster)
+        self.set_spike_arrays(data, i_cluster)
         self.set_legend_str()
+        self.set_final_data_arrays()
 
     #####################################
     ####    MAIN FILTER FUNCTIONS    ####
@@ -586,7 +587,7 @@ class RotationFilteredData(object):
         # determines the number of plots to be displayed
         self.n_filt = len(self.rot_filt_tot)
 
-    def set_final_spike_array(self, data, i_cluster):
+    def set_spike_arrays(self, data, i_cluster):
         '''
 
         :param data:
@@ -691,6 +692,39 @@ class RotationFilteredData(object):
         else:
             # otherwise, set the trial type as the legend string
             self.lg_str = [self.rot_filt['t_type'][0]]
+
+    def set_final_data_arrays(self):
+        '''
+
+        :return:
+        '''
+
+        # determines if each filter has at least one cell
+        is_ok = np.array([np.size(x, axis=0) for x in self.t_spike]) > 0
+        if any(np.logical_not(is_ok)):
+            # if there are any filters with no cells, then reduce the class arrays
+            self.n_filt = sum(is_ok)
+
+            # numpy array reduction
+            self.t_spike = self.t_spike[is_ok]
+            self.t_spike0 = self.t_spike0[is_ok]
+            self.i_expt = self.i_expt[is_ok]
+            self.n_trial = self.n_trial[is_ok]
+            self.s_freq = self.s_freq[is_ok]
+            self.wvm_para = self.wvm_para[is_ok]
+            self.i_expt0 = self.i_expt0[is_ok]
+            self.trial_ind = self.trial_ind[is_ok]
+            self.clust_ind = self.clust_ind[is_ok]
+            self.f_perm = self.f_perm[is_ok, :]
+
+            # list array reduction
+            self.ch_id = list(np.array(self.ch_id))
+            self.cl_id = list(np.array(self.cl_id))
+            self.lg_str = list(np.array(self.lg_str)[is_ok])
+
+            # other array reduction
+            self.t_phase = [x for x, y in zip(self.t_phase, is_ok) if y]
+            self.rot_filt_tot = [x for x, y in zip(self.rot_filt_tot, is_ok) if y]
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
