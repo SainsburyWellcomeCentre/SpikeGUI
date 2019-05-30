@@ -10,6 +10,7 @@ import multiprocessing as mp
 from numpy.matlib import repmat
 
 # scipy module imports
+from scipy.stats import norm
 from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
@@ -1221,7 +1222,7 @@ class WorkerThread(QThread):
 
             # retrieves the filtered data from the loaded datasets
             r_filt_vis['t_type'], r_filt_vis['is_ud'], ind_type = ['MotorDrifting'], [False], None
-            r_data.r_obj_vis = RotationFilteredData(data, r_filt_rot, None, plot_exp_name, plot_all_expt,
+            r_obj_vis = RotationFilteredData(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
                                                     p_scope, False)
 
             # FINISH ME!
@@ -1319,10 +1320,11 @@ class WorkerThread(QThread):
 
         # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
         if roc_calc:
-            if vel_bin != r_data.vel_bin:
+            if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
                 r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                 r_data.vel_sf, r_data.spd_sf = None, None
                 r_data.vel_bin, r_data.vel_roc = vel_bin, None
+                r_data.freq_type = calc_para['freq_type']
 
             if r_data.is_equal_time != equal_time:
                 r_data.vel_roc = None
@@ -1350,27 +1352,35 @@ class WorkerThread(QThread):
                 r_data.vel_sf, r_data.spd_sf = {}, {}
 
         # sets the speed/velocity time counts
-        if calc_para['equal_time']:
+        if equal_time:
             # case is using resampling from equal time bin sizes
             n_rs, w_prog = calc_para['n_sample'], self.work_progress
-            vel_n, xi_bin, t_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
+            vel_n, xi_bin, dt_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
         else:
-            vel_n, xi_bin, t_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], True, False)
+            # calculates the velocity kinematic frequencies
+            vel_n, xi_bin, dt_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
 
-        # sets the bin duration/limits
-        n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin == 0)[0][0]
-        if not equal_time:
-            vel_dt = 2 * np.abs(np.diff(t_bin))
-            spd_dt = vel_dt[i_bin0:]
+            # resets the frequencies based on the types
+            for i_filt in range(len(vel_n)):
+                if calc_para['freq_type'] == 'All':
+                    # case is considering all frequency types (stack frequencies on top of each other)
+                    vel_n[i_filt] = np.vstack((vel_n[i_filt][:, :, :, 0], vel_n[i_filt][:, :, :, 1]))
+                elif calc_para['freq_type'] == 'Decreasing':
+                    # case is only considering decreasing velocity frequencies
+                    vel_n[i_filt] = vel_n[i_filt][:, :, :, 0]
+                else:
+                    # case is only considering increasing velocity frequencies
+                    vel_n[i_filt] = vel_n[i_filt][:, :, :, 1]
 
         # sets the comparison bin for the velocity/speed arrays
+        n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin[:, 0] == 0)[0][0]
         r_data.is_equal_time = equal_time
-        r_data.vel_xi, r_data.spd_xi = xi_bin, xi_bin[i_bin0:]
+        r_data.vel_xi, r_data.spd_xi = xi_bin, xi_bin[i_bin0:, :]
 
         if 'spd_x_rng' in calc_para:
             x_rng = calc_para['spd_x_rng'].split()
-            r_data.i_bin_spd = list(xi_bin[i_bin0:]).index(int(x_rng[0]))
-            r_data.i_bin_vel = [list(xi_bin).index(-int(x_rng[2])), list(xi_bin).index(int(x_rng[0]))]
+            r_data.i_bin_spd = list(xi_bin[i_bin0:, 0]).index(int(x_rng[0]))
+            r_data.i_bin_vel = [list(xi_bin[:, 0]).index(-int(x_rng[2])), list(xi_bin[:, 0]).index(int(x_rng[0]))]
 
         # calculates the velocity/speed binned spiking frequencies
         for i_filt, rr in enumerate(r_data.r_obj_kine.rot_filt_tot):
@@ -1385,26 +1395,31 @@ class WorkerThread(QThread):
                 if tt in r_data.vel_sf:
                     continue
 
-            # sets the speed counts
+            # sets the speed frequencies into a single array
             spd_n = np.vstack((np.flip(vel_n[i_filt][:, :i_bin0, :], 1), vel_n[i_filt][:, i_bin0:, :]))
 
             if equal_time:
                 # case is using equally spaced time bins
-                r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt]) / t_bin
-                r_data.spd_sf_rs[tt] = dcopy(spd_n) / t_bin
+                r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt])
+                r_data.spd_sf_rs[tt] = dcopy(spd_n)
+
+                # REMOVE ME LATER
+                # r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt]) / dt_bin
+                # r_data.spd_sf_rs[tt] = dcopy(spd_n) / dt_bin
+
             else:
                 # case is using the normal time bins
                 r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_n[i_filt]), dcopy(spd_n)
 
-                # memory allocation
-                n_trial = np.size(vel_n[i_filt], axis=0)
-                dt_bin_vel = np.matlib.repmat(dcopy(vel_dt), n_trial, 1)
-                dt_bin_spd = np.matlib.repmat(dcopy(spd_dt), 2 * n_trial, 1)
-
-                # normalises the binned spike counts by the duration of the time bin
-                for i_cell in range(np.size(vel_n[i_filt], axis=2)):
-                    r_data.vel_sf[tt][:, :, i_cell] /= dt_bin_vel
-                    r_data.spd_sf[tt][:, :, i_cell] /= dt_bin_spd
+                # # memory allocation
+                # n_trial = np.size(vel_n[i_filt], axis=0)
+                # dt_bin_vel = np.matlib.repmat(dcopy(vel_dt), n_trial, 1)
+                # dt_bin_spd = np.matlib.repmat(dcopy(spd_dt), 2 * n_trial, 1)
+                #
+                # # normalises the binned spike counts by the duration of the time bin
+                # for i_cell in range(np.size(vel_n[i_filt], axis=2)):
+                #     r_data.vel_sf[tt][:, :, i_cell] /= dt_bin_vel
+                #     r_data.spd_sf[tt][:, :, i_cell] /= dt_bin_spd
 
     def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0):
         '''
@@ -1413,7 +1428,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def resample_spike_freq(pool, sf, n_rs=100):
+        def resample_spike_freq(pool, sf, c_lvl, n_rs=100):
             '''
 
             :param data:
@@ -1424,9 +1439,14 @@ class WorkerThread(QThread):
             :return:
             '''
 
-            # array dimensioning
+            # array dimensioning and other initialisations
             n_trial = len(sf)
+            pz = norm.ppf(1 - (1 - c_lvl) / 2)
             n_trial_h = int(np.floor(n_trial / 2))
+
+            # if the spiking frequency values are all identical, then return the fixed values
+            if cfcn.arr_range(sf) == 0.:
+                return sf[0] * np.ones(n_trial_h), sf[0] * np.ones(n_trial_h), 0.5, np.zeros(2)
 
             # initialisations and memory allocation
             p_data = [[] for _ in range(n_rs)]
@@ -1437,12 +1457,17 @@ class WorkerThread(QThread):
                 p_data[i_rs].append(np.sort(sf[ind0[:n_trial_h]]))
                 p_data[i_rs].append(np.sort(sf[ind0[n_trial_h:(2 * n_trial_h)]]))
 
-            #
+            # calculates the roc curves and the x/y coordinates & auc values from these
             _roc = pool.map(cfcn.calc_roc_curves_pool, p_data)
             _roc_xy = cfcn.calc_avg_roc_curve([cf.get_roc_xy_values(x) for x in _roc])
+            _roc_auc = [cf.get_roc_auc_value(x) for x in _roc]
 
-            # returns the arrays
-            return _roc_xy[:, 0], _roc_xy[:, 1]
+            # calculates the roc auc mean/confidence interval
+            roc_auc_mn = np.mean(_roc_auc)
+            roc_auc_ci = pz * np.ones(2) * (np.std(_roc_auc) / (n_rs ** 0.5))
+
+            # returns the arrays and auc mean/confidence intervals
+            return _roc_xy[:, 0], _roc_xy[:, 1], roc_auc_mn, roc_auc_ci
 
         # initialisations
         r_data, pW1, c_lvl = data.rotation, 50., float(g_para['roc_clvl'])
@@ -1467,7 +1492,6 @@ class WorkerThread(QThread):
             # if the positive/negative comparison flag is not set to true, then reset the roc curve calculations
             if r_data.pn_comp is False:
                 r_data.vel_roc, r_data.pn_comp = None, True
-
 
         # memory allocation (if the conditions have not been set)
         if r_data.vel_roc is None:
@@ -1516,26 +1540,42 @@ class WorkerThread(QThread):
                     # updates the progress bar string
                     self.work_progress.emit(w_str, pW0 + _pW1 + (pW1 / r_data.r_obj_kine.n_filt) * ( + (ic/ n_cell)))
 
+                    # memory allocations
+                    vel_auc_ci, ii_v = [], ~np.isnan(vel_sf[:, 0, ic])
+
                     # calculates the velocity roc curves values for each velocity bin
-                    ii_v = ~np.isnan(vel_sf[:, 0, ic])
                     for i_bin in range(n_bin_vel):
                         if r_data.pn_comp:
+                            is_resampled = False
                             vel_sf_x = vel_sf[ii_v, n_bin_vel + i_bin, ic]
                             vel_sf_y = vel_sf[ii_v, n_bin_vel - (i_bin + 1), ic]
                         else:
                             # case is single bin comparison
                             if (i_bin == r_data.i_bin_vel[0]) or (i_bin == r_data.i_bin_vel[1]):
-                                vel_sf_x, vel_sf_y = resample_spike_freq(pool, vel_sf[ii_v, i_bin, ic])
+                                is_resampled = True
+                                vel_sf_x, vel_sf_y, vel_auc_roc, _auc_ci = \
+                                                    resample_spike_freq(pool, vel_sf[ii_v, i_bin, ic], c_lvl)
+                                vel_auc_ci.append(_auc_ci)
                             else:
+                                is_resampled = False
                                 vel_sf_x = vel_sf[ii_v, i_bin, ic]
-                                if r_data.vel_xi[i_bin] < 0:
+                                if r_data.vel_xi[i_bin, 0] < 0:
                                     vel_sf_y = vel_sf[ii_v, r_data.i_bin_vel[0], ic]
                                 else:
                                     vel_sf_y = vel_sf[ii_v, r_data.i_bin_vel[1], ic]
 
-                        r_data.vel_roc[tt][ic, i_bin] = cf.calc_roc_curves(None, None, x_grp=vel_sf_x, y_grp=vel_sf_y)
-                        r_data.vel_roc_auc[tt][ic, i_bin] = cf.get_roc_auc_value(r_data.vel_roc[tt][ic, i_bin])
+                        # calculates the roc curves/coordinates from the spiking frequencies
+                        r_data.vel_roc[tt][ic, i_bin] = cf.calc_roc_curves(None, None,
+                                                                           x_grp=vel_sf_x, y_grp=vel_sf_y)
                         r_data.vel_roc_xy[tt][ic, i_bin] = cf.get_roc_xy_values(r_data.vel_roc[tt][ic, i_bin])
+
+                        # sets the roc auc values
+                        if is_resampled:
+                            # case is the resampled frequencies
+                            r_data.vel_roc_auc[tt][ic, i_bin] = vel_auc_roc
+                        else:
+                            # other cases
+                            r_data.vel_roc_auc[tt][ic, i_bin] = cf.get_roc_auc_value(r_data.vel_roc[tt][ic, i_bin])
 
                     # calculates the speed roc curves values for each speed bin
                     if not r_data.pn_comp:
@@ -1544,13 +1584,24 @@ class WorkerThread(QThread):
                             calc_roc = True
                             if (i_bin == r_data.i_bin_spd):
                                 # spd_sf_x, spd_sf_y = resample_spike_freq(data, r_data, rr, [i_rr, i_bin, ic])
-                                spd_sf_x, spd_sf_y = resample_spike_freq(pool, spd_sf[ii_s, i_bin, ic])
+                                is_resampled = True
+                                spd_sf_x, spd_sf_y, spd_auc_roc, spd_auc_ci = \
+                                                resample_spike_freq(pool, spd_sf[ii_s, i_bin, ic], c_lvl)
                             else:
+                                is_resampled = False
                                 spd_sf_x, spd_sf_y = spd_sf[ii_s, r_data.i_bin_spd, ic], spd_sf[ii_s, i_bin, ic]
 
+                            # calculates the roc curves/coordinates from the spiking frequencies
                             r_data.spd_roc[tt][ic, i_bin] = cf.calc_roc_curves(None, None, x_grp=spd_sf_x, y_grp=spd_sf_y)
-                            r_data.spd_roc_auc[tt][ic, i_bin] = cf.get_roc_auc_value(r_data.spd_roc[tt][ic, i_bin])
                             r_data.spd_roc_xy[tt][ic, i_bin] = cf.get_roc_xy_values(r_data.spd_roc[tt][ic, i_bin])
+
+                            # sets the roc auc values
+                            if is_resampled:
+                                # case is the resampled frequencies
+                                r_data.spd_roc_auc[tt][ic, i_bin] = spd_auc_roc
+                            else:
+                                # other cases
+                                r_data.spd_roc_auc[tt][ic, i_bin] = cf.get_roc_auc_value(r_data.spd_roc[tt][ic, i_bin])
 
                     # calculates the confidence intervals for the current (only if bootstrapping count has changed or
                     # the confidence intervals has not already been calculated)
@@ -1579,13 +1630,26 @@ class WorkerThread(QThread):
                         auc_type, n_boot = calc_para['auc_stype'], calc_para['n_boot']
                         conf_int_vel = self.calc_roc_conf_intervals(pool, r_data.vel_roc[tt][ic, :],
                                                                     auc_type, n_boot, c_lvl)
+
+                        # resets the resampled confidence interval values
+                        if not r_data.pn_comp:
+                            conf_int_vel[r_data.i_bin_vel[0], :] = vel_auc_ci[0]
+                            conf_int_vel[r_data.i_bin_vel[1], :] = vel_auc_ci[1]
+
+                        # sets the upper and lower velocity confidence intervals
                         r_data.vel_ci_lo[tt][ic, :, is_boot] = conf_int_vel[:, 0]
                         r_data.vel_ci_hi[tt][ic, :, is_boot] = conf_int_vel[:, 1]
 
                         # calculates the speed confidence intervals
                         if not r_data.pn_comp:
+                            # calculates the speed confidence intervals
                             conf_int_spd = self.calc_roc_conf_intervals(pool, r_data.spd_roc[tt][ic, :],
                                                                         auc_type, n_boot, c_lvl)
+
+                            # resets the resampled confidence interval values
+                            conf_int_spd[r_data.i_bin_spd] = spd_auc_ci
+
+                            # sets the upper and lower speed confidence intervals
                             r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
                             r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
 

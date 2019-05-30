@@ -586,7 +586,7 @@ class AnalysisGUI(QMainWindow):
                     #
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                     has_ud_expt = any(cf.det_valid_rotation_expt(self.data, True))
-                    has_md_expt = any(cf.det_valid_rotation_expt(self.data, t_type=['MotorDrifting']))
+                    has_md_expt = any(cf.det_valid_rotation_expt(self.data, t_type=['MotorDrifting'], min_count=1))
                     has_both = has_ud_expt and (has_rot_expt or has_md_expt)
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, True]
                     new_func_types = func_types[np.array(is_keep)]
@@ -3042,6 +3042,124 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
+            def get_kinematic_plot_values(k_sf, i_plot):
+                '''
+
+                :param k_sf:
+                :param i_plot:
+                :return:
+                '''
+
+                # sets the temporary spiking frequency arrays
+                if i_plot == 0:
+                    # case is decreasing position
+                    k_sf_tmp = k_sf[:, :, 0]
+                elif i_plot == 1:
+                    # case is increasing position
+                    k_sf_tmp = k_sf[:, :, 1]
+                else:
+                    # case is pooled position
+                    k_sf_tmp = np.mean(k_sf, axis=2)
+
+                # calculates the mean spiking frequency over all cells
+                return np.mean(k_sf_tmp, axis=0)
+
+            def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz):
+                '''
+
+                :return:
+                '''
+
+                # initialisations
+                n_plot, c, mlt = len(ax), cf.get_plot_col(r_obj.n_filt), -1
+                t_str = ['Position ({0})'.format(x) for x in ['Decreasing', 'Increasing', 'Averaged']]
+                xi_tot = np.hstack((xi_bin[:, 0], -xi_bin[0, 0]))
+
+                # sets the bin values
+                xi_mid, xi_min = np.mean(xi_bin, axis=1), xi_bin[0, 0]
+                xi_mid = np.pi * (1 - (xi_mid - xi_min) / np.abs(2 * xi_min))
+                x_tick = np.linspace(-k_rng, k_rng, 7)
+
+                # creates the radial plots for each of the filter types
+                for i_plot in range(n_plot):
+                    # memory allocation
+                    h_plt = []
+
+                    for i_filt in range(r_obj.n_filt):
+                        # retrieves the mean plot values
+                        k_sf_mn = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+
+                        # creates the polar plot
+                        d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
+                        h_plt.append(ax[i_plot].bar(xi_mid - d_xi, height=k_sf_mn, color=c[i_filt],
+                                                    width=np.deg2rad(b_sz) / r_obj.n_filt, linewidth=0))
+
+                        # sets the plot axis title/x-axis properties
+                        if i_filt == 0:
+                            ax[i_plot].set_title(t_str[i_plot])
+                            ax[i_plot].set_xticks(np.pi * (x_tick - xi_min) / np.abs(2 * xi_min))
+                            ax[i_plot].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
+
+                    # sets the legend (first subplot only)
+                    if i_plot == 0:
+                        ax[i_plot].legend(r_obj.lg_str, loc=2)
+
+                # determines the overall limits
+                yL = [0, max([_ax.get_ylim()[1] for _ax in ax])]
+
+                for _ax in ax:
+                    # adds in the bin lines for the polar plot
+                    _ax.set_ylim(yL)
+                    for xi in (np.pi / 2) * (1 + (xi_tot / k_rng)):
+                        _ax.plot([xi, xi], 2 * np.array(yL), 'k--')
+
+                    # resets the axis limits
+                    _ax.set_thetamin(0)
+                    _ax.set_thetamax(180)
+
+            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth):
+                '''
+
+                :return:
+                '''
+
+                # initialisations
+                n_plot, c, mlt = len(ax), cf.get_plot_col(r_obj.n_filt), 1
+                t_str = ['Velocity ({0})'.format(x) for x in ['Decreasing', 'Increasing', 'Averaged']]
+
+                # sets the bin values
+                xi_mid = np.mean(xi_bin, axis=1)
+                x_tick = np.linspace(-k_rng, k_rng, 9)
+
+                # creates the radial plots for each of the filter types
+                for i_plot in range(n_plot):
+                    # memory allocation
+                    h_plt = []
+
+                    # creates the plots for each of the
+                    for i_filt in range(r_obj.n_filt):
+                        # retrieves the plot values
+                        k_sf_mn = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+
+                        # smooths the signal (if required)
+                        if is_smooth:
+                            k_sf_mn = medfilt(k_sf_mn, n_smooth)
+
+                        # creates the line plot
+                        h_plt.append(ax[i_plot].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
+
+                        # sets the plot axis title/x-axis properties
+                        if i_filt == 0:
+                            ax[i_plot].set_title(t_str[i_plot])
+                            ax[i_plot].set_xticks(x_tick)
+                            ax[i_plot].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
+
+                # determines the overall limits
+                yL = [min([_ax.get_ylim()[0] for _ax in ax]), max([_ax.get_ylim()[1] for _ax in ax])]
+                for _ax in ax:
+                    # adds in the bin lines for the polar plot
+                    _ax.set_ylim(yL)
+
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             if not r_obj.is_ok:
                 self.calc_ok = False
@@ -3049,99 +3167,109 @@ class AnalysisGUI(QMainWindow):
 
             # initialisations
             c, k_rng = cf.get_plot_col(r_obj.n_filt), [90, 80]
-            proj_type = ['polar', None, None, None]
-            title_str = ['Position', 'Velocity', 'Displacement', 'Speed']
+            proj_type = ['polar', 'polar', 'polar', None, None, None]
 
             # calculates the position/velocity values over all trials/cells
-            k_sf, xi_bin, _ = rot.calc_kinemetic_spike_freq(self.data, r_obj, b_sz, False)
+            k_sf, xi_bin = rot.calc_kinemetic_spike_freq(self.data, r_obj, b_sz)
 
             # creates the plot outlay and titles
-            self.init_plot_axes(n_row=2, n_col=2, n_plot=2, proj_type=proj_type)
+            self.init_plot_axes(n_row=2, n_col=3, proj_type=proj_type)
 
-            for i_type in range(2):
-                # sets the bin values
-                xi_mid = 0.5 * (xi_bin[i_type][1:] + xi_bin[i_type][:-1])
-                if i_type == 0:
-                    # sets the tick-labels for the polar subplot
-                    xi_min = xi_mid[0] - np.diff(xi_mid[0:2])[0] / 2
-                    xi_mid = np.pi * (1 - (xi_mid - xi_min) / np.abs(2 * xi_min))
+            # creates the position polar/velocity line plots
+            create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0])
+            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth)
 
-                # sets up the tickmarks
-                x_tick = np.linspace(-k_rng[i_type], k_rng[i_type], 7 + 2 * i_type)
+            # for i_type in range(2):
+            #     # # sets the bin values
+            #     # xi_mid = np.mean(xi_bin[i_type], axis=1)
+            #     # if i_type == 0:
+            #     #     # sets the tick-labels for the polar subplot
+            #     #     xi_min = xi_bin[0][0, 0]
+            #     #     xi_mid = np.pi * (1 - (xi_mid - xi_min) / np.abs(2 * xi_min))
+            #
+            #     # # sets up the tickmarks
+            #     # x_tick = np.linspace(-k_rng[i_type], k_rng[i_type], 7 + 2 * i_type)
+            #
+            #     # creates the plots for each type
+            #     for j_type in range(3):
+            #         #
+            #         i_plot = i_type * 3 + j_type
+            #
+            #
+            #     # creates the radial plots for each of the filter types
+            #     h_plt = []
+            #     for i_filt in range(r_obj.n_filt):
+            #         # # calculates the
+            #         # k_sf_mn = np.mean(k_sf[i_type][i_filt], axis=0)
+            #
+            #         # # creates the plot and resets the labels
+            #         # if proj_type[i_type] is None:
+            #         #     # # smooths the signal (if required)
+            #         #     # if is_smooth:
+            #         #     #     k_sf_mn = medfilt(k_sf_mn, n_smooth)
+            #         #     #
+            #         #     # # creates the line plot
+            #         #     # h_plt.append(self.plot_fig.ax[i_type].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
+            #         # else:
+            #         #     # case is the polar plot
+            #         #     # d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
+            #         #     # h_plt.append(self.plot_fig.ax[i_type].bar(xi_mid - d_xi, height=k_sf_mn, color=c[i_filt],
+            #         #     #                                           width=np.deg2rad(b_sz[i_type]) / r_obj.n_filt,
+            #         #     #                                           linewidth=0))
+            #
+            #         if i_filt == 0:
+            #             self.plot_fig.ax[i_type].set_title(title_str[i_type])
+            #             mlt = 1 if proj_type[i_type] is None else -1
+            #
+            #             if proj_type[i_type] is 'polar':
+            #                 self.plot_fig.ax[i_type].set_xticks(np.pi * (x_tick - xi_min) / np.abs(2 * xi_min))
+            #             else:
+            #                 self.plot_fig.ax[i_type].set_xticks(x_tick)
+            #
+            #             self.plot_fig.ax[i_type].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
+            #
+            #     # sets the legend (first subplot only)
+            #     if i_type == 0:
+            #         self.plot_fig.ax[i_type].legend(r_obj.lg_str, loc=2)
 
-                # creates the radial plots for each of the filter types
-                h_plt = []
-                for i_filt in range(r_obj.n_filt):
-                    # calculates the
-                    k_sf_mn = np.mean(k_sf[i_type][i_filt], axis=0)
+            # # adds in the bin lines for the polar plot
+            # yL = self.plot_fig.ax[0].get_ylim()
+            # self.plot_fig.ax[0].set_ylim(yL)
+            # for xi in (np.pi / 2) * (1 + xi_bin[0] / k_rng[0]):
+            #     self.plot_fig.ax[0].plot([xi, xi], 2 * np.array(yL), 'k--')
 
-                    # creates the plot and resets the labels
-                    if proj_type[i_type] is None:
-                        # smooths the signal (if required)
-                        if is_smooth:
-                            k_sf_mn = medfilt(k_sf_mn, n_smooth)
-
-                        h_plt.append(self.plot_fig.ax[i_type].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
-                    else:
-                        #
-                        d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
-                        h_plt.append(self.plot_fig.ax[i_type].bar(xi_mid - d_xi, height=k_sf_mn, color=c[i_filt],
-                                                                  width=np.deg2rad(b_sz[i_type]) / r_obj.n_filt,
-                                                                  linewidth=0))
-
-                    if i_filt == 0:
-                        self.plot_fig.ax[i_type].set_title(title_str[i_type])
-                        mlt = 1 if proj_type[i_type] is None else -1
-
-                        if proj_type[i_type] is 'polar':
-                            self.plot_fig.ax[i_type].set_xticks(np.pi * (x_tick - xi_min) / np.abs(2 * xi_min))
-                        else:
-                            self.plot_fig.ax[i_type].set_xticks(x_tick)
-
-                        self.plot_fig.ax[i_type].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
-
-                # sets the legend (first subplot only)
-                if i_type == 0:
-                    self.plot_fig.ax[i_type].legend(r_obj.lg_str, loc=2)
-
-            # adds in the bin lines for the polar plot
-            yL = self.plot_fig.ax[0].get_ylim()
-            self.plot_fig.ax[0].set_ylim(yL)
-            for xi in (np.pi / 2) * (1 + xi_bin[0] / k_rng[0]):
-                self.plot_fig.ax[0].plot([xi, xi], 2 * np.array(yL), 'k--')
-
-            # resets the subplot layout
-            self.plot_fig.fig.set_tight_layout(False)
-            if r_obj.is_single_cell:
-                # sets the layout size
-                self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
-
-                # sets the cell cluster ID
-                self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
-                                           fontsize=16, fontweight='bold')
-            else:
-                # sets the layout size
-                self.plot_fig.fig.tight_layout(rect=[0, 0, 1, 1])
-
-            # resets the axis properties
-            for i in range(len(self.plot_fig.ax)):
-                # resets the axis limits
-                ax = self.plot_fig.ax[i]
-                ax.grid(plot_grid)
-                h_title = ax.set_title(title_str[i])
-
-                #
-                if proj_type[i] is not None:
-                    ax.set_thetamin(0)
-                    ax.set_thetamax(180)
-
-                    # resets the subplot position
-                    h_ofs = 0.060 + 0.015 * int(r_obj.is_single_cell)
-                    i_col, i_row = i % 2, np.floor(i / 2)
-                    ax.set_position([i_col * 0.5, 0.5 * (1 - i_row) - h_ofs, 0.5, 0.5])
-
-                    # adds and resets the position of the title
-                    h_title.set_position([0.5, 0.85])
+            # # resets the subplot layout
+            # self.plot_fig.fig.set_tight_layout(False)
+            # if r_obj.is_single_cell:
+            #     # sets the layout size
+            #     self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+            #
+            #     # sets the cell cluster ID
+            #     self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+            #                                fontsize=16, fontweight='bold')
+            # else:
+            #     # sets the layout size
+            #     self.plot_fig.fig.tight_layout(rect=[0, 0, 1, 1])
+            #
+            # # resets the axis properties
+            # for i in range(len(self.plot_fig.ax)):
+            #     # resets the axis limits
+            #     ax = self.plot_fig.ax[i]
+            #     ax.grid(plot_grid)
+            #     h_title = ax.set_title(title_str[i])
+            #
+            #     # resets the axis properties (polar plots only)
+            #     if proj_type[i] is not None:
+            #         ax.set_thetamin(0)
+            #         ax.set_thetamax(180)
+            #
+            #         # resets the subplot position
+            #         h_ofs = 0.060 + 0.015 * int(r_obj.is_single_cell)
+            #         i_col, i_row = i % 2, np.floor(i / 2)
+            #         ax.set_position([i_col * 0.5, 0.5 * (1 - i_row) - h_ofs, 0.5, 0.5])
+            #
+            #         # adds and resets the position of the title
+            #         h_title.set_position([0.5, 0.85])
 
         ################################################################################################################
         ################################################################################################################
@@ -3739,15 +3867,15 @@ class AnalysisGUI(QMainWindow):
 
         # sets the comparison bin for the velocity/speed arrays
         if use_vel:
-            i_bin = list(r_data.vel_xi).index(int(vel_y_rng.split()[0]))
+            i_bin = list(r_data.vel_xi[:, 0]).index(int(vel_y_rng.split()[0]))
             _roc_xy, _roc_auc = dcopy(r_data.vel_roc_xy), dcopy(r_data.vel_roc_auc)
             _ci_lo, _ci_hi = dcopy(r_data.vel_ci_lo), dcopy(r_data.vel_ci_hi)
-            xi_bin = dcopy(0.5 * (r_data.vel_xi[:-1] + r_data.vel_xi[1:]))
+            xi_bin = dcopy(np.mean(r_data.vel_xi, axis=1))
         else:
-            i_bin = list(r_data.spd_xi).index(int(spd_y_rng.split()[0]))
+            i_bin = list(r_data.spd_xi[:, 0]).index(int(spd_y_rng.split()[0]))
             _roc_xy, _roc_auc = dcopy(r_data.spd_roc_xy), dcopy(r_data.spd_roc_auc)
             _ci_lo, _ci_hi = dcopy(r_data.spd_ci_lo), dcopy(r_data.spd_ci_hi)
-            xi_bin = dcopy(0.5 * (r_data.spd_xi[:-1] + r_data.spd_xi[1:]))
+            xi_bin = dcopy(np.mean(r_data.spd_xi, axis=1))
 
         # determines the indices of the cell in the overall array
         B = np.zeros(len(xi_bin))
@@ -4393,12 +4521,12 @@ class AnalysisGUI(QMainWindow):
         # sets the comparison bin for the velocity/speed arrays
         if use_vel:
             _roc_auc = dcopy(r_data.vel_roc_auc)
-            xi_bin = dcopy(0.5 * (r_data.vel_xi[:-1] + r_data.vel_xi[1:]))
+            xi_bin = dcopy(np.mean(r_data.vel_xi, axis=1))
             if r_data.pn_comp:
                 xi_bin = xi_bin[int(len(xi_bin) / 2):]
         else:
             _roc_auc = dcopy(r_data.spd_roc_auc)
-            xi_bin = dcopy(0.5 * (r_data.spd_xi[:-1] + r_data.spd_xi[1:]))
+            xi_bin = dcopy(np.mean(r_data.spd_xi, axis=1))
 
         # determines the indices of the cell in the overall array
         t_type_base = list(r_data.vel_sf_rs.keys()) if r_data.is_equal_time else list(r_data.vel_sf.keys())
@@ -6629,9 +6757,9 @@ class AnalysisFunctions(object):
 
         # ====> Rotation Trial Motion/Direction Selectivity
         para = {
-            # calculation parameters
-            't_phase': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
-            't_ofs': {'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            # # calculation parameters
+            # 't_phase': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
+            # 't_ofs': {'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
 
             # plotting parameters
             'rot_filt': {
@@ -6831,18 +6959,22 @@ class AnalysisFunctions(object):
 
         #
         n_boot_def = 100
+        roc_vel_bin = ['5', '10', '20', '40']
+
+        #
         md_grp_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
         resp_grp_type = ['None', 'Rotation', 'Visual', 'Both']
         grp_stype = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         auc_stype = ['Delong', 'Bootstrapping']
         mean_type = ['Mean', 'Median']
+        freq_type = ['Decreasing', 'Increasing', 'All']
+
         # k_grp_type = ['Discriminating Cells', 'Non-Discriminating Cells', 'All Cells']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
-        roc_vel_bin = ['5', '10', '20', '40']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_ud_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), True))
-        has_md_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=['MotorDrifting']))
+        has_md_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=['MotorDrifting'], min_count=1))
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
 
@@ -6899,6 +7031,10 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
                 'is_enabled': has_ud_expt
             },
+            'vis_expt_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
+                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
+            },
 
             # plotting parameters
             'rot_filt': {
@@ -6953,6 +7089,9 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
                 'link_para': ['n_sample', False]
             },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': freq_type, 'def_val': freq_type[-1]
+            },
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
@@ -7001,6 +7140,9 @@ class AnalysisFunctions(object):
             'equal_time': {
                 'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
                 'link_para': ['n_sample', False]
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': freq_type, 'def_val': freq_type[-1]
             },
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
@@ -7053,6 +7195,9 @@ class AnalysisFunctions(object):
             'equal_time': {
                 'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
                 'link_para': ['n_sample', False]
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': freq_type, 'def_val': freq_type[-1]
             },
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': True, 'is_visible': False},
 
@@ -7139,6 +7284,10 @@ class AnalysisFunctions(object):
             't_ofs': {
                 'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
                 'is_enabled': has_ud_expt
+            },
+            'vis_expt_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
+                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
             },
 
             # plotting parameters
@@ -8261,6 +8410,7 @@ class RotationData(object):
         self.n_rs = -1                          #
         self.is_equal_time = False              #
         self.pn_comp = False
+        self.freq_type = ''
 
         # velocity roc calculations
         self.vel_dt = None                      # velocity bin durations

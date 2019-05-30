@@ -23,7 +23,8 @@ import _pickle as cp
 # pyqt5 module import
 from PyQt5.QtWidgets import (QMessageBox)
 
-# lambda function declarations
+# other function declarations
+dcopy = copy.deepcopy
 date2sec = lambda t: np.sum([3600 * t.hour, 60 * t.minute, t.second])
 trig_count = lambda data, cond: len(np.where(np.diff(data[cond]['cpg_ttlStim']) > 1)[0]) + 1
 ss_scale = lambda x: np.min([np.max([x, -1.0]), 1.0])
@@ -808,7 +809,6 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
             # sets the indices of the values that are to be kept
             ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
             ind_tr = np.ones(np.size(t_spike[i_expt], axis=1), dtype=bool)
-            cl_inc = cfcn.get_inclusion_filt_indices(d_clust[i_expt], data.exc_gen_filt)
 
             # goes through the filter fields removing entries that don't meet the criteria
             for iccf, ccf in enumerate(cc_filt_str):
@@ -821,7 +821,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                         if ccf == 'sig_type':
                             # case is the signal type (wide or narrow spikes)
-                            cv, is_cl = ['{0} Spikes'.format(x) for x in data.classify.grp_str[i_expt]], True
+                            grp_str = data.classify.grp_str[i_expt][data.classify.grp_str[i_expt] != 'N/A']
+                            cv, is_cl = ['{0} Spikes'.format(x) for x in grp_str], True
 
                         elif ccf == 'match_type':
                             # case is the match type (either Matched or Unmatched)
@@ -858,7 +859,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                 elif is_check[iccf] and (rot_filt[ccf][0] != 'All'):
                     if ccf == 'sig_type':
-                        ind_cl_nw = [np.any([x in y for y in rot_filt[ccf]]) for x in data.classify.grp_str[i_expt]]
+                        grp_str = data.classify.grp_str[i_expt][data.classify.grp_str[i_expt] != 'N/A']
+                        ind_cl_nw = [np.any([x in y for y in rot_filt[ccf]]) for x in grp_str]
 
                     elif ccf == 'match_type':
                         m_flag = (rot_filt[ccf][0].split(' ')[0] != 'Matched')
@@ -885,7 +887,6 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                 # removes any infeasible clusters
                 if ind_cl_nw is not None:
-                    ind_cl_nw = np.array(ind_cl_nw)[cl_inc]
                     ind_cl = np.logical_and(ind_cl, ind_cl_nw)
 
 
@@ -915,7 +916,7 @@ def calc_waveform_values(A, w, t):
     return A * np.cos(w * t), -A * w * np.sin(w * t)
 
 
-def calc_kinematic_bin_times(b_sz, k_rng, w, i_ofs=0):
+def calc_kinematic_bin_times(b_sz, k_rng, w):
     '''
 
     :param b_sz:
@@ -924,24 +925,33 @@ def calc_kinematic_bin_times(b_sz, k_rng, w, i_ofs=0):
     :return:
     '''
 
-    # memory allocation
-    n_bin = 1 + (i_ofs == 0)
-    xi_bin, t_bin = np.empty(n_bin, dtype=object), np.empty(n_bin, dtype=object)
+    # lambda function declarations
+    rev_func = lambda x: np.concatenate((x, 2 * x[-1] - np.flip(x[:-1], axis=0)))
+    rev_func_2 = lambda x: np.concatenate(
+        (np.concatenate((x, np.flip(x[:-1], axis=0))), -np.concatenate((x, np.flip(x[:-1], axis=0)))[1:]))
 
-    # calculates the time-bins
-    for j_bin in range(n_bin):
-        # calculates the time offsets for each of the bins
-        i_bin = j_bin + i_ofs
-        xi_bin[j_bin] = np.arange(-k_rng[j_bin], k_rng[j_bin]+1e-6, b_sz[j_bin])
-        if i_bin == 0:
-            # case is position is being considered
-            t_bin[j_bin] = np.array([m.acos(ss_scale(x / k_rng[j_bin])) for x in xi_bin[j_bin]]) / w
-        else:
-            # case is speed is being considered
-            t_bin[j_bin] = np.array([m.asin(ss_scale(-v / k_rng[j_bin])) for v in xi_bin[j_bin]]) / w
+    # memory allocation
+    n_bin = 2
+    A = np.empty(n_bin, dtype=object)
+    xi_bin, xi_bin0, t_bin, i_bin = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
+
+    # sets up the positional time/location arrays
+    xi_binT = np.arange(k_rng[0], -(k_rng[0] + 1e-6), -b_sz[0])
+    xi_bin0[0] = np.concatenate((xi_binT, np.flip(xi_binT[:-1], axis=0)))
+    t_bin[0] = rev_func(np.unique([m.acos(ss_scale(x / k_rng[0])) for x in xi_bin0[0]]) / w)
+
+    # sets up the velocity time/location arrays
+    xi_bin0[1] = rev_func_2(np.arange(0, k_rng[1] + 1e-6, b_sz[1]))
+    t_binT = np.unique(np.abs([m.asin(ss_scale(-v / k_rng[1])) for v in xi_bin0[1]])) / w
+    t_bin[1], xi_bin0[1][-1] = rev_func(rev_func(t_binT)), 0
+
+    # determines the groupings for each time bin
+    for i in range(n_bin):
+        i_grp = np.vstack([np.sort([xi_bin0[i][k:(k+2)]])[0] for k in range(len(xi_bin0[i])-1)])
+        xi_bin[i], i_bin[i] = np.unique(i_grp, axis=0, return_inverse=True)
 
     # returns the time-bin array
-    return xi_bin, t_bin
+    return xi_bin0, xi_bin, t_bin, i_bin
 
 
 def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None):
@@ -1109,7 +1119,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         return vel_n[0]
 
 
-def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True):
+def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     '''
 
     :param wvm_para:
@@ -1118,9 +1128,28 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True
     :return:
     '''
 
+    def reorder_array(h, j_grp, sd, dtype=int):
+        '''
+
+        :param y0:
+        :param j_grp:
+        :return:
+        '''
+
+        # memory allocation
+        nH, i_row = int(len(j_grp) / 2), ((sd + 1) / 2).astype(int)
+        y_arr = -np.ones((2, nH), dtype=dtype)
+
+        # sets the values into the array
+        for i in range(len(j_grp)):
+            y_arr[i_row[i], j_grp[i]] = h[i]
+
+        # sets the ordered values and return the final array
+        return y_arr
+
+
     # initialisations and memory allocation
-    k_rng = [90, 80]
-    n_filt = len(r_obj.t_spike)
+    k_rng, n_filt, calc_avg_sf = [90, 80], len(r_obj.t_spike), calc_type == 2
     t_bin = np.zeros(2, dtype=object)
     pos_f, vel_f = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
 
@@ -1132,75 +1161,102 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True
 
         # determines the experiments which contain the trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
+        is_md_expt = tt == 'MotorDrifting'
         valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
 
         # calculates the position/velocity for each cell
         for i_cell in range(n_cell):
             # retrieves the experiment index, sampling frequency and phase duration
-            i_expt = np.where(r_obj.i_expt[i_filt][i_cell] == valid_ind)[0][0]
-            t_phase, wvm_p = r_obj.t_phase[i_filt][i_expt], r_obj.wvm_para[i_filt][i_expt]
+            if r_obj.is_single_cell:
+                i_expt = 0
+            else:
+                i_expt = np.where(r_obj.i_expt[i_filt][i_cell] == valid_ind)[0][0]
 
             # calculates the position/velocity for each of the trials
+            t_phase, wvm_p = r_obj.t_phase[i_filt][i_expt], r_obj.wvm_para[i_filt][i_expt]
             y_dir, y_amp = wvm_p['yDir'], wvm_p['yAmp'][0]
             t_sp, w, n_trial_c = r_obj.t_spike[i_filt][i_cell, :, :], np.pi / t_phase, np.size(wvm_p, axis=0)
 
-            # calculates the time-bins (first filter/cell only)
+            # calculates the time-bins (only required for first iteration pass)
             if (i_filt == 0) and (i_cell == 0):
-                xi_bin, t_bin = calc_kinematic_bin_times(b_sz, k_rng, w)
+                # retrieves the time/value bins and index groupings
+                xi_bin0, xi_bin, t_bin, i_grp = calc_kinematic_bin_times(b_sz, k_rng, w)
+
+                # memory allocation
+                n_pbin, n_vbin = np.size(xi_bin[0], axis=0), np.size(xi_bin[1], axis=0)
+                sd_pos, sd_vel = np.sign(np.diff(xi_bin0[0])), np.sign(np.diff(xi_bin0[1]))
+
+                # calculates the position/velocity time bin durations
+                pos_dt = reorder_array(np.diff(t_bin[0]), i_grp[0], sd_pos, dtype=float)[0, :]
+                vel_dt = reorder_array(np.diff(t_bin[1]), i_grp[1], sd_vel, dtype=float)[0, :]
 
             # memory allocation for the position/velocity bins (first cell only)
             if i_cell == 0:
+                # allocates memory for the inner arrays (dependent on type)
                 if calc_avg_sf:
-                    vel_f[i_filt] = np.zeros((n_cell, len(xi_bin[1]) - 1))
-                    if not calc_vel_only:
-                        pos_f[i_filt] = np.zeros((n_cell, len(xi_bin[0]) - 1))
+                    # case is calculating the average spiking frequency
+                    pos_f[i_filt] = np.zeros((n_cell, n_pbin, 2))
+                    vel_f[i_filt] = np.zeros((n_cell, n_vbin, 2))
                 else:
-                    vel_f[i_filt] = np.empty((n_trial_max, len(xi_bin[1]) - 1, n_cell))
-                    vel_f[i_filt][:] = np.nan
-                    if not calc_vel_only:
-                        pos_f[i_filt] = np.empty((n_trial_max, len(xi_bin[0]) - 1, n_cell))
-                        pos_f[i_filt][:] = np.nan
+                    # case is calculating individual spiking frequencies
+                    pos_f[i_filt] = np.empty((n_trial_max, n_pbin, n_cell, 2))
+                    vel_f[i_filt] = np.empty((n_trial_max, n_vbin, n_cell, 2))
+                    vel_f[i_filt][:], pos_f[i_filt][:] = np.nan, np.nan
 
-            # memory allocation
-            pos_bin, vel_bin = np.zeros((n_trial_c, len(t_bin[0])-1)), np.zeros((n_trial_c, len(t_bin[1])-1))
+            # memory allocation for the position/velocity bins
+            pos_bin = np.zeros((n_trial_c, n_pbin, 2))
+            vel_bin = np.zeros((n_trial_c, n_vbin, 2))
+
             for i_trial in range(n_trial_c):
                 # sets the spike times in the correct order for the current trial
                 if t_sp[i_trial, 1] is not None:
-                    if y_dir[i_trial] == -1:
+                    if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
                         # case is a CW => CCW trial
                         t_sp_trial = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase))
                     else:
                         # case is a CCW => CW trial
                         t_sp_trial = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase))
 
-                    # only calculate the spike position/velocity values if there were any spikes for the current trial
+                    # calculates the counts for each of the time bins
                     if len(t_sp_trial):
-                        # determines the position/velocity for the time-spikes
-                        pos_nw, vel_nw = calc_waveform_values(y_amp * y_dir[i_trial], w, t_sp_trial)
+                        # calculates the position/velocity histogram bin values
+                        pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos)
+                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel)
 
-                        # calculates the position/velocity histograms
-                        #   => NEED TO CHANGE THIS TO TAKE INTO ACCOUNT THE TIME AT WHICH THE SPIKE GOES OFF
-                        #      (NEED TO CHANGE FROM HISTOGRAM DEPENDENT ON VELOCITY TO
-                        vel_bin[i_trial, :] = np.histogram(vel_nw, bins=xi_bin[1])[0]
-                        if not calc_vel_only:
-                            pos_bin[i_trial, :] = np.histogram(pos_nw, bins=xi_bin[0])[0]
+                        # sets the position/velocity values
+                        for k in range(2):
+                            pos_bin[i_trial, :, k] = pos_bin_tmp[k, :]
+                            vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
 
             # calculates the position/velocity spiking frequencies over all trials
-            if calc_avg_sf:
-                vel_f[i_filt][i_cell, :] = np.mean(vel_bin, axis=0) / np.abs(np.diff(t_bin[1]))
-                if not calc_vel_only:
-                    pos_f[i_filt][i_cell, :] = np.mean(pos_bin, axis=0) / np.abs(np.diff(t_bin[0]))
-            else:
-                ind_t = np.array(range(n_trial_c))
-                vel_f[i_filt][ind_t, :, i_cell] = vel_bin
-                if not calc_vel_only:
-                    pos_f[i_filt][ind_t, :, i_cell] = pos_bin
+            for k in range(2):
+                if calc_avg_sf:
+                    # case is calculating the average spiking frequency
+                    pos_f[i_filt][i_cell, :, k] = np.mean(pos_bin[:, :, k], axis=0) / pos_dt
+                    vel_f[i_filt][i_cell, :, k] = np.mean(vel_bin[:, :, k], axis=0) / vel_dt
+                else:
+                    # case is setting all spiking frequencies
+
+                    # sets the trial indices
+                    if k == 0:
+                        ind_t = np.array(range(n_trial_c))
+                        _pos_dt = np.matlib.repmat(dcopy(pos_dt), len(ind_t), 1)
+                        _vel_dt = np.matlib.repmat(dcopy(vel_dt), len(ind_t), 1)
+
+                    # sets the full velocity/position spiking rates
+                    pos_f[i_filt][ind_t, :, i_cell, k] = pos_bin[:, :, k] / _pos_dt
+                    vel_f[i_filt][ind_t, :, i_cell, k] = vel_bin[:, :, k] / _vel_dt
 
     # returns the position/velocity spiking frequency arrays
-    if calc_vel_only:
-        return vel_f, xi_bin[1], np.abs(t_bin[1])
+    if calc_type == 0:
+        # calculation type is position data only
+        return vel_f, xi_bin[0], pos_dt
+    elif calc_type == 1:
+        # calculation type is velocity data only
+        return vel_f, xi_bin[1], vel_dt
     else:
-        return [pos_f, vel_f], xi_bin, t_bin
+        # calculation type is both kinematic types
+        return [pos_f, vel_f], xi_bin
 
 def calc_wave_kinematic_times(wvm_para, s_freq, i_expt, kb_sz, is_pos, yDir=1):
     '''
