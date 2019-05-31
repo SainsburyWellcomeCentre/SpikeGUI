@@ -1457,10 +1457,13 @@ class WorkerThread(QThread):
                 p_data[i_rs].append(np.sort(sf[ind0[:n_trial_h]]))
                 p_data[i_rs].append(np.sort(sf[ind0[n_trial_h:(2 * n_trial_h)]]))
 
-            # calculates the roc curves and the x/y coordinates & auc values from these
+            # calculates the roc curves and the x/y coordinates
             _roc = pool.map(cfcn.calc_roc_curves_pool, p_data)
             _roc_xy = cfcn.calc_avg_roc_curve([cf.get_roc_xy_values(x) for x in _roc])
+
+            # calculate the roc auc values (ensures that they are > 0.5)
             _roc_auc = [cf.get_roc_auc_value(x) for x in _roc]
+            _roc_auc = [(1. - x) if x < 0.5 else x for x in _roc_auc]
 
             # calculates the roc auc mean/confidence interval
             roc_auc_mn = np.mean(_roc_auc)

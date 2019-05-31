@@ -1128,7 +1128,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     :return:
     '''
 
-    def reorder_array(h, j_grp, sd, dtype=int):
+    def reorder_array(h, i_grp, sd, dtype=int, m=1):
         '''
 
         :param y0:
@@ -1137,8 +1137,16 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
         '''
 
         # memory allocation
-        nH, i_row = int(len(j_grp) / 2), ((sd + 1) / 2).astype(int)
+        nH, i_row = int(len(i_grp) / 2), ((sd + 1) / 2).astype(int)
         y_arr = -np.ones((2, nH), dtype=dtype)
+
+        # sets the ordering of the index array
+        if m == 1:
+            # index array is in the correct order
+            j_grp = dcopy(i_grp)
+        else:
+            # index array needs to be reversed
+            j_grp = max(i_grp) - dcopy(i_grp)
 
         # sets the values into the array
         for i in range(len(j_grp)):
@@ -1212,16 +1220,19 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
                 if t_sp[i_trial, 1] is not None:
                     if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
                         # case is a CW => CCW trial
-                        t_sp_trial = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase))
+                        t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
                     else:
                         # case is a CCW => CW trial
-                        t_sp_trial = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase))
+                        t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
 
                     # calculates the counts for each of the time bins
                     if len(t_sp_trial):
                         # calculates the position/velocity histogram bin values
-                        pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos)
-                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel)
+                        pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos, m=m)
+                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=m)
+
+                        # h_vel = np.arange(64)
+                        # vel_bin_tmp = reorder_array(h_vel, i_grp[1], sd_vel)
 
                         # sets the position/velocity values
                         for k in range(2):

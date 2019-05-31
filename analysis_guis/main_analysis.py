@@ -2829,7 +2829,7 @@ class AnalysisGUI(QMainWindow):
             #
             self.plot_fig.fig.set_tight_layout(False)
             self.plot_fig.fig.tight_layout(rect=[0.0, 0.0, 1, 0.945])
-            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                                        fontsize=16, fontweight='bold')
 
         def create_wc_selectivity_plot(r_obj, plot_grid, t_type_exp, plot_even_axis):
@@ -3554,7 +3554,7 @@ class AnalysisGUI(QMainWindow):
 
         # resizes the figure to include the super-title
         self.plot_fig.fig.set_tight_layout(False)
-        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                                    fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
@@ -3959,7 +3959,7 @@ class AnalysisGUI(QMainWindow):
 
         # resizes the figure to include the super-title
         self.plot_fig.fig.set_tight_layout(False)
-        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                                    fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
@@ -4643,9 +4643,9 @@ class AnalysisGUI(QMainWindow):
             ax = self.plot_fig.ax[0]
             row_hdr = ['#{0} vs #1'.format(x + 2) for x in range(np.size(p_stats, axis=0))]
             if r_data.pn_comp:
-                col_hdr = ['{0}/-{0}'.format(int(x)) for x in xi_rng[int(len(xi_rng) / 2 + 1):]]
+                col_hdr = ['{0}/-{0}'.format(int(x)) for x in xi_rng[int(len(xi_rng) / 2):, 1]]
             else:
-                col_hdr = ['{0}/{1}'.format(int(xi_rng[i]), int(xi_rng[i + 1])) for i in range(len(xi_rng) - 1)]
+                col_hdr = ['{0}/{1}'.format(int(xx[0]), int(xx[1])) for xx in xi_rng]
 
             if use_vel and (not r_data.pn_comp):
                 n_mid = int(len(xi_rng) / 2)
@@ -4882,7 +4882,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].plot(np.zeros(2), self.plot_fig.ax[i_plot].get_ylim(), 'r--')
 
             # sets the axis properties
-            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(id_clust))
+            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(int(id_clust)))
             self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
@@ -4969,7 +4969,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].plot(np.zeros(2), y_lim, 'k--')
 
             # sets the axis properties
-            self.plot_fig.ax[i_plot].set_title('Cluster #{0} vs #{1}'.format(id_clust1, id_clust2))
+            self.plot_fig.ax[i_plot].set_title('Cluster #{0} vs #{1}'.format(int(id_clust1), int(id_clust2)))
             self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
@@ -5125,7 +5125,7 @@ class AnalysisGUI(QMainWindow):
         # resets the figure layout (single cell only)
         if r_obj.is_single_cell:
             self.plot_fig.fig.set_tight_layout(False)
-            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
@@ -5336,7 +5336,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.fig.set_tight_layout(False)
             self.plot_fig.fig.tight_layout(rect=[0.0, 0.01, 1, 0.955])
             self.plot_fig.fig.suptitle(
-                'Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+                'Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                 fontsize=16, fontweight='bold')
 
             # self.plot_fig.ax[-1].plot([0,1],[0,1])
@@ -5736,7 +5736,7 @@ class AnalysisGUI(QMainWindow):
         # resets the figure layout (single cell only)
         if r_obj.is_single_cell:
             self.plot_fig.fig.set_tight_layout(False)
-            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
+            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 

@@ -1708,7 +1708,7 @@ def calc_spike_freq_correlation(sp_f, ind):
 ####    ROC ANALYSIS CALCULATION FUNCTIONS    ####
 ##################################################
 
-def get_roc_xy_values(roc):
+def get_roc_xy_values(roc, is_comp=None):
     '''
 
     :param roc:
