@@ -943,7 +943,7 @@ def calc_kinematic_bin_times(b_sz, k_rng, w):
     # sets up the velocity time/location arrays
     xi_bin0[1] = rev_func_2(np.arange(0, k_rng[1] + 1e-6, b_sz[1]))
     t_binT = np.unique(np.abs([m.asin(ss_scale(-v / k_rng[1])) for v in xi_bin0[1]])) / w
-    t_bin[1], xi_bin0[1][-1] = rev_func(rev_func(t_binT)), 0
+    t_bin[1], xi_bin0[1][0] = rev_func(rev_func(t_binT)), 0
 
     # determines the groupings for each time bin
     for i in range(n_bin):
@@ -1229,7 +1229,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
                     if len(t_sp_trial):
                         # calculates the position/velocity histogram bin values
                         pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos, m=m)
-                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=m)
+                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=-m)
 
                         # h_vel = np.arange(64)
                         # vel_bin_tmp = reorder_array(h_vel, i_grp[1], sd_vel)

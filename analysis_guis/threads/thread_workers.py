@@ -1364,7 +1364,8 @@ class WorkerThread(QThread):
             for i_filt in range(len(vel_n)):
                 if calc_para['freq_type'] == 'All':
                     # case is considering all frequency types (stack frequencies on top of each other)
-                    vel_n[i_filt] = np.vstack((vel_n[i_filt][:, :, :, 0], vel_n[i_filt][:, :, :, 1]))
+                    # vel_n[i_filt] = np.vstack((vel_n[i_filt][:, :, :, 0], vel_n[i_filt][:, :, :, 1]))
+                    vel_n[i_filt] = np.mean(vel_n[i_filt], axis=3)
                 elif calc_para['freq_type'] == 'Decreasing':
                     # case is only considering decreasing velocity frequencies
                     vel_n[i_filt] = vel_n[i_filt][:, :, :, 0]
