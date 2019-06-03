@@ -587,7 +587,7 @@ class AnalysisGUI(QMainWindow):
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                     has_ud_expt = any(cf.det_valid_rotation_expt(self.data, True))
                     has_md_expt = any(cf.det_valid_rotation_expt(self.data, t_type=['MotorDrifting'], min_count=1))
-                    has_both = has_ud_expt and (has_rot_expt or has_md_expt)
+                    has_both = (has_ud_expt or has_md_expt) and has_rot_expt
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, True]
                     new_func_types = func_types[np.array(is_keep)]
 
@@ -3179,6 +3179,19 @@ class AnalysisGUI(QMainWindow):
             create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0])
             create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth)
 
+            # resets the subplot layout
+            self.plot_fig.fig.set_tight_layout(False)
+            if r_obj.is_single_cell:
+                # sets the layout size
+                self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+
+                # sets the cell cluster ID
+                self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0],
+                                           int(r_obj.ch_id[0][0])), fontsize=16, fontweight='bold')
+            else:
+                # sets the layout size
+                self.plot_fig.fig.tight_layout(rect=[0, 0, 1, 1])
+
             # for i_type in range(2):
             #     # # sets the bin values
             #     # xi_mid = np.mean(xi_bin[i_type], axis=1)
@@ -3429,7 +3442,7 @@ class AnalysisGUI(QMainWindow):
             rot_filt = cf.init_rotation_filter_data(True)
 
         # splits up the uniform drifting into CW/CCW phases
-        t_phase, t_ofs = self.fcn_data.curr_para['t_phase'], self.fcn_data.curr_para['t_ofs']
+        t_phase, t_ofs = self.fcn_data.curr_para['t_phase_vis'], self.fcn_data.curr_para['t_ofs_vis']
         r_obj, ind_type = cf.split_unidrift_phases(self.data, rot_filt, i_cluster, plot_exp_name,
                                                    plot_all_expt, plot_scope, t_phase, t_ofs)
         if r_obj is None:
@@ -6758,8 +6771,8 @@ class AnalysisFunctions(object):
         # ====> Rotation Trial Motion/Direction Selectivity
         para = {
             # # calculation parameters
-            # 't_phase': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
-            # 't_ofs': {'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            # 't_phase_vis': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
+            # 't_ofs_vis': {'gtype': 'C', 'text': 'UniformDrifting Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
 
             # plotting parameters
             'rot_filt': {
@@ -6901,8 +6914,12 @@ class AnalysisFunctions(object):
         # ====> Trial Spike Rate Comparison
         para = {
             # calculation parameters
-            't_phase': {'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
-            't_ofs': {'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
 
             # plotting parameters
             'rot_filt': {
@@ -6975,6 +6992,7 @@ class AnalysisFunctions(object):
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_ud_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), True))
         has_md_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=['MotorDrifting'], min_count=1))
+        has_vis_expt = has_ud_expt or has_md_expt
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
 
@@ -6990,6 +7008,16 @@ class AnalysisFunctions(object):
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
                 'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': 1.0, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': 0.2, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
             # plotting parameters
@@ -7023,17 +7051,30 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
-            't_phase': {
-                'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10,
-                'is_enabled': has_ud_expt
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10,
+                'is_enabled': has_vis_expt
             },
-            't_ofs': {
-                'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
-                'is_enabled': has_ud_expt
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
+                'is_enabled': has_vis_expt
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]], 'is_enabled': has_vis_expt
             },
             'vis_expt_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
-                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
             # plotting parameters
@@ -7051,11 +7092,11 @@ class AnalysisFunctions(object):
             },
             'resp_grp_type': {
                 'type': 'L', 'text': 'Response Cell Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
-                'is_enabled': has_ud_expt
+                'is_enabled': has_vis_expt
             },
             'use_resp_grp_type': {
                 'type': 'B', 'text': 'Response Cell Grouping', 'def_val': False,
-                'link_para': [['resp_grp_type', False], ['md_grp_type', True]], 'is_enabled': has_ud_expt
+                'link_para': [['resp_grp_type', False], ['md_grp_type', True]], 'is_enabled': has_vis_expt
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -7242,6 +7283,16 @@ class AnalysisFunctions(object):
             },
             'auc_stype': {'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
                          'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']},
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
 
             # plotting parameters
             'rot_filt': {
@@ -7277,17 +7328,30 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
-            't_phase': {
-                'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10,
-                'is_enabled': has_ud_expt
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10,
+                'is_enabled': has_vis_expt
             },
-            't_ofs': {
-                'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
-                'is_enabled': has_ud_expt
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
+                'is_enabled': has_vis_expt
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]], 'is_enabled': has_vis_expt
             },
             'vis_expt_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
-                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
             # plotting parameters
@@ -7302,7 +7366,7 @@ class AnalysisFunctions(object):
             'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': 'Uniform'},
             'show_sig_markers': {'type': 'B', 'text': 'Show Significance Markers', 'def_val': True},
             'use_resp_grp_type': {
-                'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_ud_expt
+                'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -7328,11 +7392,18 @@ class AnalysisFunctions(object):
         # ====> Combined Stimuli Statistics
         para = {
             # calculation parameters
-            't_phase': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
-            't_ofs': {'gtype': 'C', 'text': 'UniformDriftings Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'UniformDrifting Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]]
+            },
             'vis_expt_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0,
-                'link_para': [['t_phase', 'MotorDrifting'], ['t_ofs', 'MotorDrifting']]
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
             },
             'p_value': {'gtype': 'C', 'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
 

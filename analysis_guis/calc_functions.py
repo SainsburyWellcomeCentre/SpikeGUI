@@ -1070,3 +1070,36 @@ def calc_roc_curves_pool(p_data):
 
     x, y = p_data[0], p_data[1]
     return cf.calc_roc_curves(None, None, x_grp=x, y_grp=y)
+
+
+def get_rot_phase_offsets(calc_para, is_vis=False):
+    '''
+
+    :param calc_para:
+    :return:
+    '''
+
+    # retrieves the parameters based on the experiment type
+    if is_vis:
+        # case is the visual experiment analysis
+        t_ofs_str, t_phase_str, use_full_str = 't_ofs_vis', 't_phase_vis', 'use_full_vis'
+    else:
+        # case is the rotation experiment analysis
+        t_ofs_str, t_phase_str, use_full_str = 't_ofs_rot', 't_phase_rot', 'use_full_rot'
+
+    if t_ofs_str in calc_para:
+        # if the offset parameters are present, then determine if the offsets are to be used
+        if use_full_str in calc_para:
+            # if the entire phase parameter is present, then return the offset values based on this parameters value
+            if calc_para[use_full_str]:
+                # if using the entire phase, then return None values
+                return None, None
+            else:
+                # otherwise, use the partial phase parameters
+                return float(calc_para[t_ofs_str]), float(calc_para[t_phase_str])
+        else:
+            # otherwise, use the partial phase parameters
+            return float(calc_para[t_ofs_str]), float(calc_para[t_phase_str])
+    else:
+        # case is the parameters are not parameters
+        return None, None

@@ -916,7 +916,7 @@ def calc_waveform_values(A, w, t):
     return A * np.cos(w * t), -A * w * np.sin(w * t)
 
 
-def calc_kinematic_bin_times(b_sz, k_rng, w):
+def calc_kinematic_bin_times(b_sz, k_rng, w, calc_type=2):
     '''
 
     :param b_sz:
@@ -950,8 +950,16 @@ def calc_kinematic_bin_times(b_sz, k_rng, w):
         i_grp = np.vstack([np.sort([xi_bin0[i][k:(k+2)]])[0] for k in range(len(xi_bin0[i])-1)])
         xi_bin[i], i_bin[i] = np.unique(i_grp, axis=0, return_inverse=True)
 
-    # returns the time-bin array
-    return xi_bin0, xi_bin, t_bin, i_bin
+    # returns the time-bin array (depending on the calculation type)
+    if calc_type == 0:
+        # case is only position is being considered
+        return xi_bin0[0], xi_bin[0], t_bin[0], i_bin[0]
+    elif calc_type == 1:
+        # case is only velocity is being considered
+        return xi_bin0[1], xi_bin[1], t_bin[1], i_bin[1]
+    else:
+        # case is both position/velocity is being considered
+        return xi_bin0, xi_bin, t_bin, i_bin
 
 
 def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None):
@@ -993,12 +1001,14 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
 
     # initialisations
     r_data, v_rng, w, is_full_rs = data.rotation, 80, np.pi / r_obj.t_phase[0][0], indD is None
+    xi_bin0, xi_bin, t_bin, i_grp = calc_kinematic_bin_times([10, b_sz[0]], [90, v_rng], w, calc_type=1)
+    n_vbin, sd_vel = np.size(xi_bin, axis=0), np.sign(np.diff(xi_bin0))
 
-    # sets up the
-    A, B = np.arange(0, v_rng + 1e-6, b_sz[0]), np.arange(v_rng, -(v_rng + 1e-6), -b_sz[0])
-    xi_bin = np.array(list(A) + list(B[1:-1]) + list(np.flip(-A, axis=0))).astype(int)
-    t_bin = np.array(list(np.arcsin(A / v_rng)) + list(np.pi - np.arcsin(B / v_rng)[1:-1]) + \
-                     list(2 * np.pi - np.arcsin(np.flip(A, axis=0) / v_rng))) / w
+    # # sets up the
+    # A, B = np.arange(0, v_rng + 1e-6, b_sz[0]), np.arange(v_rng, -(v_rng + 1e-6), -b_sz[0])
+    # xi_bin = np.array(list(A) + list(B[1:-1]) + list(np.flip(-A, axis=0))).astype(int)
+    # t_bin = np.array(list(np.arcsin(A / v_rng)) + list(np.pi - np.arcsin(B / v_rng)[1:-1]) + \
+    #                  list(2 * np.pi - np.arcsin(np.flip(A, axis=0) / v_rng))) / w
 
     # sets the filter indices and the size of the comparison/smallest time bin
     if is_full_rs:
@@ -1022,8 +1032,8 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         ind_filt, dt_min = [indD['ind_filt']], (t_bin[ind_bin[0] + 1] - t_bin[ind_bin[0]] ) / 2.
 
     # memory allocation
-    n_filt = len(ind_filt)
-    vel_n = np.empty(n_filt, dtype=object)
+    n_filt, f_keys = len(ind_filt), list(r_data.vel_sf_rs.keys())
+    vel_f = np.empty(n_filt, dtype=object)
 
     # calculates the position/velocity for each filter type
     for i_filt in ind_filt:
@@ -1031,6 +1041,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         if is_full_rs:
             # if the values have already been calculated, then continue (total resampling only)
             if rr['t_type'][0] in r_data.vel_sf_rs:
+                vel_f[i_filt] = r_data.vel_sf_rs[rr['t_type'][0]]
                 continue
 
         # memory allocation for the current filter
@@ -1040,6 +1051,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         # sets the experiment indices that belong to the current trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
         valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
+        is_md_expt = tt == 'MotorDrifting'
 
         # sets the cell indices to be analysed
         if is_full_rs:
@@ -1065,58 +1077,85 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
             # memory allocation for the position/velocity bins (first cell only)
             if ii == 0:
                 if is_full_rs:
-                    vel_n[i_filt] = np.empty((n_trial_max, int((len(xi_bin)-1) / 2), n_cell))
+                    # case is calculating the resampling for all cells
+                    vel_f[i_filt] = np.empty((n_trial_max, n_vbin, n_cell, 2))
                 else:
-                    vel_n[i_filt] = np.empty(n_trial_max)
+                    # case is calculating for a single cell
+                    vel_f[i_filt] = np.empty(n_trial_max)
 
-                vel_n[i_filt][:] = np.nan
+                # sets all values to NaNs
+                vel_f[i_filt][:] = np.nan
 
             # memory allocation
+            vel_bin = np.zeros((n_trial_c, n_vbin, 2))
             for i_trial in range(n_trial_c):
                 # sets the spike times in the correct order for the current trial
                 if t_sp[i_trial, 1] is None:
                     continue
 
-                if y_dir[i_trial] == -1:
+                if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
                     # case is a CW => CCW trial
-                    t_sp_trial = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase))
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
                 else:
                     # case is a CCW => CW trial
-                    t_sp_trial = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase))
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
 
                 # if there are no spikes for the current trial, then continue
                 if len(t_sp_trial) == 0:
                     continue
 
                 # sets the bin indices and allocates memory for the bin spike counts
-                n_sp_bin = np.zeros(len(t_bin) - 1)
+                n_sp_bin = np.zeros(len(t_bin))
                 for i_bin in ind_bin:
                     # determines the indices of the time spikes within the current time bin
                     i_sp_bin = np.logical_and(t_sp_trial > t_bin[i_bin], t_sp_trial <= t_bin[i_bin + 1])
                     if np.any(i_sp_bin):
+                        # if there are any
                         n_sp_bin[i_bin] = calc_resampled_counts(
                             t_sp_trial[i_sp_bin], t_bin[i_bin:i_bin + 2], dt_min, n_sample
                         )
 
-                # sets the groupings for each time bins
-                i_grp, ind_inv = np.unique(
-                    np.sort(np.vstack([-y_dir[i_trial] * xi_bin[i:i + 2] for i in range(len(xi_bin) - 1)]),
-                    axis=1), axis=0, return_inverse=True
-                )
+                # sets the position/velocity values
+                vel_bin_tmp = reorder_array(n_sp_bin, i_grp, sd_vel, m=-m, dtype=float)
+                for k in range(2):
+                    vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
 
-                #
+                # # sets the groupings for each time bins
+                # i_grp, ind_inv = np.unique(
+                #     np.sort(np.vstack([-y_dir[i_trial] * xi_bin[i:i + 2] for i in range(len(xi_bin) - 1)]),
+                #     axis=1), axis=0, return_inverse=True
+                # )
+
+            # calculates the position/velocity spiking frequencies over all trials
+            for k in range(2):
                 if is_full_rs:
-                    for i_bin in range(np.size(vel_n[i_filt], axis=1)):
-                        vel_n[i_filt][i_trial, :, i_cell] = np.array(
-                            [np.sum(n_sp_bin[ind_inv == i]) for i in range(np.size(vel_n[i_filt], axis=1))])
+                    # case is setting all spiking frequencies
+
+                    # sets the trial indices
+                    if k == 0:
+                        ind_t = np.array(range(n_trial_c))
+
+                    # sets the full velocity/position spiking rates
+                    vel_f[i_filt][ind_t, :, i_cell, k] = vel_bin[:, :, k] / dt_min
                 else:
-                    vel_n[i_filt][i_trial] = np.mean(n_sp_bin[np.array(ind_bin)])
+                    # case is calculating the average spiking frequency
+                    a = 1
+                    # pos_f[i_filt][i_cell, :, k] = np.mean(pos_bin[:, :, k], axis=0) / pos_dt
+                    # vel_f[i_filt][i_cell, :, k] = np.mean(vel_bin[:, :, k], axis=0) / vel_dt
+
+            # #
+            # if is_full_rs:
+            #     for i_bin in range(np.size(vel_n[i_filt], axis=1)):
+            #         vel_n[i_filt][i_trial, :, i_cell] = np.array(
+            #             [np.sum(n_sp_bin[ind_inv == i]) for i in range(np.size(vel_n[i_filt], axis=1))])
+            # else:
+            #     vel_n[i_filt][i_trial] = np.mean(n_sp_bin[np.array(ind_bin)])
 
     # returns the values
     if is_full_rs:
-        return vel_n, -B, 2 * dt_min
+        return vel_f, xi_bin
     else:
-        return vel_n[0]
+        return vel_f
 
 
 def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
@@ -1127,34 +1166,6 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     :param i_expt:
     :return:
     '''
-
-    def reorder_array(h, i_grp, sd, dtype=int, m=1):
-        '''
-
-        :param y0:
-        :param j_grp:
-        :return:
-        '''
-
-        # memory allocation
-        nH, i_row = int(len(i_grp) / 2), ((sd + 1) / 2).astype(int)
-        y_arr = -np.ones((2, nH), dtype=dtype)
-
-        # sets the ordering of the index array
-        if m == 1:
-            # index array is in the correct order
-            j_grp = dcopy(i_grp)
-        else:
-            # index array needs to be reversed
-            j_grp = max(i_grp) - dcopy(i_grp)
-
-        # sets the values into the array
-        for i in range(len(j_grp)):
-            y_arr[i_row[i], j_grp[i]] = h[i]
-
-        # sets the ordered values and return the final array
-        return y_arr
-
 
     # initialisations and memory allocation
     k_rng, n_filt, calc_avg_sf = [90, 80], len(r_obj.t_spike), calc_type == 2
@@ -1217,27 +1228,29 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
 
             for i_trial in range(n_trial_c):
                 # sets the spike times in the correct order for the current trial
-                if t_sp[i_trial, 1] is not None:
-                    if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
-                        # case is a CW => CCW trial
-                        t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
-                    else:
-                        # case is a CCW => CW trial
-                        t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
+                if t_sp[i_trial, 1] is None:
+                    continue
 
-                    # calculates the counts for each of the time bins
-                    if len(t_sp_trial):
-                        # calculates the position/velocity histogram bin values
-                        pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos, m=m)
-                        vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=-m)
+                if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
+                    # case is a CW => CCW trial
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
+                else:
+                    # case is a CCW => CW trial
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
 
-                        # h_vel = np.arange(64)
-                        # vel_bin_tmp = reorder_array(h_vel, i_grp[1], sd_vel)
+                # calculates the counts for each of the time bins
+                if len(t_sp_trial):
+                    # calculates the position/velocity histogram bin values
+                    pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos, m=m)
+                    vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=-m)
 
-                        # sets the position/velocity values
-                        for k in range(2):
-                            pos_bin[i_trial, :, k] = pos_bin_tmp[k, :]
-                            vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
+                    # h_vel = np.arange(64)
+                    # vel_bin_tmp = reorder_array(h_vel, i_grp[1], sd_vel)
+
+                    # sets the position/velocity values
+                    for k in range(2):
+                        pos_bin[i_trial, :, k] = pos_bin_tmp[k, :]
+                        vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
 
             # calculates the position/velocity spiking frequencies over all trials
             for k in range(2):
@@ -1261,73 +1274,102 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     # returns the position/velocity spiking frequency arrays
     if calc_type == 0:
         # calculation type is position data only
-        return vel_f, xi_bin[0], pos_dt
+        return pos_f, xi_bin[0]
     elif calc_type == 1:
         # calculation type is velocity data only
-        return vel_f, xi_bin[1], vel_dt
+        return vel_f, xi_bin[1]
     else:
         # calculation type is both kinematic types
         return [pos_f, vel_f], xi_bin
 
-def calc_wave_kinematic_times(wvm_para, s_freq, i_expt, kb_sz, is_pos, yDir=1):
+
+def reorder_array(h, i_grp, sd, dtype=int, m=1):
     '''
 
-    :param wvm_para:
-    :param kb_sz:
+    :param y0:
+    :param j_grp:
     :return:
     '''
 
-    # initialisations
-    yAmp, tPeriod = wvm_para[int(i_expt)]['yAmp'], wvm_para[int(i_expt)]['tPeriod']
-    w, A = 2 * np.pi * s_freq / tPeriod, yAmp * yDir
+    # memory allocation
+    nH, i_row = int(len(i_grp) / 2), ((sd + 1) / 2).astype(int)
+    y_arr = -np.ones((2, nH), dtype=dtype)
 
-    # if velocity, then convert the amplitude from position to speed
-    if not is_pos:
-        yAmp = np.ceil(yAmp * w)
-
-    # calculates the number of bins for half the full sinusoidal wave
-    n_bin = yAmp / kb_sz
-    # if (n_bin - np.round(n_bin)) > 1e-6:
-    #     # if a non-integer number of bins are being created, then exit with an error output to screen
-    #     e_str = 'The discretisation bin size does not produce an even number of bins:\n\n' \
-    #             '  => Wave Amplitude = {0}\n  => Bin Size = {1}\n'.format(yAmp, kb_sz)
-    #     e_str = e_str + '  => Bin Count = {:4.1f}\n\nAlter the discretisation bin size until an ' \
-    #                     'even number of bins is achieved.'.format(2 * n_bin)
-    #     cf.show_error(e_str, 'Incorrect Discretisation Bin Size')
-    #
-    #     # returns none values
-    #     return None, None, None
-    # else:
-
-    # otherwise, initialise the angle bin array (repeats for the full sinusoid period)
-    xi_bin = np.linspace(-yAmp, yAmp, 1 + np.ceil(2 * n_bin))
-    xi_bin_tot = np.hstack((xi_bin, xi_bin))
-
-    # calculates the time offsets for each of the bins
-    if is_pos:
-        # case is position is being considered
-        phi = np.array([m.acos(ss_scale(x / A)) for x in xi_bin])
-        phi_tot = np.hstack((phi, 2 * np.pi - phi))
+    # sets the ordering of the index array
+    if m == 1:
+        # index array is in the correct order
+        j_grp = dcopy(i_grp)
     else:
-        # case is speed is being considered
-        phi = np.array([m.acos(ss_scale(-v / (w * A))) for v in xi_bin])
+        # index array needs to be reversed
+        j_grp = max(i_grp) - dcopy(i_grp)
 
-        # converts the angles to the arc-sin range (from the arc-cosine range) and ensures all angles are positive
-        phi_tot = np.hstack((np.pi / 2 - phi, phi - 3 * np.pi / 2))
-        phi_tot[phi_tot < 0] = 2 * np.pi + phi_tot[phi_tot< 0]
+    # sets the values into the array
+    for i in range(len(j_grp)):
+        y_arr[i_row[i], j_grp[i]] = h[i]
 
-    # sorts the angle bins in chronological order
-    i_sort = np.argsort(phi_tot)
-    xi_bin_tot, phi_tot = xi_bin_tot[i_sort], phi_tot[i_sort]
+    # sets the ordered values and return the final array
+    return y_arr
 
-    # ensures the start/end of the discretisation bins are the same
-    if np.abs(xi_bin_tot[0] - xi_bin_tot[-1]) > 1e-6:
-        xi_bin_tot = np.append(xi_bin_tot, xi_bin_tot[0])
-        phi_tot = np.append(phi_tot, 2 * np.pi)
 
-    # removes any repeats
-    is_ok = np.array([True] + list(np.diff(xi_bin_tot) != 0))
-    xi_bin_tot, t_bin = xi_bin_tot[is_ok], phi_tot[is_ok] / w
-
-    # returns the bin discretisation, bin time points, and the the duration of the CC/CCW phases
-    return xi_bin_tot, t_bin, tPeriod / (s_freq * 2.0)
+# def calc_wave_kinematic_times(wvm_para, s_freq, i_expt, kb_sz, is_pos, yDir=1):
+#     '''
+#
+#     :param wvm_para:
+#     :param kb_sz:
+#     :return:
+#     '''
+#
+#     # initialisations
+#     yAmp, tPeriod = wvm_para[int(i_expt)]['yAmp'], wvm_para[int(i_expt)]['tPeriod']
+#     w, A = 2 * np.pi * s_freq / tPeriod, yAmp * yDir
+#
+#     # if velocity, then convert the amplitude from position to speed
+#     if not is_pos:
+#         yAmp = np.ceil(yAmp * w)
+#
+#     # calculates the number of bins for half the full sinusoidal wave
+#     n_bin = yAmp / kb_sz
+#     # if (n_bin - np.round(n_bin)) > 1e-6:
+#     #     # if a non-integer number of bins are being created, then exit with an error output to screen
+#     #     e_str = 'The discretisation bin size does not produce an even number of bins:\n\n' \
+#     #             '  => Wave Amplitude = {0}\n  => Bin Size = {1}\n'.format(yAmp, kb_sz)
+#     #     e_str = e_str + '  => Bin Count = {:4.1f}\n\nAlter the discretisation bin size until an ' \
+#     #                     'even number of bins is achieved.'.format(2 * n_bin)
+#     #     cf.show_error(e_str, 'Incorrect Discretisation Bin Size')
+#     #
+#     #     # returns none values
+#     #     return None, None, None
+#     # else:
+#
+#     # otherwise, initialise the angle bin array (repeats for the full sinusoid period)
+#     xi_bin = np.linspace(-yAmp, yAmp, 1 + np.ceil(2 * n_bin))
+#     xi_bin_tot = np.hstack((xi_bin, xi_bin))
+#
+#     # calculates the time offsets for each of the bins
+#     if is_pos:
+#         # case is position is being considered
+#         phi = np.array([m.acos(ss_scale(x / A)) for x in xi_bin])
+#         phi_tot = np.hstack((phi, 2 * np.pi - phi))
+#     else:
+#         # case is speed is being considered
+#         phi = np.array([m.acos(ss_scale(-v / (w * A))) for v in xi_bin])
+#
+#         # converts the angles to the arc-sin range (from the arc-cosine range) and ensures all angles are positive
+#         phi_tot = np.hstack((np.pi / 2 - phi, phi - 3 * np.pi / 2))
+#         phi_tot[phi_tot < 0] = 2 * np.pi + phi_tot[phi_tot< 0]
+#
+#     # sorts the angle bins in chronological order
+#     i_sort = np.argsort(phi_tot)
+#     xi_bin_tot, phi_tot = xi_bin_tot[i_sort], phi_tot[i_sort]
+#
+#     # ensures the start/end of the discretisation bins are the same
+#     if np.abs(xi_bin_tot[0] - xi_bin_tot[-1]) > 1e-6:
+#         xi_bin_tot = np.append(xi_bin_tot, xi_bin_tot[0])
+#         phi_tot = np.append(phi_tot, 2 * np.pi)
+#
+#     # removes any repeats
+#     is_ok = np.array([True] + list(np.diff(xi_bin_tot) != 0))
+#     xi_bin_tot, t_bin = xi_bin_tot[is_ok], phi_tot[is_ok] / w
+#
+#     # returns the bin discretisation, bin time points, and the the duration of the CC/CCW phases
+#     return xi_bin_tot, t_bin, tPeriod / (s_freq * 2.0)

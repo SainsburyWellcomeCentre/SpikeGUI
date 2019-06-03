@@ -117,15 +117,22 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # case is the shuffled cluster distances
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.)
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.):
+                    self.is_ok = False
+                    return
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Whole Experiment)':
                 if plot_para['use_resp_grp_type']:
                     if not self.calc_dirsel_group_types(data, calc_para, plot_para):
                         self.is_ok = False
+                        return
 
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.)
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
+                    self.is_ok = False
+                    return
+
+                # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
@@ -146,7 +153,11 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.)
+                if self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
+                    self.is_ok = False
+                    return
+
+                # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
@@ -154,9 +165,14 @@ class WorkerThread(QThread):
                 if plot_para['use_resp_grp_type']:
                     if not self.calc_dirsel_group_types(data, calc_para, plot_para):
                         self.is_ok = False
+                        return
 
                 # calculates the phase roc-curves for each cell
-                self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.)
+                if self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
+                    self.is_ok = False
+                    return
+
+                # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
@@ -905,9 +921,15 @@ class WorkerThread(QThread):
         # sets up a base filter with only the
         r_filt_base = cf.init_rotation_filter_data(False)
         r_filt_base['t_type'] = [x for x in t_type if x != 'UniformDrifting']
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # sets up the black phase data filter and returns the time spikes
-        r_obj = RotationFilteredData(data, r_filt_base, None, plot_para['plot_exp_name'], True, plot_scope, False)
+        r_obj = RotationFilteredData(data, r_filt_base, None, plot_para['plot_exp_name'], True, plot_scope, False,
+                                     t_ofs=t_ofs, t_phase=t_phase)
+        if not r_obj.is_ok:
+            # if there was an error, then output an error to screen
+            self.work_error.emit(r_obj.e_str, 'Incorrect Analysis Function Parameters')
+            return False
 
         # memory allocation (if the conditions have not been set)
         if r_data.cond_roc is None:
@@ -994,13 +1016,20 @@ class WorkerThread(QThread):
 
                 # sets the rotation object for the current condition
                 r_obj_sig = RotationFilteredData(data, r_obj.rot_filt_tot[i_rr], None, plot_para['plot_exp_name'],
-                                                 True, plot_scope, False)
+                                                 True, plot_scope, False, t_ofs=t_ofs, t_phase=t_phase)
+                if not r_obj_sig.is_ok:
+                    # if there was an error, then output an error to screen
+                    self.work_error.emit(r_obj_sig.e_str, 'Incorrect Analysis Function Parameters')
+                    return False
 
             # calculates the condition cell group types
             self.calc_phase_roc_significance(calc_para, g_para, data, pool, None, c_type='cond',
                                              roc=r_data.cond_roc[tt], auc=r_data.cond_roc_auc[tt],
                                              g_type=r_data.cond_gtype[tt], auc_sig=r_data.cond_auc_sig[tt],
                                              r_obj=r_obj_sig)
+
+        # returns a true value
+        return True
 
     def calc_phase_roc_significance(self, calc_para, g_para, data, pool, pW, c_type='phase',
                                     roc=None, auc=None, g_type=None, auc_sig=None, r_obj=None):
@@ -1203,16 +1232,22 @@ class WorkerThread(QThread):
 
         # retrieves the visual filtered data
         if ud_rot_expt:
+            # sets the visual phase/offset
+            if calc_para['use_full_vis']:
+                t_phase_vis, t_ofs_vis = 2., 0.
+            else:
+                t_phase_vis, t_ofs_vis = calc_para['t_phase_vis'], calc_para['t_ofs_vis']
+
             # case is uniform-drifting experiments (split into CW/CCW phases)
             r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
             r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
-                                                           p_scope, calc_para['t_phase'], calc_para['t_ofs'])
+                                                           p_scope, t_phase_vis, t_ofs_vis)
             if r_obj_vis is None:
                 # output an error to screen
                 e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
                         '  * Analysis Duration + Offset = {0}\n s. * Experiment Phase Duration = {1} s.\n\n' \
                         'Enter a correct analysis duration/offset combination before re-running ' \
-                        'the function.'.format(calc_para['t_phase'] + calc_para['t_ofs'], 2.0)
+                        'the function.'.format(calc_para['t_phase_vis'] + calc_para['t_ofs_vis'], 2.0)
                 self.work_error.emit(e_str, 'Incorrect Analysis Function Parameters')
 
                 # return a false value indicating the calculation is invalid
@@ -1222,11 +1257,15 @@ class WorkerThread(QThread):
 
             # retrieves the filtered data from the loaded datasets
             r_filt_vis['t_type'], r_filt_vis['is_ud'], ind_type = ['MotorDrifting'], [False], None
-            r_obj_vis = RotationFilteredData(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
-                                                    p_scope, False)
+            t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para, is_vis=True)
 
-            # FINISH ME!
-            a = 1
+            # runs the rotation filter
+            r_obj_vis = RotationFilteredData(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
+                                                    p_scope, False, t_ofs=t_ofs, t_phase=t_phase)
+            if not r_obj_vis.is_ok:
+                # if there was an error, then output an error to screen
+                self.work_error.emit(r_obj_vis.e_str, 'Incorrect Analysis Function Parameters')
+                return False
 
         # calculate the visual/rotation stats scores
         sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data.r_obj_rot_ds, p_value)
@@ -1355,23 +1394,23 @@ class WorkerThread(QThread):
         if equal_time:
             # case is using resampling from equal time bin sizes
             n_rs, w_prog = calc_para['n_sample'], self.work_progress
-            vel_n, xi_bin, dt_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
+            vel_f, xi_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
         else:
             # calculates the velocity kinematic frequencies
-            vel_n, xi_bin, dt_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
+            vel_f, xi_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
 
-            # resets the frequencies based on the types
-            for i_filt in range(len(vel_n)):
+        # resets the frequencies based on the types
+        for i_filt in range(len(vel_f)):
+            if len(np.shape(vel_f[i_filt])) == 4:
                 if calc_para['freq_type'] == 'All':
                     # case is considering all frequency types (stack frequencies on top of each other)
-                    # vel_n[i_filt] = np.vstack((vel_n[i_filt][:, :, :, 0], vel_n[i_filt][:, :, :, 1]))
-                    vel_n[i_filt] = np.mean(vel_n[i_filt], axis=3)
+                    vel_f[i_filt] = np.mean(vel_f[i_filt], axis=3)
                 elif calc_para['freq_type'] == 'Decreasing':
                     # case is only considering decreasing velocity frequencies
-                    vel_n[i_filt] = vel_n[i_filt][:, :, :, 0]
+                    vel_f[i_filt] = vel_f[i_filt][:, :, :, 0]
                 else:
                     # case is only considering increasing velocity frequencies
-                    vel_n[i_filt] = vel_n[i_filt][:, :, :, 1]
+                    vel_f[i_filt] = vel_f[i_filt][:, :, :, 1]
 
         # sets the comparison bin for the velocity/speed arrays
         n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin[:, 0] == 0)[0][0]
@@ -1397,12 +1436,12 @@ class WorkerThread(QThread):
                     continue
 
             # sets the speed frequencies into a single array
-            spd_n = np.vstack((np.flip(vel_n[i_filt][:, :i_bin0, :], 1), vel_n[i_filt][:, i_bin0:, :]))
+            spd_f = np.vstack((np.flip(vel_f[i_filt][:, :i_bin0, :], 1), vel_f[i_filt][:, i_bin0:, :]))
 
             if equal_time:
                 # case is using equally spaced time bins
-                r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt])
-                r_data.spd_sf_rs[tt] = dcopy(spd_n)
+                r_data.vel_sf_rs[tt] = dcopy(vel_f[i_filt])
+                r_data.spd_sf_rs[tt] = dcopy(spd_f)
 
                 # REMOVE ME LATER
                 # r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt]) / dt_bin
@@ -1410,7 +1449,7 @@ class WorkerThread(QThread):
 
             else:
                 # case is using the normal time bins
-                r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_n[i_filt]), dcopy(spd_n)
+                r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
 
                 # # memory allocation
                 # n_trial = np.size(vel_n[i_filt], axis=0)

@@ -524,11 +524,15 @@ class RotationFilter(QDialog):
 ########################################################################################################################
 
 class RotationFilteredData(object):
-    def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud):
+    def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud,
+                 t_ofs=None, t_phase=None):
 
         # initialisations
+        self.e_str = None
         self.is_ok = True
         self.is_ud = is_ud
+        self._t_ofs = t_ofs
+        self._t_phase = t_phase
         self.plot_exp_name = plot_exp_name
         self.plot_all_expt = plot_all_expt
         self.plot_scope = plot_scope
@@ -624,7 +628,7 @@ class RotationFilteredData(object):
                                                     for wvp, sf in zip(self.wvm_para, s_freq)
             ]
         else:
-            # case i a flat pattern
+            # case is a flat pattern
             self.t_phase = [
                 [np.floor(wv['nPts'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
                                                     for wvp, sf in zip(self.wvm_para, s_freq)
@@ -725,6 +729,38 @@ class RotationFilteredData(object):
             # other array reduction
             self.t_phase = [x for x, y in zip(self.t_phase, is_ok) if y]
             self.rot_filt_tot = [x for x, y in zip(self.rot_filt_tot, is_ok) if y]
+
+        #
+        if self._t_ofs is not None:
+            # determines if the phase duration is greater than
+            t_phase = self.t_phase[0][0]
+            if (self._t_ofs + self._t_phase) > t_phase:
+                self.e_str = 'The entered analysis duration and offset is ' \
+                             'greater than the experimental phase duration:\n\n' \
+                             '  * Analysis Duration + Offset = {0}s.\n * Experiment Phase Duration = {1}s.\n\n' \
+                             'Enter a correct analysis duration/offset combination before re-running ' \
+                             'the function.'.format(self._t_ofs + self._t_phase, np.round(t_phase, 3))
+            else:
+                # removes the
+                for i_filt in range(self.n_filt):
+                    # array dimensioning
+                    n_cell, n_trial, n_phase = np.shape(self.t_spike[i_filt])
+                    self.t_phase[i_filt][0] = self._t_phase
+
+                    #
+                    for i_phase in range(n_phase):
+                        for i_trial in range(n_trial):
+                            for i_cell in range(n_cell):
+                                # # resets the full time-spike arrays
+                                # t_sp0 = self.t_spike0[i_filt][i_cell, i_trial, i_phase]
+                                # jj = np.logical_and(t_sp0 >= self._t_ofs, t_sp0 <= (self._t_ofs + self._t_phase))
+                                # t_sp0 = t_sp0[jj]
+
+                                # reshapes the other time-spike arrays
+                                t_sp = self.t_spike[i_filt][i_cell, i_trial, i_phase]
+                                ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
+                                self.t_spike[i_filt][i_cell, i_trial, i_phase] = \
+                                                        self.t_spike[i_filt][i_cell, i_trial, i_phase][ii]
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
