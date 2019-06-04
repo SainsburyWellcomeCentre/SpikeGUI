@@ -1285,6 +1285,25 @@ def det_valid_rotation_expt(data, is_ud=False, t_type=None, min_count=2):
     # returns the array
     return is_valid
 
+
+def det_valid_vis_expt(data, is_vis_only=False):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    # determines if there are any valid uniform/motor drifting experiments currently loaded
+    has_ud_expt = any(det_valid_rotation_expt(data, True))
+    has_md_expt = any(det_valid_rotation_expt(data, t_type=['MotorDrifting'], min_count=1))
+
+    # returns the boolean flags
+    if is_vis_only:
+        return has_ud_expt or has_md_expt
+    else:
+        return has_ud_expt or has_md_expt, has_ud_expt, has_md_expt
+
+
 def set_axis_limits(ax, x_lim, y_lim):
     '''
 
@@ -1743,13 +1762,6 @@ def calc_inter_roc_significance(roc1, roc2, method, boot_n):
     results = _roc_test(roc1, roc2, method=method[0].lower(), boot_n=boot_n, progress='none')
     return results[results.names.index('p.value')][0]
 
-# roc.test(roc1, roc2, method=c("delong", "bootstrap",
-# "venkatraman", "sensitivity", "specificity"), sensitivity = NULL,
-# specificity = NULL, alternative = c("two.sided", "less", "greater"),
-# paired=NULL, reuse.auc=TRUE, boot.n=2000, boot.stratified=TRUE,
-# ties.method="first", progress=getOption("pROCProgress")$name,
-# parallel=FALSE, ...)
-
 
 def calc_roc_curves(comp_vals, roc_type='Cell Spike Times', x_grp=None, y_grp=None, ind=[1, 2]):
     '''
@@ -1783,25 +1795,25 @@ def calc_roc_curves(comp_vals, roc_type='Cell Spike Times', x_grp=None, y_grp=No
     return r_pROC.roc(FloatVector(roc_pred), FloatVector(roc_class), direction = ">")
 
 
-def calc_cell_roc_bootstrap_wrapper(p_data):
-    '''
-
-    :param p_data:
-    :return:
-    '''
-
-    # initialisations
-    t_spike, n_boot, ind = p_data[0], p_data[1], p_data[2]
-
-    # sets the cw/ccw trial spike arrays
-    n_trial = np.sum([(x is not None) for x in t_spike[:, 0]])
-    t_sp_p1 = [t_spike[i, ind[0]] for i in range(n_trial)]  # 1st phase trial spikes
-    t_sp_p2 = [t_spike[i, ind[1]] for i in range(n_trial)]  # 2nd phase trial spikes
-
-    # determines the spike counts for the cc/ccw trials
-    n_spike = [spike_count_fcn(t_sp_p1), spike_count_fcn(t_sp_p2)]
-
-    return calc_cell_roc_bootstrap(None, n_spike, n_boot=n_boot, ind=ind)
+# def calc_cell_roc_bootstrap_wrapper(p_data):
+#     '''
+#
+#     :param p_data:
+#     :return:
+#     '''
+#
+#     # initialisations
+#     t_spike, n_boot, ind = p_data[0], p_data[1], p_data[2]
+#
+#     # sets the cw/ccw trial spike arrays
+#     n_trial = np.sum([(x is not None) for x in t_spike[:, 0]])
+#     t_sp_p1 = [t_spike[i, ind[0]] for i in range(n_trial)]  # 1st phase trial spikes
+#     t_sp_p2 = [t_spike[i, ind[1]] for i in range(n_trial)]  # 2nd phase trial spikes
+#
+#     # determines the spike counts for the cc/ccw trials
+#     n_spike = [spike_count_fcn(t_sp_p1), spike_count_fcn(t_sp_p2)]
+#
+#     return calc_cell_roc_bootstrap(None, n_spike, n_boot=n_boot, ind=ind)
 
 
 def calc_roc_conf_intervals(p_data):
@@ -2167,15 +2179,27 @@ def calc_dirsel_scores(s_plt, sf_stats, p_value=0.05):
 
     # calculates the score type for the CW/CCW phases
     sf_score = np.zeros((len(grad_CW), 3), dtype=int)
-    sf_score[:, 0] = (sf_stats[0] < p_value).astype(int) * (1 + (grad_CW > 1).astype(int))
-    sf_score[:, 1] = (sf_stats[1] < p_value).astype(int) * (1 + (grad_CCW > 1).astype(int))
+    if p_value is None:
+        # case is the statistical significance has already been calculated
+        sf_score[:, 0] = sf_stats[:, 0].astype(int) * (1 + (grad_CW > 1).astype(int))
+        sf_score[:, 1] = sf_stats[:, 1].astype(int) * (1 + (grad_CCW > 1).astype(int))
+    else:
+        # case is the statistical significance needs to be calculated
+        sf_score[:, 0] = (sf_stats[0] < p_value).astype(int) * (1 + (grad_CW > 1).astype(int))
+        sf_score[:, 1] = (sf_stats[1] < p_value).astype(int) * (1 + (grad_CCW > 1).astype(int))
 
     # if both CW and CCW are significant (wrt the baseline phase), then determine from these cells which
     # cells have a significant CW/CCW difference (1 for CW, 2 for CCW, 0 otherwise):
     #   1) significant for a single direction (either CW or CCW preferred)
     #   2) significant for both, but the CCW/CW gradient is either > 1 (for CCW preferred) or < 1 (for CW preferred)
     both_sig = np.logical_and(sf_score[:, 0] > 0, sf_score[:, 1] > 0)
-    sf_score[both_sig, 2] = (sf_stats[2][both_sig] < p_value).astype(int) * (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
+    if p_value is None:
+        # case is the statistical significance has already been calculated
+        sf_score[both_sig, 2] = sf_stats[both_sig, 2].astype(int) * (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
+    else:
+        # case is the statistical significance needs to be calculated
+        sf_score[both_sig, 2] = (sf_stats[2][both_sig] < p_value).astype(int) * \
+                                (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
 
     # returns the scores array
     return sf_score

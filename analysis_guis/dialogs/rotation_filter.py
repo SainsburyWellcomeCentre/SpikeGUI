@@ -68,10 +68,12 @@ class RotationFilter(QDialog):
                         self.rmv_fields = None
                 else:
                     self.rmv_fields = other_var['rmv_fields']
-                    self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                    # self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                    self.is_ud = self.grp_type in ['UniformDrift Analysis']
             else:
                 self.rmv_fields = None
-                self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                # self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                self.is_ud = self.grp_type in ['UniformDrift Analysis']
 
             plot_scope = main_obj.get_plot_scope()
             if plot_scope is None:
@@ -120,14 +122,16 @@ class RotationFilter(QDialog):
             if self.is_gen:
                 title = "General Exclusion Filter"
             elif self.is_ud:
-                title = "Rotational Exclusion Filter"
-            else:
                 title = "UniformDrift Exclusion Filter"
+            else:
+                title = "Rotational Exclusion Filter"
         else:
             if self.grp_type == 'Rotation Analysis':
                 title = "Rotational Analysis Plot Filter"
             elif self.grp_type == 'ROC Analysis':
                 title = "ROC Analysis"
+            elif self.grp_type == 'Combined Analysis':
+                title = "Combined Analysis Plot Filter"
             else:
                 title = "UniformDrift Analysis Plot Filter"
 
@@ -154,7 +158,8 @@ class RotationFilter(QDialog):
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
         # retrieves the trial-types from each experiment
-        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis']) or (self.is_exc and (not self.is_ud)):
+        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis']) or \
+           (self.is_exc and (not self.is_ud)):
             t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
             if self.use_both:
                 trial_type = [x for x in np.unique(t_list0) if x != 'UniformDrifting']
@@ -735,13 +740,14 @@ class RotationFilteredData(object):
             # determines if the phase duration is greater than
             t_phase = self.t_phase[0][0]
             if (self._t_ofs + self._t_phase) > t_phase:
+                self.is_ok = False
                 self.e_str = 'The entered analysis duration and offset is ' \
                              'greater than the experimental phase duration:\n\n' \
                              '  * Analysis Duration + Offset = {0}s.\n * Experiment Phase Duration = {1}s.\n\n' \
                              'Enter a correct analysis duration/offset combination before re-running ' \
                              'the function.'.format(self._t_ofs + self._t_phase, np.round(t_phase, 3))
             else:
-                # removes the
+                # reduces the time spike arrays to include only the valid offset/duration
                 for i_filt in range(self.n_filt):
                     # array dimensioning
                     n_cell, n_trial, n_phase = np.shape(self.t_spike[i_filt])

@@ -129,6 +129,7 @@ class AnalysisGUI(QMainWindow):
         # other initialisations
         self.is_multi = False
         self.calc_ok = True
+        self.thread_calc_error = False
         self.can_close = False
         self.initialising = True
         self.analysis_scope = 'Unprocessed'
@@ -242,7 +243,7 @@ class AnalysisGUI(QMainWindow):
         self.push_update = cf.create_button(self.grp_para, QRect(10, 25, grp_inner2, 22), txt_font_bold,
                                             "Update Plot Figure", 'push_update', cb_fcn=self.update_click)
 
-        # other initialisations and setting object properties
+        # other initialis/ations and setting object properties
         self.fcn_data = AnalysisFunctions(self.grp_para, self)
         self.set_group_enabled_props(self.grp_func, False)
 
@@ -585,9 +586,8 @@ class AnalysisGUI(QMainWindow):
                 else:
                     #
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
-                    has_ud_expt = any(cf.det_valid_rotation_expt(self.data, True))
-                    has_md_expt = any(cf.det_valid_rotation_expt(self.data, t_type=['MotorDrifting'], min_count=1))
-                    has_both = (has_ud_expt or has_md_expt) and has_rot_expt
+                    has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
+                    has_both = has_vis_expt and has_rot_expt
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, True]
                     new_func_types = func_types[np.array(is_keep)]
 
@@ -651,10 +651,12 @@ class AnalysisGUI(QMainWindow):
 
                 # if the calculation failed, then exit without updating
                 if not self.worker[iw].is_ok:
+                    self.thread_calc_error = True
                     return
 
                 # retrieves the data from the worker thread
                 calc_data = worker_data
+                self.thread_calc_error = False
 
                 # sets the data based on the calculation function that was run
                 if self.worker[iw].thread_job_secondary == 'Cluster Cross-Correlogram':
@@ -3192,98 +3194,6 @@ class AnalysisGUI(QMainWindow):
                 # sets the layout size
                 self.plot_fig.fig.tight_layout(rect=[0, 0, 1, 1])
 
-            # for i_type in range(2):
-            #     # # sets the bin values
-            #     # xi_mid = np.mean(xi_bin[i_type], axis=1)
-            #     # if i_type == 0:
-            #     #     # sets the tick-labels for the polar subplot
-            #     #     xi_min = xi_bin[0][0, 0]
-            #     #     xi_mid = np.pi * (1 - (xi_mid - xi_min) / np.abs(2 * xi_min))
-            #
-            #     # # sets up the tickmarks
-            #     # x_tick = np.linspace(-k_rng[i_type], k_rng[i_type], 7 + 2 * i_type)
-            #
-            #     # creates the plots for each type
-            #     for j_type in range(3):
-            #         #
-            #         i_plot = i_type * 3 + j_type
-            #
-            #
-            #     # creates the radial plots for each of the filter types
-            #     h_plt = []
-            #     for i_filt in range(r_obj.n_filt):
-            #         # # calculates the
-            #         # k_sf_mn = np.mean(k_sf[i_type][i_filt], axis=0)
-            #
-            #         # # creates the plot and resets the labels
-            #         # if proj_type[i_type] is None:
-            #         #     # # smooths the signal (if required)
-            #         #     # if is_smooth:
-            #         #     #     k_sf_mn = medfilt(k_sf_mn, n_smooth)
-            #         #     #
-            #         #     # # creates the line plot
-            #         #     # h_plt.append(self.plot_fig.ax[i_type].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
-            #         # else:
-            #         #     # case is the polar plot
-            #         #     # d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
-            #         #     # h_plt.append(self.plot_fig.ax[i_type].bar(xi_mid - d_xi, height=k_sf_mn, color=c[i_filt],
-            #         #     #                                           width=np.deg2rad(b_sz[i_type]) / r_obj.n_filt,
-            #         #     #                                           linewidth=0))
-            #
-            #         if i_filt == 0:
-            #             self.plot_fig.ax[i_type].set_title(title_str[i_type])
-            #             mlt = 1 if proj_type[i_type] is None else -1
-            #
-            #             if proj_type[i_type] is 'polar':
-            #                 self.plot_fig.ax[i_type].set_xticks(np.pi * (x_tick - xi_min) / np.abs(2 * xi_min))
-            #             else:
-            #                 self.plot_fig.ax[i_type].set_xticks(x_tick)
-            #
-            #             self.plot_fig.ax[i_type].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
-            #
-            #     # sets the legend (first subplot only)
-            #     if i_type == 0:
-            #         self.plot_fig.ax[i_type].legend(r_obj.lg_str, loc=2)
-
-            # # adds in the bin lines for the polar plot
-            # yL = self.plot_fig.ax[0].get_ylim()
-            # self.plot_fig.ax[0].set_ylim(yL)
-            # for xi in (np.pi / 2) * (1 + xi_bin[0] / k_rng[0]):
-            #     self.plot_fig.ax[0].plot([xi, xi], 2 * np.array(yL), 'k--')
-
-            # # resets the subplot layout
-            # self.plot_fig.fig.set_tight_layout(False)
-            # if r_obj.is_single_cell:
-            #     # sets the layout size
-            #     self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
-            #
-            #     # sets the cell cluster ID
-            #     self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], r_obj.ch_id[0][0]),
-            #                                fontsize=16, fontweight='bold')
-            # else:
-            #     # sets the layout size
-            #     self.plot_fig.fig.tight_layout(rect=[0, 0, 1, 1])
-            #
-            # # resets the axis properties
-            # for i in range(len(self.plot_fig.ax)):
-            #     # resets the axis limits
-            #     ax = self.plot_fig.ax[i]
-            #     ax.grid(plot_grid)
-            #     h_title = ax.set_title(title_str[i])
-            #
-            #     # resets the axis properties (polar plots only)
-            #     if proj_type[i] is not None:
-            #         ax.set_thetamin(0)
-            #         ax.set_thetamax(180)
-            #
-            #         # resets the subplot position
-            #         h_ofs = 0.060 + 0.015 * int(r_obj.is_single_cell)
-            #         i_col, i_row = i % 2, np.floor(i / 2)
-            #         ax.set_position([i_col * 0.5, 0.5 * (1 - i_row) - h_ofs, 0.5, 0.5])
-            #
-            #         # adds and resets the position of the title
-            #         h_title.set_position([0.5, 0.85])
-
         ################################################################################################################
         ################################################################################################################
 
@@ -3580,8 +3490,8 @@ class AnalysisGUI(QMainWindow):
             cf.add_plot_table(self.plot_fig, 1, table_font, auc_stats, row_hdr, col_hdr, c, c,
                               'bottom', pfig_sz=0.955)
 
-    def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, md_grp_type,
-                              resp_grp_type, use_resp_grp_type, plot_grid, plot_scope):
+    def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+                                        cell_grp_type, plot_grid, plot_grp_type, plot_scope):
         '''
 
         :param rot_filt:
@@ -3595,226 +3505,8 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # initialises the rotation filter (if not set)
-        if rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
-
-        # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, plot_all_expt, 'Whole Experiment', False)
-        if not r_obj.is_ok:
-            self.calc_ok = False
-            return
-        elif connect_lines:
-            # if (r_obj.n_filt != 2):
-            #     e_str = 'The connect AUC points option requires exactly 2 filter options. Either de-select ' \
-            #             'the option or alter the filter options.'
-            #     cf.show_error(e_str, 'AUC Connection Line Error')
-            #     self.calc_ok = False
-            #     return
-            #
-            # el
-            if len(np.unique([x['t_type'][0] for x in r_obj.rot_filt_tot])) != 2:
-                e_str = 'The connect AUC point option requires 2 trial condition filter options. Either de-select ' \
-                        'the option or alter the filter options.'
-                cf.show_error(e_str, 'AUC Connection Line Error')
-                self.calc_ok = False
-                return
-
-        if use_resp_grp_type:
-            g_type = ['None', 'Rotation', 'Visual', 'Both']
-            ig_type = g_type.index(resp_grp_type)
-        else:
-            g_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
-            ig_type = g_type.index(md_grp_type)
-
-        # initialisations
-        n_filt, r_data = r_obj.n_filt, self.data.rotation
-        lg_str = np.array(['({0}) - {1}'.format(i + 1, x) for i, x in enumerate(r_obj.lg_str)])
-        has_data, c = np.ones(n_filt, dtype=bool), cf.get_plot_col(n_filt)
-
-        # memory allocation
-        A, B = np.empty(n_filt, dtype=object), np.zeros(n_filt, dtype=object)
-        roc_xy = dcopy(A)
-        if use_avg and (not r_obj.is_single_cell):
-            roc_xy_avg, roc_auc_avg = dcopy(A), dcopy(B)
-
-        # determine the matching cell indices between the current and black filter
-        i_cell_b = dcopy(A)
-        for i_filt in range(r_obj.n_filt):
-            # finds the corresponding cell types between the overall and user-specified filters
-            r_obj_tt = r_data.r_obj_cond[r_obj.rot_filt_tot[i_filt]['t_type'][0]]
-            i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt, [0, i_filt], r_obj)
-
-        # sets the significance flags (based on the type)
-        if use_resp_grp_type:
-            g_type_data = dcopy(r_data.ds_gtype)
-            is_sig = g_type_data == ig_type
-        else:
-            st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
-            g_type_data = dcopy(r_data.phase_gtype)[:, st_type]
-
-            if (ig_type + 1) == len(g_type):
-                is_sig = np.ones(np.size(g_type_data, axis=0), dtype=bool)
-            else:
-                is_sig = g_type_data == ig_type
-
-        # sets the significance criteria for each filter type
-        i_cell_sig = [is_sig[z] for z in i_cell_b]
-
-        # if there are no valid selections, then exit
-        if np.all(np.array([len(x) for x in i_cell_sig]) == 0):
-            e_str = 'The Rotational Analysis filter configuration does not produce any matching results.\n' \
-                    'Re-run the function by selecting a different filter configuration.'
-            cf.show_error(e_str, 'No Matching Results!')
-            self.calc_ok = False
-            return
-
-        for i_filt in range(n_filt):
-            # memory allocation
-            if i_filt == 0:
-                roc_auc, pref_cw_dir = dcopy(A), dcopy(A)
-
-            #
-            if sum(i_cell_sig[i_filt]) == 0:
-                has_data[i_filt] = False
-                continue
-
-            # other initialisations and memory allocations
-            n_cell = sum(i_cell_sig[i_filt])
-            if n_cell == 0:
-                continue
-
-            pref_cw_dir[i_filt] = np.zeros(n_cell, dtype=bool)
-            tt_filt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
-
-            # roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
-            # roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
-            roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
-            roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
-
-            # calculates the roc curves overall trials (for each cell)
-            for i_cell in range(n_cell):
-                # if integral is less than 0.5, then set the complementary values
-                if roc_auc[i_filt][i_cell] < 0.5:
-                    roc_xy[i_filt][i_cell] = roc_xy[i_filt][i_cell][:, ::-1]
-                    roc_auc[i_filt][i_cell] = 1 - roc_auc[i_filt][i_cell]
-                    pref_cw_dir[i_filt][i_cell] = True
-
-            # if using the pooled cells, then
-            if use_avg:
-                # calculates the average roc curve/integrals
-                if sum(i_cell_sig[i_filt]) > 0:
-                    roc_xy_avg[i_filt] = cfcn.calc_avg_roc_curve(roc_xy[i_filt])
-                    roc_auc_avg[i_filt] = np.trapz(roc_xy_avg[i_filt][:, 1], roc_xy_avg[i_filt][:, 0])
-
-        #
-        roc_xy, roc_auc = roc_xy[has_data], roc_auc[has_data]
-        pref_cw_dir, lg_str0, n_filt = pref_cw_dir[has_data], np.array(r_obj.lg_str)[has_data], np.sum(has_data)
-        if use_avg:
-            roc_xy_avg, roc_auc_avg = roc_xy_avg[has_data], roc_auc_avg[has_data]
-
-        #################################
-        ####    ROC CURVE SUBPLOT    ####
-        #################################
-
-        # initialises the plot axes
-        self.init_plot_axes(n_row=1, n_col=2)
-
-        # creates
-        if use_avg:
-            self.create_roc_curves(self.plot_fig.ax[0], roc_xy_avg, lg_str, plot_grid)
-        else:
-            self.create_roc_curves(self.plot_fig.ax[0], roc_xy, lg_str, plot_grid)
-
-        # creates the multi-cell auc plot
-        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, lg_str0)
-
-        #
-        self.plot_fig.ax[0].set_title('ROC Curves ({0})'.format(g_type[ig_type]))
-        self.plot_fig.ax[1].set_title('ROC AUC ({0})'.format(g_type[ig_type]))
-
-        # resets the subplot dimensions
-        self.plot_fig.fig.set_tight_layout(False)
-        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.980])
-
-        ############################################
-        ####    FILTER CONDITION STATS TABLE    ####
-        ############################################
-
-        # resets the figure layout (single cell only)
-        if (n_filt > 1):
-            # memory allocation
-            n_cell, cc = [len(x) for x in roc_auc], cf.get_plot_col(n_filt)
-            is_paired = True if (np.max(n_cell) - np.min(n_cell)) == 0 else False
-            auc_stats = np.empty((n_filt, n_filt), dtype=object)
-
-            # calculates the auc p-values
-            for i_row in range(n_filt):
-                for i_col in range(i_row, n_filt):
-                    if i_col != i_row:
-                        results = r_stats.wilcox_test(FloatVector(roc_auc[i_row]), FloatVector(roc_auc[i_col]),
-                                                      paired=is_paired, exact=True)
-                        p_value = results[results.names.index('p.value')][0]
-
-                        p_value_str = '{:5.3f}{}'.format(p_value, sig_str_fcn(p_value, 0.05))
-                        auc_stats[i_row, i_col] = auc_stats[i_col, i_row] = p_value_str
-                    else:
-                        auc_stats[i_row, i_col] = 'N/A'
-
-            # sets the column/row headers
-            row_hdr = col_hdr = ['#{0}'.format(str(x+1)) for x in range(n_filt)]
-
-            # calculates the table dimensions
-            cf.add_plot_table(self.plot_fig, 0, table_font, auc_stats, row_hdr,
-                              col_hdr, cc, cc, t_loc='bottom')
-
-        ######################################
-        ####    CELL GROUP COUNT TABLE    ####
-        ######################################
-
-        # table dimensioning values
-        cc, has_non_cond = cf.get_plot_col(2), True
-        col_hdr = dcopy(g_type)
-
-        # other initialisations
-        n_ttype = len(np.unique([x['t_type'][0] for x in np.array(r_obj.rot_filt_tot)[has_data]]))
-        if (n_ttype == r_obj.n_filt):
-            # no
-            has_non_cond = False
-        elif (n_ttype == 1):
-            #
-            lg_str = r_obj.lg_str
-        else:
-            #
-            lg_str = [x.split('\n')[:-1] for x in r_obj.lg_str]
-
-        n_grp = 3 + use_resp_grp_type
-        if has_non_cond:
-            # sets the counts for each grouping
-            n_cell_grp_filt = [[np.sum(g_type_data[y] == x) for x in range(n_grp)] for y in i_cell_b]
-            n_cell_grp_cond, ind = np.unique(np.vstack(n_cell_grp_filt), axis=0, return_index=True)
-
-            n_cell_grp_cond = n_cell_grp_cond[np.argsort(ind), :]
-            n_sig_grp = np.vstack((n_cell_grp_cond, np.sum(n_cell_grp_cond, axis=0)))
-            n_sig_grp = np.hstack((n_sig_grp, np.sum(n_sig_grp, axis=1).reshape(-1, 1)))
-
-            # case is there as there is at least one non-condition based grouping
-            row_hdr0, i_row = np.unique(cf.flat_list(lg_str), return_inverse=True)
-            row_hdr = ['#{0}'.format(i + 1) for i in range(len(row_hdr0))] + ['Total']
-            row_cols = [cc[1]] * len(row_hdr0) + [[0.75, 0.75, 0.75]]
-        else:
-            # case is there are no non-condition based groupings
-            row_hdr, row_cols = ['Total'], [[0.75, 0.75, 0.75]]
-            n_sig_grp = np.array([np.sum(g_type_data[i_cell_b[0]] == x) for x in range(n_grp)])
-            n_sig_grp = np.append(n_sig_grp, np.sum(n_sig_grp)).reshape(1, -1)
-
-        #
-        if use_resp_grp_type:
-            col_hdr = col_hdr + ['Total']
-
-        # calculates the table dimensions
-        cf.add_plot_table(self.plot_fig, 1, table_font, n_sig_grp, row_hdr,
-                          col_hdr, row_cols, [cc[0]] * len(col_hdr), t_loc='bottom')
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+                                       plot_grp_type, cell_grp_type, plot_grid, plot_scope, False)
 
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
@@ -4799,6 +4491,25 @@ class AnalysisGUI(QMainWindow):
             # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
             # h_title_pd.set_position(tuple(t_pos))
 
+    def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+                                           plot_grp_type, cell_grp_type, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param use_avg:
+        :param connect_lines:
+        :param plot_grp_type:
+        :param cell_grp_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+                                       plot_grp_type, cell_grp_type, plot_grid, plot_scope, True)
+
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
     ####################################################
@@ -5764,6 +5475,227 @@ class AnalysisGUI(QMainWindow):
         # FINISH ME
         a = 1
 
+    def create_dir_roc_curve_plot(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+                                  plot_grp_type, cell_grp_type, plot_grid, plot_scope, is_comb):
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, plot_all_expt, 'Whole Experiment', False)
+        if not r_obj.is_ok:
+            self.calc_ok = False
+            return
+        elif connect_lines:
+            if len(np.unique([x['t_type'][0] for x in r_obj.rot_filt_tot])) != 2:
+                e_str = 'The connect AUC point option requires 2 trial condition filter options. Either de-select ' \
+                        'the option or alter the filter options.'
+                cf.show_error(e_str, 'AUC Connection Line Error')
+                self.calc_ok = False
+                return
+
+        # sets the cell group string lists based on the grouping type
+        r_data, is_cong = self.data.rotation, False
+        if plot_grp_type == 'Motion/Direction Selectivity':
+            # case is direction selectivity
+            g_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
+            st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
+            g_type_data = dcopy(r_data.phase_gtype)[:, st_type]
+
+        elif plot_grp_type == 'Preferred Direction':
+            # case is preferred direction
+            g_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
+            g_type_data = dcopy(r_data.ds_gtype)
+
+        else:
+            # case is congruency
+            g_type, is_cong = ['Incongruent', 'Congruent', 'All Cells'], True
+            g_type_data = dcopy(r_data.pd_type)
+
+        # initialisations
+        n_filt, ig_type = r_obj.n_filt, g_type.index(cell_grp_type)
+        lg_str = np.array(['({0}) - {1}'.format(i + 1, x) for i, x in enumerate(r_obj.lg_str)])
+        has_data, c = np.ones(n_filt, dtype=bool), cf.get_plot_col(n_filt)
+
+        # memory allocation
+        A, B = np.empty(n_filt, dtype=object), np.zeros(n_filt, dtype=object)
+        roc_xy = dcopy(A)
+        if use_avg and (not r_obj.is_single_cell):
+            roc_xy_avg, roc_auc_avg = dcopy(A), dcopy(B)
+
+        # determine the matching cell indices between the current and black filter
+        i_cell_b = dcopy(A)
+        for i_filt in range(r_obj.n_filt):
+            # finds the corresponding cell types between the overall and user-specified filters
+            r_obj_tt = r_data.r_obj_cond[r_obj.rot_filt_tot[i_filt]['t_type'][0]]
+            i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt, [0, i_filt], r_obj)
+
+        # sets the indices of the points to be shown in the bubble plot
+        if (ig_type + 1) == len(g_type):
+            # case is plotting all the indices
+            if is_cong:
+                is_sig = g_type_data >= 0
+            else:
+                is_sig = np.ones(np.size(g_type_data, axis=0), dtype=bool)
+        else:
+            # case is plotting for a specific case
+            is_sig = g_type_data == ig_type
+
+        # sets the significance criteria for each filter type
+        i_cell_sig = [is_sig[z] for z in i_cell_b]
+
+        # if there are no valid selections, then exit
+        if np.all(np.array([sum(x) for x in i_cell_sig]) == 0):
+            e_str = 'The Rotational Analysis filter configuration does not produce any matching results.\n' \
+                    'Re-run the function by selecting a different filter configuration.'
+            cf.show_error(e_str, 'No Matching Results!')
+            self.calc_ok = False
+            return
+
+        for i_filt in range(n_filt):
+            # memory allocation
+            if i_filt == 0:
+                roc_auc, pref_cw_dir = dcopy(A), dcopy(A)
+
+            #
+            if sum(i_cell_sig[i_filt]) == 0:
+                has_data[i_filt] = False
+                continue
+
+            # other initialisations and memory allocations
+            n_cell = sum(i_cell_sig[i_filt])
+            if n_cell == 0:
+                continue
+
+            pref_cw_dir[i_filt] = np.zeros(n_cell, dtype=bool)
+            tt_filt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
+
+            # roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
+            # roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
+            roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+            roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
+
+            # calculates the roc curves overall trials (for each cell)
+            for i_cell in range(n_cell):
+                # if integral is less than 0.5, then set the complementary values
+                if roc_auc[i_filt][i_cell] < 0.5:
+                    roc_xy[i_filt][i_cell] = roc_xy[i_filt][i_cell][:, ::-1]
+                    roc_auc[i_filt][i_cell] = 1 - roc_auc[i_filt][i_cell]
+                    pref_cw_dir[i_filt][i_cell] = True
+
+            # if using the pooled cells, then
+            if use_avg:
+                # calculates the average roc curve/integrals
+                if sum(i_cell_sig[i_filt]) > 0:
+                    roc_xy_avg[i_filt] = cfcn.calc_avg_roc_curve(roc_xy[i_filt])
+                    roc_auc_avg[i_filt] = np.trapz(roc_xy_avg[i_filt][:, 1], roc_xy_avg[i_filt][:, 0])
+
+        #
+        roc_xy, roc_auc = roc_xy[has_data], roc_auc[has_data]
+        pref_cw_dir, lg_str0, n_filt = pref_cw_dir[has_data], np.array(r_obj.lg_str)[has_data], np.sum(has_data)
+        if use_avg:
+            roc_xy_avg, roc_auc_avg = roc_xy_avg[has_data], roc_auc_avg[has_data]
+
+        #################################
+        ####    ROC CURVE SUBPLOT    ####
+        #################################
+
+        # initialises the plot axes
+        self.init_plot_axes(n_row=1, n_col=2)
+
+        # creates
+        if use_avg:
+            self.create_roc_curves(self.plot_fig.ax[0], roc_xy_avg, lg_str, plot_grid)
+        else:
+            self.create_roc_curves(self.plot_fig.ax[0], roc_xy, lg_str, plot_grid)
+
+        # creates the multi-cell auc plot
+        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, lg_str0)
+
+        # sets the axis titles
+        self.plot_fig.ax[0].set_title('ROC Curves ({0})'.format(g_type[ig_type]))
+        self.plot_fig.ax[1].set_title('ROC AUC ({0})'.format(g_type[ig_type]))
+
+        # resets the subplot dimensions
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.980])
+
+        ############################################
+        ####    FILTER CONDITION STATS TABLE    ####
+        ############################################
+
+        # resets the figure layout (single cell only)
+        if (n_filt > 1):
+            # memory allocation
+            n_cell, cc = [len(x) for x in roc_auc], cf.get_plot_col(n_filt)
+            is_paired = True if (np.max(n_cell) - np.min(n_cell)) == 0 else False
+            auc_stats = np.empty((n_filt, n_filt), dtype=object)
+
+            # calculates the auc p-values
+            for i_row in range(n_filt):
+                for i_col in range(i_row, n_filt):
+                    if i_col != i_row:
+                        results = r_stats.wilcox_test(FloatVector(roc_auc[i_row]), FloatVector(roc_auc[i_col]),
+                                                      paired=is_paired, exact=True)
+                        p_value = results[results.names.index('p.value')][0]
+
+                        p_value_str = '{:5.3f}{}'.format(p_value, sig_str_fcn(p_value, 0.05))
+                        auc_stats[i_row, i_col] = auc_stats[i_col, i_row] = p_value_str
+                    else:
+                        auc_stats[i_row, i_col] = 'N/A'
+
+            # sets the column/row headers
+            row_hdr = col_hdr = ['#{0}'.format(str(x+1)) for x in range(n_filt)]
+
+            # calculates the table dimensions
+            cf.add_plot_table(self.plot_fig, 0, table_font, auc_stats, row_hdr,
+                              col_hdr, cc, cc, t_loc='bottom')
+
+        ######################################
+        ####    CELL GROUP COUNT TABLE    ####
+        ######################################
+
+        # table dimensioning values
+        cc, has_non_cond = cf.get_plot_col(2), True
+        col_hdr = dcopy(g_type)
+
+        # other initialisations
+        n_ttype = len(np.unique([x['t_type'][0] for x in np.array(r_obj.rot_filt_tot)[has_data]]))
+        if (n_ttype == r_obj.n_filt):
+            # no
+            has_non_cond = False
+        elif (n_ttype == 1):
+            #
+            lg_str = r_obj.lg_str
+        else:
+            #
+            lg_str = [x.split('\n')[:-1] for x in r_obj.lg_str]
+
+        n_grp = len(g_type) - 1
+        if has_non_cond:
+            # sets the counts for each grouping
+            n_cell_grp_filt = [[np.sum(g_type_data[y] == x) for x in range(n_grp)] for y in i_cell_b]
+            n_cell_grp_cond, ind = np.unique(np.vstack(n_cell_grp_filt), axis=0, return_index=True)
+
+            n_cell_grp_cond = n_cell_grp_cond[np.argsort(ind), :]
+            n_sig_grp = np.vstack((n_cell_grp_cond, np.sum(n_cell_grp_cond, axis=0)))
+            n_sig_grp = np.hstack((n_sig_grp, np.sum(n_sig_grp, axis=1).reshape(-1, 1)))
+
+            # case is there as there is at least one non-condition based grouping
+            row_hdr0, i_row = np.unique(cf.flat_list(lg_str), return_inverse=True)
+            row_hdr = ['#{0}'.format(i + 1) for i in range(len(row_hdr0))] + ['Total']
+            row_cols = [cc[1]] * len(row_hdr0) + [[0.75, 0.75, 0.75]]
+        else:
+            # case is there are no non-condition based groupings
+            row_hdr, row_cols = ['Total'], [[0.75, 0.75, 0.75]]
+            n_sig_grp = np.array([np.sum(g_type_data[i_cell_b[0]] == x) for x in range(n_grp)])
+            n_sig_grp = np.append(n_sig_grp, np.sum(n_sig_grp)).reshape(1, -1)
+
+        # calculates the table dimensions
+        cf.add_plot_table(self.plot_fig, 1, table_font, n_sig_grp, row_hdr,
+                          col_hdr, row_cols, [cc[0]] * len(col_hdr), t_loc='bottom')
+
     ####################################################
     ####    SPIKING FREQUENCY ANALYSIS FUNCTIONS    ####
     ####################################################
@@ -5950,9 +5882,13 @@ class AnalysisGUI(QMainWindow):
                          'Rotation/Visual Stimuli Response Statistics',
                          'Velocity ROC Curves (Single Cell)',
                          'Velocity ROC Curves (Whole Experiment)',
-                         'Velocity ROC Curves (Pos/Neg Comparison)']
+                         'Velocity ROC Curves (Pos/Neg Comparison)',
+                         'Combined Direction ROC Curves (Whole Experiment)']
 
-        if self.fcn_data.prev_calc_para is None:
+        if self.thread_calc_error:
+            return True
+
+        elif self.fcn_data.prev_calc_para is None:
             # otherwise, if there were no previous calculation parameters then update
             return True
 
@@ -6974,30 +6910,26 @@ class AnalysisFunctions(object):
         ####    ROC ANALYSIS FUNCTIONS   ####
         #####################################
 
-        #
-        n_boot_def = 100
-        roc_vel_bin = ['5', '10', '20', '40']
+        # parameters
+        dv, v_rng, n_boot_def = 5, 80, 100
 
-        #
+        # type lists
+        roc_vel_bin = ['5', '10', '20', '40']
         md_grp_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
-        resp_grp_type = ['None', 'Rotation', 'Visual', 'Both']
+        pd_grp_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
         grp_stype = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         auc_stype = ['Delong', 'Bootstrapping']
         mean_type = ['Mean', 'Median']
         freq_type = ['Decreasing', 'Increasing', 'All']
-
-        # k_grp_type = ['Discriminating Cells', 'Non-Discriminating Cells', 'All Cells']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
-        has_ud_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), True))
-        has_md_expt = any(cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=['MotorDrifting'], min_count=1))
-        has_vis_expt = has_ud_expt or has_md_expt
+        has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
+        cell_desc_type = ['Motion/Direction Selectivity', 'Preferred Direction', 'Congruency']
 
         # velocity/speed ranges
-        dv, v_rng = 5, 80
         vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
         sc_rng = ['{0} to {1}'.format(i * dv, (i + 1) * dv) for i in range(int(v_rng / dv))]
 
@@ -7051,21 +6983,6 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
-            't_phase_vis': {
-                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10,
-                'is_enabled': has_vis_expt
-            },
-            't_ofs_vis': {
-                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00,
-                'is_enabled': has_vis_expt
-            },
-            'use_full_vis': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
-                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]], 'is_enabled': has_vis_expt
-            },
-            'vis_expt_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
-            },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
             },
@@ -7087,20 +7004,16 @@ class AnalysisFunctions(object):
             },
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
-            'md_grp_type': {
-                'type': 'L', 'text': 'MD/DS Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[0]
-            },
-            'resp_grp_type': {
-                'type': 'L', 'text': 'Response Cell Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
-                'is_enabled': has_vis_expt
-            },
-            'use_resp_grp_type': {
-                'type': 'B', 'text': 'Response Cell Grouping', 'def_val': False,
-                'link_para': [['resp_grp_type', False], ['md_grp_type', True]], 'is_enabled': has_vis_expt
+            'cell_grp_type': {
+                'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[0],
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
+            'plot_grp_type': {
+                'type': 'L', 'text': 'Cell Discrimination Type', 'list': [cell_desc_type[0]],
+                'def_val': cell_desc_type[0], 'is_visible': False
+            },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
@@ -7392,6 +7305,11 @@ class AnalysisFunctions(object):
         # ====> Combined Stimuli Statistics
         para = {
             # calculation parameters
+            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
+                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+            },
             't_phase_vis': {
                 'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
             },
@@ -7425,6 +7343,71 @@ class AnalysisFunctions(object):
         self.add_func(type='Combined Analysis',
                       name='Rotation/Visual Stimuli Response Statistics',
                       func='plot_combined_stimuli_stats',
+                      para=para)
+
+        # ====> Combined Stimuli Statistics
+        para = {
+            # calculation parameters
+            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
+                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+            },
+            # 'auc_stype': {
+            #     'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
+            #     'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
+            # },
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]]
+            },
+            'vis_expt_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+            },
+            'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
+            'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
+            'plot_grp_type': {
+                'type': 'L', 'text': 'Cell Discrimination Type', 'list': cell_desc_type[1:],
+                'def_val': cell_desc_type[1], 'para_reset': [['cell_grp_type', self.reset_grp_type]]
+            },
+            'cell_grp_type': {
+                'type': 'L', 'text': 'Cell Grouping Type', 'list': pd_grp_type, 'def_val': pd_grp_type[0],
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Combined Analysis',
+                      name='Combined Direction ROC Curves (Whole Experiment)',
+                      func='plot_combined_direction_roc_curves',
                       para=para)
 
         ##########################################
@@ -7985,8 +7968,15 @@ class AnalysisFunctions(object):
 
         # resets the parameters based on the
         if para_reset is not None:
+            # flag that the parameters are updating
+            self.is_updating = True
+
+            # runs the parameter reset functions
             for pr in para_reset:
                 pr[1](pr[0], p_list[index])
+
+            # flag that the parameters are finished updating
+            self.is_updating = False
 
         # updates the parameter value
         self.curr_para[p_name] = p_list[index]
@@ -8020,7 +8010,7 @@ class AnalysisFunctions(object):
         '''
 
         # flag that the parameters are updating
-        self.is_updating = True
+
 
         # parameters
         v_rng, dv = 80, int(dv0)
@@ -8046,9 +8036,6 @@ class AnalysisFunctions(object):
                 # resets the associated parameter value
                 self.curr_para[pp] = vc_rng[h_list[0].currentIndex()]
 
-        # flag that the parameters are updating
-        self.is_updating = False
-
     def reset_spd_rng(self, p_name, dv0):
         '''
 
@@ -8057,8 +8044,7 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # flag that the parameters are updating
-        self.is_updating = True
+        # determines the plot function that is currently selected
         d_grp = self.details[self.get_plot_grp_fcn()]
         i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
 
@@ -8087,11 +8073,45 @@ class AnalysisFunctions(object):
                 self.curr_para[pp] = sc_rng[h_list[0].currentIndex()]
                 d_grp[i_grp]['para'][pp]['list'] = sc_rng
 
-            # self.get_plot_grp_fcn = main_obj.get_plot_group
-            # self.get_plot_fcn = main_obj.get_plot_func
+    def reset_grp_type(self, p_name, g_type):
+        '''
 
-        # flag that the parameters are updating
-        self.is_updating = False
+        :return:
+        '''
+
+        # determines the cell grouping type that was selected
+        gtype_list = ['Direction Selectivity', 'Preferred Direction', 'Congruency']
+        ig_type = gtype_list.index(g_type)
+
+        # determines the plot function that is currently selected
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # sets the new list values based on the selected type
+        if gtype_list[ig_type] == 'Direction Selectivity':
+            # case is the direction selectivity
+            nw_list = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
+        elif gtype_list[ig_type] == 'Preferred Direction':
+            # case is the preferred direction
+            nw_list = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
+        else:
+            # case is the congruency
+            nw_list = ['Incongruent', 'Congruent', 'All Cells']
+
+        # retrieves the list object
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            # removes the existing items
+            for i in range(h_list[0].count()):
+                h_list[0].removeItem(0)
+
+            # adds the new range
+            for txt in nw_list:
+                h_list[0].addItem(txt)
+
+            # resets the associated parameter values
+            self.curr_para[p_name] = nw_list[h_list[0].currentIndex()]
+            d_grp[i_grp]['para'][p_name]['list'] = nw_list
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
@@ -8430,6 +8450,9 @@ class RotationData(object):
         self.n_boot_phase_grp = -1
         self.n_boot_cond_grp = -1
         self.n_boot_cond_ci = -1
+        self.n_boot_comb_grp = -1
+        self.t_ofs_rot = -1
+        self.t_phase_rot = -1
         self.r_obj_black = None                 # black trial type rotation filter object
         self.r_obj_cond = None                  # condition rotation filter objects
 

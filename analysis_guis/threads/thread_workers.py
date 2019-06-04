@@ -119,17 +119,14 @@ class WorkerThread(QThread):
                 # case is the shuffled cluster distances
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.):
                     self.is_ok = False
+                    self.work_finished.emit(thread_data)
                     return
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Whole Experiment)':
-                if plot_para['use_resp_grp_type']:
-                    if not self.calc_dirsel_group_types(data, calc_para, plot_para):
-                        self.is_ok = False
-                        return
-
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
                     self.is_ok = False
+                    self.work_finished.emit(thread_data)
                     return
 
                 # calculates the phase roc curve/significance values
@@ -153,8 +150,9 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
                 # calculates the phase roc-curves for each cell
-                if self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
                     self.is_ok = False
+                    self.work_finished.emit(thread_data)
                     return
 
                 # calculates the phase roc curve/significance values
@@ -162,23 +160,45 @@ class WorkerThread(QThread):
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Motion/Direction Selectivity Cell Grouping Scatterplot':
-                if plot_para['use_resp_grp_type']:
-                    if not self.calc_dirsel_group_types(data, calc_para, plot_para):
-                        self.is_ok = False
-                        return
-
                 # calculates the phase roc-curves for each cell
-                if self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
                     self.is_ok = False
+                    self.work_finished.emit(thread_data)
                     return
 
                 # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
+                if cf.det_valid_vis_expt(data, True):
+                    if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
                 # calculates the direction/selection group types
-                if not self.calc_dirsel_group_types(data, calc_para, plot_para):
+                if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+
+            elif self.thread_job_secondary == 'Combined Direction ROC Curves (Whole Experiment)':
+                # checks that the conditions are correct for running the function
+                if not self.check_combined_conditions(calc_para, plot_para):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # calculates the phase roc-curves for each cell
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # calculates the phase roc curve/significance values
+                self.calc_phase_roc_curves(data, 66.)
+
+                if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
                     self.is_ok = False
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
@@ -918,10 +938,17 @@ class WorkerThread(QThread):
         if 'Black' not in t_type:
             t_type = ['Black'] + t_type
 
+        # retrieves the rotation phase offset time/duration
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+        if t_ofs is not None:
+            # if the values are not none, and do not match previous values, then reset the stored roc array
+            if r_data.t_ofs_rot != t_ofs:
+                r_data.cond_roc = None
+                r_data.t_ofs_rot, r_data.t_phase_rot = t_ofs, t_phase
+
         # sets up a base filter with only the
         r_filt_base = cf.init_rotation_filter_data(False)
         r_filt_base['t_type'] = [x for x in t_type if x != 'UniformDrifting']
-        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # sets up the black phase data filter and returns the time spikes
         r_obj = RotationFilteredData(data, r_filt_base, None, plot_para['plot_exp_name'], True, plot_scope, False,
@@ -1012,7 +1039,7 @@ class WorkerThread(QThread):
             if calc_para['grp_stype'] == 'Wilcoxon Paired Test':
                 if np.all(r_data.cond_gtype[tt][:, 0] >= 0):
                     # if all the values have been calculated, then exit the function
-                    return
+                    return True
 
                 # sets the rotation object for the current condition
                 r_obj_sig = RotationFilteredData(data, r_obj.rot_filt_tot[i_rr], None, plot_para['plot_exp_name'],
@@ -1150,7 +1177,7 @@ class WorkerThread(QThread):
         # returns the rotation data class object
         return np.array(pool.map(cf.calc_roc_conf_intervals, p_data))
 
-    def calc_dirsel_group_types(self, data, calc_para, plot_para):
+    def calc_dirsel_group_types(self, data, pool, calc_para, plot_para, g_para):
         '''
 
         :param data:
@@ -1158,7 +1185,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def calc_combined_spiking_stats(r_obj, p_value, ind_type=None):
+        def calc_combined_spiking_stats(r_data, r_obj, pool, calc_para, g_para, p_value, ind_type=None):
             '''
 
             :param r_obj:
@@ -1168,13 +1195,55 @@ class WorkerThread(QThread):
 
             # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
             sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj)
-            s_plt, sf_trend, sf_stats, i_grp = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type)
+            s_plt, _, sf_stats, i_grp = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type)
 
             # calculates the ratio of the
             r_CCW_CW = np.array(s_plt[2][1]) / np.array(s_plt[2][0])
 
+            if grp_stype == 'Wilcoxon Paired Test':
+                # case is the wilcoxon paired test
+                sf_scores = cf.calc_dirsel_scores(s_plt, sf_stats, p_value)
+
+            ##########################################
+            ####    ROC-BASED STATISTICAL TEST    ####
+            ##########################################
+
+            else:
+                # determines what kind of statistics are to be calculated
+                phase_stype = calc_para['grp_stype']
+                is_boot, n_boot = calc_para['grp_stype'] == 'Bootstrapping', calc_para['n_boot']
+                phase_str, c_lvl, pW = ['CW/BL', 'CCW/BL', 'CCW/CW'], float(g_para['roc_clvl']), 100.
+                roc, auc, r_obj = r_data.phase_roc, r_data.phase_roc_auc, r_data.r_obj_black
+
+                # REMOVE ME LATER?
+                c_lvl = 0.95
+
+                # if the statistics have been calculated for the selected type, then exit the function
+                if is_boot:
+                    # otherwise, update the bootstrapping count
+                    r_data.n_boot_comb_grp = dcopy(calc_para['n_boot'])
+
+                # calculates the significance for each phase
+                auc_sig = np.zeros((np.size(roc, axis=0), 3), dtype=bool)
+                for i_phs, p_str in enumerate(phase_str):
+                    # updates the progress bar string
+                    if pW is not None:
+                        w_str = 'ROC Curve Calculations ({0})...'.format(p_str)
+                        self.work_progress.emit(w_str, pW * (i_phs / len(phase_str)))
+
+                    # calculates the confidence intervals for the current
+                    conf_int = self.calc_roc_conf_intervals(pool, roc[:, i_phs], phase_stype, n_boot, c_lvl)
+
+                    # determines the significance for each cell in the phase
+                    auc_ci_lo = (auc[:, i_phs] + conf_int[:, 1]) < 0.5
+                    auc_ci_hi = (auc[:, i_phs] - conf_int[:, 0]) > 0.5
+                    auc_sig[:, i_phs] = np.logical_or(auc_ci_lo, auc_ci_hi)
+
+                # case is the wilcoxon paired test
+                sf_scores = cf.calc_dirsel_scores(s_plt, auc_sig, None)
+
             # returns the direction selectivity scores
-            return cf.calc_dirsel_scores(s_plt, sf_stats, p_value), i_grp, r_CCW_CW
+            return sf_scores, i_grp, r_CCW_CW
 
         def det_dirsel_cells(sf_score):
             '''
@@ -1203,15 +1272,15 @@ class WorkerThread(QThread):
 
         # sets the p-value
         if 'p_value' in calc_para:
-            p_value = calc_para['p_value']
+            p_val = calc_para['p_value']
         else:
-            p_value = 0.05
+            p_val = 0.05
 
         # initialisations and memory allocation
-        p_scope, n_grp, r_data = 'Whole Experiment', 4, data.rotation
+        p_scope, n_grp, r_data, grp_stype = 'Whole Experiment', 4, data.rotation, calc_para['grp_stype']
         r_filt_rot, r_filt_vis = dcopy(rot_filt), dcopy(rot_filt)
         plot_exp_name, plot_all_expt = plot_para['plot_exp_name'], plot_para['plot_all_expt']
-        r_data.ds_p_value = dcopy(p_value)
+        r_data.ds_p_value = dcopy(p_val)
 
         # determines what type of visual experiment is being used for comparison (if provided)
         if 'vis_expt_type' in calc_para:
@@ -1268,8 +1337,10 @@ class WorkerThread(QThread):
                 return False
 
         # calculate the visual/rotation stats scores
-        sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data.r_obj_rot_ds, p_value)
-        sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_obj_vis, p_value, ind_type)
+        sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data, r_data.r_obj_rot_ds, pool,
+                                                                            calc_para, g_para, p_val)
+        sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_data, r_obj_vis, pool,
+                                                                            calc_para, g_para, p_val, ind_type)
 
         # memory allocation
         ds_type_tmp, ms_type_tmp, pd_type_tmp = [], [], []
@@ -1443,23 +1514,9 @@ class WorkerThread(QThread):
                 r_data.vel_sf_rs[tt] = dcopy(vel_f[i_filt])
                 r_data.spd_sf_rs[tt] = dcopy(spd_f)
 
-                # REMOVE ME LATER
-                # r_data.vel_sf_rs[tt] = dcopy(vel_n[i_filt]) / dt_bin
-                # r_data.spd_sf_rs[tt] = dcopy(spd_n) / dt_bin
-
             else:
                 # case is using the normal time bins
                 r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
-
-                # # memory allocation
-                # n_trial = np.size(vel_n[i_filt], axis=0)
-                # dt_bin_vel = np.matlib.repmat(dcopy(vel_dt), n_trial, 1)
-                # dt_bin_spd = np.matlib.repmat(dcopy(spd_dt), 2 * n_trial, 1)
-                #
-                # # normalises the binned spike counts by the duration of the time bin
-                # for i_cell in range(np.size(vel_n[i_filt], axis=2)):
-                #     r_data.vel_sf[tt][:, :, i_cell] /= dt_bin_vel
-                #     r_data.spd_sf[tt][:, :, i_cell] /= dt_bin_spd
 
     def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0):
         '''
@@ -1841,3 +1898,24 @@ class WorkerThread(QThread):
 
 
     # plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, p_value, plot_grid, plot_scope)
+
+    def check_combined_conditions(self, calc_para, plot_para):
+        '''
+
+        :param calc_para:
+        :param plot_para:
+        :return:
+        '''
+
+        if plot_para['rot_filt'] is not None:
+            if 'MotorDrifting' in plot_para['rot_filt']['t_type']:
+                # if the mapping file is not correct, then output an error to screen
+                e_str = 'MotorDrifting is not a valid filter option when running this function.\n\n' \
+                        'De-select this filter option before re-running this function.'
+                self.work_error.emit(e_str, 'Invalid Filter Options')
+
+                # returns a false value
+                return False
+
+        # if everything is correct, then return a true value
+        return True
