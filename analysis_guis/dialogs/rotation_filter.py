@@ -764,9 +764,10 @@ class RotationFilteredData(object):
 
                                 # reshapes the other time-spike arrays
                                 t_sp = self.t_spike[i_filt][i_cell, i_trial, i_phase]
-                                ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
-                                self.t_spike[i_filt][i_cell, i_trial, i_phase] = \
-                                                        self.t_spike[i_filt][i_cell, i_trial, i_phase][ii]
+                                if t_sp is not None:
+                                    ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
+                                    self.t_spike[i_filt][i_cell, i_trial, i_phase] = \
+                                                            self.t_spike[i_filt][i_cell, i_trial, i_phase][ii]
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####

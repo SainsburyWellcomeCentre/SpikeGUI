@@ -116,6 +116,9 @@ class WorkerThread(QThread):
                 thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition'])
+
                 # case is the shuffled cluster distances
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.):
                     self.is_ok = False
@@ -123,6 +126,9 @@ class WorkerThread(QThread):
                     return
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Whole Experiment)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
                     self.is_ok = False
@@ -130,25 +136,45 @@ class WorkerThread(QThread):
                     return
 
                 # calculates the phase roc curve/significance values
-                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_curves(data, calc_para, 66.)
+                self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
+
+            elif self.thread_job_secondary == 'Direction ROC AUC Histograms':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['phase'])
+
+                # calculates the phase roc curve/significance values
+                self.calc_phase_roc_curves(data, calc_para, 50.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Single Cell)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+
                 # calculates the binned kinematic spike frequencies
                 self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['phase'])
+
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
                     self.is_ok = False
@@ -156,10 +182,13 @@ class WorkerThread(QThread):
                     return
 
                 # calculates the phase roc curve/significance values
-                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_curves(data, calc_para, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
             elif self.thread_job_secondary == 'Motion/Direction Selectivity Cell Grouping Scatterplot':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
                     self.is_ok = False
@@ -167,7 +196,7 @@ class WorkerThread(QThread):
                     return
 
                 # calculates the phase roc curve/significance values
-                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_curves(data, calc_para, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
                 if cf.det_valid_vis_expt(data, True):
@@ -189,6 +218,9 @@ class WorkerThread(QThread):
                     self.work_finished.emit(thread_data)
                     return
 
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
                     self.is_ok = False
@@ -196,7 +228,7 @@ class WorkerThread(QThread):
                     return
 
                 # calculates the phase roc curve/significance values
-                self.calc_phase_roc_curves(data, 66.)
+                self.calc_phase_roc_curves(data, calc_para, 66.)
 
                 if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
                     self.is_ok = False
@@ -869,7 +901,7 @@ class WorkerThread(QThread):
     ####    ROC CURVE CALCULATIONS    ####
     ######################################
 
-    def calc_phase_roc_curves(self, data, pW):
+    def calc_phase_roc_curves(self, data, calc_para, pW):
         '''
 
         :param calc_para:
@@ -881,6 +913,7 @@ class WorkerThread(QThread):
 
         # parameters and initialisations
         phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # if the roc curves have already been calculated then exit with the current array
         if r_data.phase_roc is not None:
@@ -889,7 +922,8 @@ class WorkerThread(QThread):
         # sets up the black phase data filter and returns the time spikes
         r_filt_black = cf.init_rotation_filter_data(False)
         # r_filt_black['t_type'] = ['Uniform']                        # CHANGE THIS TO THE TRIAL CONDITION YOU WANT
-        r_data.r_obj_black = RotationFilteredData(data, r_filt_black, 0, None, True, 'Whole Experiment', False)
+        r_data.r_obj_black = RotationFilteredData(data, r_filt_black, 0, None, True, 'Whole Experiment', False,
+                                                  t_phase=t_phase, t_ofs=t_ofs)
         t_spike = r_data.r_obj_black.t_spike[0]
 
         # memory allocation
@@ -926,6 +960,7 @@ class WorkerThread(QThread):
         '''
 
         # parameters and initialisations
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
         r_obj_sig, plot_scope, c_lvl = None, 'Whole Experiment', float(g_para['roc_clvl'])
         phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
 
@@ -939,12 +974,15 @@ class WorkerThread(QThread):
             t_type = ['Black'] + t_type
 
         # retrieves the rotation phase offset time/duration
-        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
         if t_ofs is not None:
             # if the values are not none, and do not match previous values, then reset the stored roc array
-            if r_data.t_ofs_rot != t_ofs:
-                r_data.cond_roc = None
-                r_data.t_ofs_rot, r_data.t_phase_rot = t_ofs, t_phase
+            if (r_data.t_ofs_rot != t_ofs) or (r_data.t_phase_rot != t_phase):
+                r_data.t_ofs_rot, r_data.t_phase_rot, r_data.cond_roc = t_ofs, t_phase, None
+        elif 'use_full_rot' in calc_para:
+            # if using the full rotation, and the previous calculations were made using non-full rotation phases,
+            # the reset the stored roc array
+            if (r_data.t_ofs_rot > 0):
+                r_data.t_ofs_rot, r_data.t_phase_rot, r_data.cond_roc = -1, -1, None
 
         # sets up a base filter with only the
         r_filt_base = cf.init_rotation_filter_data(False)
@@ -963,6 +1001,7 @@ class WorkerThread(QThread):
             r_data.cond_roc, r_data.cond_roc_xy, r_data.cond_roc_auc = {}, {}, {}
             r_data.cond_gtype, r_data.cond_auc_sig, r_data.cond_i_expt, r_data.cond_cl_id = {}, {}, {}, {}
             r_data.cond_ci_lo, r_data.cond_ci_hi, r_data.r_obj_cond = {}, {}, {}
+            r_data.phase_gtype, r_data.phase_auc_sig, r_data.phase_roc = None, None, None
 
         for i_rr, rr in enumerate(r_obj.rot_filt_tot):
             # sets the trial type
@@ -1428,23 +1467,6 @@ class WorkerThread(QThread):
         # parameters and initialisations
         vel_bin, r_data, equal_time = float(calc_para['vel_bin']), data.rotation, calc_para['equal_time']
 
-        # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
-        if roc_calc:
-            if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
-                r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
-                r_data.vel_sf, r_data.spd_sf = None, None
-                r_data.vel_bin, r_data.vel_roc = vel_bin, None
-                r_data.freq_type = calc_para['freq_type']
-
-            if r_data.is_equal_time != equal_time:
-                r_data.vel_roc = None
-
-        # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
-        if equal_time:
-            if r_data.n_rs != calc_para['n_sample']:
-                r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
-                r_data.n_rs, r_data.vel_roc = calc_para['n_sample'], None
-
         # sets the condition types (ensures that the black phase is always included)
         r_filt_base = cf.init_rotation_filter_data(False)
         if plot_para['rot_filt'] is not None:
@@ -1571,27 +1593,6 @@ class WorkerThread(QThread):
 
         # initialisations
         r_data, pW1, c_lvl = data.rotation, 50., float(g_para['roc_clvl'])
-
-        # checks to see if the dependent speed has changed
-        if 'spd_x_rng' in calc_para:
-            # case is a single speed bin range comparison
-
-            # if the dependent speed range has changed then reset the roc curve calculations
-            if r_data.comp_spd != calc_para['spd_x_rng']:
-                r_data.vel_roc = None
-
-            if r_data.pn_comp is True:
-                r_data.vel_roc, r_data.pn_comp = None, False
-
-            # updates the speed comparison flag
-            r_data.comp_spd = calc_para['spd_x_rng']
-
-        else:
-            # case is the positive/negative speed comparison
-
-            # if the positive/negative comparison flag is not set to true, then reset the roc curve calculations
-            if r_data.pn_comp is False:
-                r_data.vel_roc, r_data.pn_comp = None, True
 
         # memory allocation (if the conditions have not been set)
         if r_data.vel_roc is None:
@@ -1753,6 +1754,123 @@ class WorkerThread(QThread):
                             r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
                             r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
 
+    def check_combined_conditions(self, calc_para, plot_para):
+        '''
+
+        :param calc_para:
+        :param plot_para:
+        :return:
+        '''
+
+        if plot_para['rot_filt'] is not None:
+            if 'MotorDrifting' in plot_para['rot_filt']['t_type']:
+                # if the mapping file is not correct, then output an error to screen
+                e_str = 'MotorDrifting is not a valid filter option when running this function.\n\n' \
+                        'De-select this filter option before re-running this function.'
+                self.work_error.emit(e_str, 'Invalid Filter Options')
+
+                # returns a false value
+                return False
+
+        # if everything is correct, then return a true value
+        return True
+
+    def check_altered_para(self, data, calc_para, g_para, chk_type, other_para=None):
+        '''
+
+        :param calc_para:
+        :param g_para:
+        :param chk_type:
+        :return:
+        '''
+
+        # initialisations
+        r_data = data.rotation
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+
+        # loops through each of the check types determining if any parameters changed
+        for ct in chk_type:
+            # initialises the change flag
+            is_change = False
+
+            if ct == 'condition':
+                # case is the roc condition parameters
+
+                # retrieves the rotation phase offset time/duration
+                if t_ofs is not None:
+                    # if the values are not none, and do not match previous values, then reset the stored roc array
+                    if (r_data.t_ofs_rot != t_ofs) or (r_data.t_phase_rot != t_phase):
+                        r_data.t_ofs_rot, r_data.t_phase_rot, is_change = t_ofs, t_phase, True
+                elif 'use_full_rot' in calc_para:
+                    # if using the full rotation, and the previous calculations were made using non-full rotation
+                    # phases, the reset the stored roc array
+                    if (r_data.t_ofs_rot > 0):
+                        r_data.t_ofs_rot, r_data.t_phase_rot, is_change = -1, -1, True
+
+                # if there was a change, then re-initialise the roc condition fields
+                if is_change:
+                    # memory allocation (if the conditions have not been set)
+                    r_data.cond_roc, r_data.cond_roc_xy, r_data.cond_roc_auc = {}, {}, {}
+                    r_data.cond_gtype, r_data.cond_auc_sig, r_data.cond_i_expt, r_data.cond_cl_id = {}, {}, {}, {}
+                    r_data.cond_ci_lo, r_data.cond_ci_hi, r_data.r_obj_cond = {}, {}, {}
+                    r_data.phase_gtype, r_data.phase_auc_sig, r_data.phase_roc = None, None, None
+
+            elif ct == 'phase':
+                # case is the phase ROC calculations
+                pass
+
+                # # if there was a change, then re-initialise the roc phase fields
+                # if is_change:
+                #     a = 1
+
+            elif ct == 'vel':
+                # case is the kinematic calculations
+
+                # initialisations
+                roc_calc, vel_bin = other_para, float(calc_para['vel_bin'])
+
+                # checks to see if the dependent speed has changed
+                if 'spd_x_rng' in calc_para:
+                    # case is a single speed bin range comparison
+
+                    # if the dependent speed range has changed then reset the roc curve calculations
+                    if r_data.comp_spd != calc_para['spd_x_rng']:
+                        is_change = True
+
+                    if r_data.pn_comp is True:
+                        r_data.pn_comp, is_change = False, True
+
+                    # updates the speed comparison flag
+                    r_data.comp_spd = calc_para['spd_x_rng']
+
+                else:
+                    # case is the positive/negative speed comparison
+
+                    # if the positive/negative comparison flag is not set to true, then reset the roc curve calculations
+                    if r_data.pn_comp is False:
+                        r_data.pn_comp, is_change = True, True
+
+                # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
+                if roc_calc:
+                    if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
+                        r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
+                        r_data.vel_sf, r_data.spd_sf = None, None
+                        r_data.vel_bin, r_data.vel_roc = vel_bin, None
+                        r_data.freq_type = calc_para['freq_type']
+
+                    if r_data.is_equal_time != calc_para['equal_time']:
+                        r_data.vel_roc = None
+
+                # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
+                if calc_para['equal_time']:
+                    if r_data.n_rs != calc_para['n_sample']:
+                        r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
+                        r_data.n_rs, r_data.vel_roc = calc_para['n_sample'], None
+
+                # if there was a change, then re-initialise the roc phase fields
+                if is_change:
+                    r_data.vel_roc = None
+
     # def calc_roc_direction_stats(self, calc_para, plot_para, data, pool):
     #     '''
     #
@@ -1898,24 +2016,3 @@ class WorkerThread(QThread):
 
 
     # plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, p_value, plot_grid, plot_scope)
-
-    def check_combined_conditions(self, calc_para, plot_para):
-        '''
-
-        :param calc_para:
-        :param plot_para:
-        :return:
-        '''
-
-        if plot_para['rot_filt'] is not None:
-            if 'MotorDrifting' in plot_para['rot_filt']['t_type']:
-                # if the mapping file is not correct, then output an error to screen
-                e_str = 'MotorDrifting is not a valid filter option when running this function.\n\n' \
-                        'De-select this filter option before re-running this function.'
-                self.work_error.emit(e_str, 'Invalid Filter Options')
-
-                # returns a false value
-                return False
-
-        # if everything is correct, then return a true value
-        return True

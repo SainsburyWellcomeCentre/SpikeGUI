@@ -702,10 +702,6 @@ class AnalysisGUI(QMainWindow):
                     # case is calculating the shuffled distances
                     a = 1
 
-                elif self.worker[iw].thread_job_secondary == 'Direction ROC Curves':
-                    # updates the rotation set flag
-                    self.data.rotation.is_set = True
-
                 # re-runs the plotting function
                 self.update_click()
 
@@ -3508,6 +3504,33 @@ class AnalysisGUI(QMainWindow):
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
                                        plot_grp_type, cell_grp_type, plot_grid, plot_scope, False)
 
+    def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, cell_grp_type,
+                                          plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param cell_grp_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, plot_all_expt, 'Whole Experiment', False)
+        if not r_obj.is_ok:
+            self.calc_ok = False
+            return
+
+        #
+        a = 1
+
+
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
         '''
@@ -5875,9 +5898,9 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # mandatory update function list
-        func_plot_chk = ['Direction ROC Curves',
-                         'Direction ROC Curves (Single Cell)',
+        func_plot_chk = ['Direction ROC Curves (Single Cell)',
                          'Direction ROC Curves (Whole Experiment)',
+                         'Direction ROC AUC Histograms',
                          'Motion/Direction Selectivity Cell Grouping Scatterplot',
                          'Rotation/Visual Stimuli Response Statistics',
                          'Velocity ROC Curves (Single Cell)',
@@ -6938,7 +6961,7 @@ class AnalysisFunctions(object):
             # calculation parameters
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
                 'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
             },
             't_phase_rot': {
@@ -6980,8 +7003,8 @@ class AnalysisFunctions(object):
                 'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
-                'link_para': ['n_boot', 'Delong']
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
+                'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
@@ -7005,7 +7028,7 @@ class AnalysisFunctions(object):
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
             'cell_grp_type': {
-                'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[0],
+                'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -7023,12 +7046,58 @@ class AnalysisFunctions(object):
                       func='plot_direction_roc_curves_whole',
                       para=para)
 
+        # ====> Direction ROC AUC Histograms
+        para = {
+            # calculation parameters
+            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
+                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+            },
+            'auc_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
+                'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+            },
+            'cell_grp_type': {
+                'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='ROC Analysis',
+                      name='Direction ROC AUC Histograms',
+                      func='plot_direction_roc_auc_histograms',
+                      para=para)
+
         # ====> Velocity ROC Curves (Single Cell)
         para = {
             # calculation parameters
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
@@ -7080,7 +7149,7 @@ class AnalysisFunctions(object):
             # calculation parameters
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
@@ -7139,7 +7208,7 @@ class AnalysisFunctions(object):
             # calculation parameters
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
             'vel_bin': {
@@ -7194,7 +7263,7 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
                 'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
             },
-            'auc_stype': {'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
+            'auc_stype': {'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
                          'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']},
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
@@ -7238,7 +7307,7 @@ class AnalysisFunctions(object):
                 'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype, 'def_val': auc_stype[0],
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
                 'link_para': ['n_boot', 'Delong']
             },
             't_phase_vis': {
@@ -7338,7 +7407,7 @@ class AnalysisFunctions(object):
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': comb_type, 'def_val': comb_type[0]}
+            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': comb_type, 'def_val': comb_type[-1]}
         }
         self.add_func(type='Combined Analysis',
                       name='Rotation/Visual Stimuli Response Statistics',
@@ -7354,7 +7423,7 @@ class AnalysisFunctions(object):
                 'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
             },
             # 'auc_stype': {
-            #     'gtype': 'C', 'type': 'L', 'text': 'AUC Significance Test', 'list': auc_stype,
+            #     'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
             #     'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
             # },
             't_phase_vis': {
