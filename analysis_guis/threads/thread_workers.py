@@ -921,7 +921,6 @@ class WorkerThread(QThread):
 
         # sets up the black phase data filter and returns the time spikes
         r_filt_black = cf.init_rotation_filter_data(False)
-        # r_filt_black['t_type'] = ['Uniform']                        # CHANGE THIS TO THE TRIAL CONDITION YOU WANT
         r_data.r_obj_black = RotationFilteredData(data, r_filt_black, 0, None, True, 'Whole Experiment', False,
                                                   t_phase=t_phase, t_ofs=t_ofs)
         t_spike = r_data.r_obj_black.t_spike[0]
@@ -1279,7 +1278,7 @@ class WorkerThread(QThread):
                     auc_sig[:, i_phs] = np.logical_or(auc_ci_lo, auc_ci_hi)
 
                 # case is the wilcoxon paired test
-                sf_scores = cf.calc_dirsel_scores(s_plt, auc_sig, None)
+                sf_scores = cf.calc_dirsel_scores(s_plt, auc_sig[i_grp[0], :], None)
 
             # returns the direction selectivity scores
             return sf_scores, i_grp, r_CCW_CW
@@ -1321,6 +1320,9 @@ class WorkerThread(QThread):
         plot_exp_name, plot_all_expt = plot_para['plot_exp_name'], plot_para['plot_all_expt']
         r_data.ds_p_value = dcopy(p_val)
 
+        t_ofs_rot, t_phase_rot = cfcn.get_rot_phase_offsets(calc_para)
+        t_ofs_vis, t_phase_vis = cfcn.get_rot_phase_offsets(calc_para, True)
+
         # determines what type of visual experiment is being used for comparison (if provided)
         if 'vis_expt_type' in calc_para:
             # case is a calculation parameter is set
@@ -1331,7 +1333,8 @@ class WorkerThread(QThread):
 
         # sets up the black-only rotation filter object
         r_filt_black = cf.init_rotation_filter_data(False)
-        r_obj_black = RotationFilteredData(data, r_filt_black, None, plot_exp_name, plot_all_expt, p_scope, False)
+        r_obj_black = RotationFilteredData(data, r_filt_black, None, plot_exp_name, plot_all_expt, p_scope, False,
+                                           t_ofs=t_ofs_rot, t_phase=t_phase_rot)
 
         # retrieves the rotational filtered data (black conditions only)
         r_filt_rot['t_type'], r_filt_rot['is_ud'] = ['Black'], [False]
@@ -1341,10 +1344,8 @@ class WorkerThread(QThread):
         # retrieves the visual filtered data
         if ud_rot_expt:
             # sets the visual phase/offset
-            if calc_para['use_full_vis']:
+            if t_phase_vis is None:
                 t_phase_vis, t_ofs_vis = 2., 0.
-            else:
-                t_phase_vis, t_ofs_vis = calc_para['t_phase_vis'], calc_para['t_ofs_vis']
 
             # case is uniform-drifting experiments (split into CW/CCW phases)
             r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
@@ -1355,7 +1356,7 @@ class WorkerThread(QThread):
                 e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
                         '  * Analysis Duration + Offset = {0}\n s. * Experiment Phase Duration = {1} s.\n\n' \
                         'Enter a correct analysis duration/offset combination before re-running ' \
-                        'the function.'.format(calc_para['t_phase_vis'] + calc_para['t_ofs_vis'], 2.0)
+                        'the function.'.format(t_phase_vis + t_ofs_vis, 2.0)
                 self.work_error.emit(e_str, 'Incorrect Analysis Function Parameters')
 
                 # return a false value indicating the calculation is invalid
