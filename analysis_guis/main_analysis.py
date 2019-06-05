@@ -4415,7 +4415,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations and memory allocation
         n_grp, r_data = [2, 4, 2], self.data.rotation
-        stats_type = ['Combined Stimuli Response', 'Direction Selectivity', 'Congruency']
+        stats_type = ['Rotation Motion Sensitivity', 'Rotation/Visual DS', 'Congruency']
 
         #
         if plot_type == 'Motion Sensitivity':
@@ -4464,12 +4464,11 @@ class AnalysisGUI(QMainWindow):
 
         # sets the initial motion sensitivity/congruency table values
         n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
-        n_PD0 = np.vstack(r_data.pd_type_N)
 
         # sets the final table values
         n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
         n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
-        n_PD = np.vstack((n_PD0, np.sum(n_PD0, axis=0)))
+        n_PD = np.vstack(r_data.pd_type_N)
 
         # creates the title text object
         cT = cf.get_plot_col(max(n_grp), n_grp[i_grp])
@@ -4482,7 +4481,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
-        t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, n_PD]
+        t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
 
         # sets up the n-value table
         for i in range(len(t_props)):
@@ -5526,7 +5525,7 @@ class AnalysisGUI(QMainWindow):
             st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
             g_type_data = dcopy(r_data.phase_gtype)[:, st_type]
 
-        elif plot_grp_type == 'Preferred Direction':
+        elif plot_grp_type == 'Rotation/Visual DS':
             # case is preferred direction
             g_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
             g_type_data = dcopy(r_data.ds_gtype)
@@ -6950,7 +6949,7 @@ class AnalysisFunctions(object):
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
-        cell_desc_type = ['Motion/Direction Selectivity', 'Preferred Direction', 'Congruency']
+        cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
 
         # velocity/speed ranges
         vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
@@ -8149,7 +8148,7 @@ class AnalysisFunctions(object):
         '''
 
         # determines the cell grouping type that was selected
-        gtype_list = ['Direction Selectivity', 'Preferred Direction', 'Congruency']
+        gtype_list = ['Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
         ig_type = gtype_list.index(g_type)
 
         # determines the plot function that is currently selected
@@ -8160,7 +8159,7 @@ class AnalysisFunctions(object):
         if gtype_list[ig_type] == 'Direction Selectivity':
             # case is the direction selectivity
             nw_list = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
-        elif gtype_list[ig_type] == 'Preferred Direction':
+        elif gtype_list[ig_type] == 'Rotation/Visual DS':
             # case is the preferred direction
             nw_list = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
         else:

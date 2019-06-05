@@ -750,6 +750,7 @@ class RotationFilteredData(object):
                 # reduces the time spike arrays to include only the valid offset/duration
                 for i_filt in range(self.n_filt):
                     # array dimensioning
+                    t_phase0 = dcopy(self.t_phase[i_filt][0])
                     n_cell, n_trial, n_phase = np.shape(self.t_spike[i_filt])
                     self.t_phase[i_filt][0] = self._t_phase
 
@@ -765,7 +766,11 @@ class RotationFilteredData(object):
                                 # reshapes the other time-spike arrays
                                 t_sp = self.t_spike[i_filt][i_cell, i_trial, i_phase]
                                 if t_sp is not None:
-                                    ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
+                                    if i_phase == 0:
+                                        ii = t_sp >= (t_phase0 - self._t_phase)
+                                    else:
+                                        ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
+
                                     self.t_spike[i_filt][i_cell, i_trial, i_phase] = \
                                                             self.t_spike[i_filt][i_cell, i_trial, i_phase][ii]
 

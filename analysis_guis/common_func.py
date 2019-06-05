@@ -2192,12 +2192,12 @@ def calc_dirsel_scores(s_plt, sf_stats, p_value=0.05):
     # cells have a significant CW/CCW difference (1 for CW, 2 for CCW, 0 otherwise):
     #   1) significant for a single direction (either CW or CCW preferred)
     #   2) significant for both, but the CCW/CW gradient is either > 1 (for CCW preferred) or < 1 (for CW preferred)
-    both_sig = np.logical_and(sf_score[:, 0] > 0, sf_score[:, 1] > 0)
     if p_value is None:
         # case is the statistical significance has already been calculated
-        sf_score[both_sig, 2] = sf_stats[both_sig, 2].astype(int) * (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
+        sf_score[:, 2] = sf_stats[:, 2].astype(int) * (1 + (grad_CCW_CW > 1).astype(int))
     else:
         # case is the statistical significance needs to be calculated
+        both_sig = np.logical_and(sf_score[:, 0] > 0, sf_score[:, 1] > 0)
         sf_score[both_sig, 2] = (sf_stats[2][both_sig] < p_value).astype(int) * \
                                 (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
 
@@ -2245,9 +2245,8 @@ def split_unidrift_phases(data, rot_filt, i_cluster, plot_exp_name, plot_all_exp
     rot_filt['t_freq_dir'] = ['-1', '1']
 
     # splits the data by the forward/reverse directions
-    r_obj = RotationFilteredData(data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-    if (t0 + dt) > r_obj.t_phase[0][0]:
-        return None, None
+    r_obj = RotationFilteredData(data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True,
+                                 t_ofs=t0, t_phase=dt)
 
     # shortens the stimuli phases to the last/first dt of the baseline/stimuli phases
     t_phase, n_filt = r_obj.t_phase[0][0], int(r_obj.n_filt / 2)
@@ -2260,25 +2259,25 @@ def split_unidrift_phases(data, rot_filt, i_cluster, plot_exp_name, plot_all_exp
     r_obj.lg_str = [x.replace('Reverse\n', '') for x in r_obj.lg_str[:n_filt]]
     r_obj.i_expt, r_obj.ch_id, r_obj.cl_id = r_obj.i_expt[:n_filt], r_obj.ch_id[:n_filt], r_obj.cl_id[:n_filt]
 
-    # loops through each stimuli direction (CW/CCW) and for each filter reducing the stimuli phases
-    for i_dir in range(len(rot_filt['t_freq_dir'])):
-        for i_filt in range(n_filt):
-
-            # for each cell (in each phase) reduce the spikes to fit the shortened stimuli range
-            ii = ind_type[i_dir][i_filt]
-            for i_cell in range(np.size(r_obj.t_spike[ii], axis=0)):
-                for i_trial in range(np.size(r_obj.t_spike[ii], axis=1)):
-                    for i_phase in range(np.size(r_obj.t_spike[ii], axis=2)):
-                        # reduces the spikes by the shortened stimuli phase depending on the phase
-                        if r_obj.t_spike[ii][i_cell, i_trial, i_phase] is not None:
-                            x = dcopy(r_obj.t_spike[ii][i_cell, i_trial, i_phase])
-                            if i_phase == 0:
-                                # case is the baseline phase
-                                r_obj.t_spike[ii][i_cell, i_trial, i_phase] = x[x > (t_phase - dt)]
-                            else:
-                                # case is the stimuli phase
-                                jj = np.logical_and(x >= t0, x < (t0 + dt))
-                                r_obj.t_spike[ii][i_cell, i_trial, i_phase] = x[jj]
+    # # loops through each stimuli direction (CW/CCW) and for each filter reducing the stimuli phases
+    # for i_dir in range(len(rot_filt['t_freq_dir'])):
+    #     for i_filt in range(n_filt):
+    #
+    #         # for each cell (in each phase) reduce the spikes to fit the shortened stimuli range
+    #         ii = ind_type[i_dir][i_filt]
+    #         for i_cell in range(np.size(r_obj.t_spike[ii], axis=0)):
+    #             for i_trial in range(np.size(r_obj.t_spike[ii], axis=1)):
+    #                 for i_phase in range(np.size(r_obj.t_spike[ii], axis=2)):
+    #                     # reduces the spikes by the shortened stimuli phase depending on the phase
+    #                     if r_obj.t_spike[ii][i_cell, i_trial, i_phase] is not None:
+    #                         x = dcopy(r_obj.t_spike[ii][i_cell, i_trial, i_phase])
+    #                         if i_phase == 0:
+    #                             # case is the baseline phase
+    #                             r_obj.t_spike[ii][i_cell, i_trial, i_phase] = x[x > (t_phase - dt)]
+    #                         else:
+    #                             # case is the stimuli phase
+    #                             jj = np.logical_and(x >= t0, x < (t0 + dt))
+    #                             r_obj.t_spike[ii][i_cell, i_trial, i_phase] = x[jj]
 
     # returns the rotational analysis object
     return r_obj, ind_type

@@ -206,6 +206,9 @@ class WorkerThread(QThread):
                         return
 
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
+                # calculates the phase roc curve/significance values
+                self.calc_phase_roc_curves(data, calc_para, 50.)
+
                 # calculates the direction/selection group types
                 if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
                     self.is_ok = False
@@ -1235,10 +1238,14 @@ class WorkerThread(QThread):
             sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj)
             s_plt, _, sf_stats, i_grp = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type)
 
-            # calculates the ratio of the
+            # calculates the CW/CCW spiking frequency ratio
             r_CCW_CW = np.array(s_plt[2][1]) / np.array(s_plt[2][0])
 
-            if grp_stype == 'Wilcoxon Paired Test':
+            #########################################
+            ####    WILCOXON STATISTICAL TEST    ####
+            #########################################
+
+            if calc_para['grp_stype'] == 'Wilcoxon Paired Test':
                 # case is the wilcoxon paired test
                 sf_scores = cf.calc_dirsel_scores(s_plt, sf_stats, p_value)
 
@@ -1278,12 +1285,13 @@ class WorkerThread(QThread):
                     auc_sig[:, i_phs] = np.logical_or(auc_ci_lo, auc_ci_hi)
 
                 # case is the wilcoxon paired test
-                sf_scores = cf.calc_dirsel_scores(s_plt, auc_sig[i_grp[0], :], None)
+                sf_scores = np.zeros((np.size(roc, axis=0), 3), dtype=int)
+                sf_scores[i_grp[0], :] = cf.calc_dirsel_scores(s_plt, auc_sig[i_grp[0], :], None)
 
             # returns the direction selectivity scores
             return sf_scores, i_grp, r_CCW_CW
 
-        def det_dirsel_cells(sf_score):
+        def det_dirsel_cells(sf_score, grp_stype):
             '''
 
             :param sf_score:
@@ -1291,17 +1299,21 @@ class WorkerThread(QThread):
             '''
 
             # calculates the minimum/sum scores
-            score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
+            if grp_stype == 'Wilcoxon Paired Test':
+                score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
 
-            # determines the direction selective cells, which must meet the following conditions:
-            #  1) one direction only produces a significant result, OR
-            #  2) both directions are significant AND the CW/CCW comparison is significant
-            one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
-            both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
-            comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
+                # determines the direction selective cells, which must meet the following conditions:
+                #  1) one direction only produces a significant result, OR
+                #  2) both directions are significant AND the CW/CCW comparison is significant
+                one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
+                both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
+                comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
 
-            # determines which cells are direction selective (removes non-motion sensitive cells)
-            return np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
+                # determines which cells are direction selective (removes non-motion sensitive cells)
+                return np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
+            else:
+                # case is the roc analysis statistics (only consider the CW/CCW comparison for ds)
+                return sf_score[:, 2] > 0
 
         # initialises the rotation filter (if not set)
         rot_filt = plot_para['rot_filt']
@@ -1345,13 +1357,9 @@ class WorkerThread(QThread):
         if ud_rot_expt:
             # sets the visual phase/offset
             if t_phase_vis is None:
+                # if the phase duration is not set
                 t_phase_vis, t_ofs_vis = 2., 0.
-
-            # case is uniform-drifting experiments (split into CW/CCW phases)
-            r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
-            r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
-                                                           p_scope, t_phase_vis, t_ofs_vis)
-            if r_obj_vis is None:
+            elif (t_phase_vis + t_ofs_vis) > 2:
                 # output an error to screen
                 e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
                         '  * Analysis Duration + Offset = {0}\n s. * Experiment Phase Duration = {1} s.\n\n' \
@@ -1361,6 +1369,12 @@ class WorkerThread(QThread):
 
                 # return a false value indicating the calculation is invalid
                 return False
+
+            # case is uniform-drifting experiments (split into CW/CCW phases)
+            r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
+            r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
+                                                           p_scope, t_phase_vis, t_ofs_vis)
+
         else:
             # case is motor-drifting experiments
 
@@ -1410,8 +1424,8 @@ class WorkerThread(QThread):
                 #   1 = Rotation Only
                 #   2 = Visual Only
                 #   3 = Both
-                is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]])
-                is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]])
+                is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]], calc_para['grp_stype'])
+                is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]], calc_para['grp_stype'])
                 ds_gtype = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
                 ds_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
                 r_data.ds_gtype_N.append(len(ind_rot))
