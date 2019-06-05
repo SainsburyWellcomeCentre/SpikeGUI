@@ -2616,8 +2616,8 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
     #############################################
 
-    def plot_rotation_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, n_bin,
-                                   plot_grid):
+    def plot_rotation_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
+                                   n_bin, plot_grid):
         '''
 
         :param plot_scope:
@@ -2626,7 +2626,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_raster_hist(r_obj, n_bin, plot_grid)
+        self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value,
                                   stats_type, plot_scope, plot_trend, plot_grid, is_3d):
@@ -3317,8 +3317,8 @@ class AnalysisGUI(QMainWindow):
     ####    UNIFORM DRIFT ANALYSIS FUNCTIONS    ####
     ################################################
 
-    def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, n_bin,
-                                   plot_grid, rmv_median):
+    def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
+                                   n_bin, plot_grid, rmv_median):
         '''
 
         :param rot_filter:
@@ -3328,7 +3328,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_raster_hist(r_obj, n_bin, plot_grid)
+        self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value,
                                  stats_type, plot_scope, plot_trend, plot_grid):
@@ -4725,7 +4725,7 @@ class AnalysisGUI(QMainWindow):
     ####    COMMON ANALYSIS FUNCTIONS    ####
     #########################################
 
-    def create_raster_hist(self, r_obj, n_bin, plot_grid, rmv_median=False):
+    def create_raster_hist(self, r_obj, n_bin, show_pref_dir, plot_grid, rmv_median=False):
         '''
 
         :param t_spike:
@@ -4769,6 +4769,10 @@ class AnalysisGUI(QMainWindow):
         yL_mn, yL_mx, n_hist_min = 0, -1e6, 1e6
         c = cf.get_plot_col(r_obj.n_filt)
 
+        # memory allocation
+        t_sp_t = np.empty((r_obj.n_filt, r_obj.n_phase), dtype=object)
+        phase_lbl = ['Baseline', 'Preferred', 'Non-Preferred'] if show_pref_dir else r_obj.phase_lbl
+
         # sets the firing rate string
         if rmv_median:
             fr_str = 'Relative Mean Firing Rate (Hz)'
@@ -4777,6 +4781,21 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         self.init_plot_axes(n_row=2, n_col=r_obj.n_phase, n_plot=2 * r_obj.n_phase)
+
+        # sets up the histogram/rasterplot value for each phase/filter
+        for i_filt in range(r_obj.n_filt):
+            for i_phase in range(r_obj.n_phase):
+                # sets the histogram counts for each of the
+                t_sp_t[i_filt, i_phase] = dcopy(r_obj.t_spike[i_filt][:, :, i_phase])
+
+            # if showing the preferred direction, then re-order the arrays accordingly
+            if show_pref_dir:
+                for i_c in range(np.size(t_sp_t[i_filt, 1], axis=0)):
+                    # determines which trials need to be swapped (and swaps accordingly)
+                    is_swap = [len(y) > len(x) for x, y in zip(t_sp_t[i_filt, 1][i_c, :], t_sp_t[i_filt, 2][i_c, :])]
+                    for i_s in np.where(is_swap)[0]:
+                        t_sp_t[i_filt, 1][i_c, i_s], t_sp_t[i_filt, 2][i_c, i_s] = \
+                            t_sp_t[i_filt, 2][i_c, i_s], t_sp_t[i_filt, 1][i_c, i_s]
 
         # plots the histogram/rasterplot for each phase
         for i_phase in range(r_obj.n_phase):
@@ -4789,8 +4808,8 @@ class AnalysisGUI(QMainWindow):
                 xi = np.linspace(0, t_phase, n_bin + 1)
                 xi_hist = (xi[:-1] + xi[1:]) / 2.0
 
-                # sets the histogram counts for each of the
-                t_sp = r_obj.t_spike[i_filt][:, :, i_phase]
+                # calculates the spike time histogram for each of the cells over the current phase
+                t_sp = t_sp_t[i_filt, i_phase]
                 n_hist = setup_spike_time_hist(t_sp, np.shape(t_sp)[1], xi, r_obj.is_single_cell)
 
                 # appends the new spike times/colours to the overall rasterplot arrays
@@ -4829,11 +4848,13 @@ class AnalysisGUI(QMainWindow):
                 # appends the tick-marks to the y-tick array
                 y_tick.append([i_ofs - n_trial / 2])
 
-            #
+            # creates the raster-plot
             self.plot_fig.ax[i_phase].eventplot(positions=cf.flat_list(t_raster), orientation='horizontal',
                                                 colors=cf.flat_list(c_raster))
+
+            # sets the axis properties
             self.plot_fig.ax[i_phase].set_ylim(-0.5, i_ofs - 0.5)
-            self.plot_fig.ax[i_phase].set_title('{0}'.format(r_obj.phase_lbl[i_phase]))
+            self.plot_fig.ax[i_phase].set_title('{0}'.format(phase_lbl[i_phase]))
             self.plot_fig.ax[r_obj.n_phase + i_phase].set_xlabel('Time (s)')
 
             if i_phase == 0:
@@ -6664,6 +6685,7 @@ class AnalysisFunctions(object):
                 'link_para': [['i_cluster', 'Whole Experiment'],
                               ['plot_all_expt', 'Individual Cell']]
             },
+            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
 
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 20, 'min_val': 10},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -6859,6 +6881,7 @@ class AnalysisFunctions(object):
                 'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
                               ['plot_all_expt', 'Individual Cell']]
             },
+            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
 
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 100, 'min_val': 10},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
