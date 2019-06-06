@@ -141,11 +141,13 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC AUC Histograms':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['phase'])
+                self.check_altered_para(data, calc_para, g_para, ['condition'])
 
-                # calculates the phase roc curve/significance values
-                self.calc_phase_roc_curves(data, calc_para, 50.)
-                self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
+                # calculates the phase roc-curves for each cell
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 100., True):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
@@ -951,7 +953,7 @@ class WorkerThread(QThread):
                 if (i_phs + 1) == len(phase_str):
                     r_data.phase_roc_xy[i_cell] = cf.get_roc_xy_values(r_data.phase_roc[i_cell, i_phs])
 
-    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW):
+    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW, force_black_calc=False):
         '''
 
         :param calc_para:
@@ -1073,7 +1075,7 @@ class WorkerThread(QThread):
 
             # if not calculating the cell group indices, or the condition type is Black (the phase statistics for
             # this condition are already calculated in "calc_phase_roc_significance"), then continue
-            if (not calc_cell_grp) or (tt == 'Black'):
+            if (not calc_cell_grp) or ((tt == 'Black') and (not force_black_calc)):
                 continue
 
             # sets the rotation object filter (if using wilcoxon paired test for the cell group stats type)

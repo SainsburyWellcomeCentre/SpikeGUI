@@ -3504,8 +3504,8 @@ class AnalysisGUI(QMainWindow):
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
                                        plot_grp_type, cell_grp_type, plot_grid, plot_scope, False)
 
-    def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, cell_grp_type,
-                                          plot_grid, plot_scope):
+    def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, bin_sz, phase_type,
+                                          show_sig_cells, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -3517,6 +3517,42 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def create_auc_hist(ax, plt_vals, xi, c, is_sig, p_norm=None):
+            '''
+
+            :param ax:
+            :param plt_vals:
+            :param xi:
+            :param c:
+            :param is_sig:
+            :param p_norm:
+            :return:
+            '''
+
+            # sets the plot values
+            xi_p = 0.5 * (xi[1:] + xi[:-1])
+
+            # calculates the histogram values
+            n_hist = np.histogram(plt_vals, bins=xi)[0]
+
+            # creates the bar graph
+            if is_sig:
+                # case is the significant values so normalise using the provided value
+                ax.bar(xi_p, n_hist / p_norm, width=xi[1] - xi[0], color=c)
+            else:
+                # calculates the normalised histogram values
+                p_norm = np.sum(n_hist)
+                p_hist = n_hist / p_norm
+
+                # creates the bar plot
+                ax.bar(xi_p, p_hist, width=xi[1] - xi[0], edgecolor=c, color='None')
+
+                # sets the axis properties
+                cf.set_axis_limits(ax, [0, 1], [0, 1.05 * max(p_hist)])
+
+            # returns the normalisation value
+            return p_norm
+
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
@@ -3527,9 +3563,56 @@ class AnalysisGUI(QMainWindow):
             self.calc_ok = False
             return
 
-        #
-        a = 1
+        # initialisations
+        lg_str, n_filt, n_bin = r_obj.lg_str, r_obj.n_filt, int(100. / float(bin_sz))
+        xi, r_data = np.linspace(0, 1, n_bin + 1), self.data.rotation
+        c, yL_mx = cf.get_plot_col(n_filt), 0.
+        f_keys = list(r_data.cond_roc_auc.keys())
+        i_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW'].index(phase_type)
 
+        # initialises the plot axis
+        n_col, n_row = cf.det_subplot_dim(n_filt)
+        self.init_plot_axes(n_plot=n_filt)
+
+        #
+        for i_col in range(n_col):
+            for i_row in range(n_row):
+                # sets the global plot index
+                i_plot = i_row * n_col + i_col
+                if i_plot == n_filt:
+                    continue
+
+                # retrieves the current trial type
+                tt = f_keys[i_plot]
+
+                # creates the auc histogram
+                roc_auc = r_data.cond_roc_auc[tt][:, i_type]
+                p_norm = create_auc_hist(self.plot_fig.ax[i_plot], roc_auc, xi, c[i_plot], False)
+
+                # creates the significant auc histogram (if required)
+                if show_sig_cells:
+                    roc_auc_sig = roc_auc[r_data.cond_auc_sig[tt][:, i_type]]
+                    create_auc_hist(self.plot_fig.ax[i_plot], roc_auc_sig, xi, c[i_plot], True, p_norm=p_norm)
+
+                # sets the other axis properties
+                self.plot_fig.ax[i_plot].grid(plot_grid)
+                self.plot_fig.ax[i_plot].set_title(lg_str[i_plot])
+
+                # sets the y-axis label (first column only)
+                if i_col == 0:
+                    self.plot_fig.ax[i_plot].set_ylabel('Probability')
+
+                # sets the x-axis label (bottom row only)
+                if (i_row + 1) == n_row:
+                    self.plot_fig.ax[i_plot].set_xlabel('auROC')
+
+                # determines the overall maximum
+                yL_mx = max([yL_mx, self.plot_fig.ax[i_plot].get_ylim()[1]])
+
+        # sets equal axis limits
+        if n_filt > 1:
+            for i_plot in range(n_filt):
+                self.plot_fig.ax[i_plot].set_ylim([0, yL_mx])
 
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
@@ -6960,6 +7043,7 @@ class AnalysisFunctions(object):
 
         # type lists
         roc_vel_bin = ['5', '10', '20', '40']
+        hist_bin_sz = ['2', '5', '10', '20', '25', '50']
         md_grp_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
         pd_grp_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
         grp_stype = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
@@ -6967,6 +7051,7 @@ class AnalysisFunctions(object):
         mean_type = ['Mean', 'Median']
         freq_type = ['Decreasing', 'Increasing', 'All']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
+        phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -7099,9 +7184,13 @@ class AnalysisFunctions(object):
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
-            'cell_grp_type': {
-                'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
+            'bin_sz': {
+                'type': 'L', 'text': 'Histogram Bin Size', 'list': hist_bin_sz, 'def_val': hist_bin_sz[1],
             },
+            'phase_type': {
+                'type': 'L', 'text': 'Phase Comparison Type', 'list': phase_comp_type, 'def_val': phase_comp_type[-1],
+            },
+            'show_sig_cells': {'type': 'B', 'text': 'Show Significant Cells', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
