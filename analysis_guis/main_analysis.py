@@ -7139,7 +7139,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
@@ -7191,7 +7191,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
@@ -7404,7 +7404,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
                          'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']},
@@ -7447,7 +7447,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
@@ -7530,7 +7530,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             't_phase_vis': {
                 'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
@@ -7573,7 +7573,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': [['n_boot', 'Delong'], ['n_boot', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             # 'auc_stype': {
             #     'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
