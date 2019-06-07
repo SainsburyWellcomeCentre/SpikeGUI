@@ -105,6 +105,7 @@ formatter = lambda **kwargs: ', '.join(kwargs['point_label'])
 setup_heatmap_bins = lambda t_stim, dt: np.arange(t_stim + dt / 1000, step=dt / 1000.0)
 sig_str_fcn = lambda x, p_value: '*' if x < p_value else ''
 convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
+txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 
 # other initialisations
 dcopy = copy.deepcopy
@@ -3847,8 +3848,8 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond,
-                                   use_resp_grp_type, show_sig_markers, plot_trend, plot_grid, plot_scope):
+    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, use_resp_grp_type, sm_type,
+                                   sep_sig_markers, show_sig_markers, plot_trend, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -3865,6 +3866,11 @@ class AnalysisGUI(QMainWindow):
         _rot_filt, e_str, et_str = cf.setup_trial_condition_filter(_rot_filt, plot_cond)
         if e_str is not None:
             cf.show_error(e_str, et_str)
+            self.ok = False
+            return
+        elif show_sig_markers and (len(sm_type) == 0):
+            e_str = 'At least one significance marker type must be selected when running this function'
+            cf.show_error(e_str, 'Invalid Marker Type Selection')
             self.ok = False
             return
 
@@ -3910,7 +3916,19 @@ class AnalysisGUI(QMainWindow):
         ####################################
 
         # legend properties initialisations
-        h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.'] if show_sig_markers else []
+        h_plt = []
+        if show_sig_markers:
+            #
+            sm_sel = [txt_fcn(sm_type, 'Black'), txt_fcn(sm_type, 'Comparison'), txt_fcn(sm_type, 'Both')]
+
+            #
+            if sep_sig_markers:
+                lg_str = np.array(['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.'])
+                lg_str = list(lg_str[sm_sel])
+            else:
+                lg_str = ['Significant Cells']
+        else:
+            lg_str = []
 
         # initialises the plot axes
         self.init_plot_axes(n_plot=1)
@@ -3947,6 +3965,17 @@ class AnalysisGUI(QMainWindow):
                     x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
                     y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
                     xy_sig = x_sig + 2 * y_sig
+
+                    # removes any markers that are not selected
+                    for ism_t, sm_t in enumerate(sm_sel):
+                        if not sm_t:
+                            xy_sig[xy_sig == (ism_t + 1)] = 0
+
+                    # if not separating significance markers, then set to be the same colout
+                    if not sep_sig_markers:
+                        xy_sig = (xy_sig > 0).astype(int)
+
+                    # sets the final significance plot colours
                     sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
 
                     # creates the significance markers
@@ -3955,7 +3984,7 @@ class AnalysisGUI(QMainWindow):
 
                     # creates the significance legend plot markers
                     if i == 0:
-                        for j in range(1,4):
+                        for j in np.unique(xy_sig[xy_sig > 0]):
                             h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
 
                 # creates the markers for each of the phases
@@ -4875,7 +4904,8 @@ class AnalysisGUI(QMainWindow):
             if show_pref_dir:
                 for i_c in range(np.size(t_sp_t[i_filt, 1], axis=0)):
                     # determines which trials need to be swapped (and swaps accordingly)
-                    is_swap = [len(y) > len(x) for x, y in zip(t_sp_t[i_filt, 1][i_c, :], t_sp_t[i_filt, 2][i_c, :])]
+                    is_swap = [False if ((x is None) or (y is None)) else (len(y)) > len(x)
+                               for x, y in zip(t_sp_t[i_filt, 1][i_c, :], t_sp_t[i_filt, 2][i_c, :])]
                     for i_s in np.where(is_swap)[0]:
                         t_sp_t[i_filt, 1][i_c, i_s], t_sp_t[i_filt, 2][i_c, i_s] = \
                             t_sp_t[i_filt, 2][i_c, i_s], t_sp_t[i_filt, 1][i_c, i_s]
@@ -6854,8 +6884,9 @@ class AnalysisFunctions(object):
                               ['plot_all_expt', 'Individual Cell']]
             },
 
-            'plot_cond': {'type': 'CL', 'text': 'Plot Conditions', 'list': p_cond,
-                          'def_val': np.ones(len(p_cond), dtype=bool)},
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': np.ones(len(p_cond), dtype=bool)
+            },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_even_axis': {'type': 'B', 'text': 'Set Equal Axis Limits', 'def_val': True},
             'p_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'scatterplot',
@@ -7052,6 +7083,7 @@ class AnalysisFunctions(object):
         freq_type = ['Decreasing', 'Increasing', 'All']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
+        sm_type = ['Black Significant', 'Comparison Condition Significant', 'Both Significant']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -7456,8 +7488,18 @@ class AnalysisFunctions(object):
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
-            'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': 'Uniform'},
-            'show_sig_markers': {'type': 'B', 'text': 'Show Significance Markers', 'def_val': True},
+            'sm_type': {
+                'type': 'CL', 'text': 'Significance Markers', 'list': sm_type,
+                'def_val': np.ones(len(sm_type), dtype=bool), 'other_para': '--- Select Significant Phases ---'
+            },
+            'plot_cond': {
+                'type': 'L', 'text': 'Comparison Condition', 'list': p_cond, 'def_val': 'Uniform',
+            },
+            'sep_sig_markers': {'type': 'B', 'text': 'Separate Significance Markers', 'def_val': True},
+            'show_sig_markers': {
+                'type': 'B', 'text': 'Show Significance Markers', 'def_val': True,
+                'link_para': [['sep_sig_markers', False], ['sm_type', False]]
+            },
             'use_resp_grp_type': {
                 'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt
             },
@@ -7981,13 +8023,18 @@ class AnalysisFunctions(object):
         para_text = '{0}: '.format(fcn_para['text'])
         link_para, list_txt, def_val = fcn_para['link_para'], fcn_para['list'], fcn_para['def_val']
 
+        #
+        first_line = fcn_para['other_para']
+        if first_line is None:
+            first_line = '--- Select Trial Conditions ---'
+
         # creates the callback function
         cb_fcn = functools.partial(self.update_checklist_para, p_name, h_chklist=None)
 
         # creates the object
         h_lbl = cf.create_label(None, txt_font_bold, para_text, align='right')
         h_chklist = cf.create_checkcombo(None, txt_font, list_txt, name=p_name, cb_fcn=cb_fcn,
-                                         first_line='--- Select Trial Conditions ---')
+                                         first_line=first_line)
         h_lbl.setAlignment(Qt.AlignVCenter)
 
         # sets the callback function
@@ -8366,6 +8413,10 @@ class AnalysisFunctions(object):
         # sets the object type flag
         if 'para_reset' not in para:
             para['para_reset'] = None
+
+        # sets the object type flag
+        if 'other_para' not in para:
+            para['other_para'] = True
 
         # returns the parameter dictionary
         return para
