@@ -1600,7 +1600,6 @@ def combine_spike_freq(sp_freq, i_dim):
     return flat_list([list(sp_freq[i_filt][:, i_dim]) if sp_freq[i_filt] is not None else []
                       for i_filt in range(len(sp_freq))])
 
-
 def setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub=3, plot_trend=False, is_3d=False):
     '''
 
@@ -1792,7 +1791,7 @@ def calc_roc_curves(comp_vals, roc_type='Cell Spike Times', x_grp=None, y_grp=No
     # sets up the roc
     nn = len(x_grp)
     roc_pred, roc_class = np.hstack((np.zeros(nn), np.ones(nn))), np.hstack((x_grp, y_grp))
-    return r_pROC.roc(FloatVector(roc_pred), FloatVector(roc_class), direction = ">")
+    return r_pROC.roc(FloatVector(roc_pred), FloatVector(roc_class), direction = "<")
 
 
 # def calc_cell_roc_bootstrap_wrapper(p_data):
@@ -2164,7 +2163,7 @@ def det_matching_filters(r_obj, ind):
         if is_match:
             return [ind, i]
 
-def calc_dirsel_scores(s_plt, sf_stats, p_value=0.05):
+def calc_ms_scores(s_plt, sf_stats, p_value=0.05):
     '''
 
     :param s_plt:
@@ -2172,34 +2171,36 @@ def calc_dirsel_scores(s_plt, sf_stats, p_value=0.05):
     :return:
     '''
 
-    # calculates the relative change for CW/CCW from baseline, and CCW to CW
-    grad_CW = np.array(s_plt[0][1]) / np.array(s_plt[0][0])
-    grad_CCW = np.array(s_plt[1][1]) / np.array(s_plt[1][0])
-    grad_CCW_CW = np.array(s_plt[1][1]) / np.array(s_plt[0][1])
+    #
+    if p_value is not None:
+        # calculates the relative change for CW/CCW from baseline, and CCW to CW
+        grad_CW = np.array(s_plt[0][1]) / np.array(s_plt[0][0])         # CW to BL
+        grad_CCW = np.array(s_plt[1][1]) / np.array(s_plt[1][0])        # CCW to BL
+        grad_CCW_CW = np.array(s_plt[1][1]) / np.array(s_plt[0][1])     # CCW to CW
 
-    # calculates the score type for the CW/CCW phases
-    sf_score = np.zeros((len(grad_CW), 3), dtype=int)
-    if p_value is None:
-        # case is the statistical significance has already been calculated
-        sf_score[:, 0] = sf_stats[:, 0].astype(int) * (1 + (grad_CW > 1).astype(int))
-        sf_score[:, 1] = sf_stats[:, 1].astype(int) * (1 + (grad_CCW > 1).astype(int))
-    else:
-        # case is the statistical significance needs to be calculated
+        # calculates the score type for the CW/CCW phases
+        sf_score = np.zeros((len(grad_CW), 3), dtype=int)
+
+        # case is the statistical significance has already been calculated (which is the case for ROC)
         sf_score[:, 0] = (sf_stats[0] < p_value).astype(int) * (1 + (grad_CW > 1).astype(int))
         sf_score[:, 1] = (sf_stats[1] < p_value).astype(int) * (1 + (grad_CCW > 1).astype(int))
 
-    # if both CW and CCW are significant (wrt the baseline phase), then determine from these cells which
-    # cells have a significant CW/CCW difference (1 for CW, 2 for CCW, 0 otherwise):
-    #   1) significant for a single direction (either CW or CCW preferred)
-    #   2) significant for both, but the CCW/CW gradient is either > 1 (for CCW preferred) or < 1 (for CW preferred)
-    if p_value is None:
-        # case is the statistical significance has already been calculated
-        sf_score[:, 2] = sf_stats[:, 2].astype(int) * (1 + (grad_CCW_CW > 1).astype(int))
-    else:
+        # if both CW and CCW are significant (wrt the baseline phase), then determine from these cells which
+        # cells have a significant CW/CCW difference (1 for CW, 2 for CCW, 0 otherwise):
+        #   1) significant for a single direction (either CW or CCW preferred)
+        #   2) significant for both, but the CCW/CW gradient is either > 1 (for CCW preferred) or < 1 (for CW preferred)
         # case is the statistical significance needs to be calculated
         both_sig = np.logical_and(sf_score[:, 0] > 0, sf_score[:, 1] > 0)
         sf_score[both_sig, 2] = (sf_stats[2][both_sig] < p_value).astype(int) * \
                                 (1 + (grad_CCW_CW[both_sig] > 1).astype(int))
+    else:
+        # calculates the score type for the CW/CCW phases
+        sf_score = np.zeros((np.size(s_plt, axis=0), 3), dtype=int)
+
+        # case is the statistical significance needs to be calculated
+        sf_score[:, 0] = sf_stats[:, 0].astype(int) * (1 + (s_plt[:, 0] > 0.5).astype(int))
+        sf_score[:, 1] = sf_stats[:, 1].astype(int) * (1 + (s_plt[:, 1] > 0.5).astype(int))
+        sf_score[:, 2] = sf_stats[:, 2].astype(int) * (1 + (s_plt[:, 2] > 0.5).astype(int))
 
     # returns the scores array
     return sf_score

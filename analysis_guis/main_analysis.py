@@ -5252,7 +5252,7 @@ class AnalysisGUI(QMainWindow):
         if (not is_3d) and (not r_obj.is_single_cell):
             # memory allocation
             sf_type_pr = np.empty(n_sub - 1, dtype=object)
-            sf_score = cf.calc_dirsel_scores(s_plt, sf_stats, p_value=p_value)
+            sf_score = cf.calc_ms_scores(s_plt, sf_stats, p_value=p_value)
             score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
 
             # determines the reaction type from the score phase types
@@ -8684,6 +8684,8 @@ class RotationData(object):
         self.n_boot_comb_grp = -1
         self.t_ofs_rot = -1
         self.t_phase_rot = -1
+        self.t_ofs_vis = -1
+        self.t_phase_vis = -1
         self.r_obj_black = None                 # black trial type rotation filter object
         self.r_obj_cond = None                  # condition rotation filter objects
 
@@ -8696,6 +8698,11 @@ class RotationData(object):
         self.phase_gtype = None                 # phase cell group type
         self.phase_auc_sig = None               # phase auc significance flags
         self.phase_grp_stats_type = None        # phase cell grouping statistics type
+
+        # uniform drifting cell group roc parameters
+        self.phase_roc_ud = None                # phase r roc objects
+        self.phase_roc_xy_ud = None             # phase roc curve x/y coordinates
+        self.phase_roc_auc_ud = None            # phase roc curve integrals
 
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects

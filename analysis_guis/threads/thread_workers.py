@@ -224,10 +224,19 @@ class WorkerThread(QThread):
                     return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+
+                # initisalises the rotational filter (if not initialised already)
+                if plot_para['rot_filt'] is None:
+                    plot_para['rot_filt'] = cf.init_rotation_filter_data(False)
+
+                # creates a copy of the plotting parameters and adds motordrifting (if the visual expt type)
+                _plot_para = dcopy(plot_para)
+                if calc_para['vis_expt_type'] == 'MotorDrifting':
+                    _plot_para['rot_filt']['t_type'].append('MotorDrifting')
 
                 # calculates the phase roc-curves for each cell
-                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
+                if not self.calc_cond_roc_curves(data, pool, calc_para, _plot_para, g_para, False, 33.):
                     self.is_ok = False
                     self.work_finished.emit(thread_data)
                     return
@@ -235,7 +244,7 @@ class WorkerThread(QThread):
                 # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, calc_para, 66.)
 
-                if not self.calc_dirsel_group_types(data, pool, calc_para, plot_para, g_para):
+                if not self.calc_dirsel_group_types(data, pool, calc_para, _plot_para, g_para):
                     self.is_ok = False
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
@@ -906,7 +915,7 @@ class WorkerThread(QThread):
     ####    ROC CURVE CALCULATIONS    ####
     ######################################
 
-    def calc_phase_roc_curves(self, data, calc_para, pW):
+    def calc_phase_roc_curves(self, data, calc_para, pW, r_obj_vis=None, ind_type=None):
         '''
 
         :param calc_para:
@@ -918,23 +927,27 @@ class WorkerThread(QThread):
 
         # parameters and initialisations
         phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
-        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
-        # if the roc curves have already been calculated then exit with the current array
+        # if the black phase is calculated already, then exit the function
         if r_data.phase_roc is not None:
             return
+
+        # retrieves the offset parameters
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # sets up the black phase data filter and returns the time spikes
         r_filt_black = cf.init_rotation_filter_data(False)
         r_data.r_obj_black = RotationFilteredData(data, r_filt_black, 0, None, True, 'Whole Experiment', False,
                                                   t_phase=t_phase, t_ofs=t_ofs)
+
+        # retrieves the time spikes and sets the roc class fields for update
         t_spike = r_data.r_obj_black.t_spike[0]
 
         # memory allocation
-        n_cell = np.size(r_data.r_obj_black.t_spike[0], axis=0)
-        r_data.phase_roc = np.empty((n_cell, len(phase_str)), dtype=object)
-        r_data.phase_roc_xy = np.empty(n_cell, dtype=object)
-        r_data.phase_roc_auc = np.ones((n_cell, len(phase_str)))
+        n_cell = np.size(t_spike, axis=0)
+        roc = np.empty((n_cell, len(phase_str)), dtype=object)
+        roc_xy = np.empty(n_cell, dtype=object)
+        roc_auc = np.ones((n_cell, len(phase_str)))
 
         # calculates the roc curves/integrals for all cells over each phase
         for i_phs, p_str in enumerate(phase_str):
@@ -946,14 +959,70 @@ class WorkerThread(QThread):
             ind = np.array([1 * (i_phs > 1), 1 + (i_phs > 0)])
             for i_cell in range(n_cell):
                 # calculates the roc curve/auc integral
-                r_data.phase_roc[i_cell, i_phs] = cf.calc_roc_curves(t_spike[i_cell, :, :], ind=ind)
-                r_data.phase_roc_auc[i_cell, i_phs] = cf.get_roc_auc_value(r_data.phase_roc[i_cell, i_phs])
+                roc[i_cell, i_phs] = cf.calc_roc_curves(t_spike[i_cell, :, :], ind=ind)
+                roc_auc[i_cell, i_phs] = cf.get_roc_auc_value(roc[i_cell, i_phs])
 
                 # if the CW/CCW phase interaction, then set the roc curve x/y coordinates
                 if (i_phs + 1) == len(phase_str):
-                    r_data.phase_roc_xy[i_cell] = cf.get_roc_xy_values(r_data.phase_roc[i_cell, i_phs])
+                    roc_xy[i_cell] = cf.get_roc_xy_values(roc[i_cell, i_phs])
 
-    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW, force_black_calc=False):
+        # case is the rotation (black) condition
+        r_data.phase_roc, r_data.phase_roc_xy, r_data.phase_roc_auc = roc, roc_xy, roc_auc
+
+    def calc_ud_roc_curves(self, data, r_obj_vis, ind_type, pW):
+        '''
+
+        :param data:
+        :param r_obj_vis:
+        :param calc_para:
+        :param pW:
+        :return:
+        '''
+
+        # parameters and initialisations
+        phase_str, r_data, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation, np.array([0, 1])
+        ind_CC, ind_CCW = ind_type[0][0], ind_type[1][0]
+
+        # if the uniformdrifting phase is calculated already, then exit the function
+        if r_data.phase_roc_ud is not None:
+            return
+
+        # sets the time spike array
+        t_spike = r_obj_vis.t_spike
+
+        # memory allocation
+        n_cell = np.size(r_obj_vis.t_spike[0], axis=0)
+        roc = np.empty((n_cell, len(phase_str)), dtype=object)
+        roc_xy = np.empty(n_cell, dtype=object)
+        roc_auc = np.ones((n_cell, len(phase_str)))
+
+        # calculates the roc curves/integrals for all cells over each phase
+        for i_phs, p_str in enumerate(phase_str):
+            # updates the progress bar string
+            w_str = 'ROC Curve Calculations ({0})...'.format(p_str)
+            self.work_progress.emit(w_str, pW * i_phs / len(phase_str))
+
+            # loops through each of the cells calculating the roc curves (and associated values)
+            for i_cell in range(n_cell):
+                # sets the time spike arrays depending on the phase type
+                if (i_phs + 1) == len(phase_str):
+                    t_spike_phs = np.vstack((t_spike[ind_CC][i_cell, :, 1], t_spike[ind_CCW][i_cell, :, 1])).T
+                else:
+                    t_spike_phs = t_spike[i_phs][i_cell, :, :]
+
+                # calculates the roc curve/auc integral
+                roc[i_cell, i_phs] = cf.calc_roc_curves(t_spike_phs, ind=ind)
+                roc_auc[i_cell, i_phs] = cf.get_roc_auc_value(roc[i_cell, i_phs])
+
+                # if the CW/CCW phase interaction, then set the roc curve x/y coordinates
+                if (i_phs + 1) == len(phase_str):
+                    roc_xy[i_cell] = cf.get_roc_xy_values(roc[i_cell, i_phs])
+
+        # sets the final
+        r_data.phase_roc_ud, r_data.phase_roc_xy_ud, r_data.phase_roc_auc_ud = roc, roc_xy, roc_auc
+
+    def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW,
+                             force_black_calc=False):
         '''
 
         :param calc_para:
@@ -1228,7 +1297,8 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def calc_combined_spiking_stats(r_data, r_obj, pool, calc_para, g_para, p_value, ind_type=None):
+        def calc_combined_spiking_stats(r_data, r_obj, pool, calc_para, g_para, p_value, ind_type=None,
+                                        t_type='Black'):
             '''
 
             :param r_obj:
@@ -1249,7 +1319,7 @@ class WorkerThread(QThread):
 
             if calc_para['grp_stype'] == 'Wilcoxon Paired Test':
                 # case is the wilcoxon paired test
-                sf_scores = cf.calc_dirsel_scores(s_plt, sf_stats, p_value)
+                sf_scores = cf.calc_ms_scores(s_plt, sf_stats, p_value)
 
             ##########################################
             ####    ROC-BASED STATISTICAL TEST    ####
@@ -1260,7 +1330,17 @@ class WorkerThread(QThread):
                 phase_stype = calc_para['grp_stype']
                 is_boot, n_boot = calc_para['grp_stype'] == 'Bootstrapping', calc_para['n_boot']
                 phase_str, c_lvl, pW = ['CW/BL', 'CCW/BL', 'CCW/CW'], float(g_para['roc_clvl']), 100.
-                roc, auc, r_obj = r_data.phase_roc, r_data.phase_roc_auc, r_data.r_obj_black
+
+                # retrieves the roc/auc fields (depending on the type)
+                if t_type == 'Black':
+                    # case is the black (rotation) condition
+                    roc, auc = r_data.phase_roc, r_data.phase_roc_auc
+                elif t_type == 'UniformDrifting':
+                    # case is the uniformdrifting (visual) condition
+                    roc, auc = r_data.phase_roc_ud, r_data.phase_roc_auc_ud
+                else:
+                    # case is the motordrifting (visual) condition
+                    roc, auc = r_data.cond_roc['MotorDrifting'], r_data.cond_roc_auc['MotorDrifting']
 
                 # REMOVE ME LATER?
                 c_lvl = 0.95
@@ -1288,7 +1368,7 @@ class WorkerThread(QThread):
 
                 # case is the wilcoxon paired test
                 sf_scores = np.zeros((np.size(roc, axis=0), 3), dtype=int)
-                sf_scores[i_grp[0], :] = cf.calc_dirsel_scores(s_plt, auc_sig[i_grp[0], :], None)
+                sf_scores[i_grp[0], :] = cf.calc_ms_scores(s_plt, auc_sig[i_grp[0], :], None)
 
             # returns the direction selectivity scores
             return sf_scores, i_grp, r_CCW_CW
@@ -1377,6 +1457,9 @@ class WorkerThread(QThread):
             r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
                                                            p_scope, t_phase_vis, t_ofs_vis)
 
+            if (r_data.phase_roc_ud is None) and ('Wilcoxon' not in calc_para['grp_stype']):
+                self.calc_ud_roc_curves(data, r_obj_vis, ind_type, 66.)
+
         else:
             # case is motor-drifting experiments
 
@@ -1396,7 +1479,8 @@ class WorkerThread(QThread):
         sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data, r_data.r_obj_rot_ds, pool,
                                                                             calc_para, g_para, p_val)
         sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_data, r_obj_vis, pool,
-                                                                            calc_para, g_para, p_val, ind_type)
+                                                                            calc_para, g_para, p_val, ind_type,
+                                                                            r_filt_vis['t_type'][0])
 
         # memory allocation
         ds_type_tmp, ms_type_tmp, pd_type_tmp = [], [], []
@@ -1827,6 +1911,10 @@ class WorkerThread(QThread):
                 # if there was a change, then re-initialise the roc condition fields
                 if is_change:
                     # memory allocation (if the conditions have not been set)
+                    r_data.phase_roc, r_data.phase_roc_auc, r_data.phase_roc_xy = {}, {}, {}
+                    r_data.phase_ci_lo, self.phase_ci_hi, self.phase_gtype = None, None, None
+                    r_data.phase_auc_sig, r_data.phase_grp_stats_type = None, None
+
                     r_data.cond_roc, r_data.cond_roc_xy, r_data.cond_roc_auc = {}, {}, {}
                     r_data.cond_gtype, r_data.cond_auc_sig, r_data.cond_i_expt, r_data.cond_cl_id = {}, {}, {}, {}
                     r_data.cond_ci_lo, r_data.cond_ci_hi, r_data.r_obj_cond = {}, {}, {}
@@ -1839,6 +1927,18 @@ class WorkerThread(QThread):
                 # # if there was a change, then re-initialise the roc phase fields
                 # if is_change:
                 #     a = 1
+
+            elif ct == 'visual':
+                # retrieves the visual phase time offset/duration
+                t_ofs_vis, t_phase_vis = cfcn.get_rot_phase_offsets(calc_para, True)
+
+                # if the values are not none, and do not match previous values, then reset the stored roc array
+                if (r_data.t_ofs_vis != t_ofs_vis) or (r_data.t_phase_vis != t_phase_vis):
+                    r_data.t_ofs_vis, r_data.t_phase_vis, is_change = t_ofs_vis, t_phase_vis, True
+
+                # if there was a change, then re-initialise the fields
+                if is_change:
+                    r_data.phase_roc_ud, r_data.phase_roc_auc_ud, r_data.phase_roc_xy_ud = None, None, None
 
             elif ct == 'vel':
                 # case is the kinematic calculations
