@@ -3100,11 +3100,11 @@ class AnalysisGUI(QMainWindow):
         ####    FIGURE SETUP    ####
         ############################
 
-        #
+        # sets the x-axis plot points
         x_f = 10 ** (0.5 * (xi_f[1:] + xi_f[:-1]))
-        dx_f = 0.5 * (xi_df[1:] + xi_df[:-1])
+        dx_f, x_f = 0.5 * (xi_df[1:] + xi_df[:-1]), np.concatenate(([x_f[0]], x_f, [x_f[-1]]))
 
-        #
+        # creates both histograms for each of the filter types
         for i_filt in range(r_obj.n_filt):
             # sets plot values (smoothes the data if required)
             sp_f_plt = sp_f_hist[i_filt]
@@ -3112,6 +3112,7 @@ class AnalysisGUI(QMainWindow):
                 sp_f_plt = medfilt(sp_f_plt, n_smooth)
 
             # creates the area graphs for the baseline spiking rates
+            sp_f_plt = np.concatenate(([0], sp_f_plt, [0]))
             h_plt.append(self.plot_fig.ax[0].fill_between(x_f, sp_f_plt, color=c[i_filt], alpha=0.4))
             self.plot_fig.ax[0].plot(x_f, sp_f_plt, color=c[i_filt], linewidth=1.5)
 
@@ -3133,10 +3134,9 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_ylabel("Fraction of Neurons")
         self.plot_fig.ax[1].set_xlabel("{0}Firing Rate (Spike/Sec)".format(cf._delta))
 
-        yL_0 = self.plot_fig.ax[0].get_ylim()
+        # readjusts the y-axis limits of both graphs
+        yL_0, yL_1 = self.plot_fig.ax[0].get_ylim(), self.plot_fig.ax[1].get_ylim()
         self.plot_fig.ax[0].set_ylim([0, yL_0[1]])
-
-        yL_1 = self.plot_fig.ax[1].get_ylim()
         self.plot_fig.ax[1].plot([0, 0], [0, yL_1[1]], 'r--')
         self.plot_fig.ax[1].set_ylim([0, yL_1[1]])
 
