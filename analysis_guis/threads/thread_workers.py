@@ -1368,7 +1368,7 @@ class WorkerThread(QThread):
 
                 # case is the wilcoxon paired test
                 sf_scores = np.zeros((np.size(roc, axis=0), 3), dtype=int)
-                sf_scores[i_grp[0], :] = cf.calc_ms_scores(s_plt, auc_sig[i_grp[0], :], None)
+                sf_scores[i_grp[0], :] = cf.calc_ms_scores(auc, auc_sig[i_grp[0], :], None)
 
             # returns the direction selectivity scores
             return sf_scores, i_grp, r_CCW_CW
@@ -1525,8 +1525,8 @@ class WorkerThread(QThread):
                 # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
                 #   0 = Congruent (preferred direction is different)
                 #   1 = Incongruent (preferred direction is the same)
-                pd_type = np.zeros(sum(is_both_ds), dtype=int)
-                pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 1
+                pd_type = np.ones(sum(is_both_ds), dtype=int)
+                pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 0
 
                 # calculates the preferred direction type count/proportions
                 r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 2))

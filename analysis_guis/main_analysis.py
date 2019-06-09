@@ -40,6 +40,7 @@ import rpy2.robjects.numpy2ri
 from rpy2.robjects import FloatVector
 from rpy2.robjects.packages import importr
 rpy2.robjects.numpy2ri.activate()
+r_stats = importr("pairwise")
 r_stats = importr("stats")
 r_pROC = importr("pROC")
 
@@ -3019,6 +3020,126 @@ class AnalysisGUI(QMainWindow):
         else:
             create_wc_selectivity_plot(r_obj, plot_grid, rot_filt['t_type'], plot_even_axis)
 
+    def plot_firing_rate_distributions(self, rot_filt, plot_exp_name, plot_all_expt, comp_type, n_smooth,
+                                       smooth_hist, plot_grid):
+        '''
+
+        :param rot_filt:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param comp_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # ensures the smoothing window is an odd integer
+        if smooth_hist:
+            if n_smooth % 2 != 1:
+                # if not, then exit with an error
+                e_str = 'The median smoothing filter window span must be an odd integer.'
+                cf.show_error(e_str, 'Incorrect Smoothing Window Span')
+                self.calc_ok = False
+                return
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, plot_all_expt, 'Whole Experiment', False)
+        if not r_obj.is_ok:
+            self.calc_ok = False
+            return
+
+        # initialisations
+        c_ind, A, h_plt = 1 + ('CCW' in comp_type), np.empty(r_obj.n_filt, dtype=object), []
+        s_plt, sp_f_hist, dsp_f, dsp_f_hist = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
+        sp_f_mn, dsp_f_mn, sp_f_mx, dsp_f_mx  = 0.01, 1e6, -1e6, -1e6
+
+        # calculates mean spiking rates for all cells
+        _, sp_f = cf.calc_phase_spike_freq(r_obj)
+
+        # sets the plot/table properties
+        c = cf.get_plot_col(r_obj.n_filt)
+
+        # initialises the plot axes
+        # self.plot_fig.fig.set_tight_layout(False)
+        # self.plot_fig.fig.tight_layout(rect=[0.01, 0.02, 0.98, 0.97])
+        self.init_plot_axes(n_row=1, n_col=2)
+
+        # calculates the difference in spiking rate between the comparison index and baseline phases
+        for i_filt in range(r_obj.n_filt):
+            # determines the neurons whose spiking rate is greater than minimum
+            ii = sp_f[i_filt][:, 0] >= sp_f_mn
+
+            # sets the mean baseline spiking rates (determining the min/max values)
+            s_plt[i_filt] = sp_f[i_filt][ii, 0]
+            sp_f_mx = max([sp_f_mx, np.max(s_plt[i_filt])])
+
+            # sets the change in mean spiking rates (determining the min/max values)
+            dsp_f[i_filt] = sp_f[i_filt][ii, c_ind] - s_plt[i_filt]
+            dsp_f_mx = max([dsp_f_mx, np.max(dsp_f[i_filt])])
+            dsp_f_mn = min([dsp_f_mn, np.min(dsp_f[i_filt])])
+
+        #
+        xi_f = np.arange(np.log10(sp_f_mn), 0.01 * np.ceil(np.log10(sp_f_mx) / 0.01), 0.1)
+        xi_df = np.arange(np.floor(dsp_f_mn), np.ceil(dsp_f_mx))
+
+        # calculates the spiking rate/rate change histograms over all filter types
+        for i_filt in range(r_obj.n_filt):
+            # calculates the histograms for each of the filter options
+            sp_f_hist_tmp = np.histogram(np.log10(s_plt[i_filt]), bins=xi_f)[0]
+            sp_f_hist[i_filt] = sp_f_hist_tmp / np.sum(sp_f_hist_tmp)
+
+            #
+            dsp_f_hist_tmp = np.histogram(dsp_f[i_filt], bins=xi_df)[0]
+            dsp_f_hist[i_filt] = dsp_f_hist_tmp / np.sum(dsp_f_hist_tmp)
+
+        ############################
+        ####    FIGURE SETUP    ####
+        ############################
+
+        #
+        x_f = 10 ** (0.5 * (xi_f[1:] + xi_f[:-1]))
+        dx_f = 0.5 * (xi_df[1:] + xi_df[:-1])
+
+        #
+        for i_filt in range(r_obj.n_filt):
+            # sets plot values (smoothes the data if required)
+            sp_f_plt = sp_f_hist[i_filt]
+            if smooth_hist:
+                sp_f_plt = medfilt(sp_f_plt, n_smooth)
+
+            # creates the area graphs for the baseline spiking rates
+            h_plt.append(self.plot_fig.ax[0].fill_between(x_f, sp_f_plt, color=c[i_filt], alpha=0.4))
+            self.plot_fig.ax[0].plot(x_f, sp_f_plt, color=c[i_filt], linewidth=1.5)
+
+            # creates the area graphs for the baseline spiking rates
+            self.plot_fig.ax[1].plot(dx_f, dsp_f_hist[i_filt], color=c[i_filt])
+
+        # creates the legend object
+        self.plot_fig.ax[0].legend(h_plt, r_obj.lg_str, loc=0)
+
+        # sets the graph titles/axis properties
+        self.plot_fig.ax[0].set_title("Neuron Firing Rate Histograms")
+        self.plot_fig.ax[0].set_ylabel("Fraction of Neurons")
+        self.plot_fig.ax[0].set_xlabel("Firing Rate (Spike/Sec)")
+        self.plot_fig.ax[0].set_xlim([sp_f_mn, 100.])
+        self.plot_fig.ax[0].set_xscale("log")
+
+        # sets the graph titles/axis properties
+        self.plot_fig.ax[1].set_title("Neuron Firing Rate Change")
+        self.plot_fig.ax[1].set_ylabel("Fraction of Neurons")
+        self.plot_fig.ax[1].set_xlabel("{0}Firing Rate (Spike/Sec)".format(cf._delta))
+
+        yL_0 = self.plot_fig.ax[0].get_ylim()
+        self.plot_fig.ax[0].set_ylim([0, yL_0[1]])
+
+        yL_1 = self.plot_fig.ax[1].get_ylim()
+        self.plot_fig.ax[1].plot([0, 0], [0, yL_1[1]], 'r--')
+        self.plot_fig.ax[1].set_ylim([0, yL_1[1]])
+
     def plot_spike_freq_kinematics(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                    pos_bin, vel_bin, n_smooth, is_smooth, plot_grid):
         '''
@@ -3601,7 +3722,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the y-axis label (first column only)
                 if i_col == 0:
-                    self.plot_fig.ax[i_plot].set_ylabel('Probability')
+                    self.plot_fig.ax[i_plot].set_ylabel('Fraction of Neurons')
 
                 # sets the x-axis label (bottom row only)
                 if (i_row + 1) == n_row:
@@ -4538,7 +4659,7 @@ class AnalysisGUI(QMainWindow):
             lg_str = ['None', 'Rotation', 'Visual', 'Both']
         else:
             plt_vals, i_grp = dcopy(r_data.pd_type_pr), 2
-            lg_str = ['Incongruent', 'Congruent']
+            lg_str = ['Congruent', 'Incongruent']
 
         # creates the plot outlay and titles
         self.init_plot_axes(n_row=1, n_col=2)
@@ -4588,7 +4709,7 @@ class AnalysisGUI(QMainWindow):
         row_hdr = ['#{0}'.format(x + 1) for x in range(r_data.r_obj_rot_ds.n_filt)] + ['Total']
         col_hdr = [['Insensitive', 'Sensitive', 'Total'],
                    ['None', 'Rotation', 'Visual', 'Both', 'Total'],
-                   ['Incongruent', 'Congruent', 'Total']]
+                   ['Congruent', 'Incongruent', 'Total']]
         h_title = [ax.text(0.5, 1, x, fontsize=15, horizontalalignment='center') for x in t_str]
 
         # initialisations
@@ -5666,7 +5787,7 @@ class AnalysisGUI(QMainWindow):
 
         else:
             # case is congruency
-            g_type, is_cong = ['Incongruent', 'Congruent', 'All Cells'], True
+            g_type, is_cong = ['Congruent', 'Incongruent', 'All Cells'], True
             g_type_data = dcopy(r_data.pd_type)
 
         # initialisations
@@ -6772,6 +6893,7 @@ class AnalysisFunctions(object):
         # parameters
         scope_txt = ['Individual Cell', 'Whole Experiment']
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
+        comp_type = ['CW vs BL', 'CCW vs BL']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(
                             self.get_data_fcn(), ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         pos_bin = [str(x) for x in [3, 4, 5, 6, 10, 15, 20, 30, 45, 60]]
@@ -6899,6 +7021,31 @@ class AnalysisFunctions(object):
                       func='plot_motion_direction_selectivity',
                       para=para)
 
+        # ====> Firing Rate Distributions
+        para = {
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None,
+                              'list': 'RotationExperimentMD'},
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
+                              'def_val': True, 'link_para': ['plot_exp_name', True]},
+            'comp_type': {
+                'type': 'L', 'text': 'Phase Comparison Type', 'list': comp_type, 'def_val': comp_type[0]
+            },
+
+            'n_smooth': {'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'smooth_hist': {
+                'type': 'B', 'text': 'Smooth Firing Rate Histogram', 'def_val': False, 'link_para': ['n_smooth', False],
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Analysis',
+                      name='Firing Rate Distributions',
+                      func='plot_firing_rate_distributions',
+                      para=para)
+
         # ====> Rotation Trial Spike Rate Kinematics (Polar Plots)
         para = {
             # calculation parameters
@@ -6924,10 +7071,10 @@ class AnalysisFunctions(object):
 
             'pos_bin': {'type': 'L', 'text': 'Position Bin Size (deg)', 'list': pos_bin, 'def_val': '10'},
             'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'},
-
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
-            'is_smooth': {'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': True,
-                           'link_para': ['n_smooth', False]},
+            'is_smooth': {
+                'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': True, 'link_para': ['n_smooth', False]
+            },
 
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -8323,7 +8470,7 @@ class AnalysisFunctions(object):
             nw_list = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
         else:
             # case is the congruency
-            nw_list = ['Incongruent', 'Congruent', 'All Cells']
+            nw_list = ['Congruent', 'Incongruent', 'All Cells']
 
         # retrieves the list object
         h_list = self.find_obj_handle([QComboBox], p_name)
