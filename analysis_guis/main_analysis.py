@@ -3083,7 +3083,7 @@ class AnalysisGUI(QMainWindow):
             dsp_f_mn = min([dsp_f_mn, np.min(dsp_f[i_filt])])
 
         #
-        xi_f = np.arange(np.log10(sp_f_mn), 0.01 * np.ceil(np.log10(sp_f_mx) / 0.01), 0.1)
+        xi_f = np.arange(np.log10(sp_f_mn), 0.1 * (1 + np.ceil(np.log10(sp_f_mx) / 0.1)), 0.1)
         xi_df = np.arange(np.floor(dsp_f_mn), np.ceil(dsp_f_mx))
 
         # calculates the spiking rate/rate change histograms over all filter types
@@ -3102,7 +3102,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the x-axis plot points
         x_f = 10 ** (0.5 * (xi_f[1:] + xi_f[:-1]))
-        dx_f, x_f = 0.5 * (xi_df[1:] + xi_df[:-1]), np.concatenate(([x_f[0]], x_f, [x_f[-1]]))
+        dx_f, x_f = 0.5 * (xi_df[1:] + xi_df[:-1]), np.concatenate(([x_f[0]], x_f))
 
         # creates both histograms for each of the filter types
         for i_filt in range(r_obj.n_filt):
@@ -3112,7 +3112,7 @@ class AnalysisGUI(QMainWindow):
                 sp_f_plt = medfilt(sp_f_plt, n_smooth)
 
             # creates the area graphs for the baseline spiking rates
-            sp_f_plt = np.concatenate(([0], sp_f_plt, [0]))
+            sp_f_plt = np.concatenate(([0], sp_f_plt))
             h_plt.append(self.plot_fig.ax[0].fill_between(x_f, sp_f_plt, color=c[i_filt], alpha=0.4))
             self.plot_fig.ax[0].plot(x_f, sp_f_plt, color=c[i_filt], linewidth=1.5)
 
@@ -5427,7 +5427,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the spiking frequency statstics table
             n_DS = self.setup_stats_nvalue_array(sf_type, sf_type_pr, i_grp, stats_type)
-            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type, c, c2)
+            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type)
 
         # for ax in self.plot_fig.ax:
         #     self.remove_scatterplot_spines(ax)
@@ -5850,8 +5850,12 @@ class AnalysisGUI(QMainWindow):
 
             # roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
             # roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
-            roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
-            roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
+            if is_comb:
+                roc_xy[i_filt] = r_data.part_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+                roc_auc[i_filt] = r_data.part_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
+            else:
+                roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+                roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
 
             # calculates the roc curves overall trials (for each cell)
             for i_cell in range(n_cell):
@@ -5987,10 +5991,10 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # calculates the n-values for each type
-        n_DS = (np.vstack([[sum(sf_type[x] > 0) for x in i_grp[1]]] * 2) * sf_type_pr[1] / 100)
         if stats_type == 'Motion Sensitivity':
-            n_DS_Tot, n_Tot = np.sum(n_DS, axis=0), np.array([len(x) for x in i_grp[0]])
-            n_DS = np.vstack([n_Tot - n_DS_Tot, n_DS_Tot])
+            n_DS = np.vstack([len(y) * x  / 100 for x, y in zip(sf_type_pr[0].T, i_grp[0])]).astype(int)
+        else:
+            n_DS = (np.vstack([[sum(sf_type[x] > 0) for x in i_grp[1]]] * 2) * sf_type_pr[1] / 100)
 
         # returns the N-value array
         return n_DS
@@ -6006,7 +6010,12 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.tight_layout()
 
         # initialisations
-        n_DS_Full = cf.add_rowcol_sum(n_DS).T
+        if stats_type == 'Motion Sensitivity':
+            n_DS_Full = cf.add_rowcol_sum(n_DS)
+            col_hdr = ['None', 'Inhibited', 'Excited', 'Mixed']
+        else:
+            n_DS_Full = cf.add_rowcol_sum(n_DS).T
+            col_hdr = ['Sensitive', 'Insensitive', 'Total']
 
         # creates the colours (if not provided)
         if c is None:
@@ -6015,47 +6024,17 @@ class AnalysisGUI(QMainWindow):
 
         # creates the title text object
         t_str = '{0} N-Values'.format(stats_type)
-        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
-        col_hdr = ['None', 'Rotation', 'Visual', 'Both', 'Total']
         h_title = ax.text(0.5, 1, t_str, fontsize=15, horizontalalignment='center')
+        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
 
         # sets up the n-value table
-        t_props_1 = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(int), row_hdr,
+        t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(int), row_hdr,
                                       col_hdr, c + [(0.75, 0.75, 0.75)], c2[0:4]  + [(0.75, 0.75, 0.75)], None,
                                       n_row=n_row, n_col=n_col, h_title=h_title)
 
         # calculates the height between the title and the top of the table
-        dh_title = h_title.get_position()[1] - (t_props_1[0]._bbox[1] + t_props_1[0]._bbox[3])
-        c_hght = t_props_1[0]._bbox[3] / (np.size(n_DS_Full, axis=0) + 1)
-
-        #
-        if n_PD is not None:
-            # sets the prederred direction parameters
-            cPD = cf.get_plot_col(2, np.size(n_PD, axis=1))
-            col_hdr = ['Congruent', 'Incongruent']
-
-            # creates the title text object
-            t_str_pd = 'Congruency N-Values'.format(stats_type)
-            h_title_pd = ax.text(0.5, 1, t_str_pd, fontsize=15, horizontalalignment='center')
-
-            # sets up the n-value table
-            t_props_pd = cf.add_plot_table(self.plot_fig, ax, table_font, n_PD.astype(int), row_hdr, col_hdr,
-                                        c + [(0.75, 0.75, 0.75)], cPD, None, n_row=n_row, n_col=n_col,
-                                        h_title=h_title_pd)
-
-            # resets the bottom location of the upper table
-            t_props_pd[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + 2 * c_hght)
-
-            # resets the titla position
-            t_pos = list(h_title_pd.get_position())
-            t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
-            h_title_pd.set_position(tuple(t_pos))
-
-            #
-            t_props = t_props_pd
-        else:
-            #
-            t_props = t_props_1
+        dh_title = h_title.get_position()[1] - (t_props[0]._bbox[1] + t_props[0]._bbox[3])
+        c_hght = t_props[0]._bbox[3] / (np.size(n_DS_Full, axis=0) + 1)
 
         # creates the statistics table
         if n_filt > 1:
@@ -6091,10 +6070,10 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the table other object properties
             t_ofs = (1 - t_props[1]) * t_props[2]
-            row_hdr = col_hdr = ['#{0}'.format(str(x + 1)) for x in range(n_filt)]
+            row_hdr_1 = col_hdr_1 = ['#{0}'.format(str(x + 1)) for x in range(n_filt)]
 
             # sets up the n-value table
-            t_props_2 = cf.add_plot_table(self.plot_fig, ax, table_font, chi_stats, row_hdr, col_hdr,
+            t_props_2 = cf.add_plot_table(self.plot_fig, ax, table_font, chi_stats, row_hdr_1, col_hdr_1,
                                           c, c, None, n_row=n_row, n_col=n_col, h_title=h_title_2)
 
             # resets the bottom location of the upper table
@@ -8850,6 +8829,11 @@ class RotationData(object):
         self.phase_roc_ud = None                # phase r roc objects
         self.phase_roc_xy_ud = None             # phase roc curve x/y coordinates
         self.phase_roc_auc_ud = None            # phase roc curve integrals
+
+        # uniform drifting cell group roc parameters
+        self.part_roc = {}                      # partial r roc objects
+        self.part_roc_xy = {}                   # partial roc curve x/y coordinates
+        self.part_roc_auc = {}                  # partial roc curve integrals
 
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects
