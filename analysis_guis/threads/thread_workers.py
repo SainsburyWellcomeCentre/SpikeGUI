@@ -949,6 +949,7 @@ class WorkerThread(QThread):
 
         # memory allocation
         r_data = data.rotation
+        r_data.part_roc, r_data.part_roc_xy, r_data.part_roc_auc = {}, {}, {}
 
         # initisalises the rotational filter (if not initialised already)
         if plot_para['rot_filt'] is None:
@@ -956,8 +957,8 @@ class WorkerThread(QThread):
 
         # calculates the partial roc curves for each of the trial conditions
         for tt in plot_para['rot_filt']['t_type']:
-            if tt not in r_data.part_roc:
-                r_data.part_roc[tt], r_data.part_roc_xy[tt], r_data.part_roc_auc[tt] = \
+            # if tt not in r_data.part_roc:
+            r_data.part_roc[tt], r_data.part_roc_xy[tt], r_data.part_roc_auc[tt] = \
                                         self.calc_phase_roc_curves(data, calc_para, pW, t_type=tt)
 
     def calc_phase_roc_curves(self, data, calc_para, pW, t_type=None):
@@ -1043,6 +1044,7 @@ class WorkerThread(QThread):
 
         # sets the time spike array
         t_spike = r_obj_vis.t_spike
+        n_trial = np.min([np.size(t_spike[0], axis=1), np.size(t_spike[1], axis=1)])
 
         # memory allocation
         n_cell = np.size(r_obj_vis.t_spike[0], axis=0)
@@ -1060,7 +1062,8 @@ class WorkerThread(QThread):
             for i_cell in range(n_cell):
                 # sets the time spike arrays depending on the phase type
                 if (i_phs + 1) == len(phase_str):
-                    t_spike_phs = np.vstack((t_spike[ind_CC][i_cell, :, 1], t_spike[ind_CCW][i_cell, :, 1])).T
+                    t_spike_phs = np.vstack((t_spike[ind_CC][i_cell, :n_trial, 1],
+                                             t_spike[ind_CCW][i_cell, :n_trial, 1])).T
                 else:
                     t_spike_phs = t_spike[i_phs][i_cell, :, :]
 
