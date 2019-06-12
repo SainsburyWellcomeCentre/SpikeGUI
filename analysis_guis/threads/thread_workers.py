@@ -1082,7 +1082,13 @@ class WorkerThread(QThread):
 
                 # fits the one-out-trial lda model
                 ii = np.array(range(len(i_grp))) != i_pred
-                lda.fit(n_sp[ii, :], i_grp[ii])
+                try:
+                    lda.fit(n_sp[ii, :], i_grp[ii])
+                except:
+                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                            'Either choose a different solver or alter the solver parameters before retrying'
+                    self.work_error.emit(e_str, 'LDA Analysis Error')
+                    return None, False
 
                 # calculates the model prediction from the remaining trial and increments the confusion matrix
                 lda_pred[i_pred] = lda.predict(n_sp[i_pred, :].reshape(1, -1))
@@ -1122,7 +1128,7 @@ class WorkerThread(QThread):
                 'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
                 'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
                 'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
-            }
+            }, True
 
         #########################################
         ####   LDA SOLVER INITIALISATIONS    ####
@@ -1188,7 +1194,10 @@ class WorkerThread(QThread):
         # loops through each of the experiments performing the lda calculations
         for i_ex in range(r_obj.n_expt):
             r_data.lda_exp_name[i_ex] = data_tmp.cluster[i_ex]['expInfo']['name']
-            r_data.lda[i_ex] = run_lda_predictions(self.work_progress, r_obj, calc_para, i_cell[i_ex], ind_t, i_ex)
+            r_data.lda[i_ex], ok = run_lda_predictions(self.work_progress, r_obj, calc_para, i_cell[i_ex], ind_t, i_ex)
+            if not ok:
+                # if there was an error, then exit with a false flag
+                return False
 
         # returns a true value
         return True
