@@ -1033,7 +1033,7 @@ class WorkerThread(QThread):
                 # concatenated array. calculates the final spike counts over each cell/trial and appends to the
                 # overall spike count array
                 A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
-                t_sp_tmp = np.hstack((A[:, :, 0], A[:, :, 1]))
+                t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
                 n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
 
                 # sets the grouping indices
@@ -1140,8 +1140,8 @@ class WorkerThread(QThread):
         n_trial = np.zeros((r_obj0.n_filt, r_obj0.n_expt), dtype=int)
         for i_filt in range(r_obj0.n_filt):
             # sets the trial counts for each experiment for the current filter option
-            n_trial_uniq, ind = np.unique(r_obj0.n_trial[i_filt], return_index=True)
-            n_trial[i_filt, r_obj0.i_expt[i_filt][ind]] = n_trial_uniq
+            i_expt_uniq, ind = np.unique(r_obj0.i_expt[i_filt], return_index=True)
+            n_trial[i_filt, :] = r_obj0.n_trial[i_filt][ind]
 
         # removes any trials less than the minimum and from this determines the overall minimum trial count
         n_trial[n_trial < calc_para['n_trial_min']] = -1

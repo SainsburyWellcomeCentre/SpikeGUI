@@ -3547,6 +3547,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_yticks(range(4))
         self.plot_fig.ax[0].set_xticklabels(tick_lbls)
         self.plot_fig.ax[0].set_yticklabels(tick_lbls)
+        # self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
         self.plot_fig.ax[0].set_ylabel('True Condition')
         self.plot_fig.ax[0].set_xlabel('Decoded Condition')
 
