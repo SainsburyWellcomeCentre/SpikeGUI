@@ -15,6 +15,9 @@ from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
 
+# sklearn module imports
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
 # pyqt5 module import
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -114,6 +117,13 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Shuffled Cluster Distances':
                 # case is the shuffled cluster distances
                 thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
+
+            elif self.thread_job_secondary == 'Linear Discrimination Analysis (Rotation Analysis)':
+                #
+                if not self.calc_lda_rot(data, pool, calc_para, plot_para, 100):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
@@ -933,6 +943,256 @@ class WorkerThread(QThread):
         # FINISH ME!
         pass
 
+    ################################
+    ####    LDA CALCULATIONS    ####
+    ################################
+
+    def calc_lda_rot(self, data, pool, calc_para, plot_para, pW):
+        '''
+
+        :param data:
+        :param pool:
+        :param calc_para:
+        :param plot_para:
+        :param pW:
+        :return:
+        '''
+
+        def det_valid_cells(data, ind, calc_para):
+            '''
+
+            :param cluster:
+            :param calc_para:
+            :return:
+            '''
+
+            # determines the cells that are in the valid regions (RSPg and RSPd)
+            cluster = data.cluster[ind]
+            is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
+
+            # if the cell types have been set, then remove the cells that are not the selected type
+            if calc_para['cell_types'] == 'Narrow Spike Cells':
+                # case is narrow spikes have been selected
+                is_valid[data.classify.grp_str[ind] == 'Wid'] = False
+            elif calc_para['cell_types'] == 'Wide Spike Cells':
+                # case is wide spikes have been selected
+                is_valid[data.classify.grp_str[ind] == 'Nar'] = False
+
+            # if the number of valid cells is less than the reqd count, then set all cells to being invalid
+            if np.sum(is_valid) < calc_para['n_cell_min']:
+                is_valid[:] = False
+
+            # returns the valid index array
+            return is_valid
+
+        def reduce_cluster_data(data, i_expt):
+            '''
+
+            :param data:
+            :param i_expt:
+            :param cell_ok:
+            :return:
+            '''
+
+            # creates a copy of the data and removes any
+            data_tmp = dcopy(data)
+
+            # reduces down the number of
+            if len(i_expt) != len(data_tmp.cluster):
+                data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
+                data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
+
+            # returns the reduced data class object
+            return data_tmp
+
+        def run_lda_predictions(w_prog, r_obj, calc_para, i_cell, ind_t, i_ex):
+            '''
+
+            :param r_obj:
+            :param cell_ok:
+            :param n_trial_max:
+            :param i_ex:
+            :return:
+            '''
+
+            # memory allocation and initialisations
+            n_sp, i_grp = [], []
+            n_t, n_grp, N = len(ind_t), 2 * r_obj.n_filt, 2 * r_obj.n_filt * len(ind_t)
+
+            # retrieves the cell indices (over each condition) for the current experiment
+            ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
+            n_cell, pW = len(ind_c[0]), (i_ex + 1) / r_obj.n_expt
+
+            ####################################
+            ####    LDA DATA ARRAY SETUP    ####
+            ####################################
+
+            # sets up the LDA data/group index arrays across each condition
+            for i_filt in range(r_obj.n_filt):
+                # retrieves the time spikes for the current filter/experiment, and then combines into a single
+                # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+                # overall spike count array
+                A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
+                t_sp_tmp = np.hstack((A[:, :, 0], A[:, :, 1]))
+                n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+
+                # sets the grouping indices
+                ind_g = [2 * i_filt, 2 * i_filt + 1]
+                i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+            # combines the spike counts/group indices into the final combined arrays
+            n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
+
+            # normalises the spike count array (if required)
+            if calc_para['is_norm']:
+                n_sp_mn, n_sp_sd = np.mean(n_sp, axis=0), np.std(n_sp, axis=0)
+                n_sp = np.divide(n_sp - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
+
+            ###########################################
+            ####    LDA PREDICTION CALCULATIONS    ####
+            ###########################################
+
+            # memory allocation
+            lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+            lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+            p_mat = np.zeros((N, 4), dtype=float)
+
+            # sets the LDA solver type
+            if calc_para['solver_type'] == 'svd':
+                # case the SVD solver
+                lda = LDA()
+            elif calc_para['solver_type'] == 'lsqr':
+                # case is the LSQR solver
+                if calc_para['use_shrinkage']:
+                    lda = LDA(solver='lsqr', shrinkage='auto')
+                else:
+                    lda = LDA(solver='lsqr')
+            else:
+                # case is the Eigen solver
+                if calc_para['use_shrinkage']:
+                    lda = LDA(solver='eigen', shrinkage='auto')
+                else:
+                    lda = LDA(solver='eigen')
+
+            # fits the LDA model and calculates the prediction for each
+            for i_pred in range(len(i_grp)):
+                # updates the progress bar
+                w_str = 'Running LDA Predictions ({0} of {1})'.format(i_ex + 1, r_obj.n_expt)
+                w_prog.emit(w_str, pW * (i_ex + i_pred / len(i_grp)) )
+
+                # fits the one-out-trial lda model
+                ii = np.array(range(len(i_grp))) != i_pred
+                lda.fit(n_sp[ii, :], i_grp[ii])
+
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                lda_pred[i_pred] = lda.predict(n_sp[i_pred, :].reshape(1, -1))
+                p_mat[i_pred, :] = lda.predict_proba(n_sp[i_pred, :].reshape(1, -1))
+                c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+
+                # fits the one-out-trial shuffled lda model
+                ind_chance = np.random.permutation(len(i_grp) - 1)
+                lda.fit(n_sp[ii, :], i_grp[ii][ind_chance])
+
+                # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+                lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp[i_pred, :], (1, n_cell)))
+                c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
+            # calculates the LDA transform values (uses svd solver to accomplish this)
+            if calc_para['solver_type'] != 'lsqr':
+                # memory allocation
+                lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp, i_grp)
+
+                # calculates the variance explained
+                if len(lda_X0.explained_variance_ratio_) == 2:
+                    lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
+                else:
+                    lda_var_sum = lda_X0.explained_variance_ratio_.sum()
+                    lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
+
+                # separates the transform values into the individual groups
+                lda_X0T = lda_X0.transform(n_sp)
+                for ig in range(n_grp):
+                    lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
+            else:
+                # transform values are not possible with this solver type
+                lda_X, ldx_var_exp = None, None
+
+            # returns the final values in a dictionary object
+            return {
+                'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+                'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
+                'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
+            }
+
+        #########################################
+        ####   LDA SOLVER INITIALISATIONS    ####
+        #########################################
+
+        # initialisations
+        r_data = data.rotation
+
+        # sets up the black phase data filter and returns the time spikes
+        r_filt = cf.init_rotation_filter_data(False)
+        r_filt['t_type'] += calc_para['comp_cond']
+        r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+
+        # retrieves the trial counts from each of the filter types/experiments
+        n_trial = np.zeros((r_obj0.n_filt, r_obj0.n_expt), dtype=int)
+        for i_filt in range(r_obj0.n_filt):
+            # sets the trial counts for each experiment for the current filter option
+            n_trial_uniq, ind = np.unique(r_obj0.n_trial[i_filt], return_index=True)
+            n_trial[i_filt, r_obj0.i_expt[i_filt][ind]] = n_trial_uniq
+
+        # removes any trials less than the minimum and from this determines the overall minimum trial count
+        n_trial[n_trial < calc_para['n_trial_min']] = -1
+        n_trial_max = np.min(n_trial[n_trial > 0])
+        ind_t = np.array(range(n_trial_max))
+
+        # determines the valid cells from each of the loaded experiments
+        i_cell = np.array([det_valid_cells(data, ic, calc_para) for ic in range(len(data.cluster))])
+
+        # determines if there are any valid loaded experiments
+        i_expt = np.where([(np.any(x) and np.min(n_trial[:, i_ex]) >= calc_para['n_trial_min'])
+                            for i_ex, x in enumerate(i_cell)])[0]
+        if len(i_expt) == 0:
+            # if there are no valid experiments, then output an error message to screen
+            e_str = 'The LDA function can''t be run using the currently loaded experiments/parameter configuration. ' \
+                    'Either load more experiments or alter the calculation parameters.'
+            self.work_error.emit(e_str, 'Invalid LDA Experiments Loaded')
+
+            # returns a false flag
+            return False
+        else:
+            # reduces down the cell indices
+            i_cell = i_cell[i_expt]
+
+        # creates a reduce data object and creates the rotation filter object
+        data_tmp = reduce_cluster_data(data, i_expt)
+        r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False)
+
+        ###############################
+        ####   LDA CALCULATIONS    ####
+        ###############################
+
+        # memory allocation
+        r_data.lda = np.empty(r_obj.n_expt, dtype=object)
+        r_data.lda_exp_name = np.empty(r_obj.n_expt, dtype=object)
+
+        # sets the solver parameters
+        r_data.lda_n_trial = n_trial_max
+        r_data.lda_solver = calc_para['solver_type']
+        r_data.lda_shrinkage = calc_para['use_shrinkage']
+        r_data.lda_norm = calc_para['is_norm']
+        r_data.lda_ttype = r_filt['t_type']
+
+        # loops through each of the experiments performing the lda calculations
+        for i_ex in range(r_obj.n_expt):
+            r_data.lda_exp_name[i_ex] = data_tmp.cluster[i_ex]['expInfo']['name']
+            r_data.lda[i_ex] = run_lda_predictions(self.work_progress, r_obj, calc_para, i_cell[i_ex], ind_t, i_ex)
+
+        # returns a true value
+        return True
+
     ######################################
     ####    ROC CURVE CALCULATIONS    ####
     ######################################
@@ -1056,7 +1316,7 @@ class WorkerThread(QThread):
         for i_phs, p_str in enumerate(phase_str):
             # updates the progress bar string
             w_str = 'ROC Curve Calculations ({0})...'.format(p_str)
-            self.work_progress.emit(w_str, pW * i_phs / len(phase_str))
+            self.work_progress.emit(w_str, 100 * pW * i_phs / len(phase_str))
 
             # loops through each of the cells calculating the roc curves (and associated values)
             for i_cell in range(n_cell):

@@ -25,7 +25,7 @@ from matplotlib.colors import to_rgba_array
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Polygon
 
 import matplotlib as mpl
 from matplotlib.pyplot import rc
@@ -53,6 +53,7 @@ from scipy.signal import medfilt
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
+from scipy.spatial import ConvexHull as CHull
 
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -3421,6 +3422,149 @@ class AnalysisGUI(QMainWindow):
         cf.add_plot_table(self.plot_fig, 1, table_font, f_stats, row_hdr, col_hdr, c, c_col,
                           None, n_col=3, p_wid=1.5)
 
+    def plot_rotation_lda(self, plot_transform, plot_exp_name, plot_all_expt, plot_grid):
+        '''
+
+        :param plot_transform:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_grid:
+        :return:
+        '''
+
+        def plot_transform_values(r_data, plot_exp_name, plot_grid):
+            '''
+
+            :param r_data:
+            :param plot_exp_name:
+            :param plot_all_expt:
+            :param plot_grid:
+            :return:
+            '''
+
+            # retrieves the plot values
+            i_expt = list(r_data.lda_exp_name).index(plot_exp_name)
+            lda_X, lda_var_exp = r_data.lda[i_expt]['lda_X'], r_data.lda[i_expt]['lda_var_exp']
+
+            # other initialisations
+            h_plt, patches, c = [], [], cf.get_plot_col(len(lda_X))
+
+            # initialises the plot axis
+            self.init_plot_axes(n_plot=1)
+            ax = self.plot_fig.ax[0]
+
+            # creates the
+            for i_grp in range(len(lda_X)):
+                # creates the plot object
+                h_plt.append(ax.plot(lda_X[i_grp][:, 0], lda_X[i_grp][:, 1], 'o', color=c[i_grp]))
+
+                # creates the convex hull
+                p_hull = CHull(lda_X[i_grp])
+                patches.append(Polygon(lda_X[i_grp][p_hull.vertices, :], True))
+
+            # creates the patch collection
+            p = PatchCollection(patches, facecolors=c, alpha=0.4)
+            ax.add_collection(p)
+
+            # creates the legend object
+            lg_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in r_data.lda_ttype])
+            ax.set_title('LDA Components (Variance Explained = {:5.2f}%)'.format(lda_var_exp))
+            ax.set_xlabel('LDA Component #1')
+            ax.set_ylabel('LDA Component #2')
+            ax.grid(plot_grid)
+            ax.legend(cf.flat_list(h_plt), lg_str, loc=0)
+
+        # initialisations
+        r_data = self.data.rotation
+
+        # determines if the user if trying to plot the transform values with the lsqr solver type
+        if plot_transform:
+            # determines if the user is using the lsqr solver type
+            if r_data.lda_solver == 'lsqr':
+                # if so, then output an error to screen
+                e_str = 'It is not possible to plot the LDA transform values with the "lsqr" solver. Either re-run ' \
+                        'the function with a different solver type or de-select transform plotting.'
+                cf.show_error(e_str, 'Invalid Solver Type')
+
+                # exits the function with an error flag
+                self.calc_ok = False
+                return
+            else:
+                # otherwise, plot the transform values (exit function afterwards)
+                plot_transform_values(r_data, plot_exp_name, plot_grid)
+                return
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # retrieves the plot values
+        if plot_all_expt:
+            # case is using all the experiments
+            c_mat = np.dstack([x['c_mat'] / r_data.lda_n_trial for x in r_data.lda])
+            c_mat_ch = np.dstack([x['c_mat_chance'] / r_data.lda_n_trial for x in r_data.lda])
+
+            #
+            c_mat_mn = np.mean(c_mat, axis=2)
+            c_mat_ch_mn = np.mean(c_mat_ch, axis=2)
+        else:
+            # case is using a specific experiment
+            i_expt = list(r_data.lda_exp_name).index(plot_exp_name)
+            c_mat = c_mat_mn = r_data.lda[i_expt]['c_mat'] / r_data.lda_n_trial
+            c_mat_ch = r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_n_trial
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # sets up the axes dimensions
+        n_grp = int(np.size(c_mat_mn, axis=0) / 2)
+        tick_lbls = cf.flat_list(['CW', 'CCW'] * n_grp)
+        top, bottom, pH, wspace, hspace = 0.9, 0.06, 0.01, 0.2, 0.2
+        x = np.arange(2, 2 * n_grp, 2)
+
+        #
+        w_ratio = [0.6, 0.05, 0.02, 0.0]
+        w_ratio[-1] = 1 - np.sum(w_ratio[:2])
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
+                               wspace=wspace, left=0.075, right=0.98, bottom=bottom, top=top, hspace=0.01)
+
+        # creates the subplots
+        self.plot_fig.ax = np.empty(4, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, 0])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[0, 1])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 2])
+        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
+
+        # displays the heatmap
+        im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='viridis', origin='upper')
+
+        # sets the heatmap axis properties
+        self.plot_fig.ax[0].grid(False)
+        self.plot_fig.ax[0].set_xticks(range(4))
+        self.plot_fig.ax[0].set_yticks(range(4))
+        self.plot_fig.ax[0].set_xticklabels(tick_lbls)
+        self.plot_fig.ax[0].set_yticklabels(tick_lbls)
+        self.plot_fig.ax[0].set_ylabel('True Condition')
+        self.plot_fig.ax[0].set_xlabel('Decoded Condition')
+
+        # creates the separation lines
+        xL, yL = self.plot_fig.ax[0].get_xlim(), self.plot_fig.ax[0].get_ylim()
+        for i_grp in range(len(x)):
+            self.plot_fig.ax[0].plot(xL, (x[i_grp] - 0.5) * np.ones(2), 'w', linewidth=2)
+            self.plot_fig.ax[0].plot((x[i_grp] - 0.5) * np.ones(2), yL, 'w', linewidth=2)
+
+        # creates the colorbar
+        cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
+        cbar.set_clim([0., 100.])
+
+        self.plot_fig.ax[2].axis('off')
+
+        # REMOVE ME LATER
+        a = 1
+
     def plot_depth_direction_selectivity(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid):
         '''
 
@@ -6688,14 +6832,15 @@ class AnalysisFunctions(object):
 
     def init_all_func(self):
 
-        # initialisations
-        m_type = ['New Method', 'Old Method']
+        # overall declarations
+        data = self.get_data_fcn()
 
         #########################################
         ####    CLUSTER MATCHING FUNCTIONS   ####
         #########################################
 
         # initialisations
+        m_type = ['New Method', 'Old Method']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
 
         # ====> Signal Comparison (All Clusters)
@@ -6870,14 +7015,22 @@ class AnalysisFunctions(object):
         ##########################################
 
         # parameters
-        scope_txt = ['Individual Cell', 'Whole Experiment']
-        s_type = ['Direction Selectivity', 'Motion Sensitivity']
-        comp_type = ['CW vs BL', 'CCW vs BL']
-        p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(
-                            self.get_data_fcn(), ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         pos_bin = [str(x) for x in [3, 4, 5, 6, 10, 15, 20, 30, 45, 60]]
         vel_bin = [str(x) for x in [4, 5, 8, 10, 16, 20, 40]]
         t_phase, t_ofs = 1.0, 0.2
+
+        # type lists
+        comp_type = ['CW vs BL', 'CCW vs BL']
+        scope_txt = ['Individual Cell', 'Whole Experiment']
+        s_type = ['Direction Selectivity', 'Motion Sensitivity']
+        cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
+        p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
+
+        # sets the LDA comparison types
+        comp_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in data._cluster]))
+        comp_type = list(comp_type[comp_type != 'Black'])
+        ind_comp = [x == 'Uniform' for x in comp_type]
+        lda_type = ['eigen', 'lsqr', 'svd']
 
         #
         rot_filt_all = cf.init_rotation_filter_data(False)
@@ -7082,6 +7235,43 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Analysis',
                       name='Overall Direction Bias',
                       func='plot_overall_direction_bias',
+                      para=para)
+
+        # ====> Linear Discrimination Analysis (Rotation Analysis)
+        para = {
+            # calculation parameters
+            'n_cell_min': {'gtype': 'C', 'text': 'Minimum Cell Count', 'def_val': 10, 'min_val': 1},
+            'n_trial_min': {'gtype': 'C', 'text': 'Minimum Trial Count', 'def_val': 10, 'min_val': 1},
+            'is_norm': {'gtype': 'C', 'type': 'B', 'text': 'Normalise Spike Counts', 'def_val': True},
+            'use_shrinkage': {'gtype': 'C', 'type': 'B', 'text': 'Use LDA Shrinkage', 'def_val': True},
+            'solver_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'LDA Solver Type', 'list': lda_type, 'def_val': lda_type[0],
+                'link_para': ['use_shrinkage', 'svd']
+            },
+            'comp_cond': {
+                'gtype': 'C', 'type': 'CL', 'text': 'Comparison Conditions', 'list': comp_type, 'def_val': ind_comp,
+                'other_para': '--- Select Comparison Conditions ---'
+            },
+            'cell_types': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Types', 'list': cell_type, 'def_val': cell_type[0],
+                'reset_func': self.reset_cell_types
+            },
+
+            # plotting parameters
+            # 'rot_filt': {
+            #     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            # },
+            'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
+                'link_para': [['plot_exp_name', True], ['plot_transform', True]]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Analysis',
+                      name='Linear Discrimination Analysis (Rotation Analysis)',
+                      func='plot_rotation_lda',
                       para=para)
 
         # ====> Rotation Trial Cell Depth Direction Selectivity
@@ -8083,7 +8273,8 @@ class AnalysisFunctions(object):
         # initialisations
         i_ind, recheck_list = 0, False
         para_text = '{0}: '.format(fcn_para['text'])
-        link_para, para_reset, list_txt = fcn_para['link_para'], fcn_para['para_reset'], fcn_para['list']
+        link_para, list_txt = fcn_para['link_para'], fcn_para['list']
+        para_reset, reset_func = fcn_para['para_reset'], fcn_para['reset_func']
 
         # resets the list text if a special type
         if list_txt == 'Experiments':
@@ -8121,8 +8312,13 @@ class AnalysisFunctions(object):
                 h_list.setCurrentIndex(0)
                 self.curr_para[p_name] = list_txt[0]
 
+        # updates the list parameter (if the link parameter field is not None)
         if link_para is not None:
             self.update_list_para(p_name, list_txt, link_para, None, True, index=i_ind)
+
+        # runs the reset function (if not None)
+        if reset_func is not None:
+            reset_func(h_list, h_lbl, self.get_data_fcn())
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -8154,14 +8350,14 @@ class AnalysisFunctions(object):
         if first_line is None:
             first_line = '--- Select Trial Conditions ---'
 
-        # creates the callback function
-        cb_fcn = functools.partial(self.update_checklist_para, p_name, h_chklist=None)
-
         # creates the object
         h_lbl = cf.create_label(None, txt_font_bold, para_text, align='right')
-        h_chklist = cf.create_checkcombo(None, txt_font, list_txt, name=p_name, cb_fcn=cb_fcn,
-                                         first_line=first_line)
+        h_chklist = cf.create_checkcombo(None, txt_font, list_txt, name=p_name, first_line=first_line)
         h_lbl.setAlignment(Qt.AlignVCenter)
+
+        #
+        cb_fcn = functools.partial(self.update_checklist_para, p_name, h_chklist=h_chklist)
+        h_chklist.view().pressed.connect(cb_fcn)
 
         # sets the callback function
         if def_val is None:
@@ -8466,6 +8662,17 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = nw_list[h_list[0].currentIndex()]
             d_grp[i_grp]['para'][p_name]['list'] = nw_list
 
+    def reset_cell_types(self, h_list, h_lbl, data):
+        '''
+
+        :param data:
+        :return:
+        '''
+
+        # only enable the parameter if the cell classification has been performed
+        h_lbl.setEnabled(data.classify.is_set)
+        h_list.setEnabled(data.classify.is_set)
+
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
     #######################################
@@ -8524,21 +8731,25 @@ class AnalysisFunctions(object):
         if 'min_val' not in para:
             para['min_val'] = 1
 
-        # sets the object type flag
+        # sets the multiple cell flag
         if 'is_multi' not in para:
             para['is_multi'] = False
 
-        # sets the object type flag
+        # sets the enabled flag
         if 'is_enabled' not in para:
             para['is_enabled'] = True
 
-        # sets the object type flag
+        # sets the visible flag
         if 'is_visible' not in para:
             para['is_visible'] = True
 
-        # sets the object type flag
+        # sets the parameter reset function type
         if 'para_reset' not in para:
             para['para_reset'] = None
+
+        # sets the reset function type
+        if 'reset_func' not in para:
+            para['reset_func'] = None
 
         # sets the object type flag
         if 'other_para' not in para:
@@ -8834,6 +9045,15 @@ class RotationData(object):
         self.part_roc = {}                      # partial r roc objects
         self.part_roc_xy = {}                   # partial roc curve x/y coordinates
         self.part_roc_auc = {}                  # partial roc curve integrals
+
+        # lda calculation/parameter elements
+        self.lda = None
+        self.lda_exp_name = None
+        self.lda_n_trial = None
+        self.lda_solver = None
+        self.lda_shrinkage = None
+        self.lda_norm = None
+        self.lda_ttype = None
 
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects
