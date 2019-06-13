@@ -3530,6 +3530,9 @@ class AnalysisGUI(QMainWindow):
         ####    DATA PRE-PROCESSING    ####
         ###################################
 
+        # sets the number of conditions
+        n_cond = len(r_data.lda_ttype)
+
         # retrieves the plot values
         if plot_all_expt:
             # case is using all the experiments
@@ -3544,50 +3547,52 @@ class AnalysisGUI(QMainWindow):
             # case is using a specific experiment
             i_expt, n_expt = list(r_data.lda_exp_name).index(plot_exp_name), 1
             c_mat = c_mat_mn = r_data.lda[i_expt]['c_mat'] / r_data.lda_ntrial
-            c_mat_ch = r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_ntrial
+
+            sz_nw = (2 * n_cond, 2 * n_cond, 1)
+            c_mat = np.reshape(c_mat, sz_nw)
+            c_mat_ch = np.reshape(r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_ntrial, sz_nw)
 
         # memory allocation for accuracy binary mask calculations
-        n_grp = int(np.size(c_mat_mn, axis=0) / 2)
-        BG, BD = np.zeros((2 * n_grp, 2 * n_grp), dtype=bool), np.zeros((2, 2 * n_grp), dtype=bool)
-        Y = np.zeros((n_expt, 1 + n_grp), dtype=float)
+        BG, BD = np.zeros((2 * n_cond, 2 * n_cond), dtype=bool), np.zeros((2, 2 * n_cond), dtype=bool)
+        Y = np.zeros((n_expt, 1 + n_cond), dtype=float)
 
         # sets up the binary masks for the group/direction types
-        for i_grp in range(n_grp):
-            BG[(2 * i_grp):(2 * (i_grp + 1)), (2 * i_grp):(2 * (i_grp + 1))] = True
-            BD[0, 2 * i_grp], BD[1, 2 * i_grp + 1] = True, True
+        for i_cond in range(n_cond):
+            BG[(2 * i_cond):(2 * (i_cond + 1)), (2 * i_cond):(2 * (i_cond + 1))] = True
+            BD[0, 2 * i_cond], BD[1, 2 * i_cond + 1] = True, True
 
         # calculates the accuracy values for the grouping/direction decoding results
         for i_expt in range(n_expt):
             # calculates the grouping accuracy values
-            Y[i_expt, 0] += np.sum(np.multiply(BG, c_mat[:, :, i_expt])) / (2 * n_grp)
+            Y[i_expt, 0] += np.sum(np.multiply(BG, c_mat[:, :, i_expt])) / (2 * n_cond)
 
             # calculates the direction accuracy values (over each condition)
-            for i_grp in range(n_grp):
-                Y[i_expt, 1 + i_grp] = np.sum(np.multiply(BD, c_mat[(2 * i_grp):(2 * (i_grp + 1)), :, i_expt])) / 2
+            for i_cond in range(n_cond):
+                Y[i_expt, 1 + i_cond] = np.sum(np.multiply(BD, c_mat[(2 * i_cond):(2 * (i_cond + 1)), :, i_expt])) / 2
 
-        #
-        Y_Ch = 0.5 * np.ones((1, 1 + n_grp))
+        # sets the chance values
+        Y_Ch = 0.5 * np.ones((1, 1 + n_cond))
 
         #################################
         ####    SUBPLOT CREATIONS    ####
         #################################
 
         # sets up the axes dimensions
-        tick_lbls = cf.flat_list(['CW', 'CCW'] * n_grp)
+        tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
         top, bottom, pH, wspace, hspace = 0.9, 0.06, 0.01, 0.2, 0.2
-        x = np.arange(2, 2 * n_grp, 2)
+        x = np.arange(2, 2 * n_cond, 2)
 
         # width ratio
-        w_ratio = [0.6, 0.025, 0.05, 0.0]
+        w_ratio = [0.6, 0.025, 0.025, 0.0]
         w_ratio[-1] = 1 - np.sum(w_ratio[:2])
 
         # bar graph dimensioning
-        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_grp) + 2)), 0.9
+        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
         bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in r_data.lda_ttype]
 
         # creates the gridspec object
         gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.075, right=0.98, bottom=bottom, top=top, hspace=0.001)
+                               wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.001)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(4, dtype=object)
@@ -3607,16 +3612,22 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_xticklabels(tick_lbls)
         self.plot_fig.ax[0].set_yticklabels(tick_lbls)
         self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
-        self.plot_fig.ax[0].get_xaxis().set_label_position('top')
+        # self.plot_fig.ax[0].get_xaxis().set_label_position('top')
         self.plot_fig.ax[0].tick_params(length=0)
-        self.plot_fig.ax[0].set_ylabel('True Condition')
-        self.plot_fig.ax[0].set_xlabel('Decoded Condition')
+
+        self.plot_fig.ax[0].text(-1.1, n_cond - 0.5, 'True Condition', size=16, verticalalignment='center', rotation=90, weight='bold')
+        self.plot_fig.ax[0].text(n_cond - 0.5, -0.8, 'Decoded Condition', size=16, horizontalalignment='center', weight='bold')
+
+        # sets the condition titles
+        for itt, tt in enumerate(r_data.lda_ttype):
+            self.plot_fig.ax[0].text(-0.9, 2 * itt + 0.5, tt, size=14, verticalalignment='center', rotation=90, weight='bold')
+            self.plot_fig.ax[0].text(2 * itt + 0.5, -0.65, tt, size=14, horizontalalignment='center', weight='bold')
 
         # creates the separation lines
         xL, yL = self.plot_fig.ax[0].get_xlim(), self.plot_fig.ax[0].get_ylim()
-        for i_grp in range(len(x)):
-            self.plot_fig.ax[0].plot(xL, (x[i_grp] - 0.5) * np.ones(2), 'w', linewidth=2)
-            self.plot_fig.ax[0].plot((x[i_grp] - 0.5) * np.ones(2), yL, 'w', linewidth=2)
+        for i_cond in range(len(x)):
+            self.plot_fig.ax[0].plot(xL, (x[i_cond] - 0.5) * np.ones(2), 'w', linewidth=2)
+            self.plot_fig.ax[0].plot((x[i_cond] - 0.5) * np.ones(2), yL, 'w', linewidth=2)
 
         # creates the colorbar
         cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
@@ -3625,16 +3636,16 @@ class AnalysisGUI(QMainWindow):
         # turns off the 3rd axis (not required - only used for providing gap)
         self.plot_fig.ax[2].axis('off')
 
-        #
+        # plots the mean/chance accuracy values
         self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y, axis=0), width=w_bar, color='b')
         self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y_Ch, axis=0), width=w_bar, color='k')
 
-        #
+        # adds the individual experiment values (if more than one experiment is being analysed)
         if n_expt > 1:
             for i_col in range(np.size(Y, axis=1)):
                 self.plot_fig.ax[3].plot(x_bar[i_col] * np.ones(n_expt), 100. * Y[:, i_col], 'ko')
 
-        #
+        # sets the bar plot axis properties
         self.plot_fig.ax[3].set_xticks(x_bar)
         self.plot_fig.ax[3].set_xticklabels(bar_lbls)
         self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
@@ -6911,6 +6922,7 @@ class AnalysisFunctions(object):
 
         # overall declarations
         data = self.get_data_fcn()
+        has_multi_expt = len(data._cluster) > 1
 
         #########################################
         ####    CLUSTER MATCHING FUNCTIONS   ####
@@ -7349,10 +7361,13 @@ class AnalysisFunctions(object):
             #     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             # },
             'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'is_enabled': has_multi_expt
+            },
             'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
-                'link_para': [['plot_exp_name', True], ['plot_transform', True]]
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
+                'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }

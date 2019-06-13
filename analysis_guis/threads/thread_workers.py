@@ -1024,7 +1024,7 @@ class WorkerThread(QThread):
 
             # retrieves the cell indices (over each condition) for the current experiment
             ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
-            n_cell, pW = len(ind_c[0]), (i_ex + 1) / r_obj.n_expt
+            n_cell, pW = len(ind_c[0]), 1 / r_obj.n_expt
 
             ####################################
             ####    LDA DATA ARRAY SETUP    ####
@@ -1156,7 +1156,11 @@ class WorkerThread(QThread):
         # removes any trials less than the minimum and from this determines the overall minimum trial count
         n_trial[n_trial < calc_para['n_trial_min']] = -1
         n_trial_max = np.min(n_trial[n_trial > 0])
-        ind_t = np.array(range(n_trial_max))
+
+        # determines if the number of trials has changed (and if the lda calculation values have been set)
+        if (n_trial_max == r_data.lda_ntrial) and (r_data.lda is not None):
+            # if there is no change and the values are set, then exit with a true flag
+            return True
 
         # determines the valid cells from each of the loaded experiments
         i_cell = np.array([det_valid_cells(data, ic, calc_para) for ic in range(len(data.cluster))])
@@ -1197,6 +1201,9 @@ class WorkerThread(QThread):
         r_data.lda_ttype = r_filt['t_type']
         r_data.lda_tofs = t_ofs
         r_data.lda_tphase = t_phase
+
+        # sets the trial index array
+        ind_t = np.array(range(n_trial_max))
 
         # loops through each of the experiments performing the lda calculations
         for i_ex in range(r_obj.n_expt):
@@ -2326,8 +2333,23 @@ class WorkerThread(QThread):
             elif ct == 'lda':
                 # case is the LDA calculations
 
-                # REMOVE ME LATER
-                a = 1
+                # if initialising the LDA then continue (as nothing has been set)
+                if r_data.lda is None:
+                    continue
+
+                # otherwise, determine if there are any changes in the parameters
+                is_equal = [
+                    r_data.lda_solver == calc_para['solver_type'],
+                    r_data.lda_shrinkage == calc_para['use_shrinkage'],
+                    r_data.lda_norm == calc_para['is_norm'],
+                    set(r_data.lda_ttype) == set(['Black'] + calc_para['comp_cond']),
+                    r_data.lda_tofs == t_ofs,
+                    r_data.lda_tphase == t_phase,
+                ]
+
+                # if there was a change in any of the parameters, then reset the LDA data field
+                if not np.all(is_equal):
+                    r_data.lda = None
 
     # def calc_roc_direction_stats(self, calc_para, plot_para, data, pool):
     #     '''
