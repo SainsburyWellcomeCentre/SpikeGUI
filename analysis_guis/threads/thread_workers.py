@@ -2342,9 +2342,11 @@ class WorkerThread(QThread):
                     r_data.lda_solver == calc_para['solver_type'],
                     r_data.lda_shrinkage == calc_para['use_shrinkage'],
                     r_data.lda_norm == calc_para['is_norm'],
-                    set(r_data.lda_ttype) == set(['Black'] + calc_para['comp_cond']),
                     r_data.lda_tofs == t_ofs,
                     r_data.lda_tphase == t_phase,
+                    r_data.lda_cellmin == calc_para['n_cell_min'],
+                    r_data.lda_trialmin == calc_para['n_trial_min'],
+                    set(r_data.lda_ttype) == set(['Black'] + calc_para['comp_cond']),
                 ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field

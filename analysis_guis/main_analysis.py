@@ -9158,6 +9158,8 @@ class RotationData(object):
         self.lda_ttype = -1
         self.lda_tofs = -1
         self.lda_tphase = -1
+        self.lda_cellmin = -1
+        self.lda_trialmin = -1
 
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects
