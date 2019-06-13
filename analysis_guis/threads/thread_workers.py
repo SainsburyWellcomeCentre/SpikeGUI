@@ -119,6 +119,9 @@ class WorkerThread(QThread):
                 thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
 
             elif self.thread_job_secondary == 'Linear Discrimination Analysis (Rotation Analysis)':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'])
+
                 #
                 if not self.calc_lda_rot(data, pool, calc_para, plot_para, 100):
                     self.is_ok = False
@@ -1078,7 +1081,7 @@ class WorkerThread(QThread):
             for i_pred in range(len(i_grp)):
                 # updates the progress bar
                 w_str = 'Running LDA Predictions ({0} of {1})'.format(i_ex + 1, r_obj.n_expt)
-                w_prog.emit(w_str, pW * (i_ex + i_pred / len(i_grp)) )
+                w_prog.emit(w_str, 100. * pW * (i_ex + i_pred / len(i_grp)) )
 
                 # fits the one-out-trial lda model
                 ii = np.array(range(len(i_grp))) != i_pred
@@ -1121,7 +1124,7 @@ class WorkerThread(QThread):
                     lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
             else:
                 # transform values are not possible with this solver type
-                lda_X, ldx_var_exp = None, None
+                lda_X, lda_var_exp = None, None
 
             # returns the final values in a dictionary object
             return {
@@ -1136,6 +1139,7 @@ class WorkerThread(QThread):
 
         # initialisations
         r_data = data.rotation
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # sets up the black phase data filter and returns the time spikes
         r_filt = cf.init_rotation_filter_data(False)
@@ -1174,7 +1178,8 @@ class WorkerThread(QThread):
 
         # creates a reduce data object and creates the rotation filter object
         data_tmp = reduce_cluster_data(data, i_expt)
-        r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False)
+        r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
+                                     t_ofs=t_ofs, t_phase=t_phase)
 
         ###############################
         ####   LDA CALCULATIONS    ####
@@ -1185,11 +1190,13 @@ class WorkerThread(QThread):
         r_data.lda_exp_name = np.empty(r_obj.n_expt, dtype=object)
 
         # sets the solver parameters
-        r_data.lda_n_trial = n_trial_max
+        r_data.lda_ntrial = n_trial_max
         r_data.lda_solver = calc_para['solver_type']
         r_data.lda_shrinkage = calc_para['use_shrinkage']
         r_data.lda_norm = calc_para['is_norm']
         r_data.lda_ttype = r_filt['t_type']
+        r_data.lda_tofs = t_ofs
+        r_data.lda_tphase = t_phase
 
         # loops through each of the experiments performing the lda calculations
         for i_ex in range(r_obj.n_expt):
@@ -2316,6 +2323,12 @@ class WorkerThread(QThread):
                 if is_change:
                     r_data.vel_roc = None
 
+            elif ct == 'lda':
+                # case is the LDA calculations
+
+                # REMOVE ME LATER
+                a = 1
+
     # def calc_roc_direction_stats(self, calc_para, plot_para, data, pool):
     #     '''
     #
@@ -2461,3 +2474,5 @@ class WorkerThread(QThread):
 
 
     # plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, p_value, plot_grid, plot_scope)
+
+

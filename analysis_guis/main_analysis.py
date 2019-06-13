@@ -3474,6 +3474,38 @@ class AnalysisGUI(QMainWindow):
             ax.grid(plot_grid)
             ax.legend(cf.flat_list(h_plt), lg_str, loc=0)
 
+        def create_heatmap_markers(ax, c_mat, t_type):
+            '''
+
+            :param ax:
+            :param lbl_str:
+            :return:
+            '''
+
+            # initialisations
+            h, lbl, dXY, xL0, yL0 = [], [], 0.1, -0.5, -0.5
+            WH = 1 - 2 * dXY
+
+            # sets up the label strings
+            lbl_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in t_type])
+
+            #
+            for i_row in range(np.size(c_mat, axis=0)):
+                for i_col in range(np.size(c_mat, axis=0)):
+                    # creates the new patch object
+                    x0, y0 = (xL0 + i_col) + dXY, (yL0 + i_row) + dXY
+                    h.append(Rectangle((x0, y0), WH, WH))
+
+                    # creates the new string
+                    lbl.append('True = {}\nDecoded = {}\nPercentage = {:5.2f}%'.format(
+                        lbl_str[i_row], lbl_str[i_col], c_mat[i_row, i_col]
+                    ))
+
+            # creates the cursor object
+            pc = PatchCollection(h, facecolor='g', alpha=0.0, zorder=10)
+            ax.add_collection(pc)
+            datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
+
         # initialisations
         r_data = self.data.rotation
 
@@ -3501,35 +3533,61 @@ class AnalysisGUI(QMainWindow):
         # retrieves the plot values
         if plot_all_expt:
             # case is using all the experiments
-            c_mat = np.dstack([x['c_mat'] / r_data.lda_n_trial for x in r_data.lda])
-            c_mat_ch = np.dstack([x['c_mat_chance'] / r_data.lda_n_trial for x in r_data.lda])
+            c_mat = np.dstack([x['c_mat'] / r_data.lda_ntrial for x in r_data.lda])
+            c_mat_ch = np.dstack([x['c_mat_chance'] / r_data.lda_ntrial for x in r_data.lda])
+            n_expt = np.size(c_mat, axis=2)
 
-            #
+            # calculates the mean confusion matrix values
             c_mat_mn = np.mean(c_mat, axis=2)
             c_mat_ch_mn = np.mean(c_mat_ch, axis=2)
         else:
             # case is using a specific experiment
-            i_expt = list(r_data.lda_exp_name).index(plot_exp_name)
-            c_mat = c_mat_mn = r_data.lda[i_expt]['c_mat'] / r_data.lda_n_trial
-            c_mat_ch = r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_n_trial
+            i_expt, n_expt = list(r_data.lda_exp_name).index(plot_exp_name), 1
+            c_mat = c_mat_mn = r_data.lda[i_expt]['c_mat'] / r_data.lda_ntrial
+            c_mat_ch = r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_ntrial
+
+        # memory allocation for accuracy binary mask calculations
+        n_grp = int(np.size(c_mat_mn, axis=0) / 2)
+        BG, BD = np.zeros((2 * n_grp, 2 * n_grp), dtype=bool), np.zeros((2, 2 * n_grp), dtype=bool)
+        Y = np.zeros((n_expt, 1 + n_grp), dtype=float)
+
+        # sets up the binary masks for the group/direction types
+        for i_grp in range(n_grp):
+            BG[(2 * i_grp):(2 * (i_grp + 1)), (2 * i_grp):(2 * (i_grp + 1))] = True
+            BD[0, 2 * i_grp], BD[1, 2 * i_grp + 1] = True, True
+
+        # calculates the accuracy values for the grouping/direction decoding results
+        for i_expt in range(n_expt):
+            # calculates the grouping accuracy values
+            Y[i_expt, 0] += np.sum(np.multiply(BG, c_mat[:, :, i_expt])) / (2 * n_grp)
+
+            # calculates the direction accuracy values (over each condition)
+            for i_grp in range(n_grp):
+                Y[i_expt, 1 + i_grp] = np.sum(np.multiply(BD, c_mat[(2 * i_grp):(2 * (i_grp + 1)), :, i_expt])) / 2
+
+        #
+        Y_Ch = 0.5 * np.ones((1, 1 + n_grp))
 
         #################################
         ####    SUBPLOT CREATIONS    ####
         #################################
 
         # sets up the axes dimensions
-        n_grp = int(np.size(c_mat_mn, axis=0) / 2)
         tick_lbls = cf.flat_list(['CW', 'CCW'] * n_grp)
         top, bottom, pH, wspace, hspace = 0.9, 0.06, 0.01, 0.2, 0.2
         x = np.arange(2, 2 * n_grp, 2)
 
-        #
-        w_ratio = [0.6, 0.05, 0.02, 0.0]
+        # width ratio
+        w_ratio = [0.6, 0.025, 0.05, 0.0]
         w_ratio[-1] = 1 - np.sum(w_ratio[:2])
+
+        # bar graph dimensioning
+        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_grp) + 2)), 0.9
+        bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in r_data.lda_ttype]
 
         # creates the gridspec object
         gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.075, right=0.98, bottom=bottom, top=top, hspace=0.01)
+                               wspace=wspace, left=0.075, right=0.98, bottom=bottom, top=top, hspace=0.001)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(4, dtype=object)
@@ -3539,6 +3597,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
 
         # displays the heatmap
+        create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, r_data.lda_ttype)
         im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='viridis', origin='upper')
 
         # sets the heatmap axis properties
@@ -3547,7 +3606,9 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_yticks(range(4))
         self.plot_fig.ax[0].set_xticklabels(tick_lbls)
         self.plot_fig.ax[0].set_yticklabels(tick_lbls)
-        # self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
+        self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
+        self.plot_fig.ax[0].get_xaxis().set_label_position('top')
+        self.plot_fig.ax[0].tick_params(length=0)
         self.plot_fig.ax[0].set_ylabel('True Condition')
         self.plot_fig.ax[0].set_xlabel('Decoded Condition')
 
@@ -3561,10 +3622,24 @@ class AnalysisGUI(QMainWindow):
         cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
         cbar.set_clim([0., 100.])
 
+        # turns off the 3rd axis (not required - only used for providing gap)
         self.plot_fig.ax[2].axis('off')
 
-        # REMOVE ME LATER
-        a = 1
+        #
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y, axis=0), width=w_bar, color='b')
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y_Ch, axis=0), width=w_bar, color='k')
+
+        #
+        if n_expt > 1:
+            for i_col in range(np.size(Y, axis=1)):
+                self.plot_fig.ax[3].plot(x_bar[i_col] * np.ones(n_expt), 100. * Y[:, i_col], 'ko')
+
+        #
+        self.plot_fig.ax[3].set_xticks(x_bar)
+        self.plot_fig.ax[3].set_xticklabels(bar_lbls)
+        self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[3].set_ylim([0, 105])
+        self.plot_fig.ax[3].grid(plot_grid)
 
     def plot_depth_direction_selectivity(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid):
         '''
@@ -6284,7 +6359,8 @@ class AnalysisGUI(QMainWindow):
                          'Velocity ROC Curves (Single Cell)',
                          'Velocity ROC Curves (Whole Experiment)',
                          'Velocity ROC Curves (Pos/Neg Comparison)',
-                         'Combined Direction ROC Curves (Whole Experiment)']
+                         'Combined Direction ROC Curves (Whole Experiment)',
+                         'Linear Discrimination Analysis (Rotation Analysis)']
 
         if self.thread_calc_error:
             return True
@@ -7256,6 +7332,16 @@ class AnalysisFunctions(object):
             'cell_types': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Types', 'list': cell_type, 'def_val': cell_type[0],
                 'reset_func': self.reset_cell_types
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
             # plotting parameters
@@ -9049,12 +9135,14 @@ class RotationData(object):
 
         # lda calculation/parameter elements
         self.lda = None
-        self.lda_exp_name = None
-        self.lda_n_trial = None
-        self.lda_solver = None
-        self.lda_shrinkage = None
-        self.lda_norm = None
-        self.lda_ttype = None
+        self.lda_exp_name = -1
+        self.lda_ntrial = -1
+        self.lda_solver = -1
+        self.lda_shrinkage = -1
+        self.lda_norm = -1
+        self.lda_ttype = -1
+        self.lda_tofs = -1
+        self.lda_tphase = -1
 
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects
