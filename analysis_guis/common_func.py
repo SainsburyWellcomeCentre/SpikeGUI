@@ -464,8 +464,11 @@ def create_listbox(parent, dim, font, text, name=None, cb_fcn=None):
     h_list = QListWidget(parent)
 
     # sets the listbox object properties
-    h_list.setGeometry(dim)
     h_list.setFont(font)
+
+    # set the object dimensions (if not None)
+    if dim is not None:
+        h_list.setGeometry(dim)
 
     # sets the object name (if provided)
     if name is not None:
@@ -1241,6 +1244,20 @@ def init_rotation_filter_data(is_ud, is_empty=False):
 
     # returns the field data
     return f_data
+
+
+def init_lda_solver_para():
+
+    return {
+        'n_cell_min': 10,
+        'n_trial_min': 10,
+        'is_norm': True,
+        'use_shrinkage': True,
+        'solver_type': 'eigen',
+        'comp_cond': ['Uniform'],
+        'cell_types': 'All Cells'
+    }
+
 
 def get_plot_col(n_plot=1, i_ofs=0):
     '''

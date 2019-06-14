@@ -1,14 +1,10 @@
 # module import
-import os
-import re
-import functools
 import numpy as np
 
 # pyqt5 module imports
-from PyQt5.QtCore import Qt, QSize, QRect
-from PyQt5.QtGui import QFont, QIcon
-from PyQt5.QtWidgets import (QHBoxLayout, QDialog, QFormLayout, QPushButton, QMessageBox, QComboBox, QTableWidget,
-                             QGridLayout, QGroupBox, QLabel, QStyleFactory, QLineEdit, QRadioButton, QTableWidgetItem)
+from PyQt5.QtCore import Qt, QRect
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (QHBoxLayout, QDialog, QFormLayout, QPushButton, QGridLayout, QGroupBox)
 
 # custom module import
 import analysis_guis.common_func as cf

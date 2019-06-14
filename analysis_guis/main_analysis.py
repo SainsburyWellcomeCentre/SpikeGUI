@@ -40,7 +40,7 @@ import rpy2.robjects.numpy2ri
 from rpy2.robjects import FloatVector
 from rpy2.robjects.packages import importr
 rpy2.robjects.numpy2ri.activate()
-r_stats = importr("pairwise")
+r_pair = importr("pairwise")
 r_stats = importr("stats")
 r_pROC = importr("pROC")
 
@@ -74,6 +74,7 @@ from analysis_guis.dialogs.file_dialog import FileDialogModal
 from analysis_guis.dialogs import load_expt, config_dialog, expt_compare
 from analysis_guis.dialogs.rotation_filter import RotationFilter, RotationFilteredData
 from analysis_guis.dialogs.info_dialog import InfoDialog
+from analysis_guis.dialogs.lda_para import LDASolverPara
 from analysis_guis.threads import thread_workers
 
 # other parameters
@@ -112,7 +113,8 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 # other initialisations
 dcopy = copy.deepcopy
 func_types = np.array(['Cluster Matching','Cluster Classification','Rotation Analysis',
-                       'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis', 'Single Experiment Analysis'])
+                       'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis',
+                       'Rotation Discrimination Analysis', 'Single Experiment Analysis'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
 _bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
@@ -591,7 +593,7 @@ class AnalysisGUI(QMainWindow):
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                     has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
                     has_both = has_vis_expt and has_rot_expt
-                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, True]
+                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, has_rot_expt, True]
                     new_func_types = func_types[np.array(is_keep)]
 
                     # otherwise, enable the cluster matching comparison menu item
@@ -3422,236 +3424,6 @@ class AnalysisGUI(QMainWindow):
         cf.add_plot_table(self.plot_fig, 1, table_font, f_stats, row_hdr, col_hdr, c, c_col,
                           None, n_col=3, p_wid=1.5)
 
-    def plot_rotation_lda(self, plot_transform, plot_exp_name, plot_all_expt, plot_grid):
-        '''
-
-        :param plot_transform:
-        :param plot_exp_name:
-        :param plot_all_expt:
-        :param plot_grid:
-        :return:
-        '''
-
-        def plot_transform_values(r_data, plot_exp_name, plot_grid):
-            '''
-
-            :param r_data:
-            :param plot_exp_name:
-            :param plot_all_expt:
-            :param plot_grid:
-            :return:
-            '''
-
-            # retrieves the plot values
-            i_expt = list(r_data.lda_exp_name).index(plot_exp_name)
-            lda_X, lda_var_exp = r_data.lda[i_expt]['lda_X'], r_data.lda[i_expt]['lda_var_exp']
-
-            # other initialisations
-            h_plt, patches, c = [], [], cf.get_plot_col(len(lda_X))
-
-            # initialises the plot axis
-            self.init_plot_axes(n_plot=1)
-            ax = self.plot_fig.ax[0]
-
-            # creates the
-            for i_grp in range(len(lda_X)):
-                # creates the plot object
-                h_plt.append(ax.plot(lda_X[i_grp][:, 0], lda_X[i_grp][:, 1], 'o', color=c[i_grp]))
-
-                # creates the convex hull
-                p_hull = CHull(lda_X[i_grp])
-                patches.append(Polygon(lda_X[i_grp][p_hull.vertices, :], True))
-
-            # creates the patch collection
-            p = PatchCollection(patches, facecolors=c, alpha=0.4)
-            ax.add_collection(p)
-
-            # creates the legend object
-            lg_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in r_data.lda_ttype])
-            ax.set_title('LDA Components (Variance Explained = {:5.2f}%)'.format(lda_var_exp))
-            ax.set_xlabel('LDA Component #1')
-            ax.set_ylabel('LDA Component #2')
-            ax.grid(plot_grid)
-            ax.legend(cf.flat_list(h_plt), lg_str, loc=0)
-
-        def create_heatmap_markers(ax, c_mat, t_type):
-            '''
-
-            :param ax:
-            :param lbl_str:
-            :return:
-            '''
-
-            # initialisations
-            h, lbl, dXY, xL0, yL0 = [], [], 0.1, -0.5, -0.5
-            WH = 1 - 2 * dXY
-
-            # sets up the label strings
-            lbl_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in t_type])
-
-            #
-            for i_row in range(np.size(c_mat, axis=0)):
-                for i_col in range(np.size(c_mat, axis=0)):
-                    # creates the new patch object
-                    x0, y0 = (xL0 + i_col) + dXY, (yL0 + i_row) + dXY
-                    h.append(Rectangle((x0, y0), WH, WH))
-
-                    # creates the new string
-                    lbl.append('True = {}\nDecoded = {}\nPercentage = {:5.2f}%'.format(
-                        lbl_str[i_row], lbl_str[i_col], c_mat[i_row, i_col]
-                    ))
-
-            # creates the cursor object
-            pc = PatchCollection(h, facecolor='g', alpha=0.0, zorder=10)
-            ax.add_collection(pc)
-            datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
-
-        # initialisations
-        r_data = self.data.rotation
-
-        # determines if the user if trying to plot the transform values with the lsqr solver type
-        if plot_transform:
-            # determines if the user is using the lsqr solver type
-            if r_data.lda_solver == 'lsqr':
-                # if so, then output an error to screen
-                e_str = 'It is not possible to plot the LDA transform values with the "lsqr" solver. Either re-run ' \
-                        'the function with a different solver type or de-select transform plotting.'
-                cf.show_error(e_str, 'Invalid Solver Type')
-
-                # exits the function with an error flag
-                self.calc_ok = False
-                return
-            else:
-                # otherwise, plot the transform values (exit function afterwards)
-                plot_transform_values(r_data, plot_exp_name, plot_grid)
-                return
-
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
-
-        # sets the number of conditions
-        n_cond = len(r_data.lda_ttype)
-
-        # retrieves the plot values
-        if plot_all_expt:
-            # case is using all the experiments
-            c_mat = np.dstack([x['c_mat'] / r_data.lda_ntrial for x in r_data.lda])
-            c_mat_ch = np.dstack([x['c_mat_chance'] / r_data.lda_ntrial for x in r_data.lda])
-            n_expt = np.size(c_mat, axis=2)
-
-            # calculates the mean confusion matrix values
-            c_mat_mn = np.mean(c_mat, axis=2)
-            c_mat_ch_mn = np.mean(c_mat_ch, axis=2)
-        else:
-            # case is using a specific experiment
-            i_expt, n_expt = list(r_data.lda_exp_name).index(plot_exp_name), 1
-            c_mat = c_mat_mn = r_data.lda[i_expt]['c_mat'] / r_data.lda_ntrial
-
-            sz_nw = (2 * n_cond, 2 * n_cond, 1)
-            c_mat = np.reshape(c_mat, sz_nw)
-            c_mat_ch = np.reshape(r_data.lda[i_expt]['c_mat_chance'] / r_data.lda_ntrial, sz_nw)
-
-        # memory allocation for accuracy binary mask calculations
-        BG, BD = np.zeros((2 * n_cond, 2 * n_cond), dtype=bool), np.zeros((2, 2 * n_cond), dtype=bool)
-        Y = np.zeros((n_expt, 1 + n_cond), dtype=float)
-
-        # sets up the binary masks for the group/direction types
-        for i_cond in range(n_cond):
-            BG[(2 * i_cond):(2 * (i_cond + 1)), (2 * i_cond):(2 * (i_cond + 1))] = True
-            BD[0, 2 * i_cond], BD[1, 2 * i_cond + 1] = True, True
-
-        # calculates the accuracy values for the grouping/direction decoding results
-        for i_expt in range(n_expt):
-            # calculates the grouping accuracy values
-            Y[i_expt, 0] += np.sum(np.multiply(BG, c_mat[:, :, i_expt])) / (2 * n_cond)
-
-            # calculates the direction accuracy values (over each condition)
-            for i_cond in range(n_cond):
-                Y[i_expt, 1 + i_cond] = np.sum(np.multiply(BD, c_mat[(2 * i_cond):(2 * (i_cond + 1)), :, i_expt])) / 2
-
-        # sets the chance values
-        Y_Ch = 0.5 * np.ones((1, 1 + n_cond))
-
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
-
-        # sets up the axes dimensions
-        tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
-        top, bottom, pH, wspace, hspace = 0.9, 0.06, 0.01, 0.2, 0.2
-        x = np.arange(2, 2 * n_cond, 2)
-
-        # width ratio
-        w_ratio = [0.6, 0.025, 0.025, 0.0]
-        w_ratio[-1] = 1 - np.sum(w_ratio[:2])
-
-        # bar graph dimensioning
-        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
-        bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in r_data.lda_ttype]
-
-        # creates the gridspec object
-        gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.001)
-
-        # creates the subplots
-        self.plot_fig.ax = np.empty(4, dtype=object)
-        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, 0])
-        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[0, 1])
-        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 2])
-        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
-
-        # displays the heatmap
-        create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, r_data.lda_ttype)
-        im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='viridis', origin='upper')
-
-        # sets the heatmap axis properties
-        self.plot_fig.ax[0].grid(False)
-        self.plot_fig.ax[0].set_xticks(range(4))
-        self.plot_fig.ax[0].set_yticks(range(4))
-        self.plot_fig.ax[0].set_xticklabels(tick_lbls)
-        self.plot_fig.ax[0].set_yticklabels(tick_lbls)
-        self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
-        # self.plot_fig.ax[0].get_xaxis().set_label_position('top')
-        self.plot_fig.ax[0].tick_params(length=0)
-
-        self.plot_fig.ax[0].text(-1.1, n_cond - 0.5, 'True Condition', size=16, verticalalignment='center', rotation=90, weight='bold')
-        self.plot_fig.ax[0].text(n_cond - 0.5, -0.8, 'Decoded Condition', size=16, horizontalalignment='center', weight='bold')
-
-        # sets the condition titles
-        for itt, tt in enumerate(r_data.lda_ttype):
-            self.plot_fig.ax[0].text(-0.9, 2 * itt + 0.5, tt, size=14, verticalalignment='center', rotation=90, weight='bold')
-            self.plot_fig.ax[0].text(2 * itt + 0.5, -0.65, tt, size=14, horizontalalignment='center', weight='bold')
-
-        # creates the separation lines
-        xL, yL = self.plot_fig.ax[0].get_xlim(), self.plot_fig.ax[0].get_ylim()
-        for i_cond in range(len(x)):
-            self.plot_fig.ax[0].plot(xL, (x[i_cond] - 0.5) * np.ones(2), 'w', linewidth=2)
-            self.plot_fig.ax[0].plot((x[i_cond] - 0.5) * np.ones(2), yL, 'w', linewidth=2)
-
-        # creates the colorbar
-        cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
-        cbar.set_clim([0., 100.])
-
-        # turns off the 3rd axis (not required - only used for providing gap)
-        self.plot_fig.ax[2].axis('off')
-
-        # plots the mean/chance accuracy values
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y, axis=0), width=w_bar, color='b')
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(Y_Ch, axis=0), width=w_bar, color='k')
-
-        # adds the individual experiment values (if more than one experiment is being analysed)
-        if n_expt > 1:
-            for i_col in range(np.size(Y, axis=1)):
-                self.plot_fig.ax[3].plot(x_bar[i_col] * np.ones(n_expt), 100. * Y[:, i_col], 'ko')
-
-        # sets the bar plot axis properties
-        self.plot_fig.ax[3].set_xticks(x_bar)
-        self.plot_fig.ax[3].set_xticklabels(bar_lbls)
-        self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[3].set_ylim([0, 105])
-        self.plot_fig.ax[3].grid(plot_grid)
-
     def plot_depth_direction_selectivity(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid):
         '''
 
@@ -4995,6 +4767,293 @@ class AnalysisGUI(QMainWindow):
 
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
                                        plot_grp_type, cell_grp_type, plot_grid, plot_scope, True)
+
+    #########################################################
+    ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
+    #########################################################
+
+    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, plot_grid):
+        '''
+
+        :param plot_transform:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_grid:
+        :return:
+        '''
+
+        def plot_transform_values(d_data, plot_exp_name, plot_grid):
+            '''
+
+            :param r_data:
+            :param plot_exp_name:
+            :param plot_all_expt:
+            :param plot_grid:
+            :return:
+            '''
+
+            # retrieves the plot values
+            i_expt = list(d_data.exp_name).index(plot_exp_name)
+            lda_X, lda_var_exp = d_data.lda[i_expt]['lda_X'], d_data.lda[i_expt]['lda_var_exp']
+
+            # other initialisations
+            h_plt, patches, c = [], [], cf.get_plot_col(len(lda_X))
+
+            # initialises the plot axis
+            self.init_plot_axes(n_plot=1)
+            ax = self.plot_fig.ax[0]
+
+            # creates the
+            for i_grp in range(len(lda_X)):
+                # creates the plot object
+                h_plt.append(ax.plot(lda_X[i_grp][:, 0], lda_X[i_grp][:, 1], 'o', color=c[i_grp]))
+
+                # creates the convex hull
+                p_hull = CHull(lda_X[i_grp])
+                patches.append(Polygon(lda_X[i_grp][p_hull.vertices, :], True))
+
+            # creates the patch collection
+            p = PatchCollection(patches, facecolors=c, alpha=0.4)
+            ax.add_collection(p)
+
+            # creates the legend object
+            lg_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in d_data.ttype])
+            ax.set_title('LDA Components (Variance Explained = {:5.2f}%)'.format(lda_var_exp))
+            ax.set_xlabel('LDA Component #1')
+            ax.set_ylabel('LDA Component #2')
+            ax.grid(plot_grid)
+            ax.legend(cf.flat_list(h_plt), lg_str, loc=0)
+
+        def create_heatmap_markers(ax, c_mat, t_type):
+            '''
+
+            :param ax:
+            :param lbl_str:
+            :return:
+            '''
+
+            # initialisations
+            h, lbl, dXY, xL0, yL0 = [], [], 0.1, -0.5, -0.5
+            WH = 1 - 2 * dXY
+
+            # sets up the label strings
+            lbl_str = cf.flat_list([['{0} ({1})'.format(tt, d) for d in ['CW', 'CCW']] for tt in t_type])
+
+            #
+            for i_row in range(np.size(c_mat, axis=0)):
+                for i_col in range(np.size(c_mat, axis=0)):
+                    # creates the new patch object
+                    x0, y0 = (xL0 + i_col) + dXY, (yL0 + i_row) + dXY
+                    h.append(Rectangle((x0, y0), WH, WH))
+
+                    # creates the new string
+                    lbl.append('True = {}\nDecoded = {}\nPercentage = {:5.2f}%'.format(
+                        lbl_str[i_row], lbl_str[i_col], c_mat[i_row, i_col]
+                    ))
+
+            # creates the cursor object
+            pc = PatchCollection(h, facecolor='g', alpha=0.0, zorder=10)
+            ax.add_collection(pc)
+            datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
+
+        # initialisations
+        d_data = self.data.discrim
+
+        # determines if the user if trying to plot the transform values with the lsqr solver type
+        if plot_transform:
+            # determines if the user is using the lsqr solver type
+            if d_data.solver == 'lsqr':
+                # if so, then output an error to screen
+                e_str = 'It is not possible to plot the LDA transform values with the "lsqr" solver. Either re-run ' \
+                        'the function with a different solver type or de-select transform plotting.'
+                cf.show_error(e_str, 'Invalid Solver Type')
+
+                # exits the function with an error flag
+                self.calc_ok = False
+                return
+            else:
+                # otherwise, plot the transform values (exit function afterwards)
+                plot_transform_values(d_data, plot_exp_name, plot_grid)
+                return
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # sets the number of conditions
+        n_cond = len(d_data.ttype)
+
+        # retrieves the plot values
+        if plot_all_expt:
+            # case is using all the experiments
+            c_mat = np.dstack([x['c_mat'] / d_data.ntrial for x in d_data.lda])
+            c_mat_ch = np.dstack([x['c_mat_chance'] / d_data.ntrial for x in d_data.lda])
+            n_expt = np.size(c_mat, axis=2)
+
+            # calculates the mean confusion matrix values
+            c_mat_mn, y_acc = np.mean(c_mat, axis=2), d_data.y_acc
+
+            # c_mat_ch_mn = np.mean(c_mat_ch, axis=2)
+        else:
+            # case is using a specific experiment
+            i_expt, n_expt = list(d_data.exp_name).index(plot_exp_name), 1
+            c_mat_mn, y_acc = d_data.lda[i_expt]['c_mat'] / d_data.ntrial, d_data.y_acc[i_expt, :]
+
+            # sz_nw = (2 * n_cond, 2 * n_cond, 1)
+            # c_mat = np.reshape(c_mat, sz_nw)
+            # c_mat_ch = np.reshape(d_data.lda[i_expt]['c_mat_chance'] / d_data.ntrial, sz_nw)
+
+        # sets the chance values
+        y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # sets up the axes dimensions
+        tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
+        top, bottom, pH, wspace, hspace = 0.9, 0.06, 0.01, 0.2, 0.2
+        x = np.arange(2, 2 * n_cond, 2)
+
+        # width ratio
+        w_ratio = [0.6, 0.025, 0.025, 0.0]
+        w_ratio[-1] = 1 - np.sum(w_ratio[:2])
+
+        # bar graph dimensioning
+        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
+        bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in d_data.ttype]
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
+                               wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.001)
+
+        # creates the subplots
+        self.plot_fig.ax = np.empty(4, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, 0])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[0, 1])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 2])
+        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
+
+        # displays the heatmap
+        create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, d_data.ttype)
+        im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='viridis', origin='upper')
+
+        # sets the heatmap axis properties
+        self.plot_fig.ax[0].grid(False)
+        self.plot_fig.ax[0].set_xticks(range(4))
+        self.plot_fig.ax[0].set_yticks(range(4))
+        self.plot_fig.ax[0].set_xticklabels(tick_lbls)
+        self.plot_fig.ax[0].set_yticklabels(tick_lbls)
+        self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
+        # self.plot_fig.ax[0].get_xaxis().set_label_position('top')
+        self.plot_fig.ax[0].tick_params(length=0)
+
+        self.plot_fig.ax[0].text(-1.1, n_cond - 0.5, 'True Condition', size=16, verticalalignment='center', rotation=90, weight='bold')
+        self.plot_fig.ax[0].text(n_cond - 0.5, -0.8, 'Decoded Condition', size=16, horizontalalignment='center', weight='bold')
+
+        # sets the condition titles
+        for itt, tt in enumerate(d_data.ttype):
+            self.plot_fig.ax[0].text(-0.9, 2 * itt + 0.5, tt, size=14, verticalalignment='center', rotation=90, weight='bold')
+            self.plot_fig.ax[0].text(2 * itt + 0.5, -0.65, tt, size=14, horizontalalignment='center', weight='bold')
+
+        # creates the separation lines
+        xL, yL = self.plot_fig.ax[0].get_xlim(), self.plot_fig.ax[0].get_ylim()
+        for i_cond in range(len(x)):
+            self.plot_fig.ax[0].plot(xL, (x[i_cond] - 0.5) * np.ones(2), 'w', linewidth=2)
+            self.plot_fig.ax[0].plot((x[i_cond] - 0.5) * np.ones(2), yL, 'w', linewidth=2)
+
+        # creates the colorbar
+        cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
+        cbar.set_clim([0., 100.])
+
+        # turns off the 3rd axis (not required - only used for providing gap)
+        self.plot_fig.ax[2].axis('off')
+
+        # plots the mean/chance accuracy values
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color='b')
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color='k')
+
+        # adds the individual experiment values (if more than one experiment is being analysed)
+        if n_expt > 1:
+            for i_col in range(np.size(y_acc, axis=1)):
+                self.plot_fig.ax[3].plot(x_bar[i_col] * np.ones(n_expt), 100. * y_acc[:, i_col], 'go')
+
+        # sets the bar plot axis properties
+        self.plot_fig.ax[3].set_xticks(x_bar)
+        self.plot_fig.ax[3].set_xticklabels(bar_lbls)
+        self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[3].set_ylim([0, 105])
+        self.plot_fig.ax[3].grid(plot_grid)
+
+    def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_grid):
+        '''
+
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        d_data = self.data.discrim.temp
+        n_c, h = len(d_data.ttype), []
+        c = cf.get_plot_col(n_c)
+
+        # retrieves the important fields
+        y_acc_phs, y_acc_ofs = 100. * np.dstack(d_data.y_acc[0]), 100. * np.dstack(d_data.y_acc[1])
+
+        # retrieves the plot values
+        if plot_all_expt:
+            # case is using all the experiments
+            n_ex = np.size(y_acc_phs, axis=0)
+            y_acc_phs_mn, y_acc_ofs_mn = np.mean(y_acc_phs, axis=0), np.mean(y_acc_ofs, axis=0)
+
+            # calculates the SEM (if more than one experiment)
+            if n_ex > 1:
+                y_acc_phs_sem = np.std(y_acc_phs, axis=0) / (n_c ** 0.5)
+                y_acc_ofs_sem = np.std(y_acc_phs, axis=0) / (n_c ** 0.5)
+        else:
+            # case is using a specific experiment
+            i_ex, n_ex = list(d_data.exp_name).index(plot_exp_name), 1
+            y_acc_phs_mn, y_acc_ofs_mn = y_acc_phs[i_ex, :, :], y_acc_ofs[i_ex, :, :]
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # initialises the plot axes
+        self.init_plot_axes(n_row=1, n_col=2)
+
+        #
+        for i_c in range(n_c):
+            # creates the differing phase duration accuracy plot
+            h_plt.append(self.plot_fig.ax[0].plot(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], 'o-', c=c[i_c]))
+            if n_c > 1:
+                # plots the errorbars (if more than one experiment analysed)
+                self.plot_fig.ax[0].errorbar(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], yerr=y_acc_phs_sem[i_c + 1, :],
+                                             ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_phs))
+
+            # creates the differing phase offset accuracy plot
+            self.plot_fig.ax[1].plot(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], 'o-', c=c[i_c])
+            if n_c > 1:
+                # plots the errorbars (if more than one experiment analysed)
+                self.plot_fig.ax[1].errorbar(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], yerr=y_acc_ofs_sem[i_c + 1, :],
+                                             ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_ofs))
+
+        # sets the axis properties for the phase duration accuracy plot
+        self.plot_fig.ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[0].set_xlabel('Phase Duration (s)')
+        self.plot_fig.ax[0].set_ylim([50., 100.])
+        self.plot_fig.ax[0].grid(plot_grid)
+        self.plot_fig.ax[0].legend([x[0] for x in h_plt], d_data.ttype, loc=0)
+
+        # sets the axis properties for the phase offset accuracy plot
+        self.plot_fig.ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+        self.plot_fig.ax[1].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[1].set_xlabel('Phase Offset (s)')
+        self.plot_fig.ax[1].set_ylim([50., 100.])
+        self.plot_fig.ax[1].grid(plot_grid)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -6371,7 +6430,7 @@ class AnalysisGUI(QMainWindow):
                          'Velocity ROC Curves (Whole Experiment)',
                          'Velocity ROC Curves (Pos/Neg Comparison)',
                          'Combined Direction ROC Curves (Whole Experiment)',
-                         'Linear Discrimination Analysis (Rotation Analysis)']
+                         'Rotation Direction LDA']
 
         if self.thread_calc_error:
             return True
@@ -7326,56 +7385,6 @@ class AnalysisFunctions(object):
                       func='plot_overall_direction_bias',
                       para=para)
 
-        # ====> Linear Discrimination Analysis (Rotation Analysis)
-        para = {
-            # calculation parameters
-            'n_cell_min': {'gtype': 'C', 'text': 'Minimum Cell Count', 'def_val': 10, 'min_val': 1},
-            'n_trial_min': {'gtype': 'C', 'text': 'Minimum Trial Count', 'def_val': 10, 'min_val': 1},
-            'is_norm': {'gtype': 'C', 'type': 'B', 'text': 'Normalise Spike Counts', 'def_val': True},
-            'use_shrinkage': {'gtype': 'C', 'type': 'B', 'text': 'Use LDA Shrinkage', 'def_val': True},
-            'solver_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'LDA Solver Type', 'list': lda_type, 'def_val': lda_type[0],
-                'link_para': ['use_shrinkage', 'svd']
-            },
-            'comp_cond': {
-                'gtype': 'C', 'type': 'CL', 'text': 'Comparison Conditions', 'list': comp_type, 'def_val': ind_comp,
-                'other_para': '--- Select Comparison Conditions ---'
-            },
-            'cell_types': {
-                'gtype': 'C', 'type': 'L', 'text': 'Cell Types', 'list': cell_type, 'def_val': cell_type[0],
-                'reset_func': self.reset_cell_types
-            },
-            't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
-            },
-            't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
-            },
-            'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
-                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
-            },
-
-            # plotting parameters
-            # 'rot_filt': {
-            #     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
-            # },
-            'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
-            'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
-                'is_enabled': has_multi_expt
-            },
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
-                'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
-            },
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-        }
-        self.add_func(type='Rotation Analysis',
-                      name='Linear Discrimination Analysis (Rotation Analysis)',
-                      func='plot_rotation_lda',
-                      para=para)
-
         # ====> Rotation Trial Cell Depth Direction Selectivity
         para = {
             # calculation parameters
@@ -8048,6 +8057,77 @@ class AnalysisFunctions(object):
         self.add_func(type='Combined Analysis',
                       name='Combined Direction ROC Curves (Whole Experiment)',
                       func='plot_combined_direction_roc_curves',
+                      para=para)
+
+        #########################################################
+        ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
+        #########################################################
+
+        # ====> Rotation Direction LDA
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'is_enabled': has_multi_expt
+            },
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
+                'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Rotation Direction LDA',
+                      func='plot_rotation_dir_lda',
+                      para=para)
+
+        # ====> Rotation Direction LDA
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+            },
+            'dt_phase': {
+                'gtype': 'C', 'text': 'Phase Duration Step-Size (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+            },
+            'dt_ofs': {
+                'gtype': 'C', 'text': 'Phase Offset Step-Size (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+            },
+            't_phase_const': {
+                'gtype': 'C', 'text': 'Constant Phase Duration (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+            },
+
+            # plotting parameters
+            # 'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'is_enabled': has_multi_expt
+            },
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
+                'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Temporal Duration/Offset LDA Analysis',
+                      func='plot_temporal_lda',
                       para=para)
 
         ##########################################
@@ -8930,6 +9010,7 @@ class AnalysisData(object):
         self.comp = ComparisonData()
         self.classify = ClassifyData()
         self.rotation = RotationData()
+        self.discrim = DiscriminationData()
 
         self.req_update = True
         self.exc_gen_filt = None
@@ -9148,19 +9229,6 @@ class RotationData(object):
         self.part_roc_xy = {}                   # partial roc curve x/y coordinates
         self.part_roc_auc = {}                  # partial roc curve integrals
 
-        # lda calculation/parameter elements
-        self.lda = None
-        self.lda_exp_name = -1
-        self.lda_ntrial = -1
-        self.lda_solver = -1
-        self.lda_shrinkage = -1
-        self.lda_norm = -1
-        self.lda_ttype = -1
-        self.lda_tofs = -1
-        self.lda_tphase = -1
-        self.lda_cellmin = -1
-        self.lda_trialmin = -1
-
         # condition cell group roc parameters
         self.cond_roc = None                    # condition r roc objects
         self.cond_roc_xy = None                 # condition roc curve x/y coordinates
@@ -9244,6 +9312,51 @@ class RotationData(object):
         # initialises the uniform drifting filter (if not already done so)
         if self.exc_ud_filt is None:
             self.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
+
+class DiscriminationData(object):
+    def __init__(self):
+        # initialisation
+        self.is_set = False
+        self.init_discrim_fields()
+
+    def init_discrim_fields(self):
+        '''
+
+        :return:
+        '''
+
+
+        self.dir = SubDiscriminationData('Direction')
+        self.temp = SubDiscriminationData('Temporal')
+
+class SubDiscriminationData(object):
+    def __init__(self, type):
+
+        # sets the type flag
+        self.type = type
+
+        # lda calculation/parameter elements
+        self.lda = None
+        self.exp_name = -1
+        self.ntrial = -1
+        self.solver = -1
+        self.shrinkage = -1
+        self.norm = -1
+        self.ttype = -1
+        self.cellmin = -1
+        self.trialmin = -1
+
+        if type == 'Direction':
+            # case is the direction LDA analysis
+            self.tofs = -1
+            self.tphase = -1
+        elif type == 'Temporal':
+            # case is the temporal LDA analysis
+            self.dt_phs = -1
+            self.dt_ofs = -1
+            self.phs_const = -1
+            self.xi_phs = None
+            self.xi_ofs = None
 
 ########################################################################################################################
 ########################################################################################################################

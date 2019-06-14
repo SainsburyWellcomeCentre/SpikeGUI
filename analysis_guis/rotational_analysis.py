@@ -684,11 +684,8 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
     # sets the experiment
     if exp_name is None:
         # case is filtering multiple experiments
-        try:
-            i_expt_match = np.where(is_rot_expt)[0]
-            d_clust = [data.cluster[x] for x in i_expt_match]
-        except:
-            a = 1
+        i_expt_match = np.where(is_rot_expt)[0]
+        d_clust = [data.cluster[x] for x in i_expt_match]
     else:
         # case is filtering on a single experiment level
         i_expt_match = [cf.get_expt_index(exp_name, data.cluster, cf.det_valid_rotation_expt(data))]
