@@ -4942,7 +4942,7 @@ class AnalysisGUI(QMainWindow):
 
         # displays the heatmap
         create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, d_data.ttype)
-        im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='viridis', origin='upper')
+        im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='hot', origin='upper')
 
         # sets the heatmap axis properties
         self.plot_fig.ax[0].grid(False)
