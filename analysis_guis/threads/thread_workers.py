@@ -1253,9 +1253,12 @@ class WorkerThread(QThread):
             BG[(2 * i_c):(2 * (i_c + 1)), (2 * i_c):(2 * (i_c + 1))] = True
             BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
 
+        # sets the experiment file names
+        f_name0 = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data_tmp.cluster]
+
         # loops through each of the experiments performing the lda calculations
         for i_ex in range(n_ex):
-            exp_name[i_ex] = data_tmp.cluster[i_ex]['expInfo']['name']
+            exp_name[i_ex] = f_name0[i_ex]
             lda[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, i_cell[i_ex], ind_t, i_ex)
             if not ok:
                 # if there was an error, then exit with a false flag
@@ -1567,9 +1570,13 @@ class WorkerThread(QThread):
             plot_para['rot_filt'] = cf.init_rotation_filter_data(False)
 
         # sets the condition types (ensures that the black phase is always included)
-        t_type = plot_para['rot_filt']['t_type']
+        t_type = dcopy(plot_para['rot_filt']['t_type'])
         if 'Black' not in t_type:
             t_type = ['Black'] + t_type
+
+        if 'vis_expt_type' in calc_para:
+            if calc_para['vis_expt_type'] == 'MotorDrifting':
+                t_type += ['MotorDrifting']
 
         # retrieves the rotation phase offset time/duration
         if t_ofs is not None:

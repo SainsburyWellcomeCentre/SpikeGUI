@@ -3973,7 +3973,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, use_resp_grp_type, sm_type,
-                                   sep_sig_markers, show_sig_markers, plot_trend, plot_grid, plot_scope):
+                                   show_sig_markers, plot_trend, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4015,6 +4015,7 @@ class AnalysisGUI(QMainWindow):
         else:
             st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
             grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
+            mark_sel = [txt_fcn(sm_type, 'MS/DS'), txt_fcn(sm_type, 'MS/Not DS'), txt_fcn(sm_type, 'Not MS')]
 
         # determine the matching cell indices between the current and black filter
         i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
@@ -4040,19 +4041,10 @@ class AnalysisGUI(QMainWindow):
         ####################################
 
         # legend properties initialisations
-        h_plt = []
+        h_plt, lg_str = [], []
         if show_sig_markers:
-            #
-            sm_sel = [txt_fcn(sm_type, 'Black'), txt_fcn(sm_type, 'Comparison'), txt_fcn(sm_type, 'Both')]
-
-            #
-            if sep_sig_markers:
-                lg_str = np.array(['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.'])
-                lg_str = list(lg_str[sm_sel])
-            else:
-                lg_str = ['Significant Cells']
-        else:
-            lg_str = []
+            # determines which type has been selected
+            cond_str = ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
 
         # initialises the plot axes
         self.init_plot_axes(n_plot=1)
@@ -4074,6 +4066,10 @@ class AnalysisGUI(QMainWindow):
                 x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
                 y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
 
+                #
+                for j in np.where(np.logical_not(mark_sel))[0]:
+                    g_type_m[g_type_m == j] = -1
+
                 # removes any cells where the group type was not calculated
                 is_ok = g_type_m >= 0
                 if not np.all(is_ok):
@@ -4090,15 +4086,6 @@ class AnalysisGUI(QMainWindow):
                     y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
                     xy_sig = x_sig + 2 * y_sig
 
-                    # removes any markers that are not selected
-                    for ism_t, sm_t in enumerate(sm_sel):
-                        if not sm_t:
-                            xy_sig[xy_sig == (ism_t + 1)] = 0
-
-                    # if not separating significance markers, then set to be the same colout
-                    if not sep_sig_markers:
-                        xy_sig = (xy_sig > 0).astype(int)
-
                     # sets the final significance plot colours
                     sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
 
@@ -4110,6 +4097,7 @@ class AnalysisGUI(QMainWindow):
                     if i == 0:
                         for j in np.unique(xy_sig[xy_sig > 0]):
                             h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
+                            lg_str += [cond_str[j - 1]]
 
                 # creates the markers for each of the phases
                 for igt, gt in enumerate(grp_type):
@@ -5063,29 +5051,11 @@ class AnalysisGUI(QMainWindow):
         create_multi_boxplot(self.plot_fig.ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], c)
         create_multi_boxplot(self.plot_fig.ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], c)
 
-        # for i_c in range(n_c):
-        #     #
-        #
-        #
-        #     # creates the differing phase duration accuracy plot
-        #     h_plt.append(self.plot_fig.ax[0].plot(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], 'o-', c=c[i_c]))
-        #     if n_c > 1:
-        #         # plots the errorbars (if more than one experiment analysed)
-        #         self.plot_fig.ax[0].errorbar(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], yerr=y_acc_phs_sem[i_c + 1, :],
-        #                                      ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_phs))
-        #
-        #     # creates the differing phase offset accuracy plot
-        #     self.plot_fig.ax[1].plot(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], 'o-', c=c[i_c])
-        #     if n_c > 1:
-        #         # plots the errorbars (if more than one experiment analysed)
-        #         self.plot_fig.ax[1].errorbar(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], yerr=y_acc_ofs_sem[i_c + 1, :],
-        #                                      ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_ofs))
-
         # sets the axis properties for the phase duration accuracy plot
         self.plot_fig.ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
         self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[0].set_xlabel('Phase Duration (s)')
-        self.plot_fig.ax[1].set_ylim([49., 101.])
+        self.plot_fig.ax[1].set_ylim([-1., 101.])
         self.plot_fig.ax[0].grid(plot_grid)
         # self.plot_fig.ax[0].legend([x[0] for x in h_plt], d_data.ttype, loc=0)
 
@@ -5093,7 +5063,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
         self.plot_fig.ax[1].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[1].set_xlabel('Phase Offset (s)')
-        self.plot_fig.ax[1].set_ylim([49., 101.])
+        self.plot_fig.ax[1].set_ylim([-1., 101.])
         self.plot_fig.ax[1].grid(plot_grid)
 
     ####################################################
@@ -7957,19 +7927,18 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'sm_type': {
-                'type': 'CL', 'text': 'Significance Markers', 'list': sm_type,
-                'def_val': np.ones(len(sm_type), dtype=bool), 'other_para': '--- Select Significant Phases ---'
+                'type': 'CL', 'text': 'Display Markers', 'list': md_grp_type[:3],
+                'def_val': np.ones(3, dtype=bool), 'other_para': '--- Select Display Markers ---'
             },
             'plot_cond': {
                 'type': 'L', 'text': 'Comparison Condition', 'list': p_cond, 'def_val': 'Uniform',
             },
-            'sep_sig_markers': {'type': 'B', 'text': 'Separate Significance Markers', 'def_val': True},
             'show_sig_markers': {
-                'type': 'B', 'text': 'Show Significance Markers', 'def_val': True,
-                'link_para': [['sep_sig_markers', False], ['sm_type', False]]
+                'type': 'B', 'text': 'Show Significance Markers', 'def_val': True
             },
             'use_resp_grp_type': {
-                'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt
+                'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
+                'link_para': ['sm_type', True]
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
