@@ -4772,7 +4772,7 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, plot_grid):
+    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, connect_lines, plot_grid):
         '''
 
         :param plot_transform:
@@ -4857,7 +4857,16 @@ class AnalysisGUI(QMainWindow):
             datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
 
         # initialisations
-        d_data = self.data.discrim
+        d_data = self.data.discrim.dir
+        n_cond = len(d_data.ttype)
+
+        if connect_lines:
+            if n_cond != 2:
+                e_str = 'The connect accuracy value option requires 2 trial condition filter options. ' \
+                        'Either de-select the option or alter the filter options.'
+                cf.show_error(e_str, 'Accuracy Connection Line Error')
+                self.calc_ok = False
+                return
 
         # determines if the user if trying to plot the transform values with the lsqr solver type
         if plot_transform:
@@ -4879,9 +4888,6 @@ class AnalysisGUI(QMainWindow):
         ###################################
         ####    DATA PRE-PROCESSING    ####
         ###################################
-
-        # sets the number of conditions
-        n_cond = len(d_data.ttype)
 
         # retrieves the plot values
         if plot_all_expt:
@@ -4970,13 +4976,17 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[2].axis('off')
 
         # plots the mean/chance accuracy values
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color='b')
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color='k')
+        col = cf.get_plot_col(len(x_bar))
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color='k', zorder=2)
 
-        # adds the individual experiment values (if more than one experiment is being analysed)
+        # creates the bubble plot and the decision line
         if n_expt > 1:
-            for i_col in range(np.size(y_acc, axis=1)):
-                self.plot_fig.ax[3].plot(x_bar[i_col] * np.ones(n_expt), 100. * y_acc[:, i_col], 'go')
+            y_acc_l = [100 * y_acc[:, i + 1] for i in range(2)]
+            if connect_lines:
+                cf.create_connected_line_plot(self.plot_fig.ax[3], y_acc_l, X0=x_bar[1:], col=['k'] * 2, plot_mean=False)
+            else:
+                cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar[1:], col=['k'] * 2)
 
         # sets the bar plot axis properties
         self.plot_fig.ax[3].set_xticks(x_bar)
@@ -4994,9 +5004,34 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def create_multi_boxplot(ax, xi, y_acc, c):
+            '''
+
+            :param ax:
+            :param xi:
+            :param y_acc:
+            :param c:
+            :return:
+            '''
+
+            # array dimensions and initialisations
+            b_wid = 0.8
+            n_cond, n_xi = np.size(y_acc, axis=1), np.size(y_acc, axis=2)
+            xi_b = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1)
+
+            # creates the boxplot for each conditions
+            for i_cond in range(n_cond):
+                bp = ax.boxplot(y_acc[:, i_cond, :], positions=xi_b+i_cond, sym='', widths=b_wid)
+                cf.set_box_color(bp, c[i_cond])
+
+            # sets the x-axis ticks/labels
+            ax.set_xticks(xi_b + (n_cond - 1) / 2)
+            ax.set_xticklabels(xi)
+            ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
+
         # initialisations
         d_data = self.data.discrim.temp
-        n_c, h = len(d_data.ttype), []
+        n_c, h_plt = len(d_data.ttype), []
         c = cf.get_plot_col(n_c)
 
         # retrieves the important fields
@@ -5024,35 +5059,41 @@ class AnalysisGUI(QMainWindow):
         # initialises the plot axes
         self.init_plot_axes(n_row=1, n_col=2)
 
-        #
-        for i_c in range(n_c):
-            # creates the differing phase duration accuracy plot
-            h_plt.append(self.plot_fig.ax[0].plot(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], 'o-', c=c[i_c]))
-            if n_c > 1:
-                # plots the errorbars (if more than one experiment analysed)
-                self.plot_fig.ax[0].errorbar(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], yerr=y_acc_phs_sem[i_c + 1, :],
-                                             ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_phs))
+        # creates the multiple boxplot
+        create_multi_boxplot(self.plot_fig.ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], c)
+        create_multi_boxplot(self.plot_fig.ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], c)
 
-            # creates the differing phase offset accuracy plot
-            self.plot_fig.ax[1].plot(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], 'o-', c=c[i_c])
-            if n_c > 1:
-                # plots the errorbars (if more than one experiment analysed)
-                self.plot_fig.ax[1].errorbar(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], yerr=y_acc_ofs_sem[i_c + 1, :],
-                                             ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_ofs))
+        # for i_c in range(n_c):
+        #     #
+        #
+        #
+        #     # creates the differing phase duration accuracy plot
+        #     h_plt.append(self.plot_fig.ax[0].plot(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], 'o-', c=c[i_c]))
+        #     if n_c > 1:
+        #         # plots the errorbars (if more than one experiment analysed)
+        #         self.plot_fig.ax[0].errorbar(d_data.xi_phs, y_acc_phs_mn[i_c + 1, :], yerr=y_acc_phs_sem[i_c + 1, :],
+        #                                      ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_phs))
+        #
+        #     # creates the differing phase offset accuracy plot
+        #     self.plot_fig.ax[1].plot(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], 'o-', c=c[i_c])
+        #     if n_c > 1:
+        #         # plots the errorbars (if more than one experiment analysed)
+        #         self.plot_fig.ax[1].errorbar(d_data.xi_ofs, y_acc_ofs_mn[i_c + 1, :], yerr=y_acc_ofs_sem[i_c + 1, :],
+        #                                      ecolor=c[i_c], fmt='.', capsize=100 / len(d_data.xi_ofs))
 
         # sets the axis properties for the phase duration accuracy plot
         self.plot_fig.ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
         self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[0].set_xlabel('Phase Duration (s)')
-        self.plot_fig.ax[0].set_ylim([50., 100.])
+        self.plot_fig.ax[1].set_ylim([49., 101.])
         self.plot_fig.ax[0].grid(plot_grid)
-        self.plot_fig.ax[0].legend([x[0] for x in h_plt], d_data.ttype, loc=0)
+        # self.plot_fig.ax[0].legend([x[0] for x in h_plt], d_data.ttype, loc=0)
 
         # sets the axis properties for the phase offset accuracy plot
         self.plot_fig.ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
         self.plot_fig.ax[1].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[1].set_xlabel('Phase Offset (s)')
-        self.plot_fig.ax[1].set_ylim([50., 100.])
+        self.plot_fig.ax[1].set_ylim([49., 101.])
         self.plot_fig.ax[1].grid(plot_grid)
 
     ####################################################
@@ -8090,6 +8131,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
+            'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',

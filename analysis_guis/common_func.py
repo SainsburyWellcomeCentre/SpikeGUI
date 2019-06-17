@@ -8,6 +8,8 @@ import math as m
 import numpy as np
 from numpy import ndarray
 from skimage import measure
+from numpy.matlib import repmat
+import matplotlib.pyplot as plt
 
 # pyqt5 module import
 from PyQt5.QtGui import QFont, QFontMetrics, QColor
@@ -1480,7 +1482,7 @@ def add_rowcol_sum(A):
     return np.vstack((A_csum, np.sum(A_csum, axis=0)))
 
 
-def create_bubble_boxplot(ax, Y, wid=0.75, plot_median=True, s=60):
+def create_bubble_boxplot(ax, Y, wid=0.75, plot_median=True, s=60, X0=None, col=None):
     '''
 
     :param Y:
@@ -1488,13 +1490,23 @@ def create_bubble_boxplot(ax, Y, wid=0.75, plot_median=True, s=60):
     '''
 
     # initialisations
-    n_plot, col = len(Y), get_plot_col(len(Y))
+    n_plot = len(Y)
+    if col is None:
+        col = get_plot_col(len(Y))
 
     #
     for i_plot in range(n_plot):
+        #
+        dX = wid * (0.5 - np.random.rand(len(Y[i_plot])))
+        dX -= np.mean(dX)
+
         # creates the bubble plot
-        X = (i_plot + 1) + wid * (0.5 - np.random.rand(len(Y[i_plot])))
-        ax.scatter(X, Y[i_plot], s=s, facecolors='none', edgecolors=col[i_plot])
+        if X0 is None:
+            X = (i_plot + 1) + dX
+            ax.scatter(X, Y[i_plot], s=s, facecolors='none', edgecolors=col[i_plot])
+        else:
+            X = X0[i_plot] + dX
+            ax.scatter(X, Y[i_plot], s=s, facecolors='none', edgecolors=col[i_plot], zorder=10)
 
         # plots the median line (if required)
         if plot_median:
@@ -1502,11 +1514,12 @@ def create_bubble_boxplot(ax, Y, wid=0.75, plot_median=True, s=60):
             ax.plot((i_plot + 1) + (wid / 2) * np.array([-1, 1]), Ymd * np.ones(2), linewidth=2)
 
     # sets the x-axis limits/ticks
-    ax.set_xlim(0.5, n_plot + 0.5)
-    ax.set_xticks(np.array(range(n_plot)) + 1)
+    if X0 is None:
+        ax.set_xlim(0.5, n_plot + 0.5)
+        ax.set_xticks(np.array(range(n_plot)) + 1)
 
 
-def create_connected_line_plot(ax, Y, s=60):
+def create_connected_line_plot(ax, Y, s=60, col=None, X0=None, plot_mean=True):
     '''
 
     :param ax:
@@ -1516,26 +1529,38 @@ def create_connected_line_plot(ax, Y, s=60):
     '''
 
     # initialisations
-    n_plot, n_cell, col = len(Y), len(Y[0]), get_plot_col(len(Y))
-    X = np.ones(n_cell)
+    n_plot, n_cell = len(Y), len(Y[0])
     y_mn0, y_mn1 = np.mean(Y[0]), np.mean(Y[1])
+
+    #
+    if col is None:
+        col = get_plot_col(len(Y))
+
+    #
+    if X0 is None:
+        X = np.ones((n_cell, 2))
+        X[:, 1] *= 2
+    else:
+        X = repmat(X0, n_cell, 1)
 
     # plots the connecting lines
     for i_cell in range(n_cell):
-        ax.plot([1, 2], [Y[0][i_cell], Y[1][i_cell]], 'k--')
+        ax.plot(X[i_cell, :], [Y[0][i_cell], Y[1][i_cell]], 'k--')
 
     # creates the scatter plots
-    ax.scatter(X, Y[0], s=s, facecolors='none', edgecolors=col[0])
-    ax.scatter(2 * X, Y[1], s=s, facecolors='none', edgecolors=col[1])
+    ax.scatter(X[:, 0], Y[0], s=s, facecolors='none', edgecolors=col[0], zorder=10)
+    ax.scatter(X[:, 1], Y[1], s=s, facecolors='none', edgecolors=col[1], zorder=10)
 
     # creates the mean scatter plot points
-    ax.plot([1, 2], [y_mn0, y_mn1], 'k', linewidth=4)
-    ax.scatter(1, y_mn0, s=2 * s, edgecolors=col[0])
-    ax.scatter(2, y_mn1, s=2 * s, edgecolors=col[1])
+    if plot_mean:
+        ax.plot([1, 2], [y_mn0, y_mn1], 'k', linewidth=4)
+        ax.scatter(1, y_mn0, s=2 * s, edgecolors=col[0], zorder=11)
+        ax.scatter(2, y_mn1, s=2 * s, edgecolors=col[1], zorder=11)
 
     # sets the x-axis limits/ticks
-    ax.set_xlim(0.5, n_plot + 0.5)
-    ax.set_xticks(np.array(range(n_plot)) + 1)
+    if X0 is None:
+        ax.set_xlim(0.5, n_plot + 0.5)
+        ax.set_xticks(np.array(range(n_plot)) + 1)
 
 
 def det_reqd_cond_types(data, t_type):
@@ -2309,3 +2334,17 @@ def eval_class_func(funcName, *args):
     '''
 
     return funcName(*args)
+
+
+def set_box_color(bp, color):
+    '''
+
+    :param bp:
+    :param color:
+    :return:
+    '''
+
+    plt.setp(bp['boxes'], color=color)
+    plt.setp(bp['whiskers'], color=color)
+    plt.setp(bp['caps'], color=color)
+    plt.setp(bp['medians'], color=color)

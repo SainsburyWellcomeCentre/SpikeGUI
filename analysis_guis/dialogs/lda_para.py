@@ -95,14 +95,14 @@ class LDASolverPara(QDialog):
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
         # retrieves the trial-types from each experiment
-        t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
+        t_list0 = np.unique(cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust]))
         comp_cond = [x for x in t_list0 if (x != 'Black')]
 
         # sets the field combobox lists
         tf_type = ['True', 'False']
         solver_type = ['eigen', 'lsqr', 'svd']
         cell_types = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
-        num_types = ['Min Trial Count: ', 'Min Trial Count: ']
+        num_types = ['Min Cell Count: ', 'Min Trial Count: ']
         check_types = ['Normalise Counts? ', 'Use LDA Shrinkage? ']
 
         # sets the filter field parameter information

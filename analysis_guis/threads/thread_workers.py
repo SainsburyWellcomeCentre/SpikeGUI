@@ -1280,6 +1280,8 @@ class WorkerThread(QThread):
             d_data.solver = lda_para['solver_type']
             d_data.shrinkage = lda_para['use_shrinkage']
             d_data.norm = lda_para['is_norm']
+            d_data.cellmin = lda_para['n_cell_min']
+            d_data.trialmin = lda_para['n_trial_min']
             d_data.ttype = r_filt['t_type']
             d_data.tofs = t_ofs
             d_data.tphase = t_phase
@@ -1395,7 +1397,6 @@ class WorkerThread(QThread):
         # sets the other variables/parameters of interest
         d_data.xi_phs = dt_phs
         d_data.xi_ofs = dt_ofs
-
 
         # returns a true value indicating the calculations were successful
         return True
