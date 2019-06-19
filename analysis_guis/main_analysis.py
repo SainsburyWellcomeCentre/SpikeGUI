@@ -4087,7 +4087,12 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the significance legend plot markers
                 if i == 0:
-                    for j in np.unique(xy_sig[xy_sig > 0]):
+                    if show_grp_markers:
+                        lg_ind = np.unique(xy_sig[xy_sig > 0])
+                    else:
+                        lg_ind = np.unique(xy_sig)
+
+                    for j in lg_ind:
                         h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
 
                 # creates the markers for each of the phases
@@ -4892,6 +4897,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the chance values
         y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
+        n_cell = [x['n_cell'] for x in d_data.lda]
 
         #################################
         ####    SUBPLOT CREATIONS    ####
@@ -4911,15 +4917,16 @@ class AnalysisGUI(QMainWindow):
         bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in d_data.ttype]
 
         # creates the gridspec object
-        gs = gridspec.GridSpec(1, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.001)
+        gs = gridspec.GridSpec(2, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
+                               wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.14)
 
         # creates the subplots
-        self.plot_fig.ax = np.empty(4, dtype=object)
-        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, 0])
-        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[0, 1])
-        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 2])
+        self.plot_fig.ax = np.empty(5, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, 0])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[:, 1])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, 2])
         self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
+        self.plot_fig.ax[4] = self.plot_fig.figure.add_subplot(gs[1, 3])
 
         # displays the heatmap
         create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, d_data.ttype)
@@ -4934,7 +4941,6 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
         # self.plot_fig.ax[0].get_xaxis().set_label_position('top')
         self.plot_fig.ax[0].tick_params(length=0)
-
         self.plot_fig.ax[0].text(-1.1, n_cond - 0.5, 'True Condition', size=16, verticalalignment='center', rotation=90, weight='bold')
         self.plot_fig.ax[0].text(n_cond - 0.5, -0.8, 'Decoded Condition', size=16, horizontalalignment='center', weight='bold')
 
@@ -4975,6 +4981,16 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[3].set_ylim([0, 105])
         self.plot_fig.ax[3].grid(plot_grid)
+
+        #
+        for i_col in range(len(col)):
+            self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col])
+
+        #
+        self.plot_fig.ax[4].set_xlabel('Cell Count')
+        self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[4].set_ylim([0, 105])
+        self.plot_fig.ax[4].grid(plot_grid)
 
     def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_grid):
         '''
@@ -7888,7 +7904,7 @@ class AnalysisFunctions(object):
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
             'grp_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
-                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
+                'def_val': grp_stype[1], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
@@ -7933,7 +7949,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Comparison Condition', 'list': p_cond, 'def_val': 'Uniform',
             },
             'show_grp_markers': {
-                'type': 'B', 'text': 'Show Group Markers', 'def_val': True
+                'type': 'B', 'text': 'Show Grouping Markers', 'def_val': False
             },
             'use_resp_grp_type': {
                 'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
