@@ -39,6 +39,7 @@ _roc_test = SignatureTranslatedFunction(r_pROC.roc_test,
 
 # lambda function declarations
 lin_func = lambda x, a: a * x
+lin_func_const = lambda x, a, b: a * x + b
 spike_count_fcn = lambda t_sp: np.array([len(x) for x in t_sp])
 swap_array = lambda x1, x2, is_swap: np.array([x if is_sw else y for x, y, is_sw in zip(x1, x2, is_swap)])
 # combine_spike_freq = lambda sp_freq, i_dim: flat_list([list(sp_freq[i_filt][:, i_dim]) for i_filt in range(len(sp_freq))])

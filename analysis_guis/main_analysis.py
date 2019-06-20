@@ -33,7 +33,7 @@ import matplotlib.style
 
 #
 import mplcursors
-from mpldatacursor import datacursor
+from mpldatacursor import datacursor, HighlightingDataCursor
 
 import rpy2.robjects as ro
 import rpy2.robjects.numpy2ri
@@ -105,6 +105,7 @@ lin_func = lambda x, a: a * x
 ebar_col = lambda x: 'r' if x else 'k'
 get_list_fields = lambda comp, c_field: np.concatenate([getattr(x, c_field) for x in comp])
 formatter = lambda **kwargs: ', '.join(kwargs['point_label'])
+formatter_lbl = lambda **kwargs: kwargs['label']
 setup_heatmap_bins = lambda t_stim, dt: np.arange(t_stim + dt / 1000, step=dt / 1000.0)
 sig_str_fcn = lambda x, p_value: '*' if x < p_value else ''
 convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
@@ -4757,7 +4758,8 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, connect_lines, plot_grid):
+    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, connect_lines,
+                              add_accuracy_trend, plot_grid):
         '''
 
         :param plot_transform:
@@ -4841,6 +4843,23 @@ class AnalysisGUI(QMainWindow):
             pc = PatchCollection(h, facecolor='g', alpha=0.0, zorder=10)
             ax.add_collection(pc)
             datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
+
+        def calc_acc_trend(x_lim, n_cell, y_acc):
+            '''
+
+            :param y_acc:
+            :return:
+            '''
+
+            # memory allocation
+            y_trend = np.empty(np.size(y_acc, axis=1), dtype=object)
+
+            # calculates the trend values for each type
+            for i_col in range(np.size(y_acc, axis=1)):
+                y_trend[i_col], _ = cf.curve_fit(cf.lin_func_const, n_cell, y_acc[:, i_col])
+
+            # returns the trend values
+            return y_trend
 
         # initialisations
         d_data = self.data.discrim.dir
@@ -4983,14 +5002,34 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[3].grid(plot_grid)
 
         #
+        h_plt = []
         for i_col in range(len(col)):
-            self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col])
+            h_plt.append(self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col]))
 
-        #
+        # plots the
         self.plot_fig.ax[4].set_xlabel('Cell Count')
         self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[4].set_ylim([0, 105])
+        self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
         self.plot_fig.ax[4].grid(plot_grid)
+        self.plot_fig.ax[4].legend([x[0] for x in h_plt], bar_lbls)
+
+        #
+        if add_accuracy_trend and (len(n_cell) > 1):
+            # calculates the trend values and plots them
+            x_lim, lbl_trend = np.array(self.plot_fig.ax[4].get_xlim()), []
+            y_trend = calc_acc_trend(x_lim, n_cell, 100. * d_data.y_acc)
+
+            h_trend = []
+            for b_lbl, y_t, c in zip(bar_lbls, y_trend, col):
+                yt_nw = y_t[0] * x_lim + y_t[1]
+                lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}'.format(b_lbl.replace('\n', ' '), y_t[0], y_t[1])
+                lbl_trend.append(lbl_t)
+
+                h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
+                h_trend.append(h_trend_nw)
+
+            # creates the datacursor
+            datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
     def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_grid):
         '''
@@ -8115,6 +8154,7 @@ class AnalysisFunctions(object):
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
             'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
+            'add_accuracy_trend': {'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
