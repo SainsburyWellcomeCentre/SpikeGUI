@@ -2349,3 +2349,25 @@ def set_box_color(bp, color):
     plt.setp(bp['whiskers'], color=color)
     plt.setp(bp['caps'], color=color)
     plt.setp(bp['medians'], color=color)
+
+
+def cond_abb(tt):
+    '''
+
+    :param tt:
+    :return:
+    '''
+
+    # sets up the abbreviation dictionary
+    abb_txt = {
+        'black': 'B',
+        'uniform': 'U',
+        'motordrifting': 'MD',
+        'uniformdrifting': 'UD',
+        'landmarkleft': 'LL',
+        'landmarkright': 'LR',
+        'black40': 'B40'
+    }
+
+    # returns the matching abbreviation
+    return abb_txt[tt.lower()]

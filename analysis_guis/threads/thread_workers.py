@@ -1038,7 +1038,7 @@ class WorkerThread(QThread):
         for i_filt in range(r_obj0.n_filt):
             # sets the trial counts for each experiment for the current filter option
             i_expt_uniq, ind = np.unique(r_obj0.i_expt[i_filt], return_index=True)
-            n_trial[i_filt, :] = r_obj0.n_trial[i_filt][ind]
+            n_trial[i_filt, i_expt_uniq] = r_obj0.n_trial[i_filt][ind]
 
         # removes any trials less than the minimum and from this determines the overall minimum trial count
         n_trial[n_trial < lda_para['n_trial_min']] = -1
@@ -1126,7 +1126,12 @@ class WorkerThread(QThread):
                 # concatenated array. calculates the final spike counts over each cell/trial and appends to the
                 # overall spike count array
                 A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
-                t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+                if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+                    # case is motorodrifting (swap phases)
+                    t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+                else:
+                    # case is other experiment conditions
+                    t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
                 n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
 
                 # sets the grouping indices
@@ -1151,7 +1156,7 @@ class WorkerThread(QThread):
             # memory allocation
             lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
             lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-            p_mat = np.zeros((N, 4), dtype=float)
+            p_mat = np.zeros((N, n_grp), dtype=float)
 
             # sets the LDA solver type
             if lda_para['solver_type'] == 'svd':

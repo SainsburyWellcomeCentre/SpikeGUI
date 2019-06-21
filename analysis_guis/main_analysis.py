@@ -54,6 +54,8 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
+from scipy.stats import linregress
+
 
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -4844,22 +4846,25 @@ class AnalysisGUI(QMainWindow):
             ax.add_collection(pc)
             datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
 
-        def calc_acc_trend(x_lim, n_cell, y_acc):
+        def calc_acc_trend(n_cell, y_acc):
             '''
 
+            :param n_cell:
             :param y_acc:
             :return:
             '''
 
             # memory allocation
-            y_trend = np.empty(np.size(y_acc, axis=1), dtype=object)
+            n_cond = np.size(y_acc, axis=1)
+            y_trend, r_2 = np.empty(n_cond, dtype=object), np.zeros(n_cond)
 
             # calculates the trend values for each type
             for i_col in range(np.size(y_acc, axis=1)):
-                y_trend[i_col], _ = cf.curve_fit(cf.lin_func_const, n_cell, y_acc[:, i_col])
+                m, x0, r_2[i_col], _, _ = linregress(n_cell, y_acc[:, i_col])
+                y_trend[i_col] = [m, x0]
 
             # returns the trend values
-            return y_trend
+            return y_trend, r_2
 
         # initialisations
         d_data = self.data.discrim.dir
@@ -4916,7 +4921,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the chance values
         y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
-        n_cell = [x['n_cell'] for x in d_data.lda]
+        n_cell = np.array([x['n_cell'] for x in d_data.lda])
 
         #################################
         ####    SUBPLOT CREATIONS    ####
@@ -4933,7 +4938,7 @@ class AnalysisGUI(QMainWindow):
 
         # bar graph dimensioning
         x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
-        bar_lbls = ['Condition'] + ['Direction\n({0})'.format(tt) for tt in d_data.ttype]
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data.ttype]
 
         # creates the gridspec object
         gs = gridspec.GridSpec(2, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
@@ -4948,25 +4953,30 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[4] = self.plot_fig.figure.add_subplot(gs[1, 3])
 
         # displays the heatmap
+        c_ofs = 2 * n_cond
         create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, d_data.ttype)
         im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='hot', origin='upper')
 
         # sets the heatmap axis properties
         self.plot_fig.ax[0].grid(False)
-        self.plot_fig.ax[0].set_xticks(range(4))
-        self.plot_fig.ax[0].set_yticks(range(4))
+        self.plot_fig.ax[0].set_xticks(range(2 * n_cond))
+        self.plot_fig.ax[0].set_yticks(range(2 * n_cond))
         self.plot_fig.ax[0].set_xticklabels(tick_lbls)
         self.plot_fig.ax[0].set_yticklabels(tick_lbls)
         self.plot_fig.ax[0].get_xaxis().set_ticks_position('top')
-        # self.plot_fig.ax[0].get_xaxis().set_label_position('top')
         self.plot_fig.ax[0].tick_params(length=0)
-        self.plot_fig.ax[0].text(-1.1, n_cond - 0.5, 'True Condition', size=16, verticalalignment='center', rotation=90, weight='bold')
-        self.plot_fig.ax[0].text(n_cond - 0.5, -0.8, 'Decoded Condition', size=16, horizontalalignment='center', weight='bold')
+        self.plot_fig.ax[0].text(-0.5 - 0.15 * c_ofs, n_cond - 0.5, 'True Condition', size=16,
+                                 verticalalignment='center', rotation=90, weight='bold')
+        self.plot_fig.ax[0].text(n_cond - 0.5, -0.5 - 0.075 * c_ofs, 'Decoded Condition', size=16,
+                                 horizontalalignment='center', weight='bold')
 
         # sets the condition titles
         for itt, tt in enumerate(d_data.ttype):
-            self.plot_fig.ax[0].text(-0.9, 2 * itt + 0.5, tt, size=14, verticalalignment='center', rotation=90, weight='bold')
-            self.plot_fig.ax[0].text(2 * itt + 0.5, -0.65, tt, size=14, horizontalalignment='center', weight='bold')
+            tt_abb = cf.cond_abb(tt)
+            self.plot_fig.ax[0].text(-0.5 - 0.1 * c_ofs, 2 * itt + 0.5, tt_abb, size=14, verticalalignment='center',
+                                     rotation=90, weight='bold')
+            self.plot_fig.ax[0].text(2 * itt + 0.5, -0.5 - 0.0375 * c_ofs, tt_abb, size=14,
+                                     horizontalalignment='center', weight='bold')
 
         # creates the separation lines
         xL, yL = self.plot_fig.ax[0].get_xlim(), self.plot_fig.ax[0].get_ylim()
@@ -4982,17 +4992,24 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[2].axis('off')
 
         # plots the mean/chance accuracy values
-        col = cf.get_plot_col(len(x_bar))
+        col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
         self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color='k', zorder=2)
+        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color=b_col, zorder=2)
+
 
         # creates the bubble plot and the decision line
         if n_expt > 1:
-            y_acc_l = [100 * y_acc[:, i + 1] for i in range(2)]
+            # sets the plot colours and values
+            y_acc_l = [100 * y_acc[:, i] for i in range(np.size(y_acc, axis=1))]
+            b_col = ['k'] * len(y_acc_l)
+
+            # creates the final plot based on the selected type
             if connect_lines:
-                cf.create_connected_line_plot(self.plot_fig.ax[3], y_acc_l, X0=x_bar[1:], col=['k'] * 2, plot_mean=False)
+                cf.create_connected_line_plot(self.plot_fig.ax[3], y_acc_l[1:], X0=x_bar[1:],
+                                              col=b_col[1:], plot_mean=False)
             else:
-                cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar[1:], col=['k'] * 2)
+                cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar,
+                                         col=b_col, s=2 * n_cell)
 
         # sets the bar plot axis properties
         self.plot_fig.ax[3].set_xticks(x_bar)
@@ -5011,18 +5028,20 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
         self.plot_fig.ax[4].grid(plot_grid)
-        self.plot_fig.ax[4].legend([x[0] for x in h_plt], bar_lbls)
+        self.plot_fig.ax[4].legend([x[0] for x in h_plt], [x.replace('\n', ' ') for x in bar_lbls])
 
         #
         if add_accuracy_trend and (len(n_cell) > 1):
             # calculates the trend values and plots them
-            x_lim, lbl_trend = np.array(self.plot_fig.ax[4].get_xlim()), []
-            y_trend = calc_acc_trend(x_lim, n_cell, 100. * d_data.y_acc)
+            x_lim, lbl_trend, h_trend = np.array(self.plot_fig.ax[4].get_xlim()), [], []
+            y_trend, r2 = calc_acc_trend(n_cell, 100. * d_data.y_acc)
 
-            h_trend = []
-            for b_lbl, y_t, c in zip(bar_lbls, y_trend, col):
+            #
+            for b_lbl, y_t, c, _r2 in zip(bar_lbls, y_trend, col, r2):
                 yt_nw = y_t[0] * x_lim + y_t[1]
-                lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}'.format(b_lbl.replace('\n', ' '), y_t[0], y_t[1])
+                lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}\nR2 = {:5.2f}'.format(
+                    b_lbl.replace('\n', ' '), y_t[0], y_t[1], _r2
+                )
                 lbl_trend.append(lbl_t)
 
                 h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
