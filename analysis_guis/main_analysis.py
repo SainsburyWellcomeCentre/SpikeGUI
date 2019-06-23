@@ -1466,6 +1466,7 @@ class AnalysisGUI(QMainWindow):
             # if there are any calculation parameters, then determine if any of them have changed (or have been set)
             if self.det_calc_para_change(calc_para, plot_para, current_fcn):
                 # if so, then run the calculation thread
+                self.fcn_data.prev_fcn = dcopy(current_fcn)
                 self.fcn_data.prev_calc_para = dcopy(calc_para)
                 self.fcn_data.prev_plot_para = dcopy(plot_para)
                 self.set_group_enabled_props(self.grp_prog, True)
@@ -1482,6 +1483,7 @@ class AnalysisGUI(QMainWindow):
             # if there aren't any calculation parameters, then reset the previous calculation parameter object
             self.fcn_data.prev_calc_para = None
             self.fcn_data.prev_plot_para = None
+            self.fcn_data.prev_fcn = dcopy(current_fcn)
 
         # creates the new plot canvas
         self.plot_fig = PlotCanvas(self.grp_plot, width=8, height=8)
@@ -5166,6 +5168,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         d_data_i, d_data_d = self.data.discrim.indiv, self.data.discrim.dir
         n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+        n_h = 4 * d_data_i.ntrial
 
         ###################################
         ####    DATA PRE-PROCESSING    ####
@@ -5184,32 +5187,45 @@ class AnalysisGUI(QMainWindow):
             i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
             y_acc, y_acc_i = d_data_d.y_acc[i_expt, :], d_data_i.y_acc[i_expt]
 
-        # sets the cell grouping types
-        #   group #1 - both condition types having accuracies < 50%
-        #   group #2 - condition #1 > 50% and condition #2 < 50%
-        #   group #3 - condition #1 < 50% and condition #2 > 50%
-        #   group #4 - both condition types having accuracies > 50%
-        i_grp = np.empty(4, dtype=object)
-
+        #
         y_acc_l = [100 * y_acc_i[:, i] for i in range(np.size(y_acc_i, axis=1))]
-        i_grp[0] = np.logical_and(y_acc_l[1] < 50, y_acc_l[2] < 50)
-        i_grp[1] = np.logical_and(y_acc_l[1] >= 50, y_acc_l[2] < 50)
-        i_grp[2] = np.logical_and(y_acc_l[1] < 50, y_acc_l[2] >= 50)
-        i_grp[3] = np.logical_and(y_acc_l[1] >= 50, y_acc_l[2] >= 50)
+
+        # sets up the heatmap values
+        im_h = np.zeros((n_h+1, n_h+1), dtype=int)
+        i_x, i_y = (y_acc_i[:, 0] * n_h).astype(int), (y_acc_i[:, 1] * n_h).astype(int)
+        ind_h, n_hc = np.unique(np.vstack((i_x, i_y)).T, axis=0, return_counts=True)
+
+        # creates the heatmap
+        for i in range(len(n_hc)):
+            if np.sum(ind_h[i, :]) > 0:
+                im_h[ind_h[i, 0], ind_h[i, 1]] = n_hc[i]
+
+        #############################
+        ####    SUBPLOT SETUP    ####
+        #############################
+
+        # width ratio
+        w_ratio = [0.3, 0.0, 0.025]
+        w_ratio[1] = 1 - np.sum(w_ratio)
+
+        # creates the gridspec object
+        top, bottom, wspace, hspace = 0.98, 0.06, 0.2, 0.2
+        gs = gridspec.GridSpec(1, 3, width_ratios=w_ratio, figure=self.plot_fig.fig,
+                               wspace=wspace, left=0.065, right=0.96, bottom=bottom, top=top, hspace=0.14)
+
+        # creates the subplots
+        self.plot_fig.ax = np.empty(3, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, 0])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[:, 1])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, 2])
 
         #################################
         ####    SUBPLOT CREATIONS    ####
         #################################
 
         # bar graph dimensioning
-        h_plt = []
         x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9, 105
         bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data_d.ttype]
-        col_grp = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
-        grp_lbl = ['Neither >50%', '{0} >50%'.format(ttype[0]), '{0} >50%'.format(ttype[1]), 'Both >50%']
-
-        # initialises the plot axis
-        self.init_plot_axes(n_row=1, n_col=2)
 
         # plots the mean/chance accuracy values
         col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
@@ -5231,21 +5247,34 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_ylim([0, p_mx])
         self.plot_fig.ax[0].grid(plot_grid)
 
-        # creates the scatter plot of the accuracy groups
-        for ig, cg in zip(i_grp, col_grp):
-            h_plt.append(self.plot_fig.ax[1].plot(y_acc_l[1][ig], y_acc_l[2][ig], 'o', c=cg))
+        #
+        im = self.plot_fig.ax[1].imshow(im_h, aspect='auto', cmap='hot', origin='lower')
+        self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[2])
 
-        # plots the region demarkation lines
-        self.plot_fig.ax[1].plot([0, p_mx], [50., 50.], 'r--')
-        self.plot_fig.ax[1].plot([50., 50.], [0, p_mx], 'r--')
+        #
+        x_p = np.arange(0., 1.001, 0.2)
+        self.plot_fig.ax[1].set_xticks(x_p * n_h)
+        self.plot_fig.ax[1].set_yticks(x_p * n_h)
+        self.plot_fig.ax[1].set_xticklabels((100. * x_p).astype(int))
+        self.plot_fig.ax[1].set_yticklabels((100. * x_p).astype(int))
+        self.plot_fig.ax[1].set_xlabel('{0} Decoding Accuracy (%)'.format(ttype[0]))
+        self.plot_fig.ax[1].set_ylabel('{0} Decoding Accuracy (%)'.format(ttype[1]))
+        self.plot_fig.ax[1].grid(False)
 
-        # sets the bar plot axis properties
-        self.plot_fig.ax[1].set_xlabel('{0} Decoding Accuracy (%)'.format(d_data_d.ttype[0]))
-        self.plot_fig.ax[1].set_ylabel('{0} Decoding Accuracy (%)'.format(d_data_d.ttype[1]))
-        self.plot_fig.ax[1].set_xlim([0, p_mx])
-        self.plot_fig.ax[1].set_ylim([0, p_mx])
-        self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl)
-        self.plot_fig.ax[1].grid(plot_grid)
+        # # creates the scatter plot of the accuracy groups
+        # for ig, cg in zip(i_grp, col_grp):
+        #     h_plt.append(self.plot_fig.ax[1].plot(y_acc_l[1][ig], y_acc_l[2][ig], 'o', c=cg))
+        #
+        # # plots the region demarkation lines
+        # self.plot_fig.ax[1].plot([0, p_mx], [50., 50.], 'r--')
+        # self.plot_fig.ax[1].plot([50., 50.], [0, p_mx], 'r--')
+        #
+        # # sets the bar plot axis properties
+
+        # self.plot_fig.ax[1].set_xlim([0, p_mx])
+        # self.plot_fig.ax[1].set_ylim([0, p_mx])
+        # self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl, loc=2, ncol=len(grp_lbl))
+        # self.plot_fig.ax[1].grid(plot_grid)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -6622,9 +6651,16 @@ class AnalysisGUI(QMainWindow):
                          'Velocity ROC Curves (Whole Experiment)',
                          'Velocity ROC Curves (Pos/Neg Comparison)',
                          'Combined Direction ROC Curves (Whole Experiment)',
-                         'Rotation Direction LDA']
+                         'Rotation Direction LDA',
+                         'Temporal Duration/Offset LDA Analysis',
+                         'Individual LDA Analysis']
 
-        if self.thread_calc_error:
+        if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None):
+            # if there was an error or initialising, then return a true flag
+            return True
+
+        elif self.fcn_data.prev_fcn != current_fcn:
+            # if the function has changed, then return a true value
             return True
 
         elif self.fcn_data.prev_calc_para is None:
@@ -7162,6 +7198,7 @@ class AnalysisFunctions(object):
 
         self.curr_fcn = None
         self.curr_para = None
+        self.prev_fcn = None
         self.prev_calc_para = None
         self.prev_plot_para = None
         self.is_updating = False
