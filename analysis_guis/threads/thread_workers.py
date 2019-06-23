@@ -1217,7 +1217,7 @@ class WorkerThread(QThread):
             for i_pred in range(len(i_grp)):
                 # updates the progress bar
                 if w_prog is not None:
-                    w_str = 'Running LDA Predictions ({0} of {1})'.format(i_ex + 1, r_obj.n_expt)
+                    w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
                     w_prog.emit(w_str, 100. * pW * (i_ex + i_pred / len(i_grp)) )
 
                 # fits the one-out-trial lda model
@@ -1473,19 +1473,20 @@ class WorkerThread(QThread):
         n_ex = len(i_expt)
         A = np.empty(n_ex, dtype=object)
         d_data.y_acc, d_data.exp_name = dcopy(A), dcopy(A)
-        n_cell = [np.sum(i_c) for i_c in i_cell]
+        n_cell = [len(i_c) for i_c in i_cell]
 
         #
         for i_ex in range(n_ex):
             # creates a copy a copy of the accepted cell array for the analysis
             _i_cell = np.zeros(n_cell[i_ex], dtype=bool)
             d_data.y_acc[i_ex] = np.zeros((n_cell[i_ex], 1 + len(calc_para['lda_para']['comp_cond'])))
+            _n_cell = np.sum(i_cell[i_ex])
 
             # runs the LDA analysis for each of the cells
             for i, i_c in enumerate(np.where(i_cell[i_ex])[0]):
                 # updates the progressbar
-                w_str = 'Calculating Single Cell LDA (Expt {0} of {1})'.format(i_ex + 1, n_ex)
-                w_prog.emit(w_str, 100. * ((i_ex / n_ex) + i / n_cell[i_ex]))
+                w_str = 'Single Cell LDA (Cell {0}/{1}, Expt {2}/{3})'.format(i+ + 1, _n_cell, i_ex + 1, n_ex)
+                w_prog.emit(w_str, 100. * (i_ex + i / _n_cell) / n_ex)
 
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
