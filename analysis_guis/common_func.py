@@ -1257,7 +1257,7 @@ def init_lda_solver_para():
         'is_norm': True,
         'use_shrinkage': True,
         'solver_type': 'eigen',
-        'comp_cond': ['Uniform'],
+        'comp_cond': ['Black', 'Uniform'],
         'cell_types': 'All Cells'
     }
 

@@ -292,10 +292,9 @@ class WorkerThread(QThread):
                     self.is_ok = False
                     self.work_finished.emit(thread_data)
                     return
-
-                # if an update in the calculations is required, then run the rotation LDA analysis
-                if status == 2:
-                    if not self.setup_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=d_data):
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not self.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=d_data):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -319,11 +318,42 @@ class WorkerThread(QThread):
 
                 # if an update in the calculations is required, then run the temporal LDA analysis
                 if status == 2:
-                    if not self.calc_temporal_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    if not self.run_temporal_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+
+            elif self.thread_job_secondary == 'Individual LDA Analysis':
+                # if the solver parameter have not been set, then initalise them
+                if calc_para['lda_para'] is None:
+                    calc_para['lda_para'] = cf.init_lda_solver_para()
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
+
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not self.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                # runs the individual LDA
+                if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
 
         elif self.thread_job_primary == 'update_plot':
             pass
@@ -989,7 +1019,7 @@ class WorkerThread(QThread):
     ####    LDA CALCULATIONS    ####
     ################################
 
-    def setup_lda(self, data, calc_para, d_data):
+    def setup_lda(self, data, calc_para, d_data, return_reqd_arr=False):
         '''
 
         :param data:
@@ -1025,12 +1055,18 @@ class WorkerThread(QThread):
             return is_valid
 
         # initialisations
-        lda_para = calc_para['lda_para']
-        r_data = data.rotation
+        lda_para, s_flag = calc_para['lda_para'], 2
+        if len(lda_para['comp_cond']) < 2:
+            # if less than 2 trial conditions are selected then output an error to screen
+            e_str = 'At least 2 trial conditions must be selected before running this function.'
+            self.work_error.emit(e_str, 'Invalid LDA Analysis Parameters')
+
+            # returns a false flag
+            return None, None, None, None, 0
 
         # sets up the black phase data filter and returns the time spikes
         r_filt = cf.init_rotation_filter_data(False)
-        r_filt['t_type'] += lda_para['comp_cond']
+        r_filt['t_type'] = lda_para['comp_cond']
         r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
 
         # retrieves the trial counts from each of the filter types/experiments
@@ -1047,7 +1083,9 @@ class WorkerThread(QThread):
         # determines if the number of trials has changed (and if the lda calculation values have been set)
         if (n_trial_max == d_data.ntrial) and (d_data.lda is not None):
             # if there is no change and the values are set, then exit with a true flag
-            return None, None, None, None, 1
+            s_flag = 1
+            if not return_reqd_arr:
+                return None, None, None, None, s_flag
 
         # determines the valid cells from each of the loaded experiments
         i_cell = np.array([det_valid_cells(data, ic, lda_para) for ic in range(len(data.cluster))])
@@ -1065,9 +1103,9 @@ class WorkerThread(QThread):
             return None, None, None, None, 0
 
         # returns the import values for the LDA calculations
-        return r_filt, i_expt, i_cell[i_expt], n_trial_max, 2
+        return r_filt, i_expt, i_cell[i_expt], n_trial_max, s_flag
 
-    def setup_rot_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None):
+    def run_rot_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None):
         '''
 
         :param data:
@@ -1300,7 +1338,7 @@ class WorkerThread(QThread):
             # otherwise, return the calculated values
             return [lda, y_acc, exp_name]
 
-    def calc_temporal_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+    def run_temporal_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
         '''
 
         :param data:
@@ -1343,7 +1381,7 @@ class WorkerThread(QThread):
             calc_para_phs['t_phase_rot'] = dt_phs[i_phs]
 
             # runs the rotation analysis for the current configuration
-            result = self.setup_rot_lda(data, calc_para_phs, r_filt, i_expt, i_cell, n_trial_max)
+            result = self.run_rot_lda(data, calc_para_phs, r_filt, i_expt, i_cell, n_trial_max)
             if isinstance(result, bool):
                 # if there was an error, then return a false flag value
                 return False
@@ -1374,7 +1412,7 @@ class WorkerThread(QThread):
             calc_para_ofs['t_ofs_rot'] = dt_ofs[i_ofs]
 
             # runs the rotation analysis for the current configuration
-            result = self.setup_rot_lda(data, calc_para_ofs, r_filt, i_expt, i_cell, n_trial_max)
+            result = self.run_rot_lda(data, calc_para_ofs, r_filt, i_expt, i_cell, n_trial_max)
             if isinstance(result, bool):
                 # if there was an error, then return a false flag value
                 return False
@@ -1405,6 +1443,87 @@ class WorkerThread(QThread):
         # sets the other variables/parameters of interest
         d_data.xi_phs = dt_phs
         d_data.xi_ofs = dt_ofs
+
+        # returns a true value indicating the calculations were successful
+        return True
+
+    def run_individual_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+        '''
+        
+        :param data: 
+        :param calc_para: 
+        :param r_filt: 
+        :param i_expt: 
+        :param i_cell: 
+        :param n_trial_max: 
+        :return: 
+        '''
+
+        # initialisations and memory allocation
+        d_data, w_prog = data.discrim.indiv, self.work_progress
+        if d_data.lda is not None:
+            # if there is no change in the parameters, then exit the function
+            return True
+
+        ################################################
+        ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
+        ################################################
+
+        # creates a reduce data object and creates the rotation filter object
+        n_ex = len(i_expt)
+        A = np.empty(n_ex, dtype=object)
+        d_data.y_acc, d_data.exp_name = dcopy(A), dcopy(A)
+        n_cell = [np.sum(i_c) for i_c in i_cell]
+
+        #
+        for i_ex in range(n_ex):
+            # creates a copy a copy of the accepted cell array for the analysis
+            _i_cell = np.zeros(n_cell[i_ex], dtype=bool)
+            d_data.y_acc[i_ex] = np.zeros((n_cell[i_ex], 1 + len(calc_para['lda_para']['comp_cond'])))
+
+            # runs the LDA analysis for each of the cells
+            for i, i_c in enumerate(np.where(i_cell[i_ex])[0]):
+                # updates the progressbar
+                w_str = 'Calculating Single Cell LDA (Expt {0} of {1})'.format(i_ex + 1, n_ex)
+                w_prog.emit(w_str, 100. * ((i_ex / n_ex) + i / n_cell[i_ex]))
+
+                # sets the cell for analysis and runs the LDA
+                _i_cell[i_c] = True
+                results = self.run_rot_lda(data, calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
+                if isinstance(results, bool):
+                    # if there was an error, then return a false flag value
+                    return False
+                else:
+                    # otherwise, reset the cell boolear flag
+                    _i_cell[i_c] = False
+
+                # stores the results from the single cell LDA
+                d_data.y_acc[i_ex][i, :] = results[1]
+                if i == 0:
+                    # if the first iteration, then store the experiment name
+                    d_data.exp_name[i_ex] = results[2]
+
+        #######################################
+        ####    HOUSE KEEPING EXERCISES    ####
+        #######################################
+
+        # retrieves the LDA solver parameter fields
+        lda_para = calc_para['lda_para']
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+
+        # sets the solver parameters
+        d_data.lda = 1
+        d_data.ntrial = n_trial_max
+        d_data.solver = lda_para['solver_type']
+        d_data.shrinkage = lda_para['use_shrinkage']
+        d_data.norm = lda_para['is_norm']
+        d_data.cellmin = lda_para['n_cell_min']
+        d_data.trialmin = lda_para['n_trial_min']
+        d_data.ttype = r_filt['t_type']
+
+        # sets the phase offset/duration
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
 
         # returns a true value indicating the calculations were successful
         return True
@@ -2546,7 +2665,7 @@ class WorkerThread(QThread):
                 ]
 
                 #
-                if d_data.type == 'Direction':
+                if d_data.type in ['Direction', 'Individual']:
                     is_equal += [
                         d_data.tofs == t_ofs,
                         d_data.tphase == t_phase,

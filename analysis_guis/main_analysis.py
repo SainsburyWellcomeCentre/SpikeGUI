@@ -556,8 +556,7 @@ class AnalysisGUI(QMainWindow):
                     for loaded_data in worker_data:
                         self.data._cluster.append(loaded_data)
 
-                # sets up the analysis functions
-                self.data.rotation.init_rot_fields()
+                # sets up the analysis functions and resets the current parameter fields
                 self.fcn_data.init_all_func()
 
                 # sets the analysis function groupbox properties
@@ -574,7 +573,12 @@ class AnalysisGUI(QMainWindow):
                 # initialises the classification data fields
                 exp_name = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
                 clust_id = [x['clustID'] for x in self.data._cluster]
+
+                # re-initialises the data fields for all data types
+                self.data.comp.init_comparison_data()
                 self.data.classify.init_classify_fields(exp_name, clust_id)
+                self.data.rotation.init_rot_fields()
+                self.data.discrim.init_discrim_fields()
 
                 # enables the menu item
                 self.menu_data.setEnabled(True)
@@ -970,7 +974,7 @@ class AnalysisGUI(QMainWindow):
                 self.lbl_comp_free.setText(free_name)
 
                 # initialises the comparison data struct
-                self.data.comp.init_comparison_data(ind, n_fix=data_fix['nC'],
+                self.data.comp.set_comparison_data(ind, n_fix=data_fix['nC'],
                                                     n_free=data_free['nC'],
                                                     n_pts=data_fix['nPts'],
                                                     fix_name=fix_name,
@@ -4921,7 +4925,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the chance values
         y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
-        n_cell = np.array([x['n_cell'] for x in d_data.lda])
+        n_cell, is_multi = np.array([x['n_cell'] for x in d_data.lda]), len(d_data.lda)  > 1
 
         #################################
         ####    SUBPLOT CREATIONS    ####
@@ -4945,12 +4949,16 @@ class AnalysisGUI(QMainWindow):
                                wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.14)
 
         # creates the subplots
-        self.plot_fig.ax = np.empty(5, dtype=object)
+        self.plot_fig.ax = np.empty(4 + is_multi, dtype=object)
         self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, 0])
         self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[:, 1])
         self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, 2])
-        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
-        self.plot_fig.ax[4] = self.plot_fig.figure.add_subplot(gs[1, 3])
+
+        if is_multi:
+            self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
+            self.plot_fig.ax[4] = self.plot_fig.figure.add_subplot(gs[1, 3])
+        else:
+            self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[:, 3])
 
         # displays the heatmap
         c_ofs = 2 * n_cond
@@ -5019,36 +5027,39 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[3].grid(plot_grid)
 
         #
-        h_plt = []
-        for i_col in range(len(col)):
-            h_plt.append(self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col]))
-
-        # plots the
-        self.plot_fig.ax[4].set_xlabel('Cell Count')
-        self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
-        self.plot_fig.ax[4].grid(plot_grid)
-        self.plot_fig.ax[4].legend([x[0] for x in h_plt], [x.replace('\n', ' ') for x in bar_lbls])
-
-        #
-        if add_accuracy_trend and (len(n_cell) > 1):
-            # calculates the trend values and plots them
-            x_lim, lbl_trend, h_trend = np.array(self.plot_fig.ax[4].get_xlim()), [], []
-            y_trend, r2 = calc_acc_trend(n_cell, 100. * d_data.y_acc)
+        if is_multi:
 
             #
-            for b_lbl, y_t, c, _r2 in zip(bar_lbls, y_trend, col, r2):
-                yt_nw = y_t[0] * x_lim + y_t[1]
-                lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}\nR2 = {:5.2f}'.format(
-                    b_lbl.replace('\n', ' '), y_t[0], y_t[1], _r2
-                )
-                lbl_trend.append(lbl_t)
+            h_plt = []
+            for i_col in range(len(col)):
+                h_plt.append(self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col]))
 
-                h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
-                h_trend.append(h_trend_nw)
+            # plots the
+            self.plot_fig.ax[4].set_xlabel('Cell Count')
+            self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
+            self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
+            self.plot_fig.ax[4].grid(plot_grid)
+            self.plot_fig.ax[4].legend([x[0] for x in h_plt], [x.replace('\n', ' ') for x in bar_lbls])
 
-            # creates the datacursor
-            datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
+            #
+            if add_accuracy_trend and (len(n_cell) > 1):
+                # calculates the trend values and plots them
+                x_lim, lbl_trend, h_trend = np.array(self.plot_fig.ax[4].get_xlim()), [], []
+                y_trend, r2 = calc_acc_trend(n_cell, 100. * d_data.y_acc)
+
+                #
+                for b_lbl, y_t, c, _r2 in zip(bar_lbls, y_trend, col, r2):
+                    yt_nw = y_t[0] * x_lim + y_t[1]
+                    lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}\nR2 = {:5.2f}'.format(
+                        b_lbl.replace('\n', ' '), y_t[0], y_t[1], _r2
+                    )
+                    lbl_trend.append(lbl_t)
+
+                    h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
+                    h_trend.append(h_trend_nw)
+
+                # creates the datacursor
+                datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
     def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_grid):
         '''
@@ -5124,7 +5135,7 @@ class AnalysisGUI(QMainWindow):
         self.init_plot_axes(n_row=1, n_col=2)
 
         # creates the multiple boxplot
-        t_phase0 = 3.6
+        t_phase0 = 3.5346
         create_multi_boxplot(self.plot_fig.ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], t_phase0, c)
         create_multi_boxplot(self.plot_fig.ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], t_phase0, c)
 
@@ -5141,6 +5152,99 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[1].set_xlabel('Phase Offset (s)')
         self.plot_fig.ax[1].set_ylim([-1., 101.])
+        self.plot_fig.ax[1].grid(plot_grid)
+
+    def plot_individual_lda(self, plot_exp_name, plot_all_expt, connect_lines, plot_grid):
+        '''
+
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        d_data_i, d_data_d = self.data.discrim.indiv, self.data.discrim.dir
+        n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # retrieves the plot values
+        if plot_all_expt:
+            # case is using all the experiments
+
+            # calculates the mean confusion matrix values
+            y_acc = d_data_d.y_acc
+            y_acc_i = np.vstack(d_data_i.y_acc)
+
+        else:
+            # case is using a specific experiment
+            i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
+            y_acc, y_acc_i = d_data_d.y_acc[i_expt, :], d_data_i.y_acc[i_expt]
+
+        # sets the cell grouping types
+        #   group #1 - both condition types having accuracies < 50%
+        #   group #2 - condition #1 > 50% and condition #2 < 50%
+        #   group #3 - condition #1 < 50% and condition #2 > 50%
+        #   group #4 - both condition types having accuracies > 50%
+        i_grp = np.empty(4, dtype=object)
+
+        y_acc_l = [100 * y_acc_i[:, i] for i in range(np.size(y_acc_i, axis=1))]
+        i_grp[0] = np.logical_and(y_acc_l[1] < 50, y_acc_l[2] < 50)
+        i_grp[1] = np.logical_and(y_acc_l[1] >= 50, y_acc_l[2] < 50)
+        i_grp[2] = np.logical_and(y_acc_l[1] < 50, y_acc_l[2] >= 50)
+        i_grp[3] = np.logical_and(y_acc_l[1] >= 50, y_acc_l[2] >= 50)
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # bar graph dimensioning
+        h_plt = []
+        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9, 105
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data_d.ttype]
+        col_grp = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
+        grp_lbl = ['Neither >50%', '{0} >50%'.format(ttype[0]), '{0} >50%'.format(ttype[1]), 'Both >50%']
+
+        # initialises the plot axis
+        self.init_plot_axes(n_row=1, n_col=2)
+
+        # plots the mean/chance accuracy values
+        col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
+        self.plot_fig.ax[0].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
+
+        # sets the plot values and creates the final plot based on the selected type
+        # creates the final plot based on the selected type
+        b_col = ['k'] * len(y_acc_l)
+        if connect_lines:
+            cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
+                                          col=b_col[1:], plot_mean=False)
+        else:
+            cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
+
+        # sets the bar plot axis properties
+        self.plot_fig.ax[0].set_xticks(x_bar)
+        self.plot_fig.ax[0].set_xticklabels(bar_lbls)
+        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[0].set_ylim([0, p_mx])
+        self.plot_fig.ax[0].grid(plot_grid)
+
+        # creates the scatter plot of the accuracy groups
+        for ig, cg in zip(i_grp, col_grp):
+            h_plt.append(self.plot_fig.ax[1].plot(y_acc_l[1][ig], y_acc_l[2][ig], 'o', c=cg))
+
+        # plots the region demarkation lines
+        self.plot_fig.ax[1].plot([0, p_mx], [50., 50.], 'r--')
+        self.plot_fig.ax[1].plot([50., 50.], [0, p_mx], 'r--')
+
+        # sets the bar plot axis properties
+        self.plot_fig.ax[1].set_xlabel('{0} Decoding Accuracy (%)'.format(d_data_d.ttype[0]))
+        self.plot_fig.ax[1].set_ylabel('{0} Decoding Accuracy (%)'.format(d_data_d.ttype[1]))
+        self.plot_fig.ax[1].set_xlim([0, p_mx])
+        self.plot_fig.ax[1].set_ylim([0, p_mx])
+        self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl)
         self.plot_fig.ax[1].grid(plot_grid)
 
     ####################################################
@@ -7044,16 +7148,23 @@ class AnalysisFunctions(object):
         self.is_multi = False
         self.type = None
         self.details = {}
-        self.curr_fcn = None
-        self.curr_para = None
-        self.prev_calc_para = None
-        self.prev_plot_para = None
-        self.is_updating = False
         self.exp_name = None
         self.pool = None
 
         # initialises the calculation/plotting parameter groupboxes
         self.init_para_groupbox(h_para_grp)
+
+    def reset_curr_para_fields(self):
+        '''
+
+        :return:
+        '''
+
+        self.curr_fcn = None
+        self.curr_para = None
+        self.prev_calc_para = None
+        self.prev_plot_para = None
+        self.is_updating = False
 
     def set_pool_worker(self, pool):
         '''
@@ -7070,6 +7181,9 @@ class AnalysisFunctions(object):
         # overall declarations
         data = self.get_data_fcn()
         has_multi_expt = len(data._cluster) > 1
+
+        # re-initialises the current parameter fields
+        self.reset_curr_para_fields()
 
         #########################################
         ####    CLUSTER MATCHING FUNCTIONS   ####
@@ -7266,7 +7380,6 @@ class AnalysisFunctions(object):
         comp_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in data._cluster]))
         comp_type = list(comp_type[comp_type != 'Black'])
         ind_comp = [x == 'Uniform' for x in comp_type]
-        lda_type = ['eigen', 'lsqr', 'svd']
 
         #
         rot_filt_all = cf.init_rotation_filter_data(False)
@@ -8173,7 +8286,9 @@ class AnalysisFunctions(object):
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
             'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
-            'add_accuracy_trend': {'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': True},
+            'add_accuracy_trend': {
+                'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': has_multi_expt, 'is_enabled': has_multi_expt,
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -8181,7 +8296,7 @@ class AnalysisFunctions(object):
                       func='plot_rotation_dir_lda',
                       para=para)
 
-        # ====> Rotation Direction LDA
+        # ====> Temporal Duration/Offset LDA Analysis
         para = {
             # calculation parameters
             'lda_para': {
@@ -8212,6 +8327,41 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Temporal Duration/Offset LDA Analysis',
                       func='plot_temporal_lda',
+                      para=para)
+
+        # ====> Rotation Direction LDA
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            # 'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'is_enabled': has_multi_expt
+            },
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
+                'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
+            },
+            'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Individual LDA Analysis',
+                      func='plot_individual_lda',
                       para=para)
 
         ##########################################
@@ -9112,10 +9262,20 @@ class AnalysisData(object):
 
 class ComparisonData(object):
     def __init__(self):
+
+        # initialises the comparison data
+        self.init_comparison_data()
+
+    def init_comparison_data(self):
+        '''
+
+        :return:
+        '''
+
         # initialisation
         self.is_set = False
 
-    def init_comparison_data(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
+    def set_comparison_data(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
         '''
 
         :param ind:
@@ -9156,8 +9316,6 @@ class ComparisonData(object):
         self.sig_intersect = -np.ones(n_fix, dtype=float)
         self.isi_corr = -np.ones(n_fix, dtype=float)
         self.isi_intersect = -np.ones(n_fix, dtype=float)
-        # self.isi_wasserstein = -np.ones(n_fix, dtype=float)
-        # self.isi_bhattacharyya = -np.ones(n_fix, dtype=float)
         self.signal_feat = -np.ones((n_fix, 4), dtype=float)
         self.total_metrics = -np.ones((n_fix,3), dtype=float)
         self.total_metrics_mean = -np.ones(n_fix, dtype=float)
@@ -9170,7 +9328,8 @@ class ClassifyData(object):
     def init_classify_fields(self, expt_name, clust_id):
         '''
 
-        :param n_expt:
+        :param expt_name:
+        :param clust_id:
         :return:
         '''
 
@@ -9409,9 +9568,9 @@ class DiscriminationData(object):
         :return:
         '''
 
-
         self.dir = SubDiscriminationData('Direction')
         self.temp = SubDiscriminationData('Temporal')
+        self.indiv = SubDiscriminationData('Individual')
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -9430,7 +9589,7 @@ class SubDiscriminationData(object):
         self.cellmin = -1
         self.trialmin = -1
 
-        if type == 'Direction':
+        if type in ['Direction', 'Individual']:
             # case is the direction LDA analysis
             self.tofs = -1
             self.tphase = -1
