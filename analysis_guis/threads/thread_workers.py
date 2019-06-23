@@ -1479,8 +1479,8 @@ class WorkerThread(QThread):
         for i_ex in range(n_ex):
             # creates a copy a copy of the accepted cell array for the analysis
             _i_cell = np.zeros(n_cell[i_ex], dtype=bool)
-            d_data.y_acc[i_ex] = np.zeros((n_cell[i_ex], 1 + len(calc_para['lda_para']['comp_cond'])))
             _n_cell = np.sum(i_cell[i_ex])
+            d_data.y_acc[i_ex] = np.zeros((_n_cell, 1 + len(calc_para['lda_para']['comp_cond'])))
 
             # runs the LDA analysis for each of the cells
             for i, i_c in enumerate(np.where(i_cell[i_ex])[0]):
