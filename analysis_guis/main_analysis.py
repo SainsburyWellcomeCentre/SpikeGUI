@@ -5259,7 +5259,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, '--', c=col[2], linewidth=2)
 
         # sets the axis properties
-        x_p = np.arange(0., 1.001, 0.2)
+        x_p = np.arange(0., 1.001, 0.1)
         self.plot_fig.ax[1].set_xticks(x_p * n_h)
         self.plot_fig.ax[1].set_yticks(x_p * n_h)
         self.plot_fig.ax[1].set_xticklabels((100. * x_p).astype(int))
