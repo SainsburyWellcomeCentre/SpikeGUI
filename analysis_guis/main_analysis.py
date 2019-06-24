@@ -5185,20 +5185,19 @@ class AnalysisGUI(QMainWindow):
         else:
             # case is using a specific experiment
             i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
-            y_acc, y_acc_i = d_data_d.y_acc[i_expt, :], d_data_i.y_acc[i_expt]
+            y_acc, y_acc_i = d_data_d.y_acc[i_expt, :].reshape(1, -1), d_data_i.y_acc[i_expt]
 
         #
         y_acc_l = [100 * y_acc_i[:, i] for i in range(np.size(y_acc_i, axis=1))]
 
         # sets up the heatmap values
         im_h = np.zeros((n_h+1, n_h+1), dtype=int)
-        i_x, i_y = (y_acc_i[:, 0] * n_h).astype(int), (y_acc_i[:, 1] * n_h).astype(int)
+        i_x, i_y = (y_acc_i[:, 1] * n_h).astype(int), (y_acc_i[:, 2] * n_h).astype(int)
         ind_h, n_hc = np.unique(np.vstack((i_x, i_y)).T, axis=0, return_counts=True)
 
         # creates the heatmap
         for i in range(len(n_hc)):
-            if np.sum(ind_h[i, :]) > 0:
-                im_h[ind_h[i, 0], ind_h[i, 1]] = n_hc[i]
+            im_h[ind_h[i, 1], ind_h[i, 0]] = n_hc[i]
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -5211,7 +5210,7 @@ class AnalysisGUI(QMainWindow):
         # creates the gridspec object
         top, bottom, wspace, hspace = 0.98, 0.06, 0.2, 0.2
         gs = gridspec.GridSpec(1, 3, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.065, right=0.96, bottom=bottom, top=top, hspace=0.14)
+                               wspace=wspace, left=0.065, right=0.96, bottom=bottom, top=top, hspace=0.15)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(3, dtype=object)
@@ -5224,12 +5223,13 @@ class AnalysisGUI(QMainWindow):
         #################################
 
         # bar graph dimensioning
-        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9, 105
-        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data_d.ttype]
+        y_acc_mn = np.mean(y_acc, axis=0)
+        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9, 105.
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
 
         # plots the mean/chance accuracy values
         col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
-        self.plot_fig.ax[0].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
+        self.plot_fig.ax[0].bar(x_bar, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
 
         # sets the plot values and creates the final plot based on the selected type
         # creates the final plot based on the selected type
@@ -5247,11 +5247,18 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_ylim([0, p_mx])
         self.plot_fig.ax[0].grid(plot_grid)
 
-        #
+        # creates the heatmap subplot
         im = self.plot_fig.ax[1].imshow(im_h, aspect='auto', cmap='hot', origin='lower')
         self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[2])
 
-        #
+        # plots the region demarkation lines
+        ax_lim, a = [-0.5, n_h + 0.5], np.ones(2)
+        self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'r--')
+        self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, '--', c=col[1], linewidth=2)
+        self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'r--')
+        self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, '--', c=col[2], linewidth=2)
+
+        # sets the axis properties
         x_p = np.arange(0., 1.001, 0.2)
         self.plot_fig.ax[1].set_xticks(x_p * n_h)
         self.plot_fig.ax[1].set_yticks(x_p * n_h)
@@ -5265,9 +5272,6 @@ class AnalysisGUI(QMainWindow):
         # for ig, cg in zip(i_grp, col_grp):
         #     h_plt.append(self.plot_fig.ax[1].plot(y_acc_l[1][ig], y_acc_l[2][ig], 'o', c=cg))
         #
-        # # plots the region demarkation lines
-        # self.plot_fig.ax[1].plot([0, p_mx], [50., 50.], 'r--')
-        # self.plot_fig.ax[1].plot([50., 50.], [0, p_mx], 'r--')
         #
         # # sets the bar plot axis properties
 
