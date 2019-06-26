@@ -294,7 +294,8 @@ class WorkerThread(QThread):
                     return
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not self.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=d_data):
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=d_data, w_prog=self.work_progress):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -342,14 +343,79 @@ class WorkerThread(QThread):
                     return
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not self.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir):
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
 
                 # runs the individual LDA
                 if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+            elif self.thread_job_secondary == 'Shuffled LDA Analysis':
+                # if the solver parameter have not been set, then initalise them
+                if calc_para['lda_para'] is None:
+                    calc_para['lda_para'] = cf.init_lda_solver_para()
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
+
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                # runs the shuffled LDA
+                if not self.run_shuffled_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+            elif self.thread_job_secondary == 'Partial LDA Analysis':
+                # if the solver parameter have not been set, then initalise them
+                if calc_para['lda_para'] is None:
+                    calc_para['lda_para'] = cf.init_lda_solver_para()
+
+                # resets the minimum cell count
+                calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.part)
+
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                # runs the partial LDA
+                if not self.run_partial_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
                     self.work_finished.emit(thread_data)
@@ -1105,239 +1171,6 @@ class WorkerThread(QThread):
         # returns the import values for the LDA calculations
         return r_filt, i_expt, i_cell[i_expt], n_trial_max, s_flag
 
-    def run_rot_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None):
-        '''
-
-        :param data:
-        :param pool:
-        :param calc_para:
-        :param plot_para:
-        :param pW:
-        :return:
-        '''
-
-        def reduce_cluster_data(data, i_expt):
-            '''
-
-            :param data:
-            :param i_expt:
-            :param cell_ok:
-            :return:
-            '''
-
-            # creates a copy of the data and removes any
-            data_tmp = dcopy(data)
-
-            # reduces down the number of
-            if len(i_expt) != len(data_tmp.cluster):
-                data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
-                data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
-
-            # returns the reduced data class object
-            return data_tmp
-
-        def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex):
-            '''
-
-            :param r_obj:
-            :param cell_ok:
-            :param n_trial_max:
-            :param i_ex:
-            :return:
-            '''
-
-            # memory allocation and initialisations
-            n_sp, i_grp = [], []
-            n_t, n_grp, N = len(ind_t), 2 * r_obj.n_filt, 2 * r_obj.n_filt * len(ind_t)
-
-            # retrieves the cell indices (over each condition) for the current experiment
-            ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
-            n_cell, pW = len(ind_c[0]), 1 / r_obj.n_expt
-
-            ####################################
-            ####    LDA DATA ARRAY SETUP    ####
-            ####################################
-
-            # sets up the LDA data/group index arrays across each condition
-            for i_filt in range(r_obj.n_filt):
-                # retrieves the time spikes for the current filter/experiment, and then combines into a single
-                # concatenated array. calculates the final spike counts over each cell/trial and appends to the
-                # overall spike count array
-                A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
-                if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
-                    # case is motorodrifting (swap phases)
-                    t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
-                else:
-                    # case is other experiment conditions
-                    t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
-                n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
-
-                # sets the grouping indices
-                ind_g = [2 * i_filt, 2 * i_filt + 1]
-                i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
-
-            # combines the spike counts/group indices into the final combined arrays
-            n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
-
-            # normalises the spike count array (if required)
-            if lda_para['is_norm']:
-                n_sp_mn, n_sp_sd = np.mean(n_sp, axis=0), np.std(n_sp, axis=0)
-                n_sp = np.divide(n_sp - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
-
-                # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
-                n_sp[:, n_sp_sd == 0] = 0
-
-            ###########################################
-            ####    LDA PREDICTION CALCULATIONS    ####
-            ###########################################
-
-            # memory allocation
-            lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-            lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-            p_mat = np.zeros((N, n_grp), dtype=float)
-
-            # sets the LDA solver type
-            if lda_para['solver_type'] == 'svd':
-                # case the SVD solver
-                lda = LDA()
-            elif lda_para['solver_type'] == 'lsqr':
-                # case is the LSQR solver
-                if lda_para['use_shrinkage']:
-                    lda = LDA(solver='lsqr', shrinkage='auto')
-                else:
-                    lda = LDA(solver='lsqr')
-            else:
-                # case is the Eigen solver
-                if lda_para['use_shrinkage']:
-                    lda = LDA(solver='eigen', shrinkage='auto')
-                else:
-                    lda = LDA(solver='eigen')
-
-            # fits the LDA model and calculates the prediction for each
-            for i_pred in range(len(i_grp)):
-                # updates the progress bar
-                if w_prog is not None:
-                    w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
-                    w_prog.emit(w_str, 100. * pW * (i_ex + i_pred / len(i_grp)) )
-
-                # fits the one-out-trial lda model
-                ii = np.array(range(len(i_grp))) != i_pred
-                try:
-                    lda.fit(n_sp[ii, :], i_grp[ii])
-                except:
-                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
-                            'Either choose a different solver or alter the solver parameters before retrying'
-                    self.work_error.emit(e_str, 'LDA Analysis Error')
-                    return None, False
-
-                # calculates the model prediction from the remaining trial and increments the confusion matrix
-                lda_pred[i_pred] = lda.predict(n_sp[i_pred, :].reshape(1, -1))
-                p_mat[i_pred, :] = lda.predict_proba(n_sp[i_pred, :].reshape(1, -1))
-                c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
-
-                # fits the one-out-trial shuffled lda model
-                ind_chance = np.random.permutation(len(i_grp) - 1)
-                lda.fit(n_sp[ii, :], i_grp[ii][ind_chance])
-
-                # calculates the chance model prediction from the remaining trial and increments the confusion matrix
-                lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp[i_pred, :], (1, n_cell)))
-                c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
-
-            # calculates the LDA transform values (uses svd solver to accomplish this)
-            if lda_para['solver_type'] != 'lsqr':
-                # memory allocation
-                lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp, i_grp)
-
-                # calculates the variance explained
-                if len(lda_X0.explained_variance_ratio_) == 2:
-                    lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
-                else:
-                    lda_var_sum = lda_X0.explained_variance_ratio_.sum()
-                    lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
-
-                # separates the transform values into the individual groups
-                lda_X0T = lda_X0.transform(n_sp)
-                for ig in range(n_grp):
-                    lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
-            else:
-                # transform values are not possible with this solver type
-                lda_X, lda_var_exp = None, None
-
-            # returns the final values in a dictionary object
-            return {
-                'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
-                'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
-                'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
-            }, True
-
-        # initialisations
-        lda_para = calc_para['lda_para']
-        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
-
-        # creates a reduce data object and creates the rotation filter object
-        data_tmp = reduce_cluster_data(data, i_expt)
-        r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
-                                     t_ofs=t_ofs, t_phase=t_phase)
-
-        # memory allocation
-        lda, exp_name = np.empty(r_obj.n_expt, dtype=object), np.empty(r_obj.n_expt, dtype=object)
-
-        # sets the trial index array
-        ind_t, n_ex = np.array(range(n_trial_max)), r_obj.n_expt
-        w_prog = self.work_progress if (d_data is not None) else None
-
-        # memory allocation for accuracy binary mask calculations
-        n_c = len(r_filt['t_type'])
-        BG, BD = np.zeros((2 * n_c, 2 * n_c), dtype=bool), np.zeros((2, 2 * n_c), dtype=bool)
-        y_acc = np.zeros((n_ex, 1 + n_c), dtype=float)
-
-        # sets up the binary masks for the group/direction types
-        for i_c in range(n_c):
-            BG[(2 * i_c):(2 * (i_c + 1)), (2 * i_c):(2 * (i_c + 1))] = True
-            BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
-
-        # sets the experiment file names
-        f_name0 = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data_tmp.cluster]
-
-        # loops through each of the experiments performing the lda calculations
-        for i_ex in range(n_ex):
-            exp_name[i_ex] = f_name0[i_ex]
-            lda[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, i_cell[i_ex], ind_t, i_ex)
-            if not ok:
-                # if there was an error, then exit with a false flag
-                return False
-
-            # calculates the grouping accuracy values
-            c_mat = lda[i_ex]['c_mat'] / n_trial_max
-            y_acc[i_ex, 0] += np.sum(np.multiply(BG, c_mat)) / (2 * n_c)
-
-            # calculates the direction accuracy values (over each condition)
-            for i_c in range(n_c):
-                y_acc[i_ex, 1 + i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
-
-        if d_data is not None:
-            # sets the lda values
-            d_data.lda = lda
-            d_data.y_acc = y_acc
-            d_data.exp_name = exp_name
-
-            # sets the solver parameters
-            d_data.ntrial = n_trial_max
-            d_data.solver = lda_para['solver_type']
-            d_data.shrinkage = lda_para['use_shrinkage']
-            d_data.norm = lda_para['is_norm']
-            d_data.cellmin = lda_para['n_cell_min']
-            d_data.trialmin = lda_para['n_trial_min']
-            d_data.ttype = r_filt['t_type']
-            d_data.tofs = t_ofs
-            d_data.tphase = t_phase
-
-            # returns a true value
-            return True
-        else:
-            # otherwise, return the calculated values
-            return [lda, y_acc, exp_name]
-
     def run_temporal_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
         '''
 
@@ -1374,14 +1207,14 @@ class WorkerThread(QThread):
         n_phs = len(dt_phs)
         for i_phs in range(n_phs):
             # updates the progress bar
-            w_str = 'Duration LDA Calculations ({0} of {1})'.format(i_phs + 1, n_phs)
+            w_str = 'Duration LDA Calculations (Group {0} of {1})'.format(i_phs + 1, n_phs)
             w_prog.emit(w_str, 50. * ((i_phs + 1)/ n_phs))
 
             # updates the phase duration parameter
             calc_para_phs['t_phase_rot'] = dt_phs[i_phs]
 
             # runs the rotation analysis for the current configuration
-            result = self.run_rot_lda(data, calc_para_phs, r_filt, i_expt, i_cell, n_trial_max)
+            result = cfcn.run_rot_lda(data, calc_para_phs, r_filt, i_expt, i_cell, n_trial_max)
             if isinstance(result, bool):
                 # if there was an error, then return a false flag value
                 return False
@@ -1405,14 +1238,14 @@ class WorkerThread(QThread):
         n_ofs = len(dt_ofs)
         for i_ofs in range(n_ofs):
             # updates the progress bar
-            w_str = 'Offset LDA Calculations ({0} of {1})'.format(i_ofs + 1, n_ofs)
+            w_str = 'Offset LDA Calculations (Group {0} of {1})'.format(i_ofs + 1, n_ofs)
             w_prog.emit(w_str, 50. * (1 + ((i_ofs + 1) / n_ofs)))
 
             # updates the phase duration parameter
             calc_para_ofs['t_ofs_rot'] = dt_ofs[i_ofs]
 
             # runs the rotation analysis for the current configuration
-            result = self.run_rot_lda(data, calc_para_ofs, r_filt, i_expt, i_cell, n_trial_max)
+            result = cfcn.run_rot_lda(data, calc_para_ofs, r_filt, i_expt, i_cell, n_trial_max)
             if isinstance(result, bool):
                 # if there was an error, then return a false flag value
                 return False
@@ -1443,6 +1276,89 @@ class WorkerThread(QThread):
         # sets the other variables/parameters of interest
         d_data.xi_phs = dt_phs
         d_data.xi_ofs = dt_ofs
+
+        # returns a true value indicating the calculations were successful
+        return True
+
+    def run_shuffled_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial_max:
+        :return:
+        '''
+
+        # initialisations and memory allocation
+        d_data, w_prog = data.discrim.shuffle, self.work_progress
+        if d_data.lda is not None:
+            # if there is no change in the parameters, then exit the function
+            return True
+
+        # retrieves the phase duration/offset values
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+        if t_ofs is None:
+            t_ofs, t_phase = 0, 3.5346
+
+        # calculates the stop time of the trial
+        t_stop = t_ofs + t_phase
+
+        ###############################################
+        ####    SHUFFLED TRIAL LDA CALCULATIONS    ####
+        ###############################################
+
+        # creates a reduce data object and creates the rotation filter object
+        n_ex, n_sh, n_cond = len(i_expt), calc_para['n_shuffle'], len(r_filt['t_type'])
+        d_data.y_acc = np.empty((n_ex, n_cond + 1, n_sh), dtype=object)
+        d_data.t_sp = np.empty((n_ex, n_sh), dtype=object)
+
+        # runs the LDA for each of the shuffles
+        for i_sh in range(n_sh):
+            # updates the progressbar
+            w_str = 'Shuffled Trial LDA (Shuffle #{0} of {1})'.format(i_sh + 1, n_sh)
+            w_prog.emit(w_str, 100. * (i_sh / n_sh))
+
+            # runs the rotation analysis for the current configuration
+            result = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, is_shuffle=True)
+            if isinstance(result, bool):
+                # if there was an error, then return a false flag value
+                return False
+            else:
+                # otherwise, store the lda/accuracy values
+                d_data.y_acc[:, :, i_sh], d_data.t_sp[:, i_sh] = result[1], result[3]
+                if i_sh == 0:
+                    # sets the experiment names (for the first shuffle only)
+                    d_data.exp_name == result[2]
+
+                # # calculates the spike train correlation coefficients
+                # d_data.corr[i_sh] = cfcn.calc_tspike_corrcoef(d_data.t_sp[i_sh], calc_para['b_sz'],
+                #                                               n_cond, t_ofs, t_stop)
+
+        #######################################
+        ####    HOUSE KEEPING EXERCISES    ####
+        #######################################
+
+        # retrieves the LDA solver parameter fields
+        lda_para = calc_para['lda_para']
+
+        # sets the solver parameters
+        d_data.lda = 1
+        d_data.ntrial = n_trial_max
+        d_data.solver = lda_para['solver_type']
+        d_data.shrinkage = lda_para['use_shrinkage']
+        d_data.norm = lda_para['is_norm']
+        d_data.cellmin = lda_para['n_cell_min']
+        d_data.trialmin = lda_para['n_trial_min']
+        d_data.ttype = r_filt['t_type']
+
+        # sets the phase offset/duration and shuffle count
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
+        d_data.nshuffle = n_sh
+        # d_data.bsz = calc_para['b_sz']
 
         # returns a true value indicating the calculations were successful
         return True
@@ -1485,12 +1401,12 @@ class WorkerThread(QThread):
             # runs the LDA analysis for each of the cells
             for i, i_c in enumerate(np.where(i_cell[i_ex])[0]):
                 # updates the progressbar
-                w_str = 'Single Cell LDA (Cell {0}/{1}, Expt {2}/{3})'.format(i+ + 1, _n_cell, i_ex + 1, n_ex)
+                w_str = 'Single Cell LDA (Cell {0}/{1}, Expt {2}/{3})'.format(i + 1, _n_cell, i_ex + 1, n_ex)
                 w_prog.emit(w_str, 100. * (i_ex + i / _n_cell) / n_ex)
 
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
-                results = self.run_rot_lda(data, calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
+                results = cfcn.run_rot_lda(data, calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False
@@ -1525,6 +1441,90 @@ class WorkerThread(QThread):
         # sets the phase offset/duration
         d_data.tofs = t_ofs
         d_data.tphase = t_phase
+
+        # returns a true value indicating the calculations were successful
+        return True
+
+    def run_partial_lda(self, pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial_max:
+        :return:
+        '''
+
+        # initialisations
+        d_data = data.discrim.part
+        if d_data.lda is not None:
+            # if there is no change in the parameters, then exit the function
+            return True
+
+        ################################################
+        ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
+        ################################################
+
+        # initialisations
+        xi = [1, 2, 5, 10, 15, 20, 30, 40, 50]
+        y_acc_d, w_prog = data.discrim.dir.y_acc, self.work_progress
+        n_expt, n_cond, n_xi, n_sh = min([3, len(i_expt)]), len(r_filt['t_type']), len(xi), calc_para['n_shuffle']
+
+        # retrieves the top n_expt experiments based on the base decoding accuracy
+        ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
+        i_expt, i_cell = i_expt[ii], i_cell[ii]
+
+        # memory allocation
+        d_data.y_acc = np.zeros((n_expt, n_cond + 1, n_xi, n_sh))
+
+        # loops through each of the cell counts calculating the partial LDA
+        for i_sh in range(n_sh):
+            # updates the progressbar
+            w_str = 'Partial LDA Calculations (Shuffle {0} of {1})'.format(i_sh + 1, n_sh)
+            w_prog.emit(w_str, 100. * (i_sh / n_sh))
+
+            # initialisations and memory allocation
+            p_data = [[] for _ in range(n_xi)]
+            for i_xi in range(n_xi):
+                p_data[i_xi].append(data)
+                p_data[i_xi].append(calc_para)
+                p_data[i_xi].append(r_filt)
+                p_data[i_xi].append(i_expt)
+                p_data[i_xi].append(i_cell)
+                p_data[i_xi].append(n_trial_max)
+                p_data[i_xi].append(xi[i_xi])
+
+            # runs the pool object to run the partial LDA
+            p_results = pool.map(cfcn.run_part_lda_pool, p_data)
+            for i_xi in range(n_xi):
+                j_xi = xi.index(p_results[i_xi][0])
+                d_data.y_acc[:, :, j_xi, i_sh] = p_results[i_xi][1]
+
+        #######################################
+        ####    HOUSE KEEPING EXERCISES    ####
+        #######################################
+
+        # retrieves the LDA solver parameter fields
+        lda_para = calc_para['lda_para']
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+
+        # sets the solver parameters
+        d_data.lda = 1
+        d_data.ntrial = n_trial_max
+        d_data.solver = lda_para['solver_type']
+        d_data.shrinkage = lda_para['use_shrinkage']
+        d_data.norm = lda_para['is_norm']
+        d_data.trialmin = lda_para['n_trial_min']
+        d_data.ttype = r_filt['t_type']
+
+        # sets the phase offset/duration and shuffle count
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
+        d_data.nshuffle = n_sh
+        d_data.cellminpart = calc_para['n_cell_min']
+        d_data.xi = xi
 
         # returns a true value indicating the calculations were successful
         return True
@@ -2666,11 +2666,23 @@ class WorkerThread(QThread):
                 ]
 
                 #
-                if d_data.type in ['Direction', 'Individual']:
+                if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
                     is_equal += [
                         d_data.tofs == t_ofs,
                         d_data.tphase == t_phase,
-                     ]
+                    ]
+
+                    if d_data.type == 'TrialShuffle':
+                        is_equal += [
+                            d_data.nshuffle == calc_para['n_shuffle'],
+                            # d_data.bsz == calc_para['b_sz']
+                        ]
+                    elif d_data.type == 'Partial':
+                        is_equal += [
+                            d_data.nshuffle == calc_para['n_shuffle'],
+                            d_data.cellminpart  == calc_para['n_cell_min']
+                        ]
+
                 elif d_data.type == 'Temporal':
                     is_equal += [
                         d_data.dt_phs == calc_para['dt_phase'],

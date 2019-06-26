@@ -1,11 +1,16 @@
 # module import
+import os
+import neo
+import time
 import pywt
 import copy
 import random
 import peakutils
 import math as m
 import numpy as np
+import quantities as pq
 from fastdtw import fastdtw
+from numpy.matlib import repmat
 import shapely.geometry as geom
 
 # scipy module imports
@@ -14,11 +19,19 @@ from scipy.stats import poisson as p
 from scipy.spatial.distance import *
 from scipy.optimize import minimize
 from scipy.interpolate import interp1d
-
 import matplotlib.pyplot as plt
+
+# sklearn module imports
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.metrics import mutual_info_score
+
+# elephant module imports
+from elephant.conversion import BinnedSpikeTrain
+from elephant.spike_train_correlation import corrcoef
 
 # custom module imports
 import analysis_guis.common_func as cf
+from analysis_guis.dialogs.rotation_filter import RotationFilteredData
 
 try:
     import analysis_guis.test_plots as tp
@@ -84,7 +97,7 @@ def opt_time_to_y0(args, bounds):
 ###########################################
 
 
-def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5):
+def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5, return_freq=True):
     '''
 
     :param ts1:
@@ -155,7 +168,11 @@ def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5):
     t_ofs = cf.flat_list(t_ofs)
     xi_bin = np.arange(win_sz[0]+bin_size/2, win_sz[1] + bin_size/2, bin_size)
     hh = np.histogram(t_ofs, xi_bin)
-    return hh[0] * (1000.0 / (bin_size * len(ts1))), (hh[1][:-1] + hh[1][1:]) / 2
+
+    if return_freq:
+        return hh[0] * (1000.0 / (bin_size * len(ts1))), (hh[1][:-1] + hh[1][1:]) / 2
+    else:
+        return hh[0], (hh[1][:-1] + hh[1][1:]) / 2
 
 ####################################################
 ####    CLUSTER MATCHING METRIC CALCULATIONS    ####
@@ -995,19 +1012,6 @@ def det_gmm_cluster_groups(grp_means):
     return i_grp, i_ind
 
 
-def calc_pointwise_diff(x1, x2):
-    '''
-
-    :param X1:
-    :param X2:
-    :return:
-    '''
-
-    #
-    X1, X2 = np.meshgrid(x1, x2)
-    return np.abs(X1 - X2)
-
-
 def arr_range(y, dim=None):
     '''
 
@@ -1103,3 +1107,419 @@ def get_rot_phase_offsets(calc_para, is_vis=False):
     else:
         # case is the parameters are not parameters
         return None, None
+
+
+def calc_tspike_corrcoef(t_sp, b_sz, n_cond, t_start, t_stop):
+    '''
+
+    :param t_sp:
+    :param b_sz:
+    :return:
+    '''
+
+    def calc_phase_mutinfo(t_sp, b_sz, t_start, t_stop, type='Trial'):
+        '''
+
+        :param t_sp:
+        :param b_sz:
+        :param t_start:
+        :param t_stop:
+        :return:
+        '''
+
+        # memory allocation
+        n_t, n_c = np.shape(t_sp)
+        xi, is_full = np.arange(t_start, t_stop, b_sz / 1000), type == 'Full'
+        mi_phs = np.nan * np.ones((n_c, n_c, 1 + (not is_full) * (n_t - 1)))
+
+        # REMOVE ME LATER
+        t0 = time.time()
+
+        # loops through each of the trials calculating the corrcoef between each cell
+        if is_full:
+            mi_phs = np.squeeze(mi_phs)
+            t_sp_comb = [np.hstack(t_sp[:, i]) for i in range(np.size(t_sp, axis=1))]
+            t_sph = [np.histogram(x, bins=xi)[0] for x in t_sp_comb]
+
+            # calculate the correlation coefficient between each cell pair
+            for i_c1 in range(n_c):
+                for i_c2 in range(i_c1 + 1, n_c):
+                    # calculates the mutual information between the cell pairs
+                    mi_phs[i_c1, i_c2] = mi_phs[i_c2, i_c1] = mutual_info_score(t_sph[i_c1], t_sph[i_c2])
+        else:
+            for i_t in range(n_t):
+                # calculates the histograms for the all cell over the current trial
+                t_sph = [np.histogram(x, bins=xi)[0] for x in t_sp[i_t, :]]
+
+                # calculate the correlation coefficient between each cell pair
+                for i_c1 in range(n_c):
+                    for i_c2 in range(i_c1 + 1, n_c):
+                        # calculates the mutual information between the cell pairs
+                        mi_phs[i_c1, i_c2, i_t] = mi_phs[i_c2, i_c1, i_t] = mutual_info_score(t_sph[i_c1], t_sph[i_c2])
+
+        # REMOVE ME LATER
+        print('Time = {}'.format(time.time() - t0))
+
+        # returns the mutual information array
+        return mi_phs
+
+    def calc_phase_corrcoef(t_sp, b_sz, t_start, t_stop):
+        '''
+
+        :param t_sp:
+        :param b_sz:
+        :return:
+        '''
+
+        # memory allocation
+        n_t, n_c = np.shape(t_sp)
+        cc_phs = np.nan * np.ones((n_c, n_c, n_t))
+
+        # REMOVE ME LATER
+        t0 = time.time()
+
+        # loops through each of the trials calculating the corrcoef between each cell
+        for i_t in range(n_t):
+            #
+            st = [neo.SpikeTrain(x * pq.s, t_start=t_start * pq.s, t_stop=t_stop * pq.s) for x in t_sp[i_t, :]]
+
+            # calculate the correlation coefficient between each cell pair
+            for i_c1 in range(n_c):
+                for i_c2 in range(i_c1 + 1, n_c):
+                    # sets up the spike train object
+                    #
+                    t_sp_obj = BinnedSpikeTrain([st[i_c1], st[i_c2]], binsize=b_sz * pq.ms,
+                                                t_start=t_start * pq.s, t_stop=t_stop * pq.s)
+
+                    # calculates and sets the correlation coefficient values
+                    cc_new = corrcoef(t_sp_obj, binary=True)
+                    cc_phs[i_c1, i_c2, i_t] = cc_phs[i_c2, i_c1, i_t] = cc_new[0, 1]
+
+        # REMOVE ME LATER
+        print('Time = {}'.format(time.time() - t0))
+
+        #
+        a = 1
+
+    # memory allocation
+    n_ex = len(t_sp)
+    cc = np.empty(n_ex, dtype=object)
+
+    #
+    for i_ex in range(n_ex):
+        # memory allocation for experiment cc calculations
+        n_t, n_c = int(np.size(t_sp[i_ex], axis=0) / (2 * n_cond)), np.size(t_sp[i_ex], axis=1)
+        cc[i_ex], ind = np.zeros((n_c, n_c, 2 * n_cond)), np.array(range(n_t))
+
+        #
+        for i_cond in range(2 * n_cond):
+            # retrieves the sub array
+            t_sp_sub = t_sp[i_ex][ind + (i_cond * n_t), :]
+            # cc[i_ex][:, :, i_cond] = calc_phase_corrcoef(t_sp_sub, b_sz, t_start, t_stop)
+            cc[i_ex][:, :, i_cond] = calc_phase_mutinfo(t_sp_sub, b_sz, t_start, t_stop)
+
+    # returns the final correlation coefficient array
+    return cc
+
+    # REMOVE ME LATER
+    a = 1
+
+
+def run_part_lda_pool(p_data):
+    '''
+
+    :param p_data:
+    :return:
+    '''
+
+    # retrieves the pool data
+    data, calc_para, r_filt = p_data[0], p_data[1], p_data[2]
+    i_expt, i_cell, n_trial_max, n_cell = p_data[3], dcopy(p_data[4]), p_data[5], p_data[6]
+
+    # sets the required number of cells for the LDA analysis
+    for i_ex in range(len(i_expt)):
+        # determines the original valid cells for the current experiment
+        ii = np.where(i_cell[i_ex])[0]
+
+        # from these cells, set n_cell cells as being valid (for analysis purposes)
+        i_cell[i_ex][:] = False
+        i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+
+    # runs the LDA
+    results = run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max)
+
+    # returns the cell count and LDA decoding accuracy values
+    return [n_cell, results[1]]
+
+
+def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None):
+    '''
+
+    :param data:
+    :param calc_para:
+    :param r_filt:
+    :param i_expt:
+    :param i_cell:
+    :param n_trial_max:
+    :param d_data:
+    :param is_shuffle:
+    :return:
+    '''
+
+
+    def reduce_cluster_data(data, i_expt):
+        '''
+
+        :param data:
+        :param i_expt:
+        :param cell_ok:
+        :return:
+        '''
+
+        # creates a copy of the data and removes any
+        data_tmp = dcopy(data)
+
+        # reduces down the number of
+        if len(i_expt) != len(data_tmp.cluster):
+            data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
+            data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
+
+        # returns the reduced data class object
+        return data_tmp
+
+    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle):
+        '''
+
+        :param r_obj:
+        :param cell_ok:
+        :param n_trial_max:
+        :param i_ex:
+        :return:
+        '''
+
+        def shuffle_trial_counts(n_sp, t_sp, n_t):
+            '''
+
+            :param n_sp:
+            :param n_trial_max:
+            :return:
+            '''
+
+            # initialisation
+            n_cell = np.size(n_sp, axis=1)
+
+            # shuffles the trials for each of the cells
+            for i_cell in range(n_cell):
+                # sets the permutation array ensures the following:
+                #  * CW/CCW trials are shuffled the same between conditions
+                #  * Trials are shuffled independently between conditions
+                ind_c0, ind_c1 = np.random.permutation(n_t), np.random.permutation(n_t)
+                ind_c = np.hstack((ind_c0, ind_c0 + n_t, ind_c1 + (2 * n_t), ind_c1 + (3 * n_t)))
+
+                # shuffles the trials for the current cell
+                n_sp[:, i_cell], t_sp[:, i_cell] = n_sp[ind_c, i_cell], t_sp[ind_c, i_cell]
+
+            # returns the array
+            return n_sp, t_sp
+
+        # memory allocation and initialisations
+        n_sp, t_sp, i_grp = [], [], []
+        n_t, n_grp, N = n_trial_max, 2 * r_obj.n_filt, 2 * r_obj.n_filt * n_trial_max
+
+        # retrieves the cell indices (over each condition) for the current experiment
+        ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
+        n_cell, pW = len(ind_c[0]), 1 / r_obj.n_expt
+
+        ####################################
+        ####    LDA DATA ARRAY SETUP    ####
+        ####################################
+
+        # sets up the LDA data/group index arrays across each condition
+        for i_filt in range(r_obj.n_filt):
+            # retrieves the time spikes for the current filter/experiment, and then combines into a single
+            # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+            # overall spike count array
+            A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
+            if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+                # case is motordrifting (swap phases)
+                t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+            else:
+                # case is other experiment conditions
+                t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+
+            # calculates the spike counts and appends them to the count array
+            n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+            t_sp.append(t_sp_tmp)
+
+            # sets the grouping indices
+            ind_g = [2 * i_filt, 2 * i_filt + 1]
+            i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+        # combines the spike counts/group indices into the final combined arrays
+        n_sp, t_sp, i_grp = np.hstack(n_sp).T, np.hstack(t_sp).T, np.hstack(i_grp)
+
+        # shuffles the trials (if required)
+        if is_shuffle:
+            n_sp, t_sp = shuffle_trial_counts(n_sp, t_sp, n_trial_max)
+
+        # normalises the spike count array (if required)
+        if lda_para['is_norm']:
+            n_sp_mn, n_sp_sd = np.mean(n_sp, axis=0), np.std(n_sp, axis=0)
+            n_sp = np.divide(n_sp - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
+
+            # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+            n_sp[:, n_sp_sd == 0] = 0
+
+        ###########################################
+        ####    LDA PREDICTION CALCULATIONS    ####
+        ###########################################
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
+
+        # sets the LDA solver type
+        if lda_para['solver_type'] == 'svd':
+            # case the SVD solver
+            lda = LDA()
+        elif lda_para['solver_type'] == 'lsqr':
+            # case is the LSQR solver
+            if lda_para['use_shrinkage']:
+                lda = LDA(solver='lsqr', shrinkage='auto')
+            else:
+                lda = LDA(solver='lsqr')
+        else:
+            # case is the Eigen solver
+            if lda_para['use_shrinkage']:
+                lda = LDA(solver='eigen', shrinkage='auto')
+            else:
+                lda = LDA(solver='eigen')
+
+        # fits the LDA model and calculates the prediction for each
+        for i_pred in range(len(i_grp)):
+            # updates the progress bar
+            if w_prog is not None:
+                w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
+                w_prog.emit(w_str, 100. * pW * (i_ex + i_pred / len(i_grp)) )
+
+            # fits the one-out-trial lda model
+            ii = np.array(range(len(i_grp))) != i_pred
+            try:
+                lda.fit(n_sp[ii, :], i_grp[ii])
+            except:
+                e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                        'Either choose a different solver or alter the solver parameters before retrying'
+                self.work_error.emit(e_str, 'LDA Analysis Error')
+                return None, False
+
+            # calculates the model prediction from the remaining trial and increments the confusion matrix
+            lda_pred[i_pred] = lda.predict(n_sp[i_pred, :].reshape(1, -1))
+            p_mat[i_pred, :] = lda.predict_proba(n_sp[i_pred, :].reshape(1, -1))
+            c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+
+            # fits the one-out-trial shuffled lda model
+            ind_chance = np.random.permutation(len(i_grp) - 1)
+            lda.fit(n_sp[ii, :], i_grp[ii][ind_chance])
+
+            # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+            lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp[i_pred, :], (1, n_cell)))
+            c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
+        # calculates the LDA transform values (uses svd solver to accomplish this)
+        if lda_para['solver_type'] != 'lsqr':
+            # memory allocation
+            lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp, i_grp)
+
+            # calculates the variance explained
+            if len(lda_X0.explained_variance_ratio_) == 2:
+                lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
+            else:
+                lda_var_sum = lda_X0.explained_variance_ratio_.sum()
+                lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
+
+            # separates the transform values into the individual groups
+            lda_X0T = lda_X0.transform(n_sp)
+            for ig in range(n_grp):
+                lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
+        else:
+            # transform values are not possible with this solver type
+            lda_X, lda_var_exp = None, None
+
+        # returns the final values in a dictionary object
+        return {
+            'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+            'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
+            'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
+        }, t_sp, True
+
+    # initialisations
+    lda_para = calc_para['lda_para']
+    t_ofs, t_phase = get_rot_phase_offsets(calc_para)
+
+    # creates a reduce data object and creates the rotation filter object
+    data_tmp = reduce_cluster_data(data, i_expt)
+    r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
+                                 t_ofs=t_ofs, t_phase=t_phase)
+
+    # memory allocation and other initialisations
+    A = np.empty(r_obj.n_expt, dtype=object)
+    lda, exp_name, t_sp = dcopy(A), dcopy(A), dcopy(A)
+    ind_t, n_ex = np.array(range(n_trial_max)), r_obj.n_expt
+
+    # memory allocation for accuracy binary mask calculations
+    n_c = len(r_filt['t_type'])
+    BG, BD = np.zeros((2 * n_c, 2 * n_c), dtype=bool), np.zeros((2, 2 * n_c), dtype=bool)
+    y_acc = np.zeros((n_ex, 1 + n_c), dtype=float)
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        BG[(2 * i_c):(2 * (i_c + 1)), (2 * i_c):(2 * (i_c + 1))] = True
+        BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
+
+    # sets the experiment file names
+    f_name0 = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data_tmp.cluster]
+
+    # loops through each of the experiments performing the lda calculations
+    for i_ex in range(n_ex):
+        exp_name[i_ex] = f_name0[i_ex]
+        lda[i_ex], t_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para,
+                                                        i_cell[i_ex], ind_t, i_ex, is_shuffle)
+        if not ok:
+            # if there was an error, then exit with a false flag
+            return False
+
+        # calculates the grouping accuracy values
+        c_mat = lda[i_ex]['c_mat'] / n_trial_max
+        y_acc[i_ex, 0] += np.sum(np.multiply(BG, c_mat)) / (2 * n_c)
+
+        # calculates the direction accuracy values (over each condition)
+        for i_c in range(n_c):
+            y_acc[i_ex, 1 + i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+
+    if d_data is not None:
+        # sets the lda values
+        d_data.lda = lda
+        d_data.y_acc = y_acc
+        d_data.exp_name = exp_name
+        d_data.t_sp = t_sp
+
+        # sets the solver parameters
+        d_data.ntrial = n_trial_max
+        d_data.solver = lda_para['solver_type']
+        d_data.shrinkage = lda_para['use_shrinkage']
+        d_data.norm = lda_para['is_norm']
+        d_data.cellmin = lda_para['n_cell_min']
+        d_data.trialmin = lda_para['n_trial_min']
+        d_data.ttype = r_filt['t_type']
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
+
+        # returns a true value
+        return True
+    elif is_shuffle:
+        # otherwise, return the calculated values
+        return [lda, y_acc, exp_name, t_sp]
+    else:
+        # otherwise, return the calculated values
+        return [lda, y_acc, exp_name]

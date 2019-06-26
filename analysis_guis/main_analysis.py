@@ -5280,6 +5280,154 @@ class AnalysisGUI(QMainWindow):
         # self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl, loc=2, ncol=len(grp_lbl))
         # self.plot_fig.ax[1].grid(plot_grid)
 
+    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, plot_grid):
+        '''
+
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        d_data_s, d_data_d = self.data.discrim.shuffle, self.data.discrim.dir
+        n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+        n_h = 4 * d_data_s.ntrial
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # retrieves the plot values
+        if plot_all_expt:
+            # case is using all the experiments
+
+            # calculates the mean confusion matrix values
+            y_acc, n_expt = d_data_d.y_acc, np.size(d_data_s.y_acc, axis=0)
+            y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(n_expt)]
+
+        else:
+            # case is using a specific experiment
+            i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
+            y_acc = d_data_d.y_acc[i_expt, :].reshape(1, -1)
+            y_acc_s = [d_data_s.y_acc[i_expt, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
+
+        # calculates the
+        y_acc_s_mu = np.array([np.mean(x) for x in y_acc_s])
+        y_acc_s_min = np.array([(y - np.min(x)) for x, y in zip(y_acc_s, y_acc_s_mu)])
+        y_acc_s_max = np.array([(np.max(x) - y) for x, y in zip(y_acc_s, y_acc_s_mu)])
+        y_acc_err = 100. * np.vstack((y_acc_s_min, y_acc_s_max))
+
+        #############################
+        ####    SUBPLOT SETUP    ####
+        #############################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # bar graph dimensioning
+        y_acc_mn = np.mean(y_acc, axis=0)
+        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.45, 105.
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
+        col = cf.get_plot_col(len(x_bar))
+
+        # plots the mean/shuffled accuracy values
+        self.plot_fig.ax[0].bar(x_bar - w_bar / 2, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
+        self.plot_fig.ax[0].bar(x_bar + w_bar / 2, 100. * y_acc_s_mu, width=w_bar, color=col, hatch='//', zorder=2)
+        self.plot_fig.ax[0].errorbar(x_bar + w_bar / 2, 100. * y_acc_s_mu, yerr=y_acc_err, fmt='.', color='k',
+                                     zorder=10, capsize=50)
+
+        # sets the legend
+        x_lim = self.plot_fig.ax[0].get_xlim()
+        h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
+                self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
+        self.plot_fig.ax[0].legend(h_lg, ['Simultaneous', 'Non-Simultaneous'], ncol=2, loc=2)
+
+        # sets the bar plot axis properties
+        self.plot_fig.ax[0].set_xlim(x_lim)
+        self.plot_fig.ax[0].set_xticks(x_bar)
+        self.plot_fig.ax[0].set_xticklabels(bar_lbls)
+        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
+        self.plot_fig.ax[0].set_ylim([0, p_mx])
+        self.plot_fig.ax[0].grid(plot_grid)
+
+    def plot_partial_lda(self, plot_grid, err_type):
+        '''
+
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        d_data_p = self.data.discrim.part
+        n_cond, ttype = len(d_data_p.ttype), d_data_p.ttype
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # calculates the mean of the decoding accuracy value across all experiments
+        y_acc, xi = np.mean(d_data_p.y_acc, axis=0), [0] + d_data_p.xi
+        zz = np.zeros((np.size(y_acc, axis=0), 1))
+
+        # calculates the mean, min/max and SEM decoding accuracy values over all shuffles
+        y_acc_mu = 100. * np.hstack((zz, np.mean(y_acc, axis=2)))
+        y_acc_min = y_acc_mu - 100. * np.hstack((zz, np.min(y_acc, axis=2)))
+        y_acc_max = 100. * np.hstack((zz, np.max(y_acc, axis=2))) - y_acc_mu
+        y_acc_sem = 100. * np.hstack((zz, np.std(y_acc, axis=2) / (d_data_p.nshuffle ** 0.5)))
+
+        #############################
+        ####    SUBPLOT SETUP    ####
+        #############################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # bar graph dimensioning
+        plt_lbls = ['Cond'] + ['Dir ({0})'.format(cf.cond_abb(tt)) for tt in ttype]
+        col, ax, c_sz, p_x = cf.get_plot_col(len(plt_lbls)), self.plot_fig.ax[0], 10, 0.25
+        xi_del, h_plt = p_x * (np.arange(len(col)) - (len(col) - 1) / 2), []
+
+        #
+        for i_plt in range(len(col)):
+            # plots the mean accuracy values
+            xi_nw = [0] + list(np.array(xi[1:]) + xi_del[i_plt])
+            h_plt.append(ax.plot(xi_nw, y_acc_mu[i_plt, :], 'o-', c=col[i_plt]))
+
+            # plots the errorbars
+            if err_type == 'None':
+                continue
+            elif err_type == 'SEM':
+                # case is plotting the SEM errorbars
+                ax.errorbar(xi_nw, y_acc_mu[i_plt, :], yerr=y_acc_sem[i_plt, :], fmt='.', color=col[i_plt], capsize=c_sz)
+            else:
+                # case is plotting the SEM errorbars
+                y_err = np.vstack([y_acc_min[i_plt, :], y_acc_max[i_plt, :]])
+                ax.errorbar(xi_nw, y_acc_mu[i_plt, :], yerr=y_err, fmt='.', color=col[i_plt], capsize=c_sz)
+
+        # plots the chance line
+        xL = ax.get_xlim()
+        ax.plot(xL, [50, 50], 'r--')
+        ax.plot(xL, [95, 95], 'r--')
+        ax.set_xlim(xL)
+
+        # sets the axis properties
+        ax.legend([x[0] for x in h_plt], plt_lbls, loc=4)
+        ax.set_yticks(np.arange(0, 100.1, 10))
+        ax.set_xticks(xi)
+        ax.set_xlabel('Cell Count')
+        ax.set_ylabel('Decoding Accuracy (%)')
+        ax.set_ylim([0, 105])
+        ax.grid(plot_grid)
+
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
     ####################################################
@@ -6657,7 +6805,9 @@ class AnalysisGUI(QMainWindow):
                          'Combined Direction ROC Curves (Whole Experiment)',
                          'Rotation Direction LDA',
                          'Temporal Duration/Offset LDA Analysis',
-                         'Individual LDA Analysis']
+                         'Individual LDA Analysis',
+                         'Shuffled LDA Analysis',
+                         'Partial LDA Analysis']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None):
             # if there was an error or initialising, then return a true flag
@@ -7748,11 +7898,9 @@ class AnalysisFunctions(object):
         pd_grp_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
         grp_stype = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         auc_stype = ['Delong', 'Bootstrapping']
-        mean_type = ['Mean', 'Median']
         freq_type = ['Decreasing', 'Increasing', 'All']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
-        sm_type = ['Black Significant', 'Comparison Condition Significant', 'Both Significant']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -8299,6 +8447,9 @@ class AnalysisFunctions(object):
         ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
         #########################################################
 
+        # parameter lists
+        err_type = ['SEM', 'Min/Max', 'None']
+
         # ====> Rotation Direction LDA
         para = {
             # calculation parameters
@@ -8370,7 +8521,7 @@ class AnalysisFunctions(object):
                       func='plot_temporal_lda',
                       para=para)
 
-        # ====> Rotation Direction LDA
+        # ====> Individual LDA Analysis
         para = {
             # calculation parameters
             'lda_para': {
@@ -8388,7 +8539,6 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            # 'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
             'plot_exp_name': {
                 'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
                 'is_enabled': has_multi_expt
@@ -8403,6 +8553,69 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Individual LDA Analysis',
                       func='plot_individual_lda',
+                      para=para)
+
+        # ====> Shuffled LDA Analysis
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 10},
+
+            # plotting parameters
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'is_enabled': has_multi_expt
+            },
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
+                'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Shuffled LDA Analysis',
+                      func='plot_shuffled_lda',
+                      para=para)
+
+        # ====> Partial LDA Analysis
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+            'n_cell_min': {'gtype': 'C', 'text': 'Min Experiment Cell Count', 'def_val': 10},
+            'n_shuffle': {'gtype': 'C', 'text': 'Partial Cell Shuffle Count', 'def_val': 10},
+
+            # plotting parameters
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
+        }
+
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Partial LDA Analysis',
+                      func='plot_partial_lda',
                       para=para)
 
         ##########################################
@@ -9612,6 +9825,8 @@ class DiscriminationData(object):
         self.dir = SubDiscriminationData('Direction')
         self.temp = SubDiscriminationData('Temporal')
         self.indiv = SubDiscriminationData('Individual')
+        self.shuffle = SubDiscriminationData('TrialShuffle')
+        self.part = SubDiscriminationData('Partial')
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -9619,9 +9834,13 @@ class SubDiscriminationData(object):
         # sets the type flag
         self.type = type
 
-        # lda calculation/parameter elements
         self.lda = None
-        self.exp_name = -1
+        self.y_acc = None
+        self.exp_name = None
+        self.t_sp = None
+        self.corr = None
+
+        # lda calculation/parameter elements
         self.ntrial = -1
         self.solver = -1
         self.shrinkage = -1
@@ -9630,10 +9849,21 @@ class SubDiscriminationData(object):
         self.cellmin = -1
         self.trialmin = -1
 
-        if type in ['Direction', 'Individual']:
+        if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
             # case is the direction LDA analysis
             self.tofs = -1
             self.tphase = -1
+
+            # case is the shuffled LDA analysis
+            if type == 'Shuffle':
+                self.nshuffle = -1
+                self.bsz = -1
+
+            elif type == 'Partial':
+                self.nshuffle = -1
+                self.cellminpart = -1
+                self.xi = None
+
         elif type == 'Temporal':
             # case is the temporal LDA analysis
             self.dt_phs = -1

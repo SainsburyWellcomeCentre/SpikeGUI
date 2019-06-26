@@ -2371,3 +2371,16 @@ def cond_abb(tt):
 
     # returns the matching abbreviation
     return abb_txt[tt.lower()]
+
+
+def calc_pointwise_diff(x1, x2):
+    '''
+
+    :param X1:
+    :param X2:
+    :return:
+    '''
+
+    #
+    X1, X2 = np.meshgrid(x1, x2)
+    return np.abs(X1 - X2)

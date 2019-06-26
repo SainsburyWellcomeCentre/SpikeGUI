@@ -10,7 +10,6 @@ from dateutil import parser
 from collections import OrderedDict
 
 # custom module import
-import analysis_guis.calc_functions as cfcn
 import analysis_guis.common_func as cf
 from pyphys.pyphys.pyphys import PxpParser
 from analysis_guis.dialogs import config_dialog
@@ -143,8 +142,8 @@ def det_igor_to_bonsai_pairing(bonsai_io, igor_data):
     # calculates the point-wise differences between the trial timer and trigger count
     n_trig_igor = [np.array(n_trig_igor)[has_ft]]
     c_igor_grp = np.array(c_igor_grp0)[has_ft]
-    dt_grp = cfcn.calc_pointwise_diff(t_igor_grp, t_bonsai_grp)
-    dn_grp = cfcn.calc_pointwise_diff(n_trig_igor, n_trig_bonsai)
+    dt_grp = cf.calc_pointwise_diff(t_igor_grp, t_bonsai_grp)
+    dn_grp = cf.calc_pointwise_diff(n_trig_igor, n_trig_bonsai)
 
     # ensures that only groups that have equal trigger counts are matched
     dt_max = np.max(dt_grp) + 1
