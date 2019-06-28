@@ -1505,15 +1505,12 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.t_sp = t_sp
 
         # sets the solver parameters
-        d_data.ntrial = n_trial_max
-        d_data.solver = lda_para['solver_type']
-        d_data.shrinkage = lda_para['use_shrinkage']
-        d_data.norm = lda_para['is_norm']
-        d_data.cellmin = lda_para['n_cell_min']
-        d_data.trialmin = lda_para['n_trial_min']
-        d_data.ttype = r_filt['t_type']
+        set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+
+        # sets the phase duration/offset parameters
         d_data.tofs = t_ofs
         d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
 
         # returns a true value
         return True
@@ -1523,3 +1520,140 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     else:
         # otherwise, return the calculated values
         return [lda, y_acc, exp_name]
+
+
+def init_lda_solver_para():
+    return {
+        'n_cell_min': 10,
+        'n_trial_min': 10,
+        'is_norm': True,
+        'use_shrinkage': True,
+        'solver_type': 'eigen',
+        'comp_cond': ['Black', 'Uniform'],
+        'cell_types': 'All Cells',
+        'y_acc_max': 100,
+    }
+
+
+def init_lda_para(d_data):
+    '''
+
+    :param d_data:
+    :return:
+    '''
+
+    def set_lda_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    def set_def_lda_para(d_data, p_str):
+        '''
+
+        :param d_data:
+        :param p_str:
+        :return:
+        '''
+
+        # initialisations
+        def_para = {}
+
+        # retrieves the values from the data class
+        for ps in p_str:
+            p_val = d_data.__getattribute__(ps)
+            if p_val is None:
+                continue
+            elif p_val != -1:
+                def_para[ps] = p_val
+
+        # returns the lda default parameter dictionary
+        return def_para
+
+    # retrieves the default parameter values
+    lda_para = init_lda_solver_para()
+
+    # if the lda has been calculated, then use these values
+    if d_data.lda is not None:
+        # sets the LDA parameters
+        lda_para['n_cell_min'] = set_lda_para(lda_para['n_cell_min'], d_data.cellmin)
+        lda_para['n_trial_min'] = set_lda_para(lda_para['n_trial_min'], d_data.trialmin)
+        lda_para['is_norm'] = set_lda_para(lda_para['is_norm'], d_data.norm)
+        lda_para['use_shrinkage'] = set_lda_para(lda_para['use_shrinkage'], d_data.shrinkage)
+        lda_para['solver_type'] = set_lda_para(lda_para['solver_type'], d_data.solver)
+        lda_para['comp_cond'] = set_lda_para(lda_para['comp_cond'], d_data.ttype)
+        lda_para['cell_types'] = set_lda_para(lda_para['cell_types'], d_data.ctype)
+        lda_para['y_acc_max'] = set_lda_para(lda_para['y_acc_max'], d_data.yaccmx)
+
+    # sets the default parameters based on the type
+    if d_data.type in ['Direction', 'Individual']:
+        # case is the default rotational LDA analysis
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull'])
+
+    elif d_data.type == 'Temporal':
+        # case is the temporal LDA analysis
+        def_para = set_def_lda_para(d_data, ['dt_phs', 'dt_ofs', 'phs_const'])
+
+    elif d_data.type == 'TrialShuffle':
+        # case is the shuffled trial LDA analysis
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle'])
+
+    elif d_data.type == 'Partial':
+        # case is the partial LDA analysis
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'cellminpart'])
+
+    # returns the lda solver/default parameter dictionaries
+    return lda_para, def_para
+
+
+def set_def_para(para, p_str, def_val):
+    '''
+
+    :param rot_para:
+    :param p_str:
+    :param def_val:
+    :return:
+    '''
+
+    # returns the parameter value if present in the para dictionary, otherwise return the default value
+    return para[p_str] if p_str in para else def_val
+
+
+def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
+    '''
+
+    :param d_data:
+    :param lda_para:
+    :param r_filt:
+    :param n_trial_max:
+    :return:
+    '''
+
+    # sets the parameter to class conversion strings
+    conv_str = {
+        'n_cell_min': 'cellmin',
+        'n_trial_min': 'trialmin',
+        'solver_type': 'solver',
+        'use_shrinkage': 'shrinkage',
+        'is_norm': 'norm',
+        'cell_types': 'ctype',
+        'y_acc_max': 'yaccmx',
+        'comp_cond': 'ttype',
+    }
+
+    # sets the trial count and trial types
+    d_data.ntrial = n_trial_max
+
+    # sets the LDA solver parameters
+    for ldp in lda_para:
+        if ldp not in ignore_list:
+            setattr(d_data, conv_str[ldp], lda_para[ldp])

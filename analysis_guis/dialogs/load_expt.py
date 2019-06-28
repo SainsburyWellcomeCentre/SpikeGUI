@@ -33,6 +33,7 @@ class LoadExpt(QDialog):
         self.is_ok = False
         self.def_dir = def_dir
         self.is_multi = False
+        self.multi_file = True
 
         # sets the loaded experimental file names
         if len(loaded_data):
@@ -97,6 +98,7 @@ class LoadExpt(QDialog):
 
         # experiment type combobox
         expt_text = ['Single Processed Experimental Data File (*.cdata)',
+                     'Multiple Cluster Comparison Data File (*.mcomp)',
                      'Multiple Processed Experimental Data File (*.mdata)']
         self.expt_type = cf.create_combobox(self.group_expt, l_font, expt_text, dim=QRect(10, 200, 381, 21))
         self.expt_type.setEnabled(len(self.exp_name) == 0)
@@ -148,16 +150,23 @@ class LoadExpt(QDialog):
             # case is single experiments
             self.is_multi = False
             file_type = 'Single Experiment Files (*.cdata)'
-        else:
+
+        elif '*.mdata' in self.expt_type.currentText():
             # case is multi-experiments
             self.is_multi = True
             file_type = 'Multi-Experiment Files (*.mdata)'
+            self.multi_file = False
+
+        else:
+            # case is combined cluster files
+            self.is_multi = True
+            file_type = 'Multi-Cluster Comparison Files (*.mcomp)'
 
         # opens the file dialog
         file_dlg = FileDialogModal(caption='Select Data File(s)',
                                    filter=file_type,
                                    directory=def_dir,
-                                   is_multi=True)
+                                   is_multi=self.multi_file)
 
         # loads the window and determines if the user accepts
         if (file_dlg.exec() == QDialog.Accepted):
@@ -177,10 +186,10 @@ class LoadExpt(QDialog):
             # re-enables the experiment type (if there are no experiments selected)
             if len(self.exp_name):
                 self.expt_type.setEnabled(False)
+                self.push_add.setEnabled(self.multi_file)
 
             # enables the remove/continue push-buttons
             self.push_continue.setEnabled(True)
-
 
     def remove_expts(self):
         '''
@@ -207,7 +216,8 @@ class LoadExpt(QDialog):
                 self.list_expt.takeItem(self.list_expt.row(item))
 
             # sets the button enabled properties
-            self.push_rmv.setEnabled(False)
+            self.push_add.setEnabled(self.is_multi or (len(self.exp_name) == 0))
+            self.push_rmv.setEnabled(len(self.exp_name))
             self.push_continue.setEnabled(len(self.exp_name))
 
             # re-enables the experiment type (if there are no experiments selected)

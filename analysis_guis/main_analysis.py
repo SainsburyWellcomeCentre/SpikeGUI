@@ -137,6 +137,7 @@ class AnalysisGUI(QMainWindow):
         # other initialisations
         self.is_multi = False
         self.calc_ok = True
+        self.calc_cancel = False
         self.thread_calc_error = False
         self.can_close = False
         self.initialising = True
@@ -551,10 +552,16 @@ class AnalysisGUI(QMainWindow):
             if self.worker[iw].thread_job_primary == 'load_data_files':
                 # case is loading the data files
 
+                # initialisations
+                init_data = True
+
                 # loops through all the new file names and loads
                 if (worker_data is not None) and len(worker_data):
                     for loaded_data in worker_data:
-                        self.data._cluster.append(loaded_data)
+                        if isinstance(loaded_data, dict):
+                            self.data._cluster.append(loaded_data)
+                        else:
+                            self.data, init_data = loaded_data, False
 
                 # sets up the analysis functions and resets the current parameter fields
                 self.fcn_data.init_all_func()
@@ -568,28 +575,32 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the enabled properties of the menu items
                 self.menu_output_data.setEnabled(True)
-                self.menu_save_file.setEnabled(len(self.data._cluster) > 1 and (not self.is_multi))
+                self.menu_save_file.setEnabled(len(self.data._cluster) > 1 or (self.is_multi))
 
                 # initialises the classification data fields
                 exp_name = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
                 clust_id = [x['clustID'] for x in self.data._cluster]
 
                 # re-initialises the data fields for all data types
-                self.data.comp.init_comparison_data()
-                self.data.classify.init_classify_fields(exp_name, clust_id)
-                self.data.rotation.init_rot_fields()
-                self.data.discrim.init_discrim_fields()
+                if init_data:
+                    self.data.comp.init_comparison_data()
+                    self.data.classify.init_classify_fields(exp_name, clust_id)
+                    self.data.rotation.init_rot_fields()
+                    self.data.discrim.init_discrim_fields()
 
                 # enables the menu item
                 self.menu_data.setEnabled(True)
                 self.menu_show_info.setEnabled(True)
 
-                #
+                # determines what type of file(s) have been loaded
                 if self.is_multi:
-                    if 'Cluster Matching' in [x['type'] for x in self.data._cluster]:
+                    # if the multi-files are loaded, then determine what type is loaded
+                    if 'Free' in [x['expInfo']['cond'] for x in self.data._cluster]:
+                        # case is the matching cluster combined data files
                         self.data.comp.is_set = True
                         new_func_types = func_types
                     else:
+                        # case is the fixed multiple data files
                         self.data.comp.is_set = False
                         new_func_types = func_types[1:]
 
@@ -669,6 +680,7 @@ class AnalysisGUI(QMainWindow):
                 # retrieves the data from the worker thread
                 calc_data = worker_data
                 self.thread_calc_error = False
+                self.calc_cancel = False
 
                 # sets the data based on the calculation function that was run
                 if self.worker[iw].thread_job_secondary == 'Cluster Cross-Correlogram':
@@ -1159,18 +1171,47 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def save_multi_comp_file(out_info):
+            '''
+
+            :return:
+            '''
+
+            # sets the output file name
+            out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
+
+            # creates the multi-experiment data file based on the type
+            data_out = {'data': None, 'comp_data': self.data.comp}
+            data_out['data'] = [[] for _ in range(2)]
+            data_out['data'][0], data_out['data'][1] = self.get_comp_datasets()
+
+            # outputs the data to file
+            with open(out_file, 'wb') as fw:
+                p.dump(data_out, fw)
+
+        def save_multi_data_file(out_info):
+            '''
+
+            :return:
+            '''
+
+            # starts the worker thread
+            iw = self.det_avail_thread_worker()
+            self.worker[iw].set_worker_func_type('save_data_files', thread_job_para=[self.data, out_info])
+            self.worker[iw].start()
+
         # determines which flags have been set
-        if not self.data.comp.is_set:
-            return
+        is_comp = self.data.comp.is_set
+        s_str = 'Combined Cluster Matching' if is_comp else 'Combined Multi-Experiment'
 
         # sets the initial output data dictionary
         out_data = {'inputDir': self.def_data['dir']['inputDir'], 'dataName': ''}
 
         # initialisations
         dlg_info = [
-            ['Combined Cluster Matching Data File Output Directory', 'inputDir', 'Directory',
+            ['{0} Data File Output Directory'.format(s_str), 'inputDir', 'Directory',
              self.def_data['dir']['inputDir'], True, False, 0],
-            ['Combined Cluster Matching Data File Name', 'dataName', 'String', '', True, False, 1],
+            ['{0} Data File Name'.format(s_str), 'dataName', 'String', '', True, False, 1],
         ]
 
         # opens up the config dialog box and retrieves the final file information
@@ -1182,18 +1223,10 @@ class AnalysisGUI(QMainWindow):
         # retrieves the information from the dialog
         out_info = cfig_dlg.get_info()
         if out_info is not None:
-            # sets the output file name
-            out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
-
-            # creates the multi-experiment data file based on the type
-            data_out = {'type': out_info['outType'], 'data': None}
-            data_out['data'] = [[] for _ in range(2)]
-            data_out['data'][0], data_out['data'][1] = self.get_comp_datasets()
-            data_out['comp_data'] = self.data.comp
-
-            # outputs the data to file
-            with open(out_file, 'wb') as fw:
-                p.dump(data_out, fw)
+            if is_comp:
+                save_multi_comp_file(out_info)
+            else:
+                save_multi_data_file(out_info)
 
     def set_default(self):
         '''
@@ -1390,6 +1423,10 @@ class AnalysisGUI(QMainWindow):
         for iw in np.where([x.is_running for x in self.worker])[0]:
             # updates the worker flags
             self.worker[iw].forced_quit = True
+
+            # if the user cancelled a calculation function then reset
+            if self.worker[iw].thread_job_primary == 'run_calc_func':
+                self.calc_cancel = True
 
             # terminates the worker object and updates the GUI properties
             self.worker[iw].terminate()
@@ -5063,7 +5100,7 @@ class AnalysisGUI(QMainWindow):
                 # creates the datacursor
                 datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
-    def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_grid):
+    def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_lines, err_type, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5071,6 +5108,57 @@ class AnalysisGUI(QMainWindow):
         :param plot_grid:
         :return:
         '''
+
+        def create_multi_plot(ax, xi, y_acc, t_phase, y_err, ttype, plot_lines, c):
+            '''
+
+            :param ax:
+            :param xi:
+            :param y_acc:
+            :param t_phase:
+            :param c:
+            :return:
+            '''
+
+            # array dimensions and initialisations
+            n_cond, n_xi = np.size(y_acc, axis=0), np.size(y_acc, axis=1)
+            xi_b, cap_sz = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1), 100 / n_xi
+
+            # creates the boxplot for each conditions
+            for i_cond in range(n_cond):
+                # initialisations
+                h_plt = []
+
+                # plots the values
+                if plot_lines:
+                    h_plt.append(ax.plot(xi_b+i_cond, y_acc[i_cond, :], 'o-', c=c[i_cond]))
+                else:
+                    h_plt.append(ax.plot(xi_b + i_cond, y_acc[i_cond, :], 'o', c=c[i_cond]))
+
+                if y_err is not None:
+                    ax.errorbar(xi_b+i_cond, y_acc[i_cond, :], yerr=y_err[i_cond], fmt='.', color=c[i_cond],
+                                zorder=10, capsize=cap_sz)
+
+            # sets the new tickmark locations
+            xi_mid, x_ticks = xi_b + (n_cond - 1) / 2, ax.get_xticks()
+            mX = (x_ticks[-1] - x_ticks[0]) / (xi[-1] - xi[0])
+            x0 = xi_mid[0] - xi[0] * mX
+
+            # sets the new tick label/locations
+            x_tick_lbl = np.arange(0, t_phase, 0.5)
+            x_tick_nw = x0 + mX * x_tick_lbl
+
+            # sets the x-axis ticks/labels
+            ax.legend(h_plt, ttype, loc=4)
+            ax.set_xticks(x_tick_nw)
+            ax.set_xticklabels(x_tick_lbl)
+            ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
+
+            # sets the axis other properties
+            ax.set_ylabel('Decoding Accuracy (%)')
+            ax.set_xlabel('Phase Duration (s)')
+            ax.set_ylim([-1., 101.])
+
 
         def create_multi_boxplot(ax, xi, y_acc, t_phase, c):
             '''
@@ -5108,11 +5196,13 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         d_data = self.data.discrim.temp
-        n_c, h_plt = len(d_data.ttype), []
+        ttype = d_data.ttype
+        n_c, h_plt = len(ttype), []
         c = cf.get_plot_col(n_c)
 
         # retrieves the important fields
         y_acc_phs, y_acc_ofs = 100. * np.dstack(d_data.y_acc[0]), 100. * np.dstack(d_data.y_acc[1])
+        y_acc_phs_err, y_acc_ofs_err = None, None
 
         # retrieves the plot values
         if plot_all_expt:
@@ -5122,8 +5212,19 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the SEM (if more than one experiment)
             if n_ex > 1:
-                y_acc_phs_sem = np.std(y_acc_phs, axis=0) / (n_c ** 0.5)
-                y_acc_ofs_sem = np.std(y_acc_phs, axis=0) / (n_c ** 0.5)
+                if err_type == 'SEM':
+                    y_acc_phs_err = [x for x in (np.std(y_acc_phs, axis=0) / (n_c ** 0.5))[1:, :]]
+                    y_acc_ofs_err = [x for x in (np.std(y_acc_ofs, axis=0) / (n_c ** 0.5))[1:, :]]
+                elif err_type == 'Min/Max':
+                    # sets the differing phase duration min/max errorbar values
+                    y_acc_phs_min = y_acc_phs_mn - np.min(y_acc_phs, axis=0)
+                    y_acc_phs_max = np.max(y_acc_phs, axis=0) - y_acc_phs_mn
+                    y_acc_phs_err = [np.vstack((x, y)) for x, y in zip(y_acc_phs_min[1:, :], y_acc_phs_max[1:, :])]
+
+                    # sets the differing phase offset min/max errorbar values
+                    y_acc_ofs_min = y_acc_ofs_mn - np.min(y_acc_ofs, axis=0)
+                    y_acc_ofs_max = np.max(y_acc_ofs, axis=0) - y_acc_ofs_mn
+                    y_acc_ofs_err = [np.vstack((x, y)) for x, y in zip(y_acc_ofs_min[1:, :], y_acc_ofs_max[1:, :])]
         else:
             # case is using a specific experiment
             i_ex, n_ex = list(d_data.exp_name).index(plot_exp_name), 1
@@ -5137,26 +5238,19 @@ class AnalysisGUI(QMainWindow):
         self.init_plot_axes(n_row=1, n_col=2)
 
         # creates the multiple boxplot
-        t_phase0 = 3.5346
-        create_multi_boxplot(self.plot_fig.ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], t_phase0, c)
-        create_multi_boxplot(self.plot_fig.ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], t_phase0, c)
+        t_phase0, ax = 3.5346, self.plot_fig.ax
+        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs_mn[1:, :], t_phase0, y_acc_phs_err, ttype, plot_lines, c)
+        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs_mn[1:, :], t_phase0, y_acc_ofs_err, ttype, plot_lines, c)
 
         # sets the axis properties for the phase duration accuracy plot
-        self.plot_fig.ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
-        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[0].set_xlabel('Phase Duration (s)')
-        self.plot_fig.ax[0].set_ylim([-1., 101.])
-        self.plot_fig.ax[0].grid(plot_grid)
-        # self.plot_fig.ax[0].legend([x[0] for x in h_plt], d_data.ttype, loc=0)
+        ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+        ax[0].grid(plot_grid)
 
         # sets the axis properties for the phase offset accuracy plot
-        self.plot_fig.ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
-        self.plot_fig.ax[1].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[1].set_xlabel('Phase Offset (s)')
-        self.plot_fig.ax[1].set_ylim([-1., 101.])
-        self.plot_fig.ax[1].grid(plot_grid)
+        ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+        ax[1].grid(plot_grid)
 
-    def plot_individual_lda(self, plot_exp_name, plot_all_expt, connect_lines, plot_grid):
+    def plot_individual_lda(self, plot_exp_name, plot_all_expt, plot_cond, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5204,19 +5298,18 @@ class AnalysisGUI(QMainWindow):
         #############################
 
         # width ratio
-        w_ratio = [0.3, 0.0, 0.025]
+        w_ratio = [0.4, 0.0]
         w_ratio[1] = 1 - np.sum(w_ratio)
 
         # creates the gridspec object
         top, bottom, wspace, hspace = 0.98, 0.06, 0.2, 0.2
-        gs = gridspec.GridSpec(1, 3, width_ratios=w_ratio, figure=self.plot_fig.fig,
+        gs = gridspec.GridSpec(1, 2, width_ratios=w_ratio, figure=self.plot_fig.fig,
                                wspace=wspace, left=0.065, right=0.96, bottom=bottom, top=top, hspace=0.15)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(3, dtype=object)
         self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, 0])
         self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[:, 1])
-        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, 2])
 
         #################################
         ####    SUBPLOT CREATIONS    ####
@@ -5228,17 +5321,20 @@ class AnalysisGUI(QMainWindow):
         bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
 
         # plots the mean/chance accuracy values
-        col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
+        col, b_col, m_sz = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1), 60
         self.plot_fig.ax[0].bar(x_bar, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
 
         # sets the plot values and creates the final plot based on the selected type
         # creates the final plot based on the selected type
         b_col = ['k'] * len(y_acc_l)
-        if connect_lines:
-            cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
-                                          col=b_col[1:], plot_mean=False)
-        else:
-            cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
+        # if connect_lines:
+        #     cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
+        #                                   col=b_col[1:], plot_mean=False)
+        # else:
+        cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
+
+        #
+
 
         # sets the bar plot axis properties
         self.plot_fig.ax[0].set_xticks(x_bar)
@@ -5247,12 +5343,16 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_ylim([0, p_mx])
         self.plot_fig.ax[0].grid(plot_grid)
 
-        # creates the heatmap subplot
-        im = self.plot_fig.ax[1].imshow(im_h, aspect='auto', cmap='hot', origin='lower')
-        self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[2])
+        # creates the scatterplot
+        i_plt = np.where(im_h > 0)
+        x_plt, y_plt, z_plt = i_plt[0], i_plt[1], im_h[i_plt[0], i_plt[1]]
+        m_col = cf.get_plot_col(max(z_plt))
+        s_col = [m_col[x-1] for x in z_plt]
+
+        self.plot_fig.ax[1].scatter(x_plt, y_plt, marker='o', c=s_col, s=m_sz * (z_plt / max(z_plt)))
 
         # plots the region demarkation lines
-        ax_lim, a = [-0.5, n_h + 0.5], np.ones(2)
+        ax_lim, a = [0, n_h], np.ones(2)
         self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'r--')
         self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, '--', c=col[1], linewidth=2)
         self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'r--')
@@ -5304,7 +5404,7 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the mean confusion matrix values
             y_acc, n_expt = d_data_d.y_acc, np.size(d_data_s.y_acc, axis=0)
-            y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(n_expt)]
+            y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
 
         else:
             # case is using a specific experiment
@@ -5355,7 +5455,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_ylim([0, p_mx])
         self.plot_fig.ax[0].grid(plot_grid)
 
-    def plot_partial_lda(self, plot_grid, err_type):
+    def plot_partial_lda(self, err_type, plot_grid):
         '''
 
         :param plot_grid:
@@ -5371,6 +5471,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # calculates the mean of the decoding accuracy value across all experiments
+        n_expt = np.size(d_data_p.y_acc, axis=0)
         y_acc, xi = np.mean(d_data_p.y_acc, axis=0), [0] + d_data_p.xi
         zz = np.zeros((np.size(y_acc, axis=0), 1))
 
@@ -5423,6 +5524,7 @@ class AnalysisGUI(QMainWindow):
         ax.legend([x[0] for x in h_plt], plt_lbls, loc=4)
         ax.set_yticks(np.arange(0, 100.1, 10))
         ax.set_xticks(xi)
+        ax.set_title('Experiment Count = {0}'.format(n_expt))
         ax.set_xlabel('Cell Count')
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.set_ylim([0, 105])
@@ -6809,7 +6911,7 @@ class AnalysisGUI(QMainWindow):
                          'Shuffled LDA Analysis',
                          'Partial LDA Analysis']
 
-        if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None):
+        if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel):
             # if there was an error or initialising, then return a true flag
             return True
 
@@ -8449,21 +8551,33 @@ class AnalysisFunctions(object):
 
         # parameter lists
         err_type = ['SEM', 'Min/Max', 'None']
+        decode_type = ['Condition', 'Dir (Black)', 'Dir (Uniform)']
+
+        # LDA parameters
+        rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
+        temp_lda_para, temp_def_para = cfcn.init_lda_para(data.discrim.temp)
+        indiv_lda_para, indiv_def_para  = cfcn.init_lda_para(data.discrim.indiv)
+        shuffle_lda_para, shuffle_def_para = cfcn.init_lda_para(data.discrim.shuffle)
+        part_lda_para, part_def_para = cfcn.init_lda_para(data.discrim.part)
 
         # ====> Rotation Direction LDA
         para = {
             # calculation parameters
             'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': rot_lda_para
             },
             't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
+                'def_val': cfcn.set_def_para(rot_def_para, 'tphase', t_phase)
             },
             't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(rot_def_para, 'tofs', t_ofs)
             },
             'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(rot_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
@@ -8492,16 +8606,20 @@ class AnalysisFunctions(object):
         para = {
             # calculation parameters
             'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': temp_lda_para
             },
             'dt_phase': {
-                'gtype': 'C', 'text': 'Phase Duration Step-Size (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+                'gtype': 'C', 'text': 'Phase Duration Step-Size (s)', 'min_val': 0.10, 'max_val': 1.0,
+                'def_val': cfcn.set_def_para(temp_def_para, 'dt_phs', 0.5)
             },
             'dt_ofs': {
-                'gtype': 'C', 'text': 'Phase Offset Step-Size (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+                'gtype': 'C', 'text': 'Phase Offset Step-Size (s)', 'min_val': 0.10, 'max_val': 1.0,
+                'def_val': cfcn.set_def_para(temp_def_para, 'dt_ofs', 0.5)
             },
             't_phase_const': {
-                'gtype': 'C', 'text': 'Constant Phase Duration (s)', 'def_val': 0.50, 'min_val': 0.10, 'max_val': 1.0
+                'gtype': 'C', 'text': 'Constant Phase Duration (s)', 'min_val': 0.10, 'max_val': 1.0,
+                'def_val': cfcn.set_def_para(temp_def_para, 'phs_const', 0.5)
             },
 
             # plotting parameters
@@ -8514,6 +8632,8 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
             },
+            'plot_lines': {'type': 'B', 'text': 'Plot Connecting Lines', 'def_val': True},
+            'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -8525,16 +8645,20 @@ class AnalysisFunctions(object):
         para = {
             # calculation parameters
             'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': indiv_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max']}
             },
             't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
+                'def_val': cfcn.set_def_para(indiv_def_para, 'tphase', t_phase)
             },
             't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(indiv_def_para, 'tofs', t_ofs)
             },
             'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(indiv_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
 
@@ -8547,7 +8671,9 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
             },
-            'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
+            'plot_cond': {
+                'type': 'L', 'text': 'Decoding Accuracy Plot Type', 'list': decode_type, 'def_val': decode_type[0]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -8559,19 +8685,26 @@ class AnalysisFunctions(object):
         para = {
             # calculation parameters
             'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': shuffle_lda_para
             },
             't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
+                'def_val': cfcn.set_def_para(shuffle_def_para, 'tphase', t_phase)
             },
             't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(shuffle_def_para, 'tofs', t_ofs)
             },
             'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(shuffle_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 10},
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(shuffle_def_para, 'nshuffle', 10)
+            },
 
             # plotting parameters
             'plot_exp_name': {
@@ -8593,26 +8726,35 @@ class AnalysisFunctions(object):
         para = {
             # calculation parameters
             'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara, 'def_val': None
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': part_lda_para
             },
             't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
+                'def_val': cfcn.set_def_para(part_def_para, 'tphase', t_phase)
             },
             't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(part_def_para, 'tofs', t_ofs)
             },
             'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(part_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
-            'n_cell_min': {'gtype': 'C', 'text': 'Min Experiment Cell Count', 'def_val': 10},
-            'n_shuffle': {'gtype': 'C', 'text': 'Partial Cell Shuffle Count', 'def_val': 10},
+            'n_cell_min': {
+                'gtype': 'C', 'text': 'Min Experiment Cell Count',
+                'def_val': cfcn.set_def_para(part_def_para, 'nshuffle', 10)
+            },
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Partial Cell Shuffle Count',
+                'def_val': cfcn.set_def_para(part_def_para, 'cellminpart', 10)
+            },
 
             # plotting parameters
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Partial LDA Analysis',
                       func='plot_partial_lda',
@@ -9842,24 +9984,28 @@ class SubDiscriminationData(object):
 
         # lda calculation/parameter elements
         self.ntrial = -1
-        self.solver = -1
+        self.solver = None
         self.shrinkage = -1
         self.norm = -1
-        self.ttype = -1
+        self.ctype = None
+        self.ttype = None
         self.cellmin = -1
         self.trialmin = -1
+        self.yaccmx = -1
 
         if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
             # case is the direction LDA analysis
             self.tofs = -1
             self.tphase = -1
+            self.usefull = -1
 
-            # case is the shuffled LDA analysis
-            if type == 'Shuffle':
+            if type == 'TrialShuffle':
+                # case is the shuffled LDA analysis
                 self.nshuffle = -1
                 self.bsz = -1
 
             elif type == 'Partial':
+                # case is the partial LDA analysis
                 self.nshuffle = -1
                 self.cellminpart = -1
                 self.xi = None

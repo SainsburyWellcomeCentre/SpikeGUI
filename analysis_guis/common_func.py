@@ -1249,19 +1249,6 @@ def init_rotation_filter_data(is_ud, is_empty=False):
     return f_data
 
 
-def init_lda_solver_para():
-
-    return {
-        'n_cell_min': 10,
-        'n_trial_min': 10,
-        'is_norm': True,
-        'use_shrinkage': True,
-        'solver_type': 'eigen',
-        'comp_cond': ['Black', 'Uniform'],
-        'cell_types': 'All Cells'
-    }
-
-
 def get_plot_col(n_plot=1, i_ofs=0):
     '''
 

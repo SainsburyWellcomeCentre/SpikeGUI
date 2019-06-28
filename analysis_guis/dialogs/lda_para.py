@@ -40,13 +40,12 @@ class LDASolverPara(QDialog):
         self.is_updating = True
         self.update_plot = False
         self.data = main_obj.get_data_fcn()
+        self.rmv_fields = None
+        self.f_data = init_data
 
-        # sets/iniitialises the filter data dictionary based on the input values state
-        if init_data is None:
-            # case is
-            self.init_filter_data()
-        else:
-            self.f_data = init_data
+        # sets the fields to be removed (if provided)
+        if other_var is not None:
+            self.rmv_fields = other_var['rmv_fields']
 
         # initialises all the other GUI objects
         self.init_filter_fields()
@@ -82,7 +81,7 @@ class LDASolverPara(QDialog):
         :return:
         '''
 
-        self.f_data = cf.init_lda_solver_para()
+        self.f_data = cfcn.init_lda_solver_para()
 
     def init_filter_fields(self):
         '''
@@ -103,6 +102,7 @@ class LDASolverPara(QDialog):
         cell_types = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         num_types = ['Min Cell Count: ', 'Min Trial Count: ']
         check_types = ['Normalise Counts? ', 'Use LDA Shrinkage? ']
+        acc_types = ['Max Individual Decoding Accuracy']
 
         # sets the filter field parameter information
         self.fields = [
@@ -111,7 +111,30 @@ class LDASolverPara(QDialog):
             ['LDA Solver Type', 'ListGroup', 'solver_type', solver_type, True, ['use_shrinkage', 'svd']],
             ['Comparison Conditions', 'CheckCombo', 'comp_cond', comp_cond, True, None],
             ['Cell Signal Types', 'ListGroup', 'cell_types', cell_types, self.data.classify.is_set, None],
+            ['', 'NumberGroup', ['y_acc_max'], acc_types, self.data.discrim.indiv.lda is not None, None],
         ]
+
+        # removes any other fields (if specified)
+        if self.rmv_fields is not None:
+            for r_field in self.rmv_fields:
+                # loops through each of the fields determining the matching parameters
+                i_rmv = None
+                for i in range(len(self.fields)):
+                    # determines if there is a match (depending on the parameter format type)
+                    if isinstance(self.fields[i][2], list):
+                        # case is the parameter type is a list
+                        if r_field in self.fields[i][2]:
+                            # if there is a match, then set the row index to remove and exits the loop
+                            i_rmv = i
+                            break
+                    elif self.fields[i][2] == r_field:
+                        # if there is a match, then set the row index to remove and exits the loop
+                        i_rmv = i
+                        break
+
+                # if there was a match, then remove that field
+                if i_rmv is not None:
+                    self.fields[i_rmv][-2] = False
 
         # removes any groups that don't have more than one query value
         for i_row in reversed(range(len(self.fields))):

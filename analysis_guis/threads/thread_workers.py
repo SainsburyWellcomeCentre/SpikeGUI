@@ -3,6 +3,7 @@ import gc
 import os
 import copy
 import random
+import platform
 import numpy as np
 import pickle as p
 import pandas as pd
@@ -100,6 +101,13 @@ class WorkerThread(QThread):
         elif self.thread_job_primary == 'load_data_files':
             # case is loading the data files
             thread_data = self.load_data_file()
+
+        elif self.thread_job_primary == 'save_data_files':
+            # retrieves the parameters
+            data, out_info = self.thread_job_para[0], self.thread_job_para[1]
+
+            # case is loading the data files
+            thread_data = self.save_data_file(data, out_info)
 
         elif self.thread_job_primary == 'cluster_matches':
             # case is determining the cluster matches
@@ -279,8 +287,6 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
                 d_data = data.discrim.dir
-                if calc_para['lda_para'] is None:
-                    calc_para['lda_para'] = cf.init_lda_solver_para()
 
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
@@ -303,8 +309,6 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Temporal Duration/Offset LDA Analysis':
                 # if the solver parameter have not been set, then initalise them
                 d_data = data.discrim.temp
-                if calc_para['lda_para'] is None:
-                    calc_para['lda_para'] = cf.init_lda_solver_para()
 
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
@@ -326,10 +330,6 @@ class WorkerThread(QThread):
                         return
 
             elif self.thread_job_secondary == 'Individual LDA Analysis':
-                # if the solver parameter have not been set, then initalise them
-                if calc_para['lda_para'] is None:
-                    calc_para['lda_para'] = cf.init_lda_solver_para()
-
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
@@ -357,10 +357,6 @@ class WorkerThread(QThread):
                     return
 
             elif self.thread_job_secondary == 'Shuffled LDA Analysis':
-                # if the solver parameter have not been set, then initalise them
-                if calc_para['lda_para'] is None:
-                    calc_para['lda_para'] = cf.init_lda_solver_para()
-
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
@@ -388,10 +384,6 @@ class WorkerThread(QThread):
                     return
 
             elif self.thread_job_secondary == 'Partial LDA Analysis':
-                # if the solver parameter have not been set, then initalise them
-                if calc_para['lda_para'] is None:
-                    calc_para['lda_para'] = cf.init_lda_solver_para()
-
                 # resets the minimum cell count
                 calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
 
@@ -464,7 +456,8 @@ class WorkerThread(QThread):
                     data_nw = p.load(fp)
 
                 # setting of other fields
-                data_nw['expFile'] = load_dlg.exp_files[i_file]
+                if isinstance(data_nw, dict):
+                    data_nw['expFile'] = load_dlg.exp_files[i_file]
 
                 # re-calculates the signal features (single experiment only)
                 if not is_multi:
@@ -522,6 +515,25 @@ class WorkerThread(QThread):
 
         # appends the current filename to the data dictionary and returns the object
         return data
+
+    def save_data_file(self, data, out_info):
+        '''
+
+        :return:
+        '''
+
+        # updates the progressbar
+        self.work_progress.emit('Saving Data To File...', 50.0)
+
+        # sets the output file name
+        out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
+
+        # outputs the data to file
+        with open(out_file, 'wb') as fw:
+            p.dump(data, fw)
+
+        # updates the progressbar
+        self.work_progress.emit('Data Save Complete!', 100.0)
 
     def init_pool_worker(self):
         '''
@@ -1113,6 +1125,15 @@ class WorkerThread(QThread):
                 # case is wide spikes have been selected
                 is_valid[data.classify.grp_str[ind] == 'Nar'] = False
 
+            # determines if the individual LDA has been calculated
+            d_data_i = data.discrim.indiv
+            if d_data_i.lda is not None:
+                # if so, determines the trial type corresponding to the black direction decoding type
+                i_type = next((i for i in range(len(d_data_i.ttype)) if d_data_i.ttype[i] == 'Black'), None)
+                if i_type is not None:
+                    # if the black decoding type is present, remove the cells which have a decoding accuracy above max
+                    is_valid[100. * d_data_i.y_acc[ind][:, i_type + 1] > lda_para['y_acc_max']] = False
+
             # if the number of valid cells is less than the reqd count, then set all cells to being invalid
             if np.sum(is_valid) < lda_para['n_cell_min']:
                 is_valid[:] = False
@@ -1262,11 +1283,7 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.exp_name = result[2]
-        d_data.ntrial = n_trial_max
-        d_data.solver = lda_para['solver_type']
-        d_data.shrinkage = lda_para['use_shrinkage']
-        d_data.norm = lda_para['is_norm']
-        d_data.ttype = r_filt['t_type']
+        cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
         # sets the other calculation parameters
         d_data.dt_phs = calc_para['dt_phase']
@@ -1346,17 +1363,14 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
-        d_data.ntrial = n_trial_max
-        d_data.solver = lda_para['solver_type']
-        d_data.shrinkage = lda_para['use_shrinkage']
-        d_data.norm = lda_para['is_norm']
-        d_data.cellmin = lda_para['n_cell_min']
-        d_data.trialmin = lda_para['n_trial_min']
-        d_data.ttype = r_filt['t_type']
+        cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
-        # sets the phase offset/duration and shuffle count
+        # sets the phase offset/duration parameters
         d_data.tofs = t_ofs
         d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
+
+        # sets the other parameters
         d_data.nshuffle = n_sh
         # d_data.bsz = calc_para['b_sz']
 
@@ -1430,17 +1444,12 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
-        d_data.ntrial = n_trial_max
-        d_data.solver = lda_para['solver_type']
-        d_data.shrinkage = lda_para['use_shrinkage']
-        d_data.norm = lda_para['is_norm']
-        d_data.cellmin = lda_para['n_cell_min']
-        d_data.trialmin = lda_para['n_trial_min']
-        d_data.ttype = r_filt['t_type']
+        cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
         # sets the phase offset/duration
         d_data.tofs = t_ofs
         d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
 
         # returns a true value indicating the calculations were successful
         return True
@@ -1457,15 +1466,43 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        def run_partial_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell):
+            '''
+
+            :param data:
+            :param calc_para:
+            :param r_filt:
+            :param i_expt:
+            :param i_cell:
+            :param n_trial_max:
+            :param xi:
+            :return:
+            '''
+
+            # sets the required number of cells for the LDA analysis
+            for i_ex in range(len(i_expt)):
+                # determines the original valid cells for the current experiment
+                ii = np.where(i_cell[i_ex])[0]
+
+                # from these cells, set n_cell cells as being valid (for analysis purposes)
+                i_cell[i_ex][:] = False
+                i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+
+            # runs the LDA
+            results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max)
+
+            # returns the decoding accuracy values
+            return results[1]
+
         # initialisations
         d_data = data.discrim.part
         if d_data.lda is not None:
             # if there is no change in the parameters, then exit the function
             return True
 
-        ################################################
-        ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
-        ################################################
+        #############################################
+        ####    PARTIAL CELL LDA CALCULATIONS    ####
+        #############################################
 
         # initialisations
         xi = [1, 2, 5, 10, 15, 20, 30, 40, 50]
@@ -1485,22 +1522,34 @@ class WorkerThread(QThread):
             w_str = 'Partial LDA Calculations (Shuffle {0} of {1})'.format(i_sh + 1, n_sh)
             w_prog.emit(w_str, 100. * (i_sh / n_sh))
 
-            # initialisations and memory allocation
-            p_data = [[] for _ in range(n_xi)]
-            for i_xi in range(n_xi):
-                p_data[i_xi].append(data)
-                p_data[i_xi].append(calc_para)
-                p_data[i_xi].append(r_filt)
-                p_data[i_xi].append(i_expt)
-                p_data[i_xi].append(i_cell)
-                p_data[i_xi].append(n_trial_max)
-                p_data[i_xi].append(xi[i_xi])
+            # runs the analysis based on the operating system
+            if 'Windows' in platform.platform():
+                # case is Richard's local computer
 
-            # runs the pool object to run the partial LDA
-            p_results = pool.map(cfcn.run_part_lda_pool, p_data)
-            for i_xi in range(n_xi):
-                j_xi = xi.index(p_results[i_xi][0])
-                d_data.y_acc[:, :, j_xi, i_sh] = p_results[i_xi][1]
+                # initialisations and memory allocation
+                p_data = [[] for _ in range(n_xi)]
+                for i_xi in range(n_xi):
+                    p_data[i_xi].append(data)
+                    p_data[i_xi].append(calc_para)
+                    p_data[i_xi].append(r_filt)
+                    p_data[i_xi].append(i_expt)
+                    p_data[i_xi].append(i_cell)
+                    p_data[i_xi].append(n_trial_max)
+                    p_data[i_xi].append(xi[i_xi])
+
+                # runs the pool object to run the partial LDA
+                p_results = pool.map(cfcn.run_part_lda_pool, p_data)
+                for i_xi in range(n_xi):
+                    j_xi = xi.index(p_results[i_xi][0])
+                    d_data.y_acc[:, :, j_xi, i_sh] = p_results[i_xi][1]
+            else:
+                # case is Subiculum
+
+                # initialisations and memory allocation
+                for i_xi in range(n_xi):
+                    d_data.y_acc[:, :, i_xi, i_sh] = run_partial_lda_expt(
+                        data, calc_para, r_filt, i_expt, dcopy(i_cell), n_trial_max, xi[i_xi]
+                    )
 
         #######################################
         ####    HOUSE KEEPING EXERCISES    ####
@@ -1512,16 +1561,14 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
-        d_data.ntrial = n_trial_max
-        d_data.solver = lda_para['solver_type']
-        d_data.shrinkage = lda_para['use_shrinkage']
-        d_data.norm = lda_para['is_norm']
-        d_data.trialmin = lda_para['n_trial_min']
-        d_data.ttype = r_filt['t_type']
+        cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=['n_cell_min'])
 
-        # sets the phase offset/duration and shuffle count
+        # sets the phase offset/duration parametrs
         d_data.tofs = t_ofs
         d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
+
+        # sets the other parameters/arrays
         d_data.nshuffle = n_sh
         d_data.cellminpart = calc_para['n_cell_min']
         d_data.xi = xi
@@ -2662,7 +2709,8 @@ class WorkerThread(QThread):
                     d_data.norm == lda_para['is_norm'],
                     d_data.cellmin == lda_para['n_cell_min'],
                     d_data.trialmin == lda_para['n_trial_min'],
-                    set(d_data.ttype) == set(['Black'] + lda_para['comp_cond']),
+                    d_data.yaccmx == lda_para['y_acc_max'],
+                    set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
 
                 #
@@ -2678,6 +2726,8 @@ class WorkerThread(QThread):
                             # d_data.bsz == calc_para['b_sz']
                         ]
                     elif d_data.type == 'Partial':
+                        is_equal[3] = True
+
                         is_equal += [
                             d_data.nshuffle == calc_para['n_shuffle'],
                             d_data.cellminpart  == calc_para['n_cell_min']
