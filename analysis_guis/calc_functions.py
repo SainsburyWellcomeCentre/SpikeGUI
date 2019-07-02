@@ -1186,7 +1186,7 @@ def run_part_lda_pool(p_data):
 
 
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None,
-                is_shuffle=False, w_prog=None, calc_corr=False):
+                is_shuffle=False, w_prog=None):
     '''
 
     :param data:
@@ -1447,8 +1447,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.usefull = calc_para['use_full_rot']
 
         # calculates the noise correlation (if required)
-        if calc_corr:
-            calc_noise_correl(d_data, n_sp)
+        calc_noise_correl(d_data, n_sp)
 
         # returns a true value
         return True

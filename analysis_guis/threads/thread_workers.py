@@ -371,7 +371,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress, calc_corr=True):
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return

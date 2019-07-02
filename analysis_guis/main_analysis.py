@@ -5388,6 +5388,23 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def get_pw_corr(d_data):
+
+            # sets the synchronous/non-synchronous pairwise correlations
+            pw_corr = [[] for _ in range(len(d_data.pw_corr))]
+
+            #
+            for i in range(len(pw_s)):
+                pw_tmp = [[] for _ in range(len(d_data.pw_corr[i]))]
+                for j in range(len(pw_tmp)):
+                    i_triu = np.triu(d_data.pw_corr[i][j] + 2, k=1)
+                    pw_tmp[j] = i_triu[i_triu != 0] - 2
+
+                pw_corr[i] = np.vstack(pw_tmp).T
+
+            #
+            return np.vstack(pw_corr)
+
         def create_correl_subfig(ax, d_data_s, d_data_ns, ttype, plot_grid):
             '''
 
@@ -5547,9 +5564,8 @@ class AnalysisGUI(QMainWindow):
         ####    CORRELATION SUBPLOT SETUP    ####
         #########################################
 
-        # sets the synchronous/non-synchronous pairwise correlations
-        pw_s = np.vstack([np.vstack(np.array([x[np.logical_not(np.isnan(x))] for x in y])).T for y in d_data_d.pw_corr])
-        pw_n = np.vstack([np.vstack(np.array([x[np.logical_not(np.isnan(x))] for x in y])).T for y in d_data_s.pw_corr])
+        # retrieves the pairwise correlations
+        pw_s, pw_n = get_pw_corr(d_data_d), get_pw_corr(d_data_s)
 
         # creates the correlation sub-figure plots
         p_col = np.arange(2) + 2 * d_data_s.ttype.index(plot_cond)
