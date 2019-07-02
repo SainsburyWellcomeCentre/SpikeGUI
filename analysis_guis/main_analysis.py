@@ -54,8 +54,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
-from scipy.stats import linregress
-
+from scipy.stats import linregress, bartlett
 
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -5109,7 +5108,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_multi_plot(ax, xi, y_acc, t_phase, y_err, ttype, plot_lines, c):
+        def create_multi_plot(ax, xi, y_acc, t_phase, y_err, ttype, plot_lines, c, has_lg=True):
             '''
 
             :param ax:
@@ -5125,10 +5124,8 @@ class AnalysisGUI(QMainWindow):
             xi_b, cap_sz = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1), 100 / n_xi
 
             # creates the boxplot for each conditions
+            h_plt = []
             for i_cond in range(n_cond):
-                # initialisations
-                h_plt = []
-
                 # plots the values
                 if plot_lines:
                     h_plt.append(ax.plot(xi_b+i_cond, y_acc[i_cond, :], 'o-', c=c[i_cond]))
@@ -5148,8 +5145,10 @@ class AnalysisGUI(QMainWindow):
             x_tick_lbl = np.arange(0, t_phase, 0.5)
             x_tick_nw = x0 + mX * x_tick_lbl
 
+            if has_lg:
+                ax.legend([x[0] for x in h_plt], ttype, loc=4)
+
             # sets the x-axis ticks/labels
-            ax.legend(h_plt, ttype, loc=4)
             ax.set_xticks(x_tick_nw)
             ax.set_xticklabels(x_tick_lbl)
             ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
@@ -5240,7 +5239,7 @@ class AnalysisGUI(QMainWindow):
         # creates the multiple boxplot
         t_phase0, ax = 3.5346, self.plot_fig.ax
         create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs_mn[1:, :], t_phase0, y_acc_phs_err, ttype, plot_lines, c)
-        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs_mn[1:, :], t_phase0, y_acc_ofs_err, ttype, plot_lines, c)
+        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs_mn[1:, :], t_phase0, y_acc_ofs_err, ttype, plot_lines, c, False)
 
         # sets the axis properties for the phase duration accuracy plot
         ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
@@ -5380,7 +5379,7 @@ class AnalysisGUI(QMainWindow):
         # self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl, loc=2, ncol=len(grp_lbl))
         # self.plot_fig.ax[1].grid(plot_grid)
 
-    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, plot_grid):
+    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, plot_cond, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5389,10 +5388,75 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def create_correl_subfig(ax, d_data_s, d_data_ns, ttype, plot_grid):
+            '''
+
+            :param ax:
+            :param d_data_d:
+            :param d_data_s:
+            :param ind:
+            :return:
+            '''
+
+            sum_norm = lambda x: x / np.sum(x)
+
+            # initialisations
+            d_xi, p_str = 0.1, np.empty((1, 2), dtype=object)
+            col, h_plt, xi = cf.get_plot_col(2), [], np.arange(-1, 1.01, d_xi)
+            lg_str = ['Synchronous', 'Non-Synchronous']
+
+            # creates the
+            h_plt.append(ax[0].plot(d_data_s[:, 0], d_data_s[:, 1], '.', color=col[0], zorder=1))
+            h_plt.append(ax[0].plot(d_data_ns[:, 0], d_data_ns[:, 1], '.', color=col[1], zorder=2))
+            ax[0].legend([x[0] for x in h_plt], lg_str, loc=0)
+
+            # creates the histograms for each of the data types
+            xi_h = 0.5 * (xi[1:] + xi[:-1])
+            for i in range(2):
+                # creates the histograms for the synochronous/non-synchronous data
+                h_pw_s = sum_norm(np.histogram(d_data_s[:, i], bins=xi)[0])
+                h_pw_ns = sum_norm(np.histogram(d_data_ns[:, i], bins=xi)[0])
+
+                # sets the p-value string
+                p_val = bartlett(h_pw_s, h_pw_ns)[1]
+                p_str[0, i] = '{:5.3e}{}'.format(p_val, '*' if p_val < 0.05 else '')
+
+                if i == 0:
+                    ax[i + 1].bar(xi_h - d_xi / 4, h_pw_s, color=col[0], width=d_xi / 2)
+                    ax[i + 1].bar(xi_h + d_xi / 4, h_pw_ns, color=col[1], width=d_xi / 2)
+
+                    ax[i + 1].set_xlim([-1, 1])
+                    ax[i + 1].set_yticks(ax[i + 1].get_ylim())
+                else:
+                    ax[i + 1].barh(xi_h - d_xi / 4, h_pw_s, color=col[0], height=d_xi / 2)
+                    ax[i + 1].barh(xi_h + d_xi / 4, h_pw_ns, color=col[1], height=d_xi / 2)
+
+                    ax[i + 1].set_ylim([-1, 1])
+                    ax[i + 1].set_xticks(ax[i + 1].get_xlim())
+
+                # sets the plot grid
+                ax[i + 1].grid(plot_grid)
+
+            # sets the axis properties
+            ax[0].set_xlim([-1, 1])
+            ax[0].set_ylim([-1, 1])
+            ax[0].set_xlabel('{0} CW Pairwise Correlation'.format(ttype))
+            ax[0].set_ylabel('{0} CCW Pairwise Correlation'.format(ttype))
+            ax[0].grid(plot_grid)
+
+            # sets up the n-value table
+            t_props = cf.add_plot_table(self.plot_fig, 1, table_font, p_str, ['P-Value'], ['CW', 'CCW'],
+                                        cf.get_plot_col(1, 4), cf.get_plot_col(2, 2), 'bottom', p_wid=1.5, n_col=1)
+            # t_props[0]._bbox[0] = (0.5 - t_props[0]._bbox[2] / 2)
+
+            # resets the position of the vertical bar graph
+            l0, b0, w0, h0 = ax[0].get_position().bounds
+            l2, b2, w2, h2 = ax[2].get_position().bounds
+            ax[2].set_position([l2, b0, w2, h0])
+
         # initialisations
         d_data_s, d_data_d = self.data.discrim.shuffle, self.data.discrim.dir
         n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
-        n_h = 4 * d_data_s.ntrial
 
         ###################################
         ####    DATA PRE-PROCESSING    ####
@@ -5422,12 +5486,36 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT SETUP    ####
         #############################
 
-        # sets up the plot axis
-        self.plot_fig.setup_plot_axis()
+        # sets up the axes dimensions
+        r_hw = self.plot_fig.height() / self.plot_fig.width()
+        top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.1, 0.1
 
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
+        # memory allocation
+        n_col, n_row = 9, 5
+        w_ratio, h_ratio = np.zeros(n_col), np.zeros(n_row)
+
+        # calculates the width/height ratios of each sub-plot block
+        h_ratio[0] = 0.1
+        w_ratio[3], w_ratio[-1] = 0.065, r_hw * h_ratio[0]
+        w_ratio[w_ratio == 0] = (1 - sum(w_ratio[w_ratio > 0])) / sum(w_ratio == 0)
+        h_ratio[h_ratio == 0] = (1 - sum(h_ratio[h_ratio > 0])) / sum(h_ratio == 0)
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(n_row, n_col, figure=self.plot_fig.fig, width_ratios=w_ratio, height_ratios=h_ratio,
+                               wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
+
+        # sets up the main plot axis
+        self.plot_fig.ax = np.empty(7, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, :3])
+
+        # sets up the first correlation axis
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1:, 4:8])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 4:8], xticklabels=[], yticklabels=[])
+        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[1:, -1], xticklabels=[], yticklabels=[])
+
+        #######################################
+        ####    MAIN AXIS SUBPLOT SETUP    ####
+        #######################################
 
         # bar graph dimensioning
         y_acc_mn = np.mean(y_acc, axis=0)
@@ -5439,13 +5527,13 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].bar(x_bar - w_bar / 2, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
         self.plot_fig.ax[0].bar(x_bar + w_bar / 2, 100. * y_acc_s_mu, width=w_bar, color=col, hatch='//', zorder=2)
         self.plot_fig.ax[0].errorbar(x_bar + w_bar / 2, 100. * y_acc_s_mu, yerr=y_acc_err, fmt='.', color='k',
-                                     zorder=10, capsize=50)
+                                     zorder=10, capsize=50 / len(x_bar))
 
         # sets the legend
         x_lim = self.plot_fig.ax[0].get_xlim()
         h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
                 self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
-        self.plot_fig.ax[0].legend(h_lg, ['Simultaneous', 'Non-Simultaneous'], ncol=2, loc=2)
+        self.plot_fig.ax[0].legend(h_lg, ['Synchronous', 'Non-Synchronous'], ncol=2, loc=2)
 
         # sets the bar plot axis properties
         self.plot_fig.ax[0].set_xlim(x_lim)
@@ -5454,6 +5542,18 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[0].set_ylim([0, p_mx])
         self.plot_fig.ax[0].grid(plot_grid)
+
+        #########################################
+        ####    CORRELATION SUBPLOT SETUP    ####
+        #########################################
+
+        # sets the synchronous/non-synchronous pairwise correlations
+        pw_s = np.vstack([np.vstack(np.array([x[np.logical_not(np.isnan(x))] for x in y])).T for y in d_data_d.pw_corr])
+        pw_n = np.vstack([np.vstack(np.array([x[np.logical_not(np.isnan(x))] for x in y])).T for y in d_data_s.pw_corr])
+
+        # creates the correlation sub-figure plots
+        p_col = np.arange(2) + 2 * d_data_s.ttype.index(plot_cond)
+        create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], plot_cond, plot_grid)
 
     def plot_partial_lda(self, err_type, plot_grid):
         '''
@@ -6909,7 +7009,7 @@ class AnalysisGUI(QMainWindow):
                          'Temporal Duration/Offset LDA Analysis',
                          'Individual LDA Analysis',
                          'Shuffled LDA Analysis',
-                         'Partial LDA Analysis']
+                         'Pooling LDA Analysis']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel):
             # if there was an error or initialising, then return a true flag
@@ -8552,6 +8652,7 @@ class AnalysisFunctions(object):
         # parameter lists
         err_type = ['SEM', 'Min/Max', 'None']
         decode_type = ['Condition', 'Dir (Black)', 'Dir (Uniform)']
+        cond_type = ['Black', 'Uniform']
 
         # LDA parameters
         rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
@@ -8686,7 +8787,7 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': shuffle_lda_para
+                'def_val': shuffle_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond]]
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
@@ -8714,6 +8815,9 @@ class AnalysisFunctions(object):
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
+            },
+            'plot_cond': {
+                'type': 'L', 'text': 'Trial Conditions', 'list': cond_type, 'def_val': cond_type[0],
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -8756,7 +8860,7 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Partial LDA Analysis',
+                      name='Pooling LDA Analysis',
                       func='plot_partial_lda',
                       para=para)
 
@@ -9208,6 +9312,7 @@ class AnalysisFunctions(object):
             para_gui_var = fcn_para['para_gui_var']
 
         # runs the
+        para_reset = fcn_para['para_reset']
         data, init_data = self.get_data_fcn(), self.curr_para[p_name]
         h_sp = fcn_para['para_gui'](self, init_data=init_data, other_var=para_gui_var)
 
@@ -9216,6 +9321,18 @@ class AnalysisFunctions(object):
         if h_sp.is_ok:
             # updates the current parameter value
             self.curr_para[p_name] = exp_info
+
+        # resets the parameters based on the
+        if para_reset is not None:
+            # flag that the parameters are updating
+            self.is_updating = True
+
+            # runs the parameter reset functions
+            for pr in para_reset:
+                pr[1](exp_info, pr[0])
+
+            # flag that the parameters are finished updating
+            self.is_updating = False
 
         #
         if h_sp.update_plot:
@@ -9484,6 +9601,40 @@ class AnalysisFunctions(object):
         # only enable the parameter if the cell classification has been performed
         h_lbl.setEnabled(data.classify.is_set)
         h_list.setEnabled(data.classify.is_set)
+
+    def reset_plot_cond(self, exp_info, p_name):
+        '''
+
+        :param p_name:
+        :return:
+        '''
+
+        # retrieves the list object corresponding to the parameter
+        h_list = self.find_obj_handle([QComboBox], p_name)[0]
+        curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
+
+        # checks if there is a change in the comparison conditions
+        nw_txt = dcopy(exp_info['comp_cond'])
+        if set(nw_txt) != set(curr_txt):
+            # determines the plot function that is currently selected
+            d_grp = self.details[self.get_plot_grp_fcn()]
+            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+            # sets the list selection index (if current selection is gone, then set to zero)
+            i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
+
+            # removes the existing items
+            for i in range(h_list.count()):
+                h_list.removeItem(0)
+
+            # adds the new range
+            for txt in nw_txt:
+                h_list.addItem(txt)
+
+            # resets the associated parameter value
+            h_list.setCurrentIndex(i_sel)
+            self.curr_para[p_name] = nw_txt[i_sel]
+            d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
@@ -9979,8 +10130,7 @@ class SubDiscriminationData(object):
         self.lda = None
         self.y_acc = None
         self.exp_name = None
-        self.t_sp = None
-        self.corr = None
+        self.pw_corr = None
 
         # lda calculation/parameter elements
         self.ntrial = -1

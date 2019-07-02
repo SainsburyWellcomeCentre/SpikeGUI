@@ -16,6 +16,7 @@ import shapely.geometry as geom
 # scipy module imports
 from scipy import stats, signal
 from scipy.stats import poisson as p
+from scipy.stats import pearsonr as pr
 from scipy.spatial.distance import *
 from scipy.optimize import minimize
 from scipy.interpolate import interp1d
@@ -591,17 +592,8 @@ def cluster_distance(data_fix, data_free, n_shuffle=100, n_spikes=10, i_cluster=
     rperm = np.random.permutation
     mu_dist = np.zeros((n_cluster, data_free['nC'] + 1, n_shuffle))
 
-    # #
-    # h = waitbar_dialog.Waitbar(n_bar=1, p_max=n_cluster+1)
-
     # calculates the distances between the free/fixed cluster shuffled means (over all clusters/shuffles)
     for i_fix in range(n_cluster):
-        # if h.is_cancel:
-        #     self.calc_ok = False
-        # else:
-        #     w_str = 'Calculating Distances for Fixed Cluster #{0}'.format(i_fix + 1)
-        #     h.update(0, i_fix+1, w_str)
-
         # REMOVE ME LATER for waitbar
         print('Calculating Distances for Fixed Cluster #{0}'.format(i_fix + 1))
 
@@ -1109,120 +1101,61 @@ def get_rot_phase_offsets(calc_para, is_vis=False):
         return None, None
 
 
-def calc_tspike_corrcoef(t_sp, b_sz, n_cond, t_start, t_stop):
+def calc_noise_correl(d_data, n_sp):
     '''
 
-    :param t_sp:
-    :param b_sz:
+    :param d_data:
     :return:
     '''
 
-    def calc_phase_mutinfo(t_sp, b_sz, t_start, t_stop, type='Trial'):
+    def calc_pw_noise_correl(n_spt):
         '''
 
-        :param t_sp:
-        :param b_sz:
-        :param t_start:
-        :param t_stop:
+        :param n_spt:
         :return:
         '''
 
-        # memory allocation
-        n_t, n_c = np.shape(t_sp)
-        xi, is_full = np.arange(t_start, t_stop, b_sz / 1000), type == 'Full'
-        mi_phs = np.nan * np.ones((n_c, n_c, 1 + (not is_full) * (n_t - 1)))
-
-        # REMOVE ME LATER
-        t0 = time.time()
-
-        # loops through each of the trials calculating the corrcoef between each cell
-        if is_full:
-            mi_phs = np.squeeze(mi_phs)
-            t_sp_comb = [np.hstack(t_sp[:, i]) for i in range(np.size(t_sp, axis=1))]
-            t_sph = [np.histogram(x, bins=xi)[0] for x in t_sp_comb]
-
-            # calculate the correlation coefficient between each cell pair
-            for i_c1 in range(n_c):
-                for i_c2 in range(i_c1 + 1, n_c):
-                    # calculates the mutual information between the cell pairs
-                    mi_phs[i_c1, i_c2] = mi_phs[i_c2, i_c1] = mutual_info_score(t_sph[i_c1], t_sph[i_c2])
-        else:
-            for i_t in range(n_t):
-                # calculates the histograms for the all cell over the current trial
-                t_sph = [np.histogram(x, bins=xi)[0] for x in t_sp[i_t, :]]
-
-                # calculate the correlation coefficient between each cell pair
-                for i_c1 in range(n_c):
-                    for i_c2 in range(i_c1 + 1, n_c):
-                        # calculates the mutual information between the cell pairs
-                        mi_phs[i_c1, i_c2, i_t] = mi_phs[i_c2, i_c1, i_t] = mutual_info_score(t_sph[i_c1], t_sph[i_c2])
-
-        # REMOVE ME LATER
-        print('Time = {}'.format(time.time() - t0))
-
-        # returns the mutual information array
-        return mi_phs
-
-    def calc_phase_corrcoef(t_sp, b_sz, t_start, t_stop):
-        '''
-
-        :param t_sp:
-        :param b_sz:
-        :return:
-        '''
+        # array dimensioning
+        n_c = np.size(n_spt, axis=1)
+        if len(np.shape(n_spt)) == 2:
+            # if a 2D array, then convert to a 3D array by including a redundant 3rd axis
+            n_t = np.size(n_spt, axis=0)
+            n_spt = np.reshape(n_spt, (n_t, n_c, 1))
 
         # memory allocation
-        n_t, n_c = np.shape(t_sp)
-        cc_phs = np.nan * np.ones((n_c, n_c, n_t))
+        r_pair = np.nan * np.ones((n_c, n_c))
 
-        # REMOVE ME LATER
-        t0 = time.time()
+        # calculates the pair-wise pearson correlations between each cell pair (over all trials)
+        for i_c0 in range(n_c):
+            for i_c1 in range(i_c0 + 1, n_c):
+                # sets up the pairwise array and from this calculates the mean/std dev
+                n_sp_pair = n_spt[:, np.array([i_c0, i_c1]), :]
+                n_sp_mn, n_sp_sd = np.mean(n_sp_pair), np.std(n_sp_pair)
 
-        # loops through each of the trials calculating the corrcoef between each cell
-        for i_t in range(n_t):
-            #
-            st = [neo.SpikeTrain(x * pq.s, t_start=t_start * pq.s, t_stop=t_stop * pq.s) for x in t_sp[i_t, :]]
+                # calculates the pair-wise pearson correlations
+                z_sp_pair = (n_sp_pair - n_sp_mn) / n_sp_sd
+                x, y = z_sp_pair[:, 0, :].flatten(), z_sp_pair[:, 1, :].flatten()
+                r_pair[i_c0, i_c1] = r_pair[i_c1, i_c0] = pr(x, y)[0]
 
-            # calculate the correlation coefficient between each cell pair
-            for i_c1 in range(n_c):
-                for i_c2 in range(i_c1 + 1, n_c):
-                    # sets up the spike train object
-                    #
-                    t_sp_obj = BinnedSpikeTrain([st[i_c1], st[i_c2]], binsize=b_sz * pq.ms,
-                                                t_start=t_start * pq.s, t_stop=t_stop * pq.s)
+        # returns the pairwise correlation array
+        return r_pair
 
-                    # calculates and sets the correlation coefficient values
-                    cc_new = corrcoef(t_sp_obj, binary=True)
-                    cc_phs[i_c1, i_c2, i_t] = cc_phs[i_c2, i_c1, i_t] = cc_new[0, 1]
+    # array dimensioning and memory allocation
+    n_cond = len(d_data.ttype)
+    n_ex, n_t, n_dim = len(n_sp), int(np.size(n_sp[0], axis=0) / (2 * n_cond)), len(np.shape(n_sp[0]))
+    d_data.pw_corr = np.empty(n_ex, dtype=object)
 
-        # REMOVE ME LATER
-        print('Time = {}'.format(time.time() - t0))
-
-        #
-        a = 1
-
-    # memory allocation
-    n_ex = len(t_sp)
-    cc = np.empty(n_ex, dtype=object)
-
-    #
     for i_ex in range(n_ex):
-        # memory allocation for experiment cc calculations
-        n_t, n_c = int(np.size(t_sp[i_ex], axis=0) / (2 * n_cond)), np.size(t_sp[i_ex], axis=1)
-        cc[i_ex], ind = np.zeros((n_c, n_c, 2 * n_cond)), np.array(range(n_t))
-
-        #
-        for i_cond in range(2 * n_cond):
-            # retrieves the sub array
-            t_sp_sub = t_sp[i_ex][ind + (i_cond * n_t), :]
-            # cc[i_ex][:, :, i_cond] = calc_phase_corrcoef(t_sp_sub, b_sz, t_start, t_stop)
-            cc[i_ex][:, :, i_cond] = calc_phase_mutinfo(t_sp_sub, b_sz, t_start, t_stop)
-
-    # returns the final correlation coefficient array
-    return cc
-
-    # REMOVE ME LATER
-    a = 1
+        if n_dim == 2:
+            # case is analysing non-shuffled data
+            d_data.pw_corr[i_ex] = [
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 1) * n_t), :]) for i in range(2 * n_cond)
+            ]
+        else:
+            # case is analysing shuffled data
+            d_data.pw_corr[i_ex] = [
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 1) * n_t), :, :]) for i in range(2 * n_cond)
+            ]
 
 
 def run_part_lda_pool(p_data):
@@ -1252,7 +1185,8 @@ def run_part_lda_pool(p_data):
     return [n_cell, results[1]]
 
 
-def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None):
+def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None,
+                is_shuffle=False, w_prog=None, calc_corr=False):
     '''
 
     :param data:
@@ -1297,7 +1231,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         :return:
         '''
 
-        def shuffle_trial_counts(n_sp, t_sp, n_t):
+        def shuffle_trial_counts(n_sp, n_t):
             '''
 
             :param n_sp:
@@ -1317,10 +1251,10 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 ind_c = np.hstack((ind_c0, ind_c0 + n_t, ind_c1 + (2 * n_t), ind_c1 + (3 * n_t)))
 
                 # shuffles the trials for the current cell
-                n_sp[:, i_cell], t_sp[:, i_cell] = n_sp[ind_c, i_cell], t_sp[ind_c, i_cell]
+                n_sp[:, i_cell] = n_sp[ind_c, i_cell]
 
             # returns the array
-            return n_sp, t_sp
+            return n_sp
 
         # memory allocation and initialisations
         n_sp, t_sp, i_grp = [], [], []
@@ -1360,15 +1294,16 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
         # shuffles the trials (if required)
         if is_shuffle:
-            n_sp, t_sp = shuffle_trial_counts(n_sp, t_sp, n_trial_max)
+            n_sp = shuffle_trial_counts(n_sp, n_trial_max)
 
         # normalises the spike count array (if required)
+        n_sp_calc = dcopy(n_sp)
         if lda_para['is_norm']:
-            n_sp_mn, n_sp_sd = np.mean(n_sp, axis=0), np.std(n_sp, axis=0)
-            n_sp = np.divide(n_sp - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
+            n_sp_mn, n_sp_sd = np.mean(n_sp_calc, axis=0), np.std(n_sp_calc, axis=0)
+            n_sp_calc = np.divide(n_sp_calc - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
 
             # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
-            n_sp[:, n_sp_sd == 0] = 0
+            n_sp_calc[:, n_sp_sd == 0] = 0
 
         ###########################################
         ####    LDA PREDICTION CALCULATIONS    ####
@@ -1406,30 +1341,30 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             # fits the one-out-trial lda model
             ii = np.array(range(len(i_grp))) != i_pred
             try:
-                lda.fit(n_sp[ii, :], i_grp[ii])
+                lda.fit(n_sp_calc[ii, :], i_grp[ii])
             except:
                 e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                         'Either choose a different solver or alter the solver parameters before retrying'
-                self.work_error.emit(e_str, 'LDA Analysis Error')
+                w_prog.emit(e_str, 'LDA Analysis Error')
                 return None, False
 
             # calculates the model prediction from the remaining trial and increments the confusion matrix
-            lda_pred[i_pred] = lda.predict(n_sp[i_pred, :].reshape(1, -1))
-            p_mat[i_pred, :] = lda.predict_proba(n_sp[i_pred, :].reshape(1, -1))
+            lda_pred[i_pred] = lda.predict(n_sp_calc[i_pred, :].reshape(1, -1))
+            p_mat[i_pred, :] = lda.predict_proba(n_sp_calc[i_pred, :].reshape(1, -1))
             c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
 
             # fits the one-out-trial shuffled lda model
             ind_chance = np.random.permutation(len(i_grp) - 1)
-            lda.fit(n_sp[ii, :], i_grp[ii][ind_chance])
+            lda.fit(n_sp_calc[ii, :], i_grp[ii][ind_chance])
 
             # calculates the chance model prediction from the remaining trial and increments the confusion matrix
-            lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp[i_pred, :], (1, n_cell)))
+            lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp_calc[i_pred, :], (1, n_cell)))
             c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
 
         # calculates the LDA transform values (uses svd solver to accomplish this)
         if lda_para['solver_type'] != 'lsqr':
             # memory allocation
-            lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp, i_grp)
+            lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp_calc, i_grp)
 
             # calculates the variance explained
             if len(lda_X0.explained_variance_ratio_) == 2:
@@ -1439,7 +1374,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
 
             # separates the transform values into the individual groups
-            lda_X0T = lda_X0.transform(n_sp)
+            lda_X0T = lda_X0.transform(n_sp_calc)
             for ig in range(n_grp):
                 lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
         else:
@@ -1451,7 +1386,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
             'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
             'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
-        }, t_sp, True
+        }, n_sp, True
 
     # initialisations
     lda_para = calc_para['lda_para']
@@ -1464,7 +1399,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
     # memory allocation and other initialisations
     A = np.empty(r_obj.n_expt, dtype=object)
-    lda, exp_name, t_sp = dcopy(A), dcopy(A), dcopy(A)
+    lda, exp_name, n_sp = dcopy(A), dcopy(A), dcopy(A)
     ind_t, n_ex = np.array(range(n_trial_max)), r_obj.n_expt
 
     # memory allocation for accuracy binary mask calculations
@@ -1483,7 +1418,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
-        lda[i_ex], t_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para,
+        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para,
                                                         i_cell[i_ex], ind_t, i_ex, is_shuffle)
         if not ok:
             # if there was an error, then exit with a false flag
@@ -1502,7 +1437,6 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.lda = lda
         d_data.y_acc = y_acc
         d_data.exp_name = exp_name
-        d_data.t_sp = t_sp
 
         # sets the solver parameters
         set_lda_para(d_data, lda_para, r_filt, n_trial_max)
@@ -1512,11 +1446,15 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.tphase = t_phase
         d_data.usefull = calc_para['use_full_rot']
 
+        # calculates the noise correlation (if required)
+        if calc_corr:
+            calc_noise_correl(d_data, n_sp)
+
         # returns a true value
         return True
     elif is_shuffle:
         # otherwise, return the calculated values
-        return [lda, y_acc, exp_name, t_sp]
+        return [lda, y_acc, exp_name, n_sp]
     else:
         # otherwise, return the calculated values
         return [lda, y_acc, exp_name]

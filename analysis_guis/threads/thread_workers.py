@@ -371,7 +371,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                                            d_data=data.discrim.dir, w_prog=self.work_progress, calc_corr=True):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -383,7 +383,7 @@ class WorkerThread(QThread):
                     self.work_finished.emit(thread_data)
                     return
 
-            elif self.thread_job_secondary == 'Partial LDA Analysis':
+            elif self.thread_job_secondary == 'Pooling LDA Analysis':
                 # resets the minimum cell count
                 calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
 
@@ -1302,7 +1302,7 @@ class WorkerThread(QThread):
 
         :param data:
         :param calc_para:
-        :param r_filt:
+        :param r_filt:00
         :param i_expt:
         :param i_cell:
         :param n_trial_max:
@@ -1330,7 +1330,7 @@ class WorkerThread(QThread):
         # creates a reduce data object and creates the rotation filter object
         n_ex, n_sh, n_cond = len(i_expt), calc_para['n_shuffle'], len(r_filt['t_type'])
         d_data.y_acc = np.empty((n_ex, n_cond + 1, n_sh), dtype=object)
-        d_data.t_sp = np.empty((n_ex, n_sh), dtype=object)
+        n_sp = np.empty((n_ex, n_sh), dtype=object)
 
         # runs the LDA for each of the shuffles
         for i_sh in range(n_sh):
@@ -1345,7 +1345,7 @@ class WorkerThread(QThread):
                 return False
             else:
                 # otherwise, store the lda/accuracy values
-                d_data.y_acc[:, :, i_sh], d_data.t_sp[:, i_sh] = result[1], result[3]
+                d_data.y_acc[:, :, i_sh], n_sp[:, i_sh] = result[1], result[3]
                 if i_sh == 0:
                     # sets the experiment names (for the first shuffle only)
                     d_data.exp_name == result[2]
@@ -1373,6 +1373,10 @@ class WorkerThread(QThread):
         # sets the other parameters
         d_data.nshuffle = n_sh
         # d_data.bsz = calc_para['b_sz']
+
+        # calculates the correlations
+        n_sp_tot = [np.dstack(x) for x in n_sp]
+        cfcn.calc_noise_correl(d_data, n_sp_tot)
 
         # returns a true value indicating the calculations were successful
         return True
@@ -1505,7 +1509,7 @@ class WorkerThread(QThread):
         #############################################
 
         # initialisations
-        xi = [1, 2, 5, 10, 15, 20, 30, 40, 50]
+        xi = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50]
         y_acc_d, w_prog = data.discrim.dir.y_acc, self.work_progress
         n_expt, n_cond, n_xi, n_sh = min([3, len(i_expt)]), len(r_filt['t_type']), len(xi), calc_para['n_shuffle']
 
@@ -1519,7 +1523,7 @@ class WorkerThread(QThread):
         # loops through each of the cell counts calculating the partial LDA
         for i_sh in range(n_sh):
             # updates the progressbar
-            w_str = 'Partial LDA Calculations (Shuffle {0} of {1})'.format(i_sh + 1, n_sh)
+            w_str = 'Pooling LDA Calculations (Shuffle {0} of {1})'.format(i_sh + 1, n_sh)
             w_prog.emit(w_str, 100. * (i_sh / n_sh))
 
             # runs the analysis based on the operating system
@@ -2715,10 +2719,15 @@ class WorkerThread(QThread):
 
                 #
                 if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
-                    is_equal += [
-                        d_data.tofs == t_ofs,
-                        d_data.tphase == t_phase,
-                    ]
+                    if d_data.usefull:
+                        is_equal += [
+                            d_data.usefull == calc_para['use_full_rot']
+                        ]
+                    else:
+                        is_equal += [
+                            d_data.tofs == t_ofs,
+                            d_data.tphase == t_phase,
+                        ]
 
                     if d_data.type == 'TrialShuffle':
                         is_equal += [
