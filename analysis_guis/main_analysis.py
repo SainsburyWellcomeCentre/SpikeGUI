@@ -5158,7 +5158,6 @@ class AnalysisGUI(QMainWindow):
             ax.set_xlabel('Phase Duration (s)')
             ax.set_ylim([-1., 101.])
 
-
         def create_multi_boxplot(ax, xi, y_acc, t_phase, c):
             '''
 
@@ -5249,7 +5248,7 @@ class AnalysisGUI(QMainWindow):
         ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
         ax[1].grid(plot_grid)
 
-    def plot_individual_lda(self, plot_exp_name, plot_all_expt, plot_cond, plot_grid):
+    def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5258,14 +5257,57 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def create_swarmplot(ax, y_acc, decode_type):
+            '''
+
+            :param ax:
+            :param exp_name:
+            :param y_acc:
+            :return:
+            '''
+
+            # sets the dataframe arrays/parameters
+            c_name = ['Decoding Accuracy (%)', 'Expt Number']
+            y_acc_plt = [np.concatenate(([-5.], 100.* x, [105.])) for x in y_acc]
+
+            # sets up the swarmplot data dictionary
+            sw_dict = {
+                'ax': ax,
+                'x': cf.flat_list(y_acc_plt),
+                'y': cf.flat_list([['#{0}'.format(x + 1)] * len(y) for x, y in zip(range(len(y_acc)), y_acc_plt)]),
+            }
+
+            # creates the swarmplot
+            sns.swarmplot(**sw_dict)
+
+            # creates the mean plot lines
+            mn_hght, c = 0.04 * len(y_acc), ax.collections
+            for i_plt in range(len(y_acc)):
+                x_mn, c_nw = 100. * np.mean(y_acc[i_plt]), to_rgba_array(c[i_plt].get_facecolor()[0, :])
+                ax.plot(x_mn * np.ones(2), i_plt + mn_hght * np.array([-1, 1]), c=c_nw[0], linewidth=2)
+
+            # sets the axis properties
+            ax.set_xlim([0, 100])
+            ax.set_title(decode_type)
+            ax.set_xlabel(c_name[0])
+            ax.set_ylabel(c_name[1])
+
         # initialisations
         d_data_i, d_data_d = self.data.discrim.indiv, self.data.discrim.dir
         n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
         n_h = 4 * d_data_i.ntrial
 
+        #
+        dx_p, col = 0.1, cf.get_plot_col(2)
+        x_p = np.arange(0., 1.001, dx_p)
+
         ###################################
         ####    DATA PRE-PROCESSING    ####
         ###################################
+
+        # bar graph dimensioning
+        d_type = ['Condition'] + ['Dir ({0})'.format(tt) for tt in ttype]
+        id_type = d_type.index(decode_type)
 
         # retrieves the plot values
         if plot_all_expt:
@@ -5273,15 +5315,18 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the mean confusion matrix values
             y_acc = d_data_d.y_acc
+            y_acc_sw = [x[:, id_type] for x in d_data_i.y_acc]
             y_acc_i = np.vstack(d_data_i.y_acc)
 
         else:
             # case is using a specific experiment
             i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
             y_acc, y_acc_i = d_data_d.y_acc[i_expt, :].reshape(1, -1), d_data_i.y_acc[i_expt]
+            y_acc_sw = [d_data_i.y_acc[i_expt][:, id_type]]
 
-        #
-        y_acc_l = [100 * y_acc_i[:, i] for i in range(np.size(y_acc_i, axis=1))]
+        # combines the individual responses into a single list
+        y_acc_mn = np.mean(y_acc, axis=0)
+        # y_acc_l = [100 * y_acc_i[:, i] for i in range(np.size(y_acc_i, axis=1))]
 
         # sets up the heatmap values
         im_h = np.zeros((n_h+1, n_h+1), dtype=int)
@@ -5296,14 +5341,17 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT SETUP    ####
         #############################
 
+        # parameters
+        m_sz = 60
+
         # width ratio
-        w_ratio = [0.4, 0.0]
+        w_ratio = [0.3, 0.0]
         w_ratio[1] = 1 - np.sum(w_ratio)
 
         # creates the gridspec object
-        top, bottom, wspace, hspace = 0.98, 0.06, 0.2, 0.2
+        top, bottom, wspace, hspace = 0.96, 0.06, 0.2, 0.2
         gs = gridspec.GridSpec(1, 2, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.065, right=0.96, bottom=bottom, top=top, hspace=0.15)
+                               wspace=wspace, left=0.05, right=0.96, bottom=bottom, top=top, hspace=0.15)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(3, dtype=object)
@@ -5314,58 +5362,57 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT CREATIONS    ####
         #################################
 
-        # bar graph dimensioning
-        y_acc_mn = np.mean(y_acc, axis=0)
-        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9, 105.
-        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
-
-        # plots the mean/chance accuracy values
-        col, b_col, m_sz = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1), 60
-        self.plot_fig.ax[0].bar(x_bar, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
-
-        # sets the plot values and creates the final plot based on the selected type
-        # creates the final plot based on the selected type
-        b_col = ['k'] * len(y_acc_l)
-        # if connect_lines:
-        #     cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
-        #                                   col=b_col[1:], plot_mean=False)
-        # else:
-        cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
-
         #
+        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, decode_type)
 
-
-        # sets the bar plot axis properties
-        self.plot_fig.ax[0].set_xticks(x_bar)
-        self.plot_fig.ax[0].set_xticklabels(bar_lbls)
-        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[0].set_ylim([0, p_mx])
-        self.plot_fig.ax[0].grid(plot_grid)
+        # # plots the mean/chance accuracy values
+        # col, b_col, m_sz = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1), 60
+        # self.plot_fig.ax[0].bar(x_bar, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
+        #
+        # # sets the plot values and creates the final plot based on the selected type
+        # # creates the final plot based on the selected type
+        # b_col = ['k'] * len(y_acc_l)
+        # # if connect_lines:
+        # #     cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
+        # #                                   col=b_col[1:], plot_mean=False)
+        # # else:
+        # cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
+        #
+        # #
+        #
+        #
+        # # sets the bar plot axis properties
+        # self.plot_fig.ax[0].set_xticks(x_bar)
+        # self.plot_fig.ax[0].set_xticklabels(bar_lbls)
+        # self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
+        # self.plot_fig.ax[0].set_ylim([0, p_mx])
+        # self.plot_fig.ax[0].grid(plot_grid)
 
         # creates the scatterplot
         i_plt = np.where(im_h > 0)
         x_plt, y_plt, z_plt = i_plt[0], i_plt[1], im_h[i_plt[0], i_plt[1]]
         m_col = cf.get_plot_col(max(z_plt))
-        s_col = [m_col[x-1] for x in z_plt]
+        s_col = [m_col[x - 1] for x in z_plt]
 
-        self.plot_fig.ax[1].scatter(x_plt, y_plt, marker='o', c=s_col, s=m_sz * (z_plt / max(z_plt)))
+        self.plot_fig.ax[1].scatter(x_plt, y_plt, facecolors='none', edgecolors=s_col, s=m_sz * (z_plt / max(z_plt)))
 
         # plots the region demarkation lines
-        ax_lim, a = [0, n_h], np.ones(2)
+        ax_lim, a = [-dx_p * n_h / 4, n_h * (1 + dx_p / 4)], np.ones(2)
         self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'r--')
-        self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, '--', c=col[1], linewidth=2)
+        self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, '--', c=col[0], linewidth=2)
         self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'r--')
-        self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, '--', c=col[2], linewidth=2)
+        self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, '--', c=col[1], linewidth=2)
 
         # sets the axis properties
-        x_p = np.arange(0., 1.001, 0.1)
         self.plot_fig.ax[1].set_xticks(x_p * n_h)
         self.plot_fig.ax[1].set_yticks(x_p * n_h)
         self.plot_fig.ax[1].set_xticklabels((100. * x_p).astype(int))
         self.plot_fig.ax[1].set_yticklabels((100. * x_p).astype(int))
         self.plot_fig.ax[1].set_xlabel('{0} Decoding Accuracy (%)'.format(ttype[0]))
         self.plot_fig.ax[1].set_ylabel('{0} Decoding Accuracy (%)'.format(ttype[1]))
-        self.plot_fig.ax[1].grid(False)
+        self.plot_fig.ax[1].set_xlim(ax_lim)
+        self.plot_fig.ax[1].set_ylim(ax_lim)
+        self.plot_fig.ax[1].grid(plot_grid)
 
         # # creates the scatter plot of the accuracy groups
         # for ig, cg in zip(i_grp, col_grp):
@@ -8765,7 +8812,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': indiv_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max']}
+                'def_val': indiv_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max']},
+                'para_reset': [['decode_type', self.reset_decode_type]]
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
@@ -8790,7 +8838,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
             },
-            'plot_cond': {
+            'decode_type': {
                 'type': 'L', 'text': 'Decoding Accuracy Plot Type', 'list': decode_type, 'def_val': decode_type[0]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -9620,9 +9668,45 @@ class AnalysisFunctions(object):
         h_lbl.setEnabled(data.classify.is_set)
         h_list.setEnabled(data.classify.is_set)
 
+    def reset_decode_type(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # retrieves the list object corresponding to the parameter
+        h_list = self.find_obj_handle([QComboBox], p_name)[0]
+        curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
+
+        # checks if there is a change in the comparison conditions
+        nw_txt = ['Condition'] + ['Dir ({0})'.format(x) for x in dcopy(exp_info['comp_cond'])]
+        if set(nw_txt) != set(curr_txt):
+            # determines the plot function that is currently selected
+            d_grp = self.details[self.get_plot_grp_fcn()]
+            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+            # sets the list selection index (if current selection is gone, then set to zero)
+            i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
+
+            # removes the existing items
+            for i in range(h_list.count()):
+                h_list.removeItem(0)
+
+            # adds the new range
+            for txt in nw_txt:
+                h_list.addItem(txt)
+
+            # resets the associated parameter value
+            h_list.setCurrentIndex(i_sel)
+            self.curr_para[p_name] = nw_txt[i_sel]
+            d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
     def reset_plot_cond(self, exp_info, p_name):
         '''
 
+        :param exp_info:
         :param p_name:
         :return:
         '''
