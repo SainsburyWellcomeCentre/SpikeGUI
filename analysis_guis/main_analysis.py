@@ -5394,15 +5394,17 @@ class AnalysisGUI(QMainWindow):
             pw_corr = [[] for _ in range(len(d_data.pw_corr))]
 
             #
-            for i in range(len(pw_s)):
+            for i in range(len(pw_corr)):
                 pw_tmp = [[] for _ in range(len(d_data.pw_corr[i]))]
                 for j in range(len(pw_tmp)):
                     i_triu = np.triu(d_data.pw_corr[i][j] + 2, k=1)
                     pw_tmp[j] = i_triu[i_triu != 0] - 2
 
                 pw_corr[i] = np.vstack(pw_tmp).T
+                ii = np.logical_not(np.any(np.isnan(pw_corr[i]), axis=1))
+                pw_corr[i] = pw_corr[i][ii, :]
 
-            #
+            # returns the final combined array
             return np.vstack(pw_corr)
 
         def create_correl_subfig(ax, d_data_s, d_data_ns, ttype, plot_grid):
