@@ -1435,6 +1435,8 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     if d_data is not None:
         # sets the lda values
         d_data.lda = lda
+        d_data.i_expt = i_ex
+        d_data.i_cell = i_cell
         d_data.y_acc = y_acc
         d_data.exp_name = exp_name
 

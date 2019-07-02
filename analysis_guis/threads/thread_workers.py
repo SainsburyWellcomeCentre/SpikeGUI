@@ -1283,6 +1283,8 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.exp_name = result[2]
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
         # sets the other calculation parameters
@@ -1363,6 +1365,8 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
         # sets the phase offset/duration parameters
@@ -1448,6 +1452,8 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
 
         # sets the phase offset/duration
@@ -1565,6 +1571,8 @@ class WorkerThread(QThread):
 
         # sets the solver parameters
         d_data.lda = 1
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=['n_cell_min'])
 
         # sets the phase offset/duration parametrs

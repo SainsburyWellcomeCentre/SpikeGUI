@@ -10230,6 +10230,8 @@ class SubDiscriminationData(object):
         self.type = type
 
         self.lda = None
+        self.i_expt = None
+        self.i_cell = None
         self.y_acc = None
         self.exp_name = None
         self.pw_corr = None
