@@ -24,11 +24,14 @@ iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 ########################################################################################################################
 
 class LoadExpt(QDialog):
-    def __init__(self, parent=None, loaded_data=[], def_dir=None):
+    def __init__(self, parent=None, data=[], def_dir=None):
         # creates the object
         super(LoadExpt, self).__init__(parent)
 
-        # other initialisations
+        # initialisations
+        loaded_data, i_type = data._cluster, 0
+
+        # attribute initialisations
         self.can_close = False
         self.is_ok = False
         self.def_dir = def_dir
@@ -38,15 +41,19 @@ class LoadExpt(QDialog):
         # sets the loaded experimental file names
         if len(loaded_data):
             # if there is previously loaded data,  then set the experiment file locations/names
-            self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
-            self.exp_files = [x['expFile'] for x in loaded_data]
+            if data.multi.is_multi:
+                self.exp_name, self.exp_files = data.multi.names, data.multi.files
+                i_type = 1 + int('.mdata' in data.multi.files[0])
+            else:
+                self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
+                self.exp_files = [x['expFile'] for x in loaded_data]
         else:
             # otherwise, then set empty data arrays
             self.exp_name, self.exp_files = [], []
 
         # initialises the experiment/control button objects
         self.init_dialog_obj()
-        self.init_expt_obj()
+        self.init_expt_obj(i_type)
         self.init_control_obj()
 
         # ensures the gui has a fixed size
@@ -71,7 +78,7 @@ class LoadExpt(QDialog):
         self.setWindowTitle("Load Experimental Data")
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
-    def init_expt_obj(self):
+    def init_expt_obj(self, i_type):
         '''
 
         :return:
@@ -102,11 +109,16 @@ class LoadExpt(QDialog):
                      'Multiple Processed Experimental Data File (*.mdata)']
         self.expt_type = cf.create_combobox(self.group_expt, l_font, expt_text, dim=QRect(10, 200, 381, 21))
         self.expt_type.setEnabled(len(self.exp_name) == 0)
+        self.expt_type.setCurrentIndex(i_type)
 
         # sets the other button objects
         self.push_rmv.setEnabled(len(self.exp_files))
         self.push_add.setIconSize(QSize(31, 31))
         self.push_rmv.setIconSize(QSize(31, 31))
+
+        # if a multi-data file is already loaded, then disable the add button
+        if '*.mdata' in expt_text[i_type]:
+            self.push_add.setEnabled(False)
 
     def init_control_obj(self):
         '''

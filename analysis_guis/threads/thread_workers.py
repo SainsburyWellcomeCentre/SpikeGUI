@@ -1323,7 +1323,7 @@ class WorkerThread(QThread):
 
         # initialisations and memory allocation
         d_data, w_prog = data.discrim.shuffle, self.work_progress
-        if data.lda is not None:
+        if d_data.lda is not None:
             return True
 
         # retrieves the phase duration/offset values
@@ -2730,15 +2730,16 @@ class WorkerThread(QThread):
 
                 #
                 if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
-                    if d_data.usefull:
-                        is_equal += [
-                            d_data.usefull == calc_para['use_full_rot']
-                        ]
-                    else:
-                        is_equal += [
-                            d_data.tofs == t_ofs,
-                            d_data.tphase == t_phase,
-                        ]
+                    if 'use_full_rot' in calc_para:
+                        if d_data.usefull:
+                            is_equal += [
+                                d_data.usefull == calc_para['use_full_rot']
+                            ]
+                        else:
+                            is_equal += [
+                                d_data.tofs == t_ofs,
+                                d_data.tphase == t_phase,
+                            ]
 
                     if d_data.type == 'TrialShuffle':
                         is_equal += [

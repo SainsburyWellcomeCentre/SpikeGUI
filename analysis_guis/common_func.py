@@ -2393,3 +2393,23 @@ def calc_pointwise_diff(x1, x2):
     #
     X1, X2 = np.meshgrid(x1, x2)
     return np.abs(X1 - X2)
+
+
+def check_existing_file(hParent, out_file):
+    '''
+
+    :param out_file:
+    :return:
+    '''
+
+    if os.path.exists(out_file):
+        # prompts the user if they want to remove the selected item(s)
+        u_choice = QMessageBox.question(hParent, 'Overwrite Existing File?',
+                                        "File already exists. Are you sure you wish to overwrite this file?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        # returns if user wants to overwrite this file
+        return u_choice == QMessageBox.Yes
+    else:
+        # file doesn't exist so continue as normal
+        return True

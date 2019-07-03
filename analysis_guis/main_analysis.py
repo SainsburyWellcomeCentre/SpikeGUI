@@ -125,6 +125,7 @@ _bright_yellow = (249, 221, 2)
 ########################################################################################################################
 ########################################################################################################################
 
+
 class AnalysisGUI(QMainWindow):
     def __init__(self, parent=None, loaded_data=[]):
         # creates the object
@@ -561,6 +562,9 @@ class AnalysisGUI(QMainWindow):
                             self.data._cluster.append(loaded_data)
                         else:
                             self.data, init_data = loaded_data, False
+                            if not hasattr(loaded_data, 'multi'):
+                                self.data.multi = MultiFileData()
+                                self.data.multi.set_multi_file_data(self.worker[iw].thread_job_para[0])
 
                 # sets up the analysis functions and resets the current parameter fields
                 self.fcn_data.init_all_func()
@@ -893,12 +897,24 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def has_multi_file(multi):
+            '''
+
+            :param multi:
+            :return:
+            '''
+
+            if multi.is_multi:
+                return '.mdata' in multi.files[0]
+            else:
+                return False
+
         # if data output is currently in progress then output an error an exit the function
         if self.is_thread_running():
             return
 
         # if the loaded data is not
-        load_dlg = load_expt.LoadExpt(loaded_data=self.data._cluster,def_dir=self.def_data['dir'])
+        load_dlg = load_expt.LoadExpt(data=self.data, def_dir=self.def_data['dir'])
         if load_dlg.is_ok:
             # clears the plot axes
             try:
@@ -912,16 +928,31 @@ class AnalysisGUI(QMainWindow):
 
             # sets the analysis scope label string
             if load_dlg.is_multi:
+                # case is multi data file
                 self.is_multi = True
                 self.lbl_analy_scope.setText('Multi-Experiment')
             else:
+                # case is single data file(s)
                 self.is_multi = False
                 self.lbl_analy_scope.setText('Single Experiment')
 
             # removes any loaded data not in the final selection
-            for i in reversed(range(len(self.data._cluster))):
-                if cf.extract_file_name(self.data._cluster[i]['expFile']) not in load_dlg.exp_name:
-                    self.data._cluster.pop(i)
+            if has_multi_file(self.data.multi):
+                # re-initialises the data class
+                if load_dlg.exp_files[0] == self.data.multi.files[0]:
+                    return
+                else:
+                    self.data = AnalysisData()
+            else:
+                for i in reversed(range(len(self.data._cluster))):
+                    if cf.extract_file_name(self.data._cluster[i]['expFile']) not in load_dlg.exp_name:
+                        self.data._cluster.pop(i)
+
+            # updates the multi-file data struct
+            if self.is_multi:
+                self.data.multi.set_multi_file_data(load_dlg)
+            else:
+                self.data.multi.set_multi_file_data(None)
 
             # determines if the comparison datasets have been set
             if self.data.comp.is_set:
@@ -1170,7 +1201,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def save_multi_comp_file(out_info):
+        def save_multi_comp_file(self, out_info):
             '''
 
             :return:
@@ -1178,6 +1209,9 @@ class AnalysisGUI(QMainWindow):
 
             # sets the output file name
             out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
+            if not cf.check_existing_file(self, out_file):
+                # if the file does exists and the user doesn't want to overwrite then exit
+                return
 
             # creates the multi-experiment data file based on the type
             data_out = {'data': None, 'comp_data': self.data.comp}
@@ -1188,11 +1222,17 @@ class AnalysisGUI(QMainWindow):
             with open(out_file, 'wb') as fw:
                 p.dump(data_out, fw)
 
-        def save_multi_data_file(out_info):
+        def save_multi_data_file(self, out_info):
             '''
 
             :return:
             '''
+
+            # determines if the file exists
+            out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
+            if not cf.check_existing_file(self, out_file):
+                # if the file does exists and the user doesn't want to overwrite then exit
+                return
 
             # starts the worker thread
             iw = self.det_avail_thread_worker()
@@ -1223,9 +1263,9 @@ class AnalysisGUI(QMainWindow):
         out_info = cfig_dlg.get_info()
         if out_info is not None:
             if is_comp:
-                save_multi_comp_file(out_info)
+                save_multi_comp_file(self, out_info)
             else:
-                save_multi_data_file(out_info)
+                save_multi_data_file(self, out_info)
 
     def set_default(self):
         '''
@@ -5341,7 +5381,7 @@ class AnalysisGUI(QMainWindow):
             # case is using all the experiments
 
             # calculates the mean confusion matrix values
-            y_acc, exp_name = d_data_d.y_acc, d_data_d.exp_name
+            y_acc, exp_name = d_data_d.y_acc, d_data_i.exp_name
             y_acc_sw = [x[:, id_type] for x in d_data_i.y_acc]
             y_acc_i = np.vstack(d_data_i.y_acc)
 
@@ -5350,7 +5390,7 @@ class AnalysisGUI(QMainWindow):
             i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
             y_acc, y_acc_i = d_data_d.y_acc[i_expt, :].reshape(1, -1), d_data_i.y_acc[i_expt]
             y_acc_sw = [d_data_i.y_acc[i_expt][:, id_type]]
-            exp_name = [d_data_d.exp_name[i_expt]]
+            exp_name = [d_data_i.exp_name[i_expt]]
 
         # combines the individual responses into a single list
         y_acc_mn = np.mean(y_acc, axis=0)
@@ -9932,6 +9972,7 @@ class AnalysisFunctions(object):
 ########################################################################################################################
 ########################################################################################################################
 
+
 class AnalysisData(object):
     def __init__(self):
         # field initialisation
@@ -9941,6 +9982,7 @@ class AnalysisData(object):
         self.classify = ClassifyData()
         self.rotation = RotationData()
         self.discrim = DiscriminationData()
+        self.multi = MultiFileData()
 
         self.req_update = True
         self.exc_gen_filt = None
@@ -10319,8 +10361,29 @@ class SubDiscriminationData(object):
             self.xi_phs = None
             self.xi_ofs = None
 
+class MultiFileData(object):
+    def __init__(self):
+
+        # initialisation
+        self.is_multi = False
+        self.names = None
+        self.files = None
+
+    def set_multi_file_data(self, dlg_info):
+        '''
+
+        :param exp_info:
+        :return:
+        '''
+
+        if dlg_info is None:
+            self.is_multi, self.names, self.files = False, None, None
+        else:
+            self.is_multi, self.names, self.files = True, dcopy(dlg_info.exp_name), dcopy(dlg_info.exp_files)
+
 ########################################################################################################################
 ########################################################################################################################
+
 
 class OutputData(object):
     def __init__(self, data):
@@ -10329,6 +10392,7 @@ class OutputData(object):
 
 ########################################################################################################################
 ########################################################################################################################
+
 
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=5, dpi=100):
