@@ -1241,14 +1241,15 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
             # initialisation
             n_cell = np.size(n_sp, axis=1)
+            n_cond = int(np.size(n_sp, axis=0) / (2 * n_t))
 
             # shuffles the trials for each of the cells
             for i_cell in range(n_cell):
                 # sets the permutation array ensures the following:
                 #  * CW/CCW trials are shuffled the same between conditions
                 #  * Trials are shuffled independently between conditions
-                ind_c0, ind_c1 = np.random.permutation(n_t), np.random.permutation(n_t)
-                ind_c = np.hstack((ind_c0, ind_c0 + n_t, ind_c1 + (2 * n_t), ind_c1 + (3 * n_t)))
+                ind_perm = [np.random.permutation(n_t) for _ in range(n_cond)]
+                ind_c = np.hstack([np.hstack((x + 2 * i * n_t, x + (2 * i + 1) * n_t)) for i, x in enumerate(ind_perm)])
 
                 # shuffles the trials for the current cell
                 n_sp[:, i_cell] = n_sp[ind_c, i_cell]
@@ -1590,9 +1591,10 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
     }
 
     # sets the trial count and trial types
+    _lda_para = dcopy(lda_para)
     d_data.ntrial = n_trial_max
 
     # sets the LDA solver parameters
     for ldp in lda_para:
         if ldp not in ignore_list:
-            setattr(d_data, conv_str[ldp], lda_para[ldp])
+            setattr(d_data, conv_str[ldp], _lda_para[ldp])

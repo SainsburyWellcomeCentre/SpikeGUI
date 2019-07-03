@@ -307,111 +307,123 @@ class WorkerThread(QThread):
                         return
 
             elif self.thread_job_secondary == 'Temporal Duration/Offset LDA Analysis':
-                # if the solver parameter have not been set, then initalise them
-                d_data = data.discrim.temp
-
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.temp)
 
-                # sets up the lda values
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, d_data)
-                if status == 0:
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
+                # if the temporal data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.temp.lda is None:
+                    # checks to see if any base LDA calculation parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
-                # if an update in the calculations is required, then run the temporal LDA analysis
-                if status == 2:
-                    if not self.run_temporal_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir)
+                    if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
 
+                    # if an update in the calculations is required, then run the temporal LDA analysis
+                    if status == 2:
+                        if not self.run_temporal_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                            # if there was an error in the calculations, then return an error flag
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
+
             elif self.thread_job_secondary == 'Individual LDA Analysis':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
 
-                # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
-                if status == 0:
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
-                elif status == 2:
-                    # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                # if the individual data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.indiv.lda is None:
+                    # checks to see if any base LDA calculation parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                d_data=data.discrim.dir, w_prog=self.work_progress):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
 
-                # runs the individual LDA
-                if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
+                    # runs the individual LDA
+                    if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
 
             elif self.thread_job_secondary == 'Shuffled LDA Analysis':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
 
-                # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
-                if status == 0:
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
-                elif status == 2:
-                    # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                # if the shuffled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.shuffle.lda is None:
+                    # checks to see if any base LDA calculation parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                d_data=data.discrim.dir, w_prog=self.work_progress):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
 
-                # runs the shuffled LDA
-                if not self.run_shuffled_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
+                    # runs the shuffled LDA
+                    if not self.run_shuffled_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
 
             elif self.thread_job_secondary == 'Pooling LDA Analysis':
-                # resets the minimum cell count
+                # resets the minimum cell count and checks if the pooled parameters have been altered
                 calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
-
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.part)
 
-                # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
-                if status == 0:
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
-                elif status == 2:
-                    # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.part.lda is None:
+                    # checks to see if any base LDA calculation parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                d_data=data.discrim.dir, w_prog=self.work_progress):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
 
-                # runs the partial LDA
-                if not self.run_partial_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
-                    # if there was an error in the calculations, then return an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
+                    # runs the partial LDA
+                    if not self.run_partial_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
 
         elif self.thread_job_primary == 'update_plot':
             pass
@@ -1130,9 +1142,11 @@ class WorkerThread(QThread):
             if d_data_i.lda is not None:
                 # if so, determines the trial type corresponding to the black direction decoding type
                 i_type = next((i for i in range(len(d_data_i.ttype)) if d_data_i.ttype[i] == 'Black'), None)
-                if i_type is not None:
+                if (i_type is not None) and (ind in d_data_i.i_expt):
                     # if the black decoding type is present, remove the cells which have a decoding accuracy above max
-                    is_valid[100. * d_data_i.y_acc[ind][:, i_type + 1] > lda_para['y_acc_max']] = False
+                    ind_g = np.where(d_data_i.i_expt == ind)[0][0]
+                    ii = np.where(d_data_i.i_cell[ind_g])[0]
+                    is_valid[ii[100. * d_data_i.y_acc[ind_g][:, i_type + 1] > lda_para['y_acc_max']]] = False
 
             # if the number of valid cells is less than the reqd count, then set all cells to being invalid
             if np.sum(is_valid) < lda_para['n_cell_min']:
@@ -1313,9 +1327,6 @@ class WorkerThread(QThread):
 
         # initialisations and memory allocation
         d_data, w_prog = data.discrim.shuffle, self.work_progress
-        if d_data.lda is not None:
-            # if there is no change in the parameters, then exit the function
-            return True
 
         # retrieves the phase duration/offset values
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
@@ -1399,9 +1410,6 @@ class WorkerThread(QThread):
 
         # initialisations and memory allocation
         d_data, w_prog = data.discrim.indiv, self.work_progress
-        if d_data.lda is not None:
-            # if there is no change in the parameters, then exit the function
-            return True
 
         ################################################
         ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
@@ -1506,9 +1514,6 @@ class WorkerThread(QThread):
 
         # initialisations
         d_data = data.discrim.part
-        if d_data.lda is not None:
-            # if there is no change in the parameters, then exit the function
-            return True
 
         #############################################
         ####    PARTIAL CELL LDA CALCULATIONS    ####

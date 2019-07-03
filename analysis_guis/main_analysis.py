@@ -5257,7 +5257,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_swarmplot(ax, y_acc, decode_type):
+        def create_swarmplot(ax, y_acc, decode_type, plot_grid):
             '''
 
             :param ax:
@@ -5281,16 +5281,17 @@ class AnalysisGUI(QMainWindow):
             sns.swarmplot(**sw_dict)
 
             # creates the mean plot lines
-            mn_hght, c = 0.04 * len(y_acc), ax.collections
+            mn_hght = max(0.8, 0.04 * len(y_acc))
             for i_plt in range(len(y_acc)):
-                x_mn, c_nw = 100. * np.mean(y_acc[i_plt]), to_rgba_array(c[i_plt].get_facecolor()[0, :])
-                ax.plot(x_mn * np.ones(2), i_plt + mn_hght * np.array([-1, 1]), c=c_nw[0], linewidth=2)
+                x_mn = 100. * np.mean(y_acc[i_plt])
+                ax.plot(x_mn * np.ones(2), i_plt + (mn_hght / 2) * np.array([-1, 1]), c='k', linewidth=2, zorder=100)
 
             # sets the axis properties
             ax.set_xlim([0, 100])
             ax.set_title(decode_type)
             ax.set_xlabel(c_name[0])
             ax.set_ylabel(c_name[1])
+            ax.grid(plot_grid)
 
         # initialisations
         d_data_i, d_data_d = self.data.discrim.indiv, self.data.discrim.dir
@@ -5351,7 +5352,7 @@ class AnalysisGUI(QMainWindow):
         # creates the gridspec object
         top, bottom, wspace, hspace = 0.96, 0.06, 0.2, 0.2
         gs = gridspec.GridSpec(1, 2, width_ratios=w_ratio, figure=self.plot_fig.fig,
-                               wspace=wspace, left=0.05, right=0.96, bottom=bottom, top=top, hspace=0.15)
+                               wspace=wspace, left=0.07, right=0.96, bottom=bottom, top=top, hspace=0.15)
 
         # creates the subplots
         self.plot_fig.ax = np.empty(3, dtype=object)
@@ -5362,31 +5363,8 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT CREATIONS    ####
         #################################
 
-        #
-        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, decode_type)
-
-        # # plots the mean/chance accuracy values
-        # col, b_col, m_sz = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1), 60
-        # self.plot_fig.ax[0].bar(x_bar, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
-        #
-        # # sets the plot values and creates the final plot based on the selected type
-        # # creates the final plot based on the selected type
-        # b_col = ['k'] * len(y_acc_l)
-        # # if connect_lines:
-        # #     cf.create_connected_line_plot(self.plot_fig.ax[0], y_acc_l[1:], X0=x_bar[1:],
-        # #                                   col=b_col[1:], plot_mean=False)
-        # # else:
-        # cf.create_bubble_boxplot(self.plot_fig.ax[0], y_acc_l, plot_median=False, X0=x_bar, col=b_col)
-        #
-        # #
-        #
-        #
-        # # sets the bar plot axis properties
-        # self.plot_fig.ax[0].set_xticks(x_bar)
-        # self.plot_fig.ax[0].set_xticklabels(bar_lbls)
-        # self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
-        # self.plot_fig.ax[0].set_ylim([0, p_mx])
-        # self.plot_fig.ax[0].grid(plot_grid)
+        # creates the individual cell accuracy swarmplot
+        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, decode_type, plot_grid)
 
         # creates the scatterplot
         i_plt = np.where(im_h > 0)
@@ -5398,10 +5376,10 @@ class AnalysisGUI(QMainWindow):
 
         # plots the region demarkation lines
         ax_lim, a = [-dx_p * n_h / 4, n_h * (1 + dx_p / 4)], np.ones(2)
-        self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'r--')
-        self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, '--', c=col[0], linewidth=2)
-        self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'r--')
-        self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, '--', c=col[1], linewidth=2)
+        self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'k--')
+        self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, 'r--', linewidth=2)
+        self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'k--')
+        self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, 'r--', linewidth=2)
 
         # sets the axis properties
         self.plot_fig.ax[1].set_xticks(x_p * n_h)
@@ -5413,18 +5391,6 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_xlim(ax_lim)
         self.plot_fig.ax[1].set_ylim(ax_lim)
         self.plot_fig.ax[1].grid(plot_grid)
-
-        # # creates the scatter plot of the accuracy groups
-        # for ig, cg in zip(i_grp, col_grp):
-        #     h_plt.append(self.plot_fig.ax[1].plot(y_acc_l[1][ig], y_acc_l[2][ig], 'o', c=cg))
-        #
-        #
-        # # sets the bar plot axis properties
-
-        # self.plot_fig.ax[1].set_xlim([0, p_mx])
-        # self.plot_fig.ax[1].set_ylim([0, p_mx])
-        # self.plot_fig.ax[1].legend([x[0] for x in h_plt], grp_lbl, loc=2, ncol=len(grp_lbl))
-        # self.plot_fig.ax[1].grid(plot_grid)
 
     def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, plot_cond, plot_grid):
         '''
@@ -5503,6 +5469,10 @@ class AnalysisGUI(QMainWindow):
                 # sets the plot grid
                 ax[i + 1].grid(plot_grid)
 
+            # plots the zero-correlation lines
+            ax[0].plot([0, 0], [-1, 1], 'k', linewidth=2, zorder=100)
+            ax[0].plot([-1, 1], [0, 0], 'k', linewidth=2, zorder=100)
+
             # sets the axis properties
             ax[0].set_xlim([-1, 1])
             ax[0].set_ylim([-1, 1])
@@ -5511,9 +5481,8 @@ class AnalysisGUI(QMainWindow):
             ax[0].grid(plot_grid)
 
             # sets up the n-value table
-            t_props = cf.add_plot_table(self.plot_fig, 1, table_font, p_str, ['P-Value'], ['CW', 'CCW'],
-                                        cf.get_plot_col(1, 4), cf.get_plot_col(2, 2), 'bottom', p_wid=1.5, n_col=1)
-            # t_props[0]._bbox[0] = (0.5 - t_props[0]._bbox[2] / 2)
+            cf.add_plot_table(self.plot_fig, 1, table_font, p_str, ['P-Value'], ['CW', 'CCW'],
+                              cf.get_plot_col(1, 4), cf.get_plot_col(2, 2), 'bottom', p_wid=1.5, n_col=1)
 
             # resets the position of the vertical bar graph
             l0, b0, w0, h0 = ax[0].get_position().bounds
@@ -9388,17 +9357,17 @@ class AnalysisFunctions(object):
             # updates the current parameter value
             self.curr_para[p_name] = exp_info
 
-        # resets the parameters based on the
-        if para_reset is not None:
-            # flag that the parameters are updating
-            self.is_updating = True
+            # resets the parameters based on the
+            if para_reset is not None:
+                # flag that the parameters are updating
+                self.is_updating = True
 
-            # runs the parameter reset functions
-            for pr in para_reset:
-                pr[1](exp_info, pr[0])
+                # runs the parameter reset functions
+                for pr in para_reset:
+                    pr[1](exp_info, pr[0])
 
-            # flag that the parameters are finished updating
-            self.is_updating = False
+                # flag that the parameters are finished updating
+                self.is_updating = False
 
         #
         if h_sp.update_plot:
