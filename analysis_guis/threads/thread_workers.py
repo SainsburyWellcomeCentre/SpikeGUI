@@ -365,33 +365,29 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Shuffled LDA Analysis':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
-                # if the shuffled data parameters have changed/has not been initialised then calculate the values
-                if data.discrim.shuffle.lda is None:
-                    # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
-
-                    # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
-                    if status == 0:
-                        # if there was an error in the calculations, then return an error flag
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-                    elif status == 2:
-                        # if an update in the calculations is required, then run the rotation LDA analysis
-                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                d_data=data.discrim.dir, w_prog=self.work_progress):
-                            self.is_ok = False
-                            self.work_finished.emit(thread_data)
-                            return
 
-                    # runs the shuffled LDA
-                    if not self.run_shuffled_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
-                        # if there was an error in the calculations, then return an error flag
-                        self.is_ok = False
-                        self.work_finished.emit(thread_data)
-                        return
+                # runs the shuffled LDA
+                if not self.run_shuffled_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
 
             elif self.thread_job_secondary == 'Pooling LDA Analysis':
                 # resets the minimum cell count and checks if the pooled parameters have been altered
@@ -1327,6 +1323,8 @@ class WorkerThread(QThread):
 
         # initialisations and memory allocation
         d_data, w_prog = data.discrim.shuffle, self.work_progress
+        if data.lda is not None:
+            return True
 
         # retrieves the phase duration/offset values
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
