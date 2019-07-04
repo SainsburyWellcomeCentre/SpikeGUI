@@ -5297,7 +5297,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_swarmplot(ax, y_acc, decode_type, exp_name, plot_grid):
+        def create_swarmplot(ax, y_acc, y_acc_pop, decode_type, exp_name, plot_grid):
             '''
 
             :param ax:
@@ -5306,42 +5306,78 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
+            def setup_sns_plot_dict(ax, y_acc, y_acc_plt, **kwargs):
+                '''
+
+                :param ax:
+                :param y_acc:
+                :param y_acc_plt:
+                :return:
+                '''
+
+                # sets up the swarmplot data dictionary
+                sns_dict = {
+                    'ax': ax,
+                    'x': cf.flat_list(y_acc_plt),
+                    'y': cf.flat_list([['#{0}'.format(x + 1)] * len(y) for x, y in zip(range(len(y_acc)), y_acc_plt)]),
+                }
+
+                for key, value in kwargs.items():
+                    sns_dict[key] = value
+
+                # returns the plot dictionary
+                return sns_dict
+
+            def create_marker_line(ax, x_mn, exp_name, i_plt, n_plt, mn_hght, col):
+                '''
+
+                :param x_mn:
+                :param exp_name:
+                :param n_plt:
+                :param mn_hght:
+                :return:
+                '''
+
+                # sets the plot-line label strings
+                lbl_t = 'Expt. Name = {}\nCell Count = {}\nMean Accuracy = {:4.1f}%'.format(exp_name, n_plt, x_mn)
+
+                # creates the line plot and adds it to the datacurson list
+                h_mn_nw, = ax.plot(x_mn * np.ones(2), i_plt + (mn_hght / 2) * np.array([-1, 1]), c=col,
+                                   linewidth=2, zorder=100, label=lbl_t)
+
+                # returns the label string and plot object handle
+                return lbl_t, h_mn_nw
+
             # sets the dataframe arrays/parameters
             c_name = ['Decoding Accuracy (%)', 'Expt Number']
             y_acc_plt = [np.concatenate(([-5.], 100.* x, [105.])) for x in y_acc]
 
-            # sets up the swarmplot data dictionary
-            sw_dict = {
-                'ax': ax,
-                'x': cf.flat_list(y_acc_plt),
-                'y': cf.flat_list([['#{0}'.format(x + 1)] * len(y) for x, y in zip(range(len(y_acc)), y_acc_plt)]),
-            }
-
             # creates the swarmplot
-            sns.swarmplot(**sw_dict)
+            sns.violinplot(**setup_sns_plot_dict(ax, y_acc, y_acc_plt, inner=None))
+            sns.swarmplot(**setup_sns_plot_dict(ax, y_acc, y_acc_plt, color='white', edgecolor='gray'))
 
             # creates the mean plot lines
             mn_hght, h_mn, lbl_trend = min(0.8, 0.04 * len(y_acc)), [], []
             for i_plt in range(len(y_acc)):
-                # calculates the mean accuracy over the experiment
-                x_mn = 100. * np.mean(y_acc[i_plt])
+                # sets the plot values for the current experiment
+                n_plt = len(y_acc[i_plt])
+                x_mn, x_mn_pop = 100. * np.mean(y_acc[i_plt]), 100. * np.mean(y_acc_pop[i_plt])
 
-                # sets the plot-line label strings
-                lbl_t = 'Expt. Name = {}\nCell Count = {}\nMean Accuracy = {:4.1f}%'.format(
-                    exp_name[i_plt], len(y_acc[i_plt]), x_mn
-                )
+                # creates the mean
+                lbl_t, h_plt_nw = create_marker_line(ax, x_mn, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'k')
                 lbl_trend.append(lbl_t)
+                h_mn.append(h_plt_nw)
 
-                # creates the line plot and adds it to the datacurson list
-                h_mn_nw, = ax.plot(x_mn * np.ones(2), i_plt + (mn_hght / 2) * np.array([-1, 1]), c='k',
-                                   linewidth=2, zorder=100, label=lbl_t)
-                h_mn.append(h_mn_nw)
+                # creates the mean
+                lbl_t, h_plt_nw = create_marker_line(ax, x_mn_pop, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'r')
+                lbl_trend.append(lbl_t)
+                h_mn.append(h_plt_nw)
 
             # creates the datacursor
             datacursor(h_mn, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
             # sets the axis properties
-            ax.set_xlim([0, 100])
+            ax.set_xlim([-1, 101])
             ax.set_title(decode_type)
             ax.set_xlabel(c_name[0])
             ax.set_ylabel(c_name[1])
@@ -5427,13 +5463,12 @@ class AnalysisGUI(QMainWindow):
         #################################
 
         # creates the individual cell accuracy swarmplot
-        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, decode_type, exp_name, plot_grid)
+        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, d_data_d.y_acc[:, id_type], decode_type, exp_name, plot_grid)
 
         # creates the scatterplot
         i_plt = np.where(im_h > 0)
         x_plt, y_plt, z_plt = i_plt[0], i_plt[1], im_h[i_plt[0], i_plt[1]]
         m_col = cf.get_plot_col(max(z_plt))
-        s_col = [m_col[x - 1] for x in z_plt]
 
         # sets the datacursor labels
         lbl = [
@@ -5443,7 +5478,7 @@ class AnalysisGUI(QMainWindow):
         ]
 
         # creates the scatterplot
-        h = self.plot_fig.ax[1].scatter(x_plt, y_plt, facecolors='none', edgecolors=s_col, s=m_sz * (z_plt / max(z_plt)))
+        h = self.plot_fig.ax[1].scatter(x_plt, y_plt, edgecolors='k', s=m_sz * (z_plt / max(z_plt)))
         datacursor(h, formatter=formatter, point_labels=lbl, hover=True)
 
         # plots the region demarkation lines

@@ -334,27 +334,25 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Individual LDA Analysis':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
-                # if the individual data parameters have changed/has not been initialised then calculate the values
-                if data.discrim.indiv.lda is None:
-                    # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
-
-                    # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
-                    if status == 0:
-                        # if there was an error in the calculations, then return an error flag
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-                    elif status == 2:
-                        # if an update in the calculations is required, then run the rotation LDA analysis
-                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                d_data=data.discrim.dir, w_prog=self.work_progress):
-                            self.is_ok = False
-                            self.work_finished.emit(thread_data)
-                            return
 
+                # if the individual data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.indiv.lda is None:
                     # runs the individual LDA
                     if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
                         # if there was an error in the calculations, then return an error flag
