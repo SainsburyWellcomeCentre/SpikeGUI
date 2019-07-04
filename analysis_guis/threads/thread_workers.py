@@ -1141,6 +1141,7 @@ class WorkerThread(QThread):
                     ind_g = np.where(d_data_i.i_expt == ind)[0][0]
                     ii = np.where(d_data_i.i_cell[ind_g])[0]
                     is_valid[ii[100. * d_data_i.y_acc[ind_g][:, i_type + 1] > lda_para['y_acc_max']]] = False
+                    is_valid[ii[100. * d_data_i.y_acc[ind_g][:, i_type + 1] < lda_para['y_acc_min']]] = False
 
             # if the number of valid cells is less than the reqd count, then set all cells to being invalid
             if np.sum(is_valid) < lda_para['n_cell_min']:
@@ -1329,9 +1330,6 @@ class WorkerThread(QThread):
         if t_ofs is None:
             t_ofs, t_phase = 0, 3.5346
 
-        # calculates the stop time of the trial
-        t_stop = t_ofs + t_phase
-
         ###############################################
         ####    SHUFFLED TRIAL LDA CALCULATIONS    ####
         ###############################################
@@ -1358,10 +1356,6 @@ class WorkerThread(QThread):
                 if i_sh == 0:
                     # sets the experiment names (for the first shuffle only)
                     d_data.exp_name == result[2]
-
-                # # calculates the spike train correlation coefficients
-                # d_data.corr[i_sh] = cfcn.calc_tspike_corrcoef(d_data.t_sp[i_sh], calc_para['b_sz'],
-                #                                               n_cond, t_ofs, t_stop)
 
         #######################################
         ####    HOUSE KEEPING EXERCISES    ####
@@ -2723,6 +2717,7 @@ class WorkerThread(QThread):
                     d_data.cellmin == lda_para['n_cell_min'],
                     d_data.trialmin == lda_para['n_trial_min'],
                     d_data.yaccmx == lda_para['y_acc_max'],
+                    d_data.yaccmn == lda_para['y_acc_min'],
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
 

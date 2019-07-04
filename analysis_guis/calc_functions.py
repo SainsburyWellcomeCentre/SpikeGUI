@@ -1108,7 +1108,7 @@ def calc_noise_correl(d_data, n_sp):
     :return:
     '''
 
-    def calc_pw_noise_correl(n_spt):
+    def calc_pw_noise_correl(n_spt0):
         '''
 
         :param n_spt:
@@ -1116,11 +1116,14 @@ def calc_noise_correl(d_data, n_sp):
         '''
 
         # array dimensioning
-        n_c = np.size(n_spt, axis=1)
-        if len(np.shape(n_spt)) == 2:
+        n_t0, n_c = int(np.size(n_spt0, axis=0) / 2), np.size(n_spt0, axis=1)
+
+        # array dimensioning
+        if len(np.shape(n_spt0)) == 2:
             # if a 2D array, then convert to a 3D array by including a redundant 3rd axis
-            n_t = np.size(n_spt, axis=0)
-            n_spt = np.reshape(n_spt, (n_t, n_c, 1))
+            n_spt = np.reshape(n_spt0[:n_t0, :] + n_spt0[n_t0:, :], (n_t0, n_c, 1))
+        else:
+            n_spt = n_spt0[:n_t0, :, :] + n_spt0[n_t0:, :, :]
 
         # memory allocation
         r_pair = np.nan * np.ones((n_c, n_c))
@@ -1149,12 +1152,12 @@ def calc_noise_correl(d_data, n_sp):
         if n_dim == 2:
             # case is analysing non-shuffled data
             d_data.pw_corr[i_ex] = [
-                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 1) * n_t), :]) for i in range(2 * n_cond)
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :]) for i in range(n_cond)
             ]
         else:
             # case is analysing shuffled data
             d_data.pw_corr[i_ex] = [
-                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 1) * n_t), :, :]) for i in range(2 * n_cond)
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :]) for i in range(n_cond)
             ]
 
 
@@ -1449,6 +1452,10 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.tphase = t_phase
         d_data.usefull = calc_para['use_full_rot']
 
+        # updates the progress bar (if provided)
+        if w_prog is not None:
+            w_prog.emit('Calculating Pairwise Correlations...', 99.)
+
         # calculates the noise correlation (if required)
         calc_noise_correl(d_data, n_sp)
 
@@ -1472,6 +1479,7 @@ def init_lda_solver_para():
         'comp_cond': ['Black', 'Uniform'],
         'cell_types': 'All Cells',
         'y_acc_max': 100,
+        'y_acc_min': 0,
     }
 
 
@@ -1533,6 +1541,7 @@ def init_lda_para(d_data):
         lda_para['comp_cond'] = set_lda_para(lda_para['comp_cond'], d_data.ttype)
         lda_para['cell_types'] = set_lda_para(lda_para['cell_types'], d_data.ctype)
         lda_para['y_acc_max'] = set_lda_para(lda_para['y_acc_max'], d_data.yaccmx)
+        lda_para['y_acc_min'] = set_lda_para(lda_para['y_acc_min'], d_data.yaccmn)
 
     # sets the default parameters based on the type
     if d_data.type in ['Direction', 'Individual']:
@@ -1587,6 +1596,7 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
         'is_norm': 'norm',
         'cell_types': 'ctype',
         'y_acc_max': 'yaccmx',
+        'y_acc_min': 'yaccmn',
         'comp_cond': 'ttype',
     }
 

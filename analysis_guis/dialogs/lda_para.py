@@ -102,7 +102,8 @@ class LDASolverPara(QDialog):
         cell_types = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         num_types = ['Min Cell Count: ', 'Min Trial Count: ']
         check_types = ['Normalise Counts? ', 'Use LDA Shrinkage? ']
-        acc_types = ['Max Individual Decoding Accuracy']
+        max_acc_types = ['Max Individual Decoding Accuracy']
+        min_acc_types = ['Min Individual Decoding Accuracy']
 
         # sets the filter field parameter information
         self.fields = [
@@ -111,7 +112,8 @@ class LDASolverPara(QDialog):
             ['LDA Solver Type', 'ListGroup', 'solver_type', solver_type, True, ['use_shrinkage', 'svd']],
             ['Comparison Conditions', 'CheckCombo', 'comp_cond', comp_cond, True, None],
             ['Cell Signal Types', 'ListGroup', 'cell_types', cell_types, self.data.classify.is_set, None],
-            ['', 'NumberGroup', ['y_acc_max'], acc_types, self.data.discrim.indiv.lda is not None, None],
+            ['', 'NumberGroup', ['y_acc_max'], max_acc_types, self.data.discrim.indiv.lda is not None, None],
+            ['', 'NumberGroup', ['y_acc_min'], min_acc_types, self.data.discrim.indiv.lda is not None, None],
         ]
 
         # removes any other fields (if specified)
@@ -377,14 +379,23 @@ class LDASolverPara(QDialog):
             nw_str = h_obj.text()
             self.is_updating = True
 
+        # sets the number lower/upper limits and the integer flag
+        p_name = self.fields[i_grp][2][i_num]
+        if p_name == 'y_acc_max':
+            min_val, max_val, is_int = self.f_data['y_acc_min'], 100, False
+        elif p_name == 'y_acc_min':
+            min_val, max_val, is_int = 0, self.f_data['y_acc_max'], False
+        else:
+            min_val, max_val, is_int = 0, 1000, True
+
         # determines if the new number is valid
-        nw_val, e_str = cf.check_edit_num(nw_str, min_val=0, is_int=True)
+        nw_val, e_str = cf.check_edit_num(nw_str, min_val=min_val, max_val=max_val, is_int=is_int)
         if e_str is None:
             # if so, then update the parameter value
-            self.f_data[self.fields[i_grp][2][i_num]] = int(nw_str)
+            self.f_data[p_name] = int(nw_str)
         else:
             # otherwise, revert back to the previous valid value
-            h_obj.setText(str(self.f_data[self.fields[i_grp][2][i_num]]))
+            h_obj.setText(str(self.f_data[p_name]))
 
         # resets the update flag
         self.is_updating = False

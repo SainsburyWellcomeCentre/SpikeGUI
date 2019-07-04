@@ -5328,7 +5328,7 @@ class AnalysisGUI(QMainWindow):
                 # returns the plot dictionary
                 return sns_dict
 
-            def create_marker_line(ax, x_mn, exp_name, i_plt, n_plt, mn_hght, col):
+            def create_marker_line(ax, x_mn, exp_name, i_plt, n_plt, mn_hght, col, is_pop):
                 '''
 
                 :param x_mn:
@@ -5339,7 +5339,9 @@ class AnalysisGUI(QMainWindow):
                 '''
 
                 # sets the plot-line label strings
-                lbl_t = 'Expt. Name = {}\nCell Count = {}\nMean Accuracy = {:4.1f}%'.format(exp_name, n_plt, x_mn)
+                lbl_t = 'Expt. Name = {}\nCell Count = {}\n{} Mean Accuracy = {:4.1f}%'.format(
+                    exp_name, n_plt, 'Population' if is_pop else 'Individual Cell', x_mn
+                )
 
                 # creates the line plot and adds it to the datacurson list
                 h_mn_nw, = ax.plot(x_mn * np.ones(2), i_plt + (mn_hght / 2) * np.array([-1, 1]), c=col,
@@ -5364,12 +5366,12 @@ class AnalysisGUI(QMainWindow):
                 x_mn, x_mn_pop = 100. * np.mean(y_acc[i_plt]), 100. * np.mean(y_acc_pop[i_plt])
 
                 # creates the mean
-                lbl_t, h_plt_nw = create_marker_line(ax, x_mn, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'k')
+                lbl_t, h_plt_nw = create_marker_line(ax, x_mn, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'k', False)
                 lbl_trend.append(lbl_t)
                 h_mn.append(h_plt_nw)
 
                 # creates the mean
-                lbl_t, h_plt_nw = create_marker_line(ax, x_mn_pop, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'r')
+                lbl_t, h_plt_nw = create_marker_line(ax, x_mn_pop, exp_name[i_plt][0], i_plt, n_plt, mn_hght, 'r', True)
                 lbl_trend.append(lbl_t)
                 h_mn.append(h_plt_nw)
 
@@ -5392,10 +5394,6 @@ class AnalysisGUI(QMainWindow):
         dx_p, m_sz, col = 0.1, 60, cf.get_plot_col(2)
         x_p = np.arange(0., 1.001, dx_p)
 
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
-
         # determines the indices of the direction trial types
         ind_d1, ind_d2 = ttype.index(dir_type_1), ttype.index(dir_type_2)
         if ind_d1 == ind_d2:
@@ -5407,6 +5405,10 @@ class AnalysisGUI(QMainWindow):
             # sets the acceptance flag to false and exits the function
             self.calc_ok = False
             return
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
 
         # bar graph dimensioning
         d_type = ['Condition'] + ['Dir ({0})'.format(tt) for tt in ttype]
@@ -5433,7 +5435,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets up the heatmap values
         im_h = np.zeros((n_h+1, n_h+1), dtype=int)
-        i_x, i_y = (y_acc_i[:, ind_d1 + 1] * n_h).astype(int), (y_acc_i[:, ind_d2 + 1] * n_h).astype(int)
+        i_y, i_x = (y_acc_i[:, ind_d1 + 1] * n_h).astype(int), (y_acc_i[:, ind_d2 + 1] * n_h).astype(int)
         ind_h, n_hc = np.unique(np.vstack((i_x, i_y)).T, axis=0, return_counts=True)
 
         # creates the heatmap
@@ -5468,7 +5470,6 @@ class AnalysisGUI(QMainWindow):
         # creates the scatterplot
         i_plt = np.where(im_h > 0)
         x_plt, y_plt, z_plt = i_plt[0], i_plt[1], im_h[i_plt[0], i_plt[1]]
-        m_col = cf.get_plot_col(max(z_plt))
 
         # sets the datacursor labels
         lbl = [
@@ -5500,7 +5501,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_title('Direction Decoding Accuracy')
         self.plot_fig.ax[1].grid(plot_grid)
 
-    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, plot_cond, plot_grid):
+    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, dir_type_1, dir_type_2, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5584,12 +5585,12 @@ class AnalysisGUI(QMainWindow):
             # sets the axis properties
             ax[0].set_xlim([-1, 1])
             ax[0].set_ylim([-1, 1])
-            ax[0].set_xlabel('{0} CW Pairwise Correlation'.format(ttype))
-            ax[0].set_ylabel('{0} CCW Pairwise Correlation'.format(ttype))
+            ax[0].set_xlabel('{0} Pairwise Correlation'.format(ttype[0]))
+            ax[0].set_ylabel('{0} Pairwise Correlation'.format(ttype[1]))
             ax[0].grid(plot_grid)
 
             # sets up the n-value table
-            cf.add_plot_table(self.plot_fig, 1, table_font, p_str, ['P-Value'], ['CW', 'CCW'],
+            cf.add_plot_table(self.plot_fig, 1, table_font, p_str, ['P-Value'], ttype,
                               cf.get_plot_col(1, 4), cf.get_plot_col(2, 2), 'bottom', p_wid=1.5, n_col=1)
 
             # resets the position of the vertical bar graph
@@ -5600,6 +5601,18 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         d_data_s, d_data_d = self.data.discrim.shuffle, self.data.discrim.dir
         n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+
+        # determines the indices of the direction trial types
+        ind_d1, ind_d2 = ttype.index(dir_type_1), ttype.index(dir_type_2)
+        if ind_d1 == ind_d2:
+            # if the user selected identical direction trial types, then output an error to screen
+            e_str = 'It is not possible to run this function with identical direction trial types.\n' \
+                    'Re-run this function with unique direction trial types.'
+            cf.show_error(e_str, 'Invalid Trial Type Selection')
+
+            # sets the acceptance flag to false and exits the function
+            self.calc_ok = False
+            return
 
         ###################################
         ####    DATA PRE-PROCESSING    ####
@@ -5694,8 +5707,8 @@ class AnalysisGUI(QMainWindow):
         pw_s, pw_n = get_pw_corr(d_data_d), get_pw_corr(d_data_s)
 
         # creates the correlation sub-figure plots
-        p_col = np.arange(2) + 2 * d_data_s.ttype.index(plot_cond)
-        create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], plot_cond, plot_grid)
+        ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
+        create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
 
     def plot_partial_lda(self, err_type, plot_grid):
         '''
@@ -8889,7 +8902,7 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': indiv_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max']},
+                'def_val': indiv_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max', 'y_acc_min']},
                 'para_reset': [['decode_type', self.reset_decode_type], ['dir_type_1', self.reset_dir_acc_type],
                                ['dir_type_2', self.reset_dir_acc_type]]
             },
@@ -8939,7 +8952,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': shuffle_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond]]
+                'para_reset': [['dir_type_1', self.reset_dir_acc_type], ['dir_type_2', self.reset_dir_acc_type]],
+                'def_val': shuffle_lda_para
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
@@ -8968,8 +8982,13 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
             },
-            'plot_cond': {
-                'type': 'L', 'text': 'Trial Conditions', 'list': cond_type, 'def_val': cond_type[0],
+            'dir_type_1': {
+                'type': 'L', 'text': '1st Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
+                'def_val': indiv_lda_para['comp_cond'][0]
+            },
+            'dir_type_2': {
+                'type': 'L', 'text': '2nd Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
+                'def_val': indiv_lda_para['comp_cond'][1]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -10370,6 +10389,7 @@ class SubDiscriminationData(object):
         self.cellmin = -1
         self.trialmin = -1
         self.yaccmx = -1
+        self.yaccmn = -1
 
         if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
             # case is the direction LDA analysis
