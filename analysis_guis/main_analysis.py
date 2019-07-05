@@ -4842,8 +4842,8 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, connect_lines,
-                              add_accuracy_trend, plot_grid):
+    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, add_accuracy_trend,
+                              output_stats, plot_grid):
         '''
 
         :param plot_transform:
@@ -4948,17 +4948,29 @@ class AnalysisGUI(QMainWindow):
             # returns the trend values
             return y_trend, r_2
 
+        def create_marker_line(ax, x_mn, type, i_plt, n_expt, mn_hght, col):
+            '''
+
+            :param x_mn:
+            :param exp_name:
+            :param n_plt:
+            :param mn_hght:
+            :return:
+            '''
+
+            # sets the plot-line label strings
+            lbl_t = 'Type = {}\nExperiment Count = {}\nMean Accuracy = {:4.1f}%'.format(type, n_expt, x_mn)
+
+            # creates the line plot and adds it to the datacurson list
+            h_mn_nw, = ax.plot(i_plt + (mn_hght / 2) * np.array([-1, 1]), x_mn * np.ones(2), c=col,
+                               linewidth=2, zorder=100, label=lbl_t)
+
+            # returns the label string and plot object handle
+            return lbl_t, h_mn_nw
+
         # initialisations
         d_data = self.data.discrim.dir
         n_cond = len(d_data.ttype)
-
-        if connect_lines:
-            if n_cond != 2:
-                e_str = 'The connect accuracy value option requires 2 trial condition filter options. ' \
-                        'Either de-select the option or alter the filter options.'
-                cf.show_error(e_str, 'Accuracy Connection Line Error')
-                self.calc_ok = False
-                return
 
         # determines if the user if trying to plot the transform values with the lsqr solver type
         if plot_transform:
@@ -5005,9 +5017,9 @@ class AnalysisGUI(QMainWindow):
         y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
         n_cell, is_multi = np.array([x['n_cell'] for x in d_data.lda]), len(d_data.lda)  > 1
 
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
 
         # sets up the axes dimensions
         tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
@@ -5021,24 +5033,30 @@ class AnalysisGUI(QMainWindow):
         # bar graph dimensioning
         x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
         bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data.ttype]
+        lg_str = [x.replace('\n', ' ') for x in bar_lbls]
 
         # creates the gridspec object
         gs = gridspec.GridSpec(2, 4, width_ratios=w_ratio, figure=self.plot_fig.fig,
                                wspace=wspace, left=0.085, right=0.98, bottom=bottom, top=top, hspace=0.14)
 
         # creates the subplots
+        use_extra = is_multi and (not output_stats)
         self.plot_fig.ax = np.empty(4 + is_multi, dtype=object)
         self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, 0])
         self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[:, 1])
         self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, 2])
 
-        if is_multi:
+        if use_extra:
             self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 3])
             self.plot_fig.ax[4] = self.plot_fig.figure.add_subplot(gs[1, 3])
         else:
             self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[:, 3])
 
-        # displays the heatmap
+        ######################################
+        ####    ACCURACY HEATMAP SETUP    ####
+        ######################################
+
+        # heatmap setup
         c_ofs = 2 * n_cond
         create_heatmap_markers(self.plot_fig.ax[0], 100. * c_mat_mn, d_data.ttype)
         im = self.plot_fig.ax[0].imshow(100. * c_mat_mn, aspect='auto', cmap='hot', origin='upper')
@@ -5074,72 +5092,104 @@ class AnalysisGUI(QMainWindow):
         cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
         cbar.set_clim([0., 100.])
 
+        ##########################################
+        ####    ACCURACY SWARM/VIOLINPLOTS    ####
+        ##########################################
+
         # turns off the 3rd axis (not required - only used for providing gap)
         self.plot_fig.ax[2].axis('off')
 
-        # plots the mean/chance accuracy values
-        col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
-        self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc_ch, axis=0), width=w_bar, color=b_col, zorder=2)
+        # sets the x/y plot values
+        x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls])
+        y_plt = 100. * y_acc.T.flatten()
 
+        # creates the violin/swarmplot
+        sns.violinplot(**cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None))
+        sns.swarmplot(**cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, color='white', edgecolor='gray'))
 
-        # creates the bubble plot and the decision line
-        if n_expt > 1:
-            # sets the plot colours and values
-            y_acc_l = [100 * y_acc[:, i] for i in range(np.size(y_acc, axis=1))]
-            b_col = ['k'] * len(y_acc_l)
+        # creates the mean accuracy lines
+        h_plt_mn, lbl_plt_mn, n_expt = [], [], np.size(y_acc, axis=0)
+        for i_plt in range(np.size(y_acc, axis=1)):
+            # creates the avg. marker line
+            y_mn = 100. * np.mean(y_acc[:, i_plt])
+            l_nw, h_nw = create_marker_line(self.plot_fig.ax[3], y_mn, lg_str[i_plt], i_plt, n_expt, 0.8, 'k')
 
-            # creates the final plot based on the selected type
-            if connect_lines:
-                cf.create_connected_line_plot(self.plot_fig.ax[3], y_acc_l[1:], X0=x_bar[1:],
-                                              col=b_col[1:], plot_mean=False)
-            else:
-                cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar,
-                                         col=b_col, s=2 * n_cell)
+            # stores the label string/plot handle
+            h_plt_mn.append(h_nw)
+            lbl_plt_mn.append(l_nw)
 
-        # sets the bar plot axis properties
-        self.plot_fig.ax[3].set_xticks(x_bar)
-        self.plot_fig.ax[3].set_xticklabels(bar_lbls)
+        # creates the datacursor
+        datacursor(h_plt_mn, formatter=formatter_lbl, point_labels=lbl_plt_mn, hover=True)
+
+        # creates the line markers
+        xL = self.plot_fig.ax[3].get_xlim()
+        self.plot_fig.ax[3].plot(xL, 50. * np.ones(2), 'gray', linewidth=2)
+        self.plot_fig.ax[3].set_xlim(xL)
+
+        # sets the axis properties
         self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
         self.plot_fig.ax[3].set_ylim([0, 105])
         self.plot_fig.ax[3].grid(plot_grid)
 
         #
         if is_multi:
+            if output_stats:
+                i_grp = cf.flat_list([[x] * n_expt for x in range(np.size(y_acc, axis=1))])
+                results = r_stats.pairwise_wilcox_test(FloatVector(y_plt), FloatVector(i_grp),
+                                                       p_adjust_method='bonf', paired=True)
+                p_vals = np.reshape(np.array(results[list(results.names).index('p.value')]), (n_cond, n_cond))
 
-            #
-            h_plt = []
-            for i_col in range(len(col)):
-                h_plt.append(self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col]))
+                # sets up the stats table values
+                p_str = np.empty((n_cond + 1, n_cond + 1), dtype=object)
+                for i_col in range(n_cond + 1):
+                    for i_row in range(i_col, n_cond + 1):
+                        if i_row == i_col:
+                            p_str[i_row, i_col] = 'N/A'
+                        else:
+                            _p_vals = p_vals[i_row - 1, i_col]
+                            p_str_nw = '{:5.3f}{}'.format(_p_vals, '*' if _p_vals < 0.05 else '')
+                            p_str[i_row, i_col] = p_str[i_col, i_row] = p_str_nw
 
-            # plots the
-            self.plot_fig.ax[4].set_xlabel('Cell Count')
-            self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
-            self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
-            self.plot_fig.ax[4].grid(plot_grid)
-            self.plot_fig.ax[4].legend([x[0] for x in h_plt], [x.replace('\n', ' ') for x in bar_lbls])
+                # sets up the n-value table
+                col = cf.get_plot_col(n_cond + 1)
+                cf.add_plot_table(self.plot_fig, self.plot_fig.ax[3], table_font, p_str, lg_str, lg_str,
+                                  col, col, 'bottom', p_wid=1.5, n_col=1)
+                self.plot_fig.ax[3].set_xlabel('Decoding Type')
 
-            #
-            if add_accuracy_trend and (len(n_cell) > 1):
-                # calculates the trend values and plots them
-                x_lim, lbl_trend, h_trend = np.array(self.plot_fig.ax[4].get_xlim()), [], []
-                y_trend, r2 = calc_acc_trend(n_cell, 100. * d_data.y_acc)
+            else:
+                # plots the accuracy points
+                col, h_plt = cf.get_plot_col(len(x_bar)), []
+                for i_col in range(len(col)):
+                    h_plt.append(self.plot_fig.ax[4].plot(n_cell, 100. * d_data.y_acc[:, i_col], 'o', c=col[i_col]))
+
+                # plots the
+                self.plot_fig.ax[4].set_xlabel('Cell Count')
+                self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
+                self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
+                self.plot_fig.ax[4].grid(plot_grid)
+                self.plot_fig.ax[4].legend([x[0] for x in h_plt], lg_str)
 
                 #
-                for b_lbl, y_t, c, _r2 in zip(bar_lbls, y_trend, col, r2):
-                    yt_nw = y_t[0] * x_lim + y_t[1]
-                    lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}\nR2 = {:5.2f}'.format(
-                        b_lbl.replace('\n', ' '), y_t[0], y_t[1], _r2
-                    )
-                    lbl_trend.append(lbl_t)
+                if add_accuracy_trend and (len(n_cell) > 1):
+                    # calculates the trend values and plots them
+                    x_lim, lbl_trend, h_trend = np.array(self.plot_fig.ax[4].get_xlim()), [], []
+                    y_trend, r2 = calc_acc_trend(n_cell, 100. * d_data.y_acc)
 
-                    h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
-                    h_trend.append(h_trend_nw)
+                    #
+                    for b_lbl, y_t, c, _r2 in zip(bar_lbls, y_trend, col, r2):
+                        yt_nw = y_t[0] * x_lim + y_t[1]
+                        lbl_t = 'Type = {}\nGradient = {:5.2f}\nOffset = {:5.2f}\nR2 = {:5.2f}'.format(
+                            b_lbl.replace('\n', ' '), y_t[0], y_t[1], _r2
+                        )
+                        lbl_trend.append(lbl_t)
 
-                # creates the datacursor
-                datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
+                        h_trend_nw, = self.plot_fig.ax[4].plot(x_lim, yt_nw, '--', c=c, label=lbl_t)
+                        h_trend.append(h_trend_nw)
 
-    def plot_temporal_lda(self, plot_exp_name, plot_all_expt, plot_lines, err_type, plot_grid):
+                    # creates the datacursor
+                    datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
+
+    def plot_temporal_lda(self, plot_avg_lines, show_stats, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5148,7 +5198,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_multi_plot(ax, xi, y_acc, t_phase, y_err, ttype, plot_lines, c, has_lg=True):
+        def create_multi_plot(ax, xi, y_acc, ttype, plot_avg_lines):
             '''
 
             :param ax:
@@ -5160,43 +5210,81 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # array dimensions and initialisations
-            n_cond, n_xi = np.size(y_acc, axis=0), np.size(y_acc, axis=1)
-            xi_b, cap_sz = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1), 100 / n_xi
+            n_expt, n_cond, n_xi = np.shape(y_acc)
+            yL, col = [-1., 101.], cf.get_plot_col(n_cond)
 
-            # creates the boxplot for each conditions
-            h_plt = []
-            for i_cond in range(n_cond):
-                # plots the values
-                if plot_lines:
-                    h_plt.append(ax.plot(xi_b+i_cond, y_acc[i_cond, :], 'o-', c=c[i_cond]))
-                else:
-                    h_plt.append(ax.plot(xi_b + i_cond, y_acc[i_cond, :], 'o', c=c[i_cond]))
+            # creates the x/hue data values for the swarmplot
+            yacc_s = dcopy(y_acc).flatten()
+            xi_s = np.dstack([x * np.ones((n_expt, n_cond)) for x in xi]).flatten()
+            ttype_s = np.dstack([np.matlib.repmat(ttype, n_expt, 1)] * n_xi).flatten()
 
-                if y_err is not None:
-                    ax.errorbar(xi_b+i_cond, y_acc[i_cond, :], yerr=y_err[i_cond], fmt='.', color=c[i_cond],
-                                zorder=10, capsize=cap_sz)
+            # # creates the violin plot
+            # v_dict = cf.setup_sns_plot_dict(ax=ax, x=xi_s, y=y_acc.flatten(), hue=ttype_s, inner=None)
+            # sns.violinplot(**v_dict)
 
-            # sets the new tickmark locations
-            xi_mid, x_ticks = xi_b + (n_cond - 1) / 2, ax.get_xticks()
-            mX = (x_ticks[-1] - x_ticks[0]) / (xi[-1] - xi[0])
-            x0 = xi_mid[0] - xi[0] * mX
+            # creates the swarmplot
+            s_dict = cf.setup_sns_plot_dict(ax=ax, x=xi_s, y=yacc_s, hue=ttype_s, dodge=True)
+            sns.swarmplot(**s_dict)
 
-            # sets the new tick label/locations
-            x_tick_lbl = np.arange(0, t_phase, 0.5)
-            x_tick_nw = x0 + mX * x_tick_lbl
+            # plots the separation lines
+            xT, xL = ax.get_xticks(), ax.get_xlim()
 
-            if has_lg:
-                ax.legend([x[0] for x in h_plt], ttype, loc=4)
+            #
+            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+            for x in 0.5 * (xT[1:] + xT[:-1]):
+                ax.plot(x * np.ones(2), yL, 'k--')
 
-            # sets the x-axis ticks/labels
-            ax.set_xticks(x_tick_nw)
-            ax.set_xticklabels(x_tick_lbl)
-            ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
+            #
+            if plot_avg_lines:
+                for i_xi in range(n_xi):
+                    for i_cond in range(n_cond):
+                        xx = (i_xi - 0.5) + (i_cond + np.array([0, 1])) / n_cond
+                        yy = np.mean(y_acc[:, i_cond, i_xi]) * np.ones(2)
+                        ax.plot(xx, yy, c=col[i_cond], linewidth=2)
 
             # sets the axis other properties
+            ax.set_xlim(xL)
+            ax.set_ylim(yL)
             ax.set_ylabel('Decoding Accuracy (%)')
-            ax.set_xlabel('Phase Duration (s)')
-            ax.set_ylim([-1., 101.])
+            [c for c in ax.get_children() if isinstance(c, mpl.legend.Legend)][0]._set_loc(4)
+
+            # # old code
+            # n_cond, n_xi = np.size(y_acc, axis=1), np.size(y_acc, axis=1)
+            # xi_b, cap_sz = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1), 100 / n_xi
+
+            # # creates the boxplot for each conditions
+            # h_plt = []
+            # for i_cond in range(n_cond):
+            #     # plots the values
+            #     if plot_lines:
+            #         h_plt.append(ax.plot(xi_b+i_cond, y_acc[i_cond, :], 'o-', c=c[i_cond]))
+            #     else:
+            #         h_plt.append(ax.plot(xi_b + i_cond, y_acc[i_cond, :], 'o', c=c[i_cond]))
+            #
+            #     if y_err is not None:
+            #         ax.errorbar(xi_b+i_cond, y_acc[i_cond, :], yerr=y_err[i_cond], fmt='.', color=c[i_cond],
+            #                     zorder=10, capsize=cap_sz)
+
+            # # sets the new tickmark locations
+            # xi_mid, x_ticks = xi_b + (n_cond - 1) / 2, ax.get_xticks()
+            # mX = (x_ticks[-1] - x_ticks[0]) / (xi[-1] - xi[0])
+            # x0 = xi_mid[0] - xi[0] * mX
+            #
+            # # sets the new tick label/locations
+            # x_tick_lbl = np.arange(0, t_phase, 0.5)
+            # x_tick_nw = x0 + mX * x_tick_lbl
+            #
+            # if has_lg:
+            #     ax.legend([x[0] for x in h_plt], ttype, loc=4)
+            #
+            # # sets the x-axis ticks/labels
+            # ax.set_xticks(x_tick_nw)
+            # ax.set_xticklabels(x_tick_lbl)
+            # ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
+
+            # # sets the axis other properties
+            # ax.set_ylabel('Decoding Accuracy (%)')
+            # ax.set_ylim(yL)
 
         def create_multi_boxplot(ax, xi, y_acc, t_phase, c):
             '''
@@ -5232,6 +5320,38 @@ class AnalysisGUI(QMainWindow):
             ax.set_xticklabels(x_tick_lbl)
             ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
 
+        def setup_bin_stats(y_acc):
+            '''
+
+            :param y_acc:
+            :param ttype_abb:
+            :return:
+            '''
+
+            # memory allocation
+            n_expt, n_cond, n_xi = np.shape(y_acc)
+            p_str = np.empty((int(n_cond * (n_cond - 1) / 2), n_xi), dtype=object)
+
+            # sets up the p-value strings for each bin
+            for i_xi in range(n_xi):
+                # sets the stats grouping values
+                x_grp = dcopy(y_acc[:, :, i_xi]).flatten()
+                if i_xi == 0:
+                    i_grp = np.matlib.repmat(np.arange(n_cond), n_expt, 1).flatten()
+
+                # runs the pair-wise wilcoxon test and retrieves the non-NaN p-values
+                results = r_stats.pairwise_wilcox_test(FloatVector(x_grp), FloatVector(i_grp),
+                                                       p_adjust_method='bonf', paired=True)
+                p_vals = np.array(results[list(results.names).index('p.value')]).flatten('F')
+                p_vals = p_vals[np.logical_not(np.isnan(p_vals))]
+
+                # sets the p-value strings for each comparison
+                for i_row in range(len(p_vals)):
+                    p_str[i_row, i_xi] = '{:5.3f}{}'.format(p_vals[i_row], '*' if p_vals[i_row] < 0.05 else '')
+
+            # returns the p-values/row header string arrays
+            return p_str
+
         # initialisations
         d_data = self.data.discrim.temp
         ttype = d_data.ttype
@@ -5240,33 +5360,33 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the important fields
         y_acc_phs, y_acc_ofs = 100. * np.dstack(d_data.y_acc[0]), 100. * np.dstack(d_data.y_acc[1])
-        y_acc_phs_err, y_acc_ofs_err = None, None
+        # y_acc_phs_err, y_acc_ofs_err = None, None
 
-        # retrieves the plot values
-        if plot_all_expt:
-            # case is using all the experiments
-            n_ex = np.size(y_acc_phs, axis=0)
-            y_acc_phs_mn, y_acc_ofs_mn = np.mean(y_acc_phs, axis=0), np.mean(y_acc_ofs, axis=0)
-
-            # calculates the SEM (if more than one experiment)
-            if n_ex > 1:
-                if err_type == 'SEM':
-                    y_acc_phs_err = [x for x in (np.std(y_acc_phs, axis=0) / (n_c ** 0.5))[1:, :]]
-                    y_acc_ofs_err = [x for x in (np.std(y_acc_ofs, axis=0) / (n_c ** 0.5))[1:, :]]
-                elif err_type == 'Min/Max':
-                    # sets the differing phase duration min/max errorbar values
-                    y_acc_phs_min = y_acc_phs_mn - np.min(y_acc_phs, axis=0)
-                    y_acc_phs_max = np.max(y_acc_phs, axis=0) - y_acc_phs_mn
-                    y_acc_phs_err = [np.vstack((x, y)) for x, y in zip(y_acc_phs_min[1:, :], y_acc_phs_max[1:, :])]
-
-                    # sets the differing phase offset min/max errorbar values
-                    y_acc_ofs_min = y_acc_ofs_mn - np.min(y_acc_ofs, axis=0)
-                    y_acc_ofs_max = np.max(y_acc_ofs, axis=0) - y_acc_ofs_mn
-                    y_acc_ofs_err = [np.vstack((x, y)) for x, y in zip(y_acc_ofs_min[1:, :], y_acc_ofs_max[1:, :])]
-        else:
-            # case is using a specific experiment
-            i_ex, n_ex = list(d_data.exp_name).index(plot_exp_name), 1
-            y_acc_phs_mn, y_acc_ofs_mn = y_acc_phs[i_ex, :, :], y_acc_ofs[i_ex, :, :]
+        # # retrieves the plot values
+        # if plot_all_expt:
+        #     # case is using all the experiments
+        #     n_ex = np.size(y_acc_phs, axis=0)
+        #     # y_acc_phs_mn, y_acc_ofs_mn = np.mean(y_acc_phs, axis=0), np.mean(y_acc_ofs, axis=0)
+        #
+        #     # # calculates the SEM (if more than one experiment)
+        #     # if n_ex > 1:
+        #     #     if err_type == 'SEM':
+        #     #         y_acc_phs_err = [x for x in (np.std(y_acc_phs, axis=0) / (n_c ** 0.5))[1:, :]]
+        #     #         y_acc_ofs_err = [x for x in (np.std(y_acc_ofs, axis=0) / (n_c ** 0.5))[1:, :]]
+        #     #     elif err_type == 'Min/Max':
+        #     #         # sets the differing phase duration min/max errorbar values
+        #     #         y_acc_phs_min = y_acc_phs_mn - np.min(y_acc_phs, axis=0)
+        #     #         y_acc_phs_max = np.max(y_acc_phs, axis=0) - y_acc_phs_mn
+        #     #         y_acc_phs_err = [np.vstack((x, y)) for x, y in zip(y_acc_phs_min[1:, :], y_acc_phs_max[1:, :])]
+        #     #
+        #     #         # sets the differing phase offset min/max errorbar values
+        #     #         y_acc_ofs_min = y_acc_ofs_mn - np.min(y_acc_ofs, axis=0)
+        #     #         y_acc_ofs_max = np.max(y_acc_ofs, axis=0) - y_acc_ofs_mn
+        #     #         y_acc_ofs_err = [np.vstack((x, y)) for x, y in zip(y_acc_ofs_min[1:, :], y_acc_ofs_max[1:, :])]
+        # else:
+        #     # case is using a specific experiment
+        #     i_ex, n_ex = list(d_data.exp_name).index(plot_exp_name), 1
+        #     # y_acc_phs_mn, y_acc_ofs_mn = y_acc_phs[i_ex, :, :], y_acc_ofs[i_ex, :, :]
 
         #################################
         ####    SUBPLOT CREATIONS    ####
@@ -5274,19 +5394,49 @@ class AnalysisGUI(QMainWindow):
 
         # initialises the plot axes
         self.init_plot_axes(n_row=1, n_col=2)
+        ax = self.plot_fig.ax
 
         # creates the multiple boxplot
-        t_phase0, ax = 3.5346, self.plot_fig.ax
-        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs_mn[1:, :], t_phase0, y_acc_phs_err, ttype, plot_lines, c)
-        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs_mn[1:, :], t_phase0, y_acc_ofs_err, ttype, plot_lines, c, False)
+        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], ttype, plot_avg_lines)
+        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], ttype, plot_avg_lines)
 
         # sets the axis properties for the phase duration accuracy plot
         ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+        ax[0].set_xlabel('Phase Duration (s)')
         ax[0].grid(plot_grid)
 
         # sets the axis properties for the phase offset accuracy plot
         ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+        ax[1].set_xlabel('Phase Offset (s)')
         ax[1].grid(plot_grid)
+
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
+
+        # if not showing the stats, then exit the function
+        if not show_stats:
+            return
+
+        # memory allocation
+        ttype_abb, n_cond = [cf.cond_abb(x) for x in ttype], np.size(y_acc_phs, axis=1) - 1
+        col = cf.get_plot_col(n_cond)
+
+        # sets up the row header string arrays
+        rw_hdr = []
+        for i_row in range(n_cond):
+            for i_col in range(i_row + 1, n_cond):
+                rw_hdr.append('{0}/{1}'.format(ttype_abb[i_row], ttype_abb[i_col]))
+
+        # sets up the data for the stats table for the differing phase duration
+        t_data_phs, xi_phs = setup_bin_stats(y_acc_phs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
+        cf.add_plot_table(self.plot_fig, 0, table_font, t_data_phs, rw_hdr, xi_phs,
+                          ['gray'] * n_cond, ['gray'] * len(d_data.xi_phs), 'bottom', p_wid=1.5, n_col=1)
+
+        # sets up the data for the stats table for the differing phase offset
+        t_data_ofs, xi_ofs = setup_bin_stats(y_acc_ofs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
+        cf.add_plot_table(self.plot_fig, 1, table_font, t_data_ofs, rw_hdr, xi_ofs,
+                          ['gray'] * n_cond, ['gray'] * len(d_data.xi_ofs), 'bottom', p_wid=1.5, n_col=1)
 
     def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, plot_grid):
         '''
@@ -5305,28 +5455,6 @@ class AnalysisGUI(QMainWindow):
             :param y_acc:
             :return:
             '''
-
-            def setup_sns_plot_dict(ax, y_acc, y_acc_plt, **kwargs):
-                '''
-
-                :param ax:
-                :param y_acc:
-                :param y_acc_plt:
-                :return:
-                '''
-
-                # sets up the swarmplot data dictionary
-                sns_dict = {
-                    'ax': ax,
-                    'x': cf.flat_list(y_acc_plt),
-                    'y': cf.flat_list([['#{0}'.format(x + 1)] * len(y) for x, y in zip(range(len(y_acc)), y_acc_plt)]),
-                }
-
-                for key, value in kwargs.items():
-                    sns_dict[key] = value
-
-                # returns the plot dictionary
-                return sns_dict
 
             def create_marker_line(ax, x_mn, exp_name, i_plt, n_plt, mn_hght, col, is_pop):
                 '''
@@ -5354,9 +5482,13 @@ class AnalysisGUI(QMainWindow):
             c_name = ['Decoding Accuracy (%)', 'Expt Number']
             y_acc_plt = [np.concatenate(([-5.], 100.* x, [105.])) for x in y_acc]
 
-            # creates the swarmplot
-            sns.violinplot(**setup_sns_plot_dict(ax, y_acc, y_acc_plt, inner=None))
-            sns.swarmplot(**setup_sns_plot_dict(ax, y_acc, y_acc_plt, color='white', edgecolor='gray'))
+            # sets the x/y plot values
+            x_plt = cf.flat_list(y_acc_plt)
+            y_plt = cf.flat_list([['#{0}'.format(x + 1)] * len(y) for x, y in zip(range(len(y_acc)), y_acc_plt)])
+
+            # creates the violin/swarmplot
+            sns.violinplot(**cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None))
+            sns.swarmplot(**cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='white', edgecolor='gray'))
 
             # creates the mean plot lines
             mn_hght, h_mn, lbl_trend = min(0.8, 0.04 * len(y_acc)), [], []
@@ -5377,6 +5509,11 @@ class AnalysisGUI(QMainWindow):
 
             # creates the datacursor
             datacursor(h_mn, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
+
+            # plots the chance line
+            yL = ax.get_ylim()
+            ax.plot(50. * np.ones(2), yL, 'gray', linewidth=2)
+            ax.set_ylim(yL)
 
             # sets the axis properties
             ax.set_xlim([-1, 101])
@@ -5484,9 +5621,9 @@ class AnalysisGUI(QMainWindow):
 
         # plots the region demarkation lines
         ax_lim, a = [-dx_p * n_h / 4, n_h * (1 + dx_p / 4)], np.ones(2)
-        self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, 'k--')
+        self.plot_fig.ax[1].plot((n_h / 2) * a, ax_lim, c='gray', linewidth=2)
         self.plot_fig.ax[1].plot(n_h * y_acc_mn[1] * a, ax_lim, 'r--', linewidth=2)
-        self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, 'k--')
+        self.plot_fig.ax[1].plot(ax_lim, (n_h / 2) * a, c='gray', linewidth=2)
         self.plot_fig.ax[1].plot(ax_lim, n_h * y_acc_mn[2] * a, 'r--', linewidth=2)
 
         # sets the axis properties
@@ -5690,6 +5827,7 @@ class AnalysisGUI(QMainWindow):
         h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
                 self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
         self.plot_fig.ax[0].legend(h_lg, ['Synchronous', 'Non-Synchronous'], ncol=2, loc=2)
+        self.plot_fig.ax[0].plot(x_lim, 50. * np.ones(2), c='gray', linewidth=2)
 
         # sets the bar plot axis properties
         self.plot_fig.ax[0].set_xlim(x_lim)
@@ -8847,9 +8985,12 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
-            'connect_lines': {'type': 'B', 'text': 'Connect Direction Accuracy Values', 'def_val': False},
             'add_accuracy_trend': {
                 'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': has_multi_expt, 'is_enabled': has_multi_expt,
+            },
+            'output_stats': {
+                'type': 'B', 'text': 'Show Statistics Table', 'def_val': has_multi_expt, 'is_enabled': has_multi_expt,
+                'link_para': ['add_accuracy_trend', True]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -8879,17 +9020,8 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            # 'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
-            'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
-                'is_enabled': has_multi_expt
-            },
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
-                'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
-            },
-            'plot_lines': {'type': 'B', 'text': 'Plot Connecting Lines', 'def_val': True},
-            'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
+            'plot_avg_lines': {'type': 'B', 'text': 'Plot Avg. Decoding Accuracy', 'def_val': True},
+            'show_stats': {'type': 'B', 'text': 'Show Stats Table', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',

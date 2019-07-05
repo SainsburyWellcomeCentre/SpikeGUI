@@ -1983,7 +1983,7 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
                   n_row_data * (cell_hght0 + (n_rowhdr_line + 1) * h_gap))
 
     # if the table width it too large, then rescale
-    sp_width = get_axes_tight_bbox(fig, ax, pfig_sz)[2] / n_col
+    sp_width = get_axes_tight_bbox(fig, ax, pfig_sz)[2] / ax.get_position().width
     if table_wid > sp_width:
         ptable_wid = sp_width / table_wid
         cell_wid, cell_wid_row = ptable_wid * cell_wid, ptable_wid * cell_wid_row
@@ -2413,3 +2413,23 @@ def check_existing_file(hParent, out_file):
     else:
         # file doesn't exist so continue as normal
         return True
+
+
+def setup_sns_plot_dict(**kwargs):
+    '''
+
+    :param ax:
+    :param y_acc:
+    :param y_acc_plt:
+    :return:
+    '''
+
+    # initialisations
+    sns_dict = {}
+
+    # sets up the swarmplot data dictionary
+    for key, value in kwargs.items():
+        sns_dict[key] = value
+
+    # returns the plot dictionary
+    return sns_dict
