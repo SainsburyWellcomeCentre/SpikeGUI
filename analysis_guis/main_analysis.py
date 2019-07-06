@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import xlsxwriter
 from random import sample
+from numpy.matlib import repmat
 
 import seaborn as sns
 sns.set()
@@ -5131,22 +5132,41 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[3].set_ylim([0, 105])
         self.plot_fig.ax[3].grid(plot_grid)
 
-        #
+        # only output the stats/trends if there is multiple experiments
         if is_multi:
             if output_stats:
-                i_grp = cf.flat_list([[x] * n_expt for x in range(np.size(y_acc, axis=1))])
-                results = r_stats.pairwise_wilcox_test(FloatVector(y_plt), FloatVector(i_grp),
+                # case is the statistics output
+
+                # sets up the values for the calculations
+                i_grp = repmat(np.arange(np.size(y_acc, axis=1)), np.size(y_acc, axis=0), 1)
+
+                # sets up the stats calculations
+                results = r_stats.pairwise_wilcox_test(FloatVector(y_acc[:, 1:].flatten('F')),
+                                                       FloatVector(i_grp[:, 1:].flatten('F')),
                                                        p_adjust_method='bonf', paired=True)
-                p_vals = np.reshape(np.array(results[list(results.names).index('p.value')]), (n_cond, n_cond))
+                p_vals = np.reshape(np.array(results[list(results.names).index('p.value')]), (n_cond - 1, n_cond - 1))
 
                 # sets up the stats table values
                 p_str = np.empty((n_cond + 1, n_cond + 1), dtype=object)
                 for i_col in range(n_cond + 1):
                     for i_row in range(i_col, n_cond + 1):
                         if i_row == i_col:
+                            # case is the diagonal value
                             p_str[i_row, i_col] = 'N/A'
                         else:
-                            _p_vals = p_vals[i_row - 1, i_col]
+                            if i_col == 0:
+                                # case is the condition accuracy statistics
+                                ind = np.array([i_col, i_row])
+
+                                # sets up the stats calculations
+                                results = r_stats.wilcox_test(FloatVector(y_acc[:, i_col]),
+                                                              FloatVector(i_grp[:, i_row]), paired=True)
+                                _p_vals = results[list(results.names).index('p.value')][0]
+                            else:
+                                # case is the trial condition direction accuracy statistics
+                                _p_vals = p_vals[i_row - 2, i_col - 1]
+
+                            #
                             p_str_nw = '{:5.3f}{}'.format(_p_vals, '*' if _p_vals < 0.05 else '')
                             p_str[i_row, i_col] = p_str[i_col, i_row] = p_str_nw
 
@@ -5216,7 +5236,7 @@ class AnalysisGUI(QMainWindow):
             # creates the x/hue data values for the swarmplot
             yacc_s = dcopy(y_acc).flatten()
             xi_s = np.dstack([x * np.ones((n_expt, n_cond)) for x in xi]).flatten()
-            ttype_s = np.dstack([np.matlib.repmat(ttype, n_expt, 1)] * n_xi).flatten()
+            ttype_s = np.dstack([repmat(ttype, n_expt, 1)] * n_xi).flatten()
 
             # # creates the violin plot
             # v_dict = cf.setup_sns_plot_dict(ax=ax, x=xi_s, y=y_acc.flatten(), hue=ttype_s, inner=None)
@@ -5337,7 +5357,7 @@ class AnalysisGUI(QMainWindow):
                 # sets the stats grouping values
                 x_grp = dcopy(y_acc[:, :, i_xi]).flatten()
                 if i_xi == 0:
-                    i_grp = np.matlib.repmat(np.arange(n_cond), n_expt, 1).flatten()
+                    i_grp = repmat(np.arange(n_cond), n_expt, 1).flatten()
 
                 # runs the pair-wise wilcoxon test and retrieves the non-NaN p-values
                 results = r_stats.pairwise_wilcox_test(FloatVector(x_grp), FloatVector(i_grp),
@@ -5431,12 +5451,12 @@ class AnalysisGUI(QMainWindow):
         # sets up the data for the stats table for the differing phase duration
         t_data_phs, xi_phs = setup_bin_stats(y_acc_phs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
         cf.add_plot_table(self.plot_fig, 0, table_font, t_data_phs, rw_hdr, xi_phs,
-                          ['gray'] * n_cond, ['gray'] * len(d_data.xi_phs), 'bottom', p_wid=1.5, n_col=1)
+                          ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_phs), 'bottom', p_wid=1.5, n_col=1)
 
         # sets up the data for the stats table for the differing phase offset
         t_data_ofs, xi_ofs = setup_bin_stats(y_acc_ofs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
         cf.add_plot_table(self.plot_fig, 1, table_font, t_data_ofs, rw_hdr, xi_ofs,
-                          ['gray'] * n_cond, ['gray'] * len(d_data.xi_ofs), 'bottom', p_wid=1.5, n_col=1)
+                          ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_ofs), 'bottom', p_wid=1.5, n_col=1)
 
     def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, plot_grid):
         '''
@@ -5737,7 +5757,8 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         d_data_s, d_data_d = self.data.discrim.shuffle, self.data.discrim.dir
-        n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+        n_cond, ttype, nshuffle = len(d_data_d.ttype), d_data_d.ttype, d_data_s.nshuffle
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
 
         # determines the indices of the direction trial types
         ind_d1, ind_d2 = ttype.index(dir_type_1), ttype.index(dir_type_2)
@@ -5755,25 +5776,39 @@ class AnalysisGUI(QMainWindow):
         ####    DATA PRE-PROCESSING    ####
         ###################################
 
-        # retrieves the plot values
-        if plot_all_expt:
-            # case is using all the experiments
+        #
+        n_expt = np.size(d_data_d.y_acc, axis=0)
+        bar_lbls_col = np.array(bar_lbls).reshape(-1, 1)
 
-            # calculates the mean confusion matrix values
-            y_acc, n_expt = d_data_d.y_acc, np.size(d_data_s.y_acc, axis=0)
-            y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
+        # sets up the synchronised data labels
+        x_s = list(repmat(bar_lbls, n_expt, 1).flatten())
+        y_s = list(100. * d_data_d.y_acc.flatten())
+        z_s = list(repmat(['Synchronous'], n_expt, n_cond + 1).flatten())
 
-        else:
-            # case is using a specific experiment
-            i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
-            y_acc = d_data_d.y_acc[i_expt, :].reshape(1, -1)
-            y_acc_s = [d_data_s.y_acc[i_expt, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
+        # sets up the non-sychronised data labels
+        x_ns = cf.flat_list([repmat(bar_lbls_col, 1, nshuffle).flatten() for _ in d_data_s.y_acc])
+        y_ns = cf.flat_list([100. * x.flatten() for x in dcopy(d_data_s.y_acc)])
+        z_ns = cf.flat_list([repmat(['Non-Synchronous'], n_cond + 1, nshuffle).flatten() for _ in d_data_s.y_acc])
 
-        # calculates the
-        y_acc_s_mu = np.array([np.mean(x) for x in y_acc_s])
-        y_acc_s_min = np.array([(y - np.min(x)) for x, y in zip(y_acc_s, y_acc_s_mu)])
-        y_acc_s_max = np.array([(np.max(x) - y) for x, y in zip(y_acc_s, y_acc_s_mu)])
-        y_acc_err = 100. * np.vstack((y_acc_s_min, y_acc_s_max))
+        # # retrieves the plot values
+        # if plot_all_expt:
+        #     # case is using all the experiments
+        #
+        #     # calculates the mean confusion matrix values
+        #     y_acc, n_expt = d_data_d.y_acc, np.size(d_data_s.y_acc, axis=0)
+        #     y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
+        #
+        # else:
+        #     # case is using a specific experiment
+        #     i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
+        #     y_acc = d_data_d.y_acc[i_expt, :].reshape(1, -1)
+        #     y_acc_s = [d_data_s.y_acc[i_expt, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
+        #
+        # # calculates the
+        # y_acc_s_mu = np.array([np.mean(x) for x in y_acc_s])
+        # y_acc_s_min = np.array([(y - np.min(x)) for x, y in zip(y_acc_s, y_acc_s_mu)])
+        # y_acc_s_max = np.array([(np.max(x) - y) for x, y in zip(y_acc_s, y_acc_s_mu)])
+        # y_acc_err = 100. * np.vstack((y_acc_s_min, y_acc_s_max))
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -5810,31 +5845,71 @@ class AnalysisGUI(QMainWindow):
         ####    MAIN AXIS SUBPLOT SETUP    ####
         #######################################
 
-        # bar graph dimensioning
-        y_acc_mn = np.mean(y_acc, axis=0)
-        x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.45, 105.
-        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
-        col = cf.get_plot_col(len(x_bar))
+        # subplot properties
+        p_mx = 102.
+        col = cf.get_plot_col(n_cond + 1)
 
-        # plots the mean/shuffled accuracy values
-        self.plot_fig.ax[0].bar(x_bar - w_bar / 2, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
-        self.plot_fig.ax[0].bar(x_bar + w_bar / 2, 100. * y_acc_s_mu, width=w_bar, color=col, hatch='//', zorder=2)
-        self.plot_fig.ax[0].errorbar(x_bar + w_bar / 2, 100. * y_acc_s_mu, yerr=y_acc_err, fmt='.', color='k',
-                                     zorder=10, capsize=50 / len(x_bar))
+        # sets up the swarmplot dictionary
+        sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
+                                         hue=z_s + z_ns, dodge=True, size=6)
 
-        # sets the legend
-        x_lim = self.plot_fig.ax[0].get_xlim()
-        h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
-                self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
-        self.plot_fig.ax[0].legend(h_lg, ['Synchronous', 'Non-Synchronous'], ncol=2, loc=2)
-        self.plot_fig.ax[0].plot(x_lim, 50. * np.ones(2), c='gray', linewidth=2)
+        # creates the swarmplot and retrieves the collection objects
+        sns.swarmplot(**sw_dict)
+        c = self.plot_fig.ax[0].collections
+
+        #
+        h_p = self.plot_fig.ax[0].scatter([0], [50.], marker='^')
+        h_mark, = h_p.get_paths()
+        h_p.remove()
+
+        # updates the plot marker colours
+        for i in range(n_cond + 1):
+            c[2 * i].set_color(col[i])
+            c[2 * i + 1].set_color(col[i])
+
+        #
+        c[-2].set_facecolor('w')
+        c[-2].set_edgecolor('k')
+        c[-1].set_facecolor('w')
+        c[-1].set_edgecolor('k')
+
+        # plots the separation markers
+        yL = [-2., p_mx]
+        for i_plt in range(n_cond):
+            self.plot_fig.ax[0].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
+
+        # updates the
+        for pp in c[1::2]:
+            pp.set_paths([h_mark])
+
+        # plots the chance markerline
+        xL = self.plot_fig.ax[0].get_xlim()
+        self.plot_fig.ax[0].plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+        self.plot_fig.ax[0].set_xlim(xL)
+
+        # updates the legend
+        self.plot_fig.ax[0].legend(c[-2:], ['Synchronous', 'Non-Synchronous'])
+
+        # # bar graph dimensioning
+        # y_acc_mn = np.mean(y_acc, axis=0)
+        # x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.45, 105.
+        # col = cf.get_plot_col(len(x_bar))
+        #
+        # # plots the mean/shuffled accuracy values
+        # self.plot_fig.ax[0].bar(x_bar - w_bar / 2, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
+        # self.plot_fig.ax[0].bar(x_bar + w_bar / 2, 100. * y_acc_s_mu, width=w_bar, color=col, hatch='//', zorder=2)
+        # self.plot_fig.ax[0].errorbar(x_bar + w_bar / 2, 100. * y_acc_s_mu, yerr=y_acc_err, fmt='.', color='k',
+        #                              zorder=10, capsize=50 / len(x_bar))
+        #
+        # # sets the legend
+        # x_lim = self.plot_fig.ax[0].get_xlim()
+        # h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
+        #         self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
+        # self.plot_fig.ax[0].legend(h_lg, ['Synchronous', 'Non-Synchronous'], ncol=2, loc=2)
 
         # sets the bar plot axis properties
-        self.plot_fig.ax[0].set_xlim(x_lim)
-        self.plot_fig.ax[0].set_xticks(x_bar)
-        self.plot_fig.ax[0].set_xticklabels(bar_lbls)
         self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[0].set_ylim([0, p_mx])
+        self.plot_fig.ax[0].set_ylim(yL)
         self.plot_fig.ax[0].grid(plot_grid)
 
         #########################################
