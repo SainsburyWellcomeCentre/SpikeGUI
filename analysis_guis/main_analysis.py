@@ -26,7 +26,7 @@ from matplotlib.colors import to_rgba_array
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
-from matplotlib.patches import Rectangle, Polygon
+from matplotlib.patches import Rectangle, Polygon, Patch
 
 import matplotlib as mpl
 from matplotlib.pyplot import rc
@@ -4843,7 +4843,7 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, add_accuracy_trend,
+    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, acc_type, add_accuracy_trend,
                               output_stats, plot_grid):
         '''
 
@@ -5032,7 +5032,7 @@ class AnalysisGUI(QMainWindow):
         w_ratio[-1] = 1 - np.sum(w_ratio[:2])
 
         # bar graph dimensioning
-        x_bar, w_bar = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.9
+        x_bar, w_bar = np.arange(n_cond + 1), 0.9
         bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in d_data.ttype]
         lg_str = [x.replace('\n', ' ') for x in bar_lbls]
 
@@ -5097,30 +5097,57 @@ class AnalysisGUI(QMainWindow):
         ####    ACCURACY SWARM/VIOLINPLOTS    ####
         ##########################################
 
+        # other parameters
+        yL = [0., 102.]
+
         # turns off the 3rd axis (not required - only used for providing gap)
         self.plot_fig.ax[2].axis('off')
 
-        # sets the x/y plot values
-        x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls])
-        y_plt = 100. * y_acc.T.flatten()
+        if acc_type == 'Bar + Bubbleplot':
+            # sets the plot colours and values
+            y_acc_l = [100 * y_acc[:, i] for i in range(np.size(y_acc, axis=1))]
+            col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
 
-        # creates the violin/swarmplot
-        sns.violinplot(**cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None))
-        sns.swarmplot(**cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, color='white', edgecolor='gray'))
+            # plots the mean accuracy values
+            self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
 
-        # creates the mean accuracy lines
-        h_plt_mn, lbl_plt_mn, n_expt = [], [], np.size(y_acc, axis=0)
-        for i_plt in range(np.size(y_acc, axis=1)):
-            # creates the avg. marker line
-            y_mn = 100. * np.mean(y_acc[:, i_plt])
-            l_nw, h_nw = create_marker_line(self.plot_fig.ax[3], y_mn, lg_str[i_plt], i_plt, n_expt, 0.8, 'k')
+            # creates the final plot based on the selected type
+            cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar,
+                                     col=['k'] * len(y_acc_l), s=2 * n_cell)
 
-            # stores the label string/plot handle
-            h_plt_mn.append(h_nw)
-            lbl_plt_mn.append(l_nw)
+            # sets the bar plot axis properties
+            self.plot_fig.ax[3].set_xticks(x_bar)
+            self.plot_fig.ax[3].set_xticklabels(bar_lbls)
+        else:
+            # sets the x/y plot values
+            x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls])
+            y_plt = 100. * y_acc.T.flatten()
 
-        # creates the datacursor
-        datacursor(h_plt_mn, formatter=formatter_lbl, point_labels=lbl_plt_mn, hover=True)
+            #
+            vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None)
+            sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, color='white', edgecolor='gray')
+
+            # creates the violin/swarmplot
+            sns.violinplot(**vl_dict)
+            sns.swarmplot(**sw_dict)
+
+            # creates the mean accuracy lines
+            h_plt_mn, lbl_plt_mn, n_expt = [], [], np.size(y_acc, axis=0)
+            for i_plt in range(np.size(y_acc, axis=1)):
+                # creates the avg. marker line
+                y_mn = 100. * np.mean(y_acc[:, i_plt])
+                l_nw, h_nw = create_marker_line(self.plot_fig.ax[3], y_mn, lg_str[i_plt], i_plt, n_expt, 0.8, 'k')
+
+                # stores the label string/plot handle
+                h_plt_mn.append(h_nw)
+                lbl_plt_mn.append(l_nw)
+
+            # creates the datacursor
+            datacursor(h_plt_mn, formatter=formatter_lbl, point_labels=lbl_plt_mn, hover=True)
+
+        # creates the separation marker lines
+        for i_plt in range(np.size(y_acc, axis=1) - 1):
+            self.plot_fig.ax[3].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
 
         # creates the line markers
         xL = self.plot_fig.ax[3].get_xlim()
@@ -5129,7 +5156,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the axis properties
         self.plot_fig.ax[3].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[3].set_ylim([0, 105])
+        self.plot_fig.ax[3].set_ylim(yL)
         self.plot_fig.ax[3].grid(plot_grid)
 
         # only output the stats/trends if there is multiple experiments
@@ -5781,14 +5808,13 @@ class AnalysisGUI(QMainWindow):
         bar_lbls_col = np.array(bar_lbls).reshape(-1, 1)
 
         # sets up the synchronised data labels
-        x_s = list(repmat(bar_lbls, n_expt, 1).flatten())
+        x_s = x_ns = list(repmat(bar_lbls, n_expt, 1).flatten())
         y_s = list(100. * d_data_d.y_acc.flatten())
         z_s = list(repmat(['Synchronous'], n_expt, n_cond + 1).flatten())
 
         # sets up the non-sychronised data labels
-        x_ns = cf.flat_list([repmat(bar_lbls_col, 1, nshuffle).flatten() for _ in d_data_s.y_acc])
-        y_ns = cf.flat_list([100. * x.flatten() for x in dcopy(d_data_s.y_acc)])
-        z_ns = cf.flat_list([repmat(['Non-Synchronous'], n_cond + 1, nshuffle).flatten() for _ in d_data_s.y_acc])
+        y_ns = cf.flat_list([100. * np.mean(x, axis=1).flatten() for x in dcopy(d_data_s.y_acc)])
+        z_ns = list(repmat(['Non-Synchronous'], n_expt, n_cond + 1).flatten())
 
         # # retrieves the plot values
         # if plot_all_expt:
@@ -5846,41 +5872,53 @@ class AnalysisGUI(QMainWindow):
         #######################################
 
         # subplot properties
-        p_mx = 102.
+        p_mx, f_alpha = 102., [0.9, 0.5]
         col = cf.get_plot_col(n_cond + 1)
 
         # sets up the swarmplot dictionary
         sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
-                                         hue=z_s + z_ns, dodge=True, size=6)
+                                         hue=z_s + z_ns, dodge=True, size=6, color='white')
+        vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
+                                         hue=z_s + z_ns, inner=None)
 
         # creates the swarmplot and retrieves the collection objects
+        sns.violinplot(**vl_dict)
         sns.swarmplot(**sw_dict)
-        c = self.plot_fig.ax[0].collections
 
-        #
-        h_p = self.plot_fig.ax[0].scatter([0], [50.], marker='^')
-        h_mark, = h_p.get_paths()
-        h_p.remove()
+        # retrieves the violin/swarmplot objects
+        c = self.plot_fig.ax[0].collections
+        c_v = [x for x in c if isinstance(x, matplotlib.collections.PolyCollection)]
+        c_s = [x for x in c if isinstance(x, matplotlib.collections.PathCollection)]
 
         # updates the plot marker colours
         for i in range(n_cond + 1):
-            c[2 * i].set_color(col[i])
-            c[2 * i + 1].set_color(col[i])
+            # sets the synchronous violin/swarmplot objects
+            c_v[2 * i].set_color(col[i])
+            c_v[2 * i + 1].set_alpha(f_alpha[0])
+            c_s[2 * i].set_color('w')
+
+            # sets the non-synchronous violin/swarmplot objects
+            c_v[2 * i + 1].set_color(col[i])
+            c_v[2 * i + 1].set_alpha(f_alpha[1])
+            c_s[2 * i + 1].set_color('w')
 
         #
-        c[-2].set_facecolor('w')
-        c[-2].set_edgecolor('k')
-        c[-1].set_facecolor('w')
-        c[-1].set_edgecolor('k')
+        #
+        # #
+        # h_p = self.plot_fig.ax[0].scatter([0], [50.], marker='^')
+        # h_mark, = h_p.get_paths()
+        # h_p.remove()
+        #
+        # # updates the plot marker colours
+        # for i in range(n_cond + 1):
+        #     c[2 * i].set_color(col[i])
+        #     c[2 * i + 1].set_color(col[i])
+        #
 
         # plots the separation markers
         yL = [-2., p_mx]
         for i_plt in range(n_cond):
             self.plot_fig.ax[0].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
-
-        # updates the
-        for pp in c[1::2]:
-            pp.set_paths([h_mark])
 
         # plots the chance markerline
         xL = self.plot_fig.ax[0].get_xlim()
@@ -5888,7 +5926,9 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_xlim(xL)
 
         # updates the legend
-        self.plot_fig.ax[0].legend(c[-2:], ['Synchronous', 'Non-Synchronous'])
+        lg_patch = [Patch(facecolor='k', edgecolor='k', label='Synchronous', alpha=f_alpha[0]),
+                    Patch(facecolor='k', edgecolor='k', label='Non-Synchronous', alpha=f_alpha[1])]
+        self.plot_fig.ax[0].legend(handles=lg_patch, ncol=2, loc=4)
 
         # # bar graph dimensioning
         # y_acc_mn = np.mean(y_acc, axis=0)
@@ -9021,6 +9061,7 @@ class AnalysisFunctions(object):
         err_type = ['SEM', 'Min/Max', 'None']
         decode_type = ['Condition', 'Dir (Black)', 'Dir (Uniform)']
         cond_type = ['Black', 'Uniform']
+        acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
 
         # LDA parameters
         rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
@@ -9059,6 +9100,9 @@ class AnalysisFunctions(object):
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
+            },
+            'acc_type': {
+                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0]
             },
             'add_accuracy_trend': {
                 'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': has_multi_expt, 'is_enabled': has_multi_expt,

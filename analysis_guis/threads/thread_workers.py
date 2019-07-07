@@ -2717,9 +2717,13 @@ class WorkerThread(QThread):
                     d_data.cellmin == lda_para['n_cell_min'],
                     d_data.trialmin == lda_para['n_trial_min'],
                     d_data.yaccmx == lda_para['y_acc_max'],
-                    d_data.yaccmn == lda_para['y_acc_min'],
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
+
+                if hasattr(d_data,'yaccmn'):
+                    is_equal += [
+                        d_data.yaccmn == lda_para['y_acc_min'],
+                    ]
 
                 #
                 if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:

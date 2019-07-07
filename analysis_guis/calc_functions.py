@@ -1541,7 +1541,11 @@ def init_lda_para(d_data):
         lda_para['comp_cond'] = set_lda_para(lda_para['comp_cond'], d_data.ttype)
         lda_para['cell_types'] = set_lda_para(lda_para['cell_types'], d_data.ctype)
         lda_para['y_acc_max'] = set_lda_para(lda_para['y_acc_max'], d_data.yaccmx)
-        lda_para['y_acc_min'] = set_lda_para(lda_para['y_acc_min'], d_data.yaccmn)
+
+        if hasattr(d_data, 'yaccmn'):
+            lda_para['y_acc_min'] = set_lda_para(lda_para['y_acc_min'], d_data.yaccmn)
+        else:
+            lda_para['y_acc_min'] = 0
 
     # sets the default parameters based on the type
     if d_data.type in ['Direction', 'Individual']:
