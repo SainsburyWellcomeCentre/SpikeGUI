@@ -15,6 +15,7 @@ colors = ["cobalt", "light orange", "teal", "dusty lavender", "sea blue", "maize
 sns.set_palette(sns.xkcd_palette(colors))
 
 
+
 if __name__ == '__main__':
 
     if sys.platform == 'linux':

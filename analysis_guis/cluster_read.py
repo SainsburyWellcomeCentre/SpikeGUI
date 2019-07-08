@@ -6,6 +6,7 @@ from cached_property import cached_property
 
 import time
 
+
 class ClusterRead(object):
     def __init__(self, spike_io, cluster_id):
         self.spike_io = spike_io

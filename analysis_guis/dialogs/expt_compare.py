@@ -16,6 +16,7 @@ button_font = cf.create_font_obj(size=10, is_bold=True, font_weight=75)
 ########################################################################################################################
 ########################################################################################################################
 
+
 class ExptCompare(QDialog):
     def __init__(self, parent=None, exp_type=None, exp_name=None, comp_data=None):
         # creates the object

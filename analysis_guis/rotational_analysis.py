@@ -15,6 +15,7 @@ from pyphys.pyphys.pyphys import PxpParser
 from analysis_guis.dialogs import config_dialog
 from rotation_analysis.analysis.probe.probe_io.probe_io import TriggerTraceIo, BonsaiIo, IgorIo
 
+
 #
 import analysis_guis.testing.diagnostic_plots as diag_plot
 import _pickle as cp

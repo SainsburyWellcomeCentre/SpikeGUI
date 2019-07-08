@@ -27,6 +27,7 @@ QGroupBox
 }
 """
 
+
 class Waitbar(QDialog):
     def __init__(self, parent=None, n_bar=1, p_min=0, p_max=100, title=None, width=400, headers=None, is_test=False):
         # creates the object

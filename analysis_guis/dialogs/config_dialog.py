@@ -40,6 +40,7 @@ iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 ########################################################################################################################
 ########################################################################################################################
 
+
 class ConfigDialog(QDialog):
     def __init__(self, dlg_info, title=None, parent=None, width=1000, init_data=None, def_dir=None, has_reset=True):
         # creates the gui object

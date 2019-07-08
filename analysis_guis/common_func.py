@@ -11,6 +11,7 @@ from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
 
+
 # pyqt5 module import
 from PyQt5.QtGui import QFont, QFontMetrics, QColor
 from PyQt5.QtCore import Qt

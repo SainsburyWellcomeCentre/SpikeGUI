@@ -29,6 +29,7 @@ get_field = lambda wfm_para, f_key: np.unique(cf.flat_list([list(x[f_key]) for x
 ########################################################################################################################
 ########################################################################################################################
 
+
 class LDASolverPara(QDialog):
     def __init__(self, main_obj, parent=None, init_data=None, other_var=None):
         # creates the object

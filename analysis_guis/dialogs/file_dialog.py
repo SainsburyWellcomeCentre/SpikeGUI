@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QFileDialog
 ########################################################################################################################
 ########################################################################################################################
 
+
 class FileDialogModal(QFileDialog):
     def __init__(self, parent=None, caption=None, filter=None,
                        directory=None, is_save=False, dir_only=False, is_multi=False):
