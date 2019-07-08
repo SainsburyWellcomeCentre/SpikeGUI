@@ -165,7 +165,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
@@ -173,7 +173,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
@@ -181,7 +181,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
@@ -282,7 +282,7 @@ class WorkerThread(QThread):
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
             #     # calculates the binned kinematic spike frequencies
-            #     self.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, False)
+            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress, False)
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -418,6 +418,28 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+
+            elif self.thread_job_secondary == 'Speed LDA Comparison':
+
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.spdc.lda is None:
+                    # checks to see if any base LDA calculation parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.spdc, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not cfcn.run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                      self.work_progress, d_data=data.discrim.spdc):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
 
         elif self.thread_job_primary == 'update_plot':
             pass
@@ -2269,89 +2291,6 @@ class WorkerThread(QThread):
         # return a true flag to indicate the analysis was valid
         return True
 
-    def calc_binned_kinemetic_spike_freq(self, data, plot_para, calc_para, roc_calc=True):
-        '''
-
-        :param calc_para:
-        :return:
-        '''
-
-        # parameters and initialisations
-        vel_bin, r_data, equal_time = float(calc_para['vel_bin']), data.rotation, calc_para['equal_time']
-
-        # sets the condition types (ensures that the black phase is always included)
-        r_filt_base = cf.init_rotation_filter_data(False)
-        if plot_para['rot_filt'] is not None:
-            r_filt_base['t_type'] = list(np.unique(r_filt_base['t_type'] + plot_para['rot_filt']['t_type']))
-
-        # sets up the black phase data filter and returns the time spikes
-        r_data.r_obj_kine = RotationFilteredData(data, r_filt_base, 0, None, True, 'Whole Experiment', False)
-
-        # memory allocation
-        if equal_time:
-            if r_data.vel_sf_rs is None:
-                r_data.vel_sf_rs, r_data.spd_sf_rs = {}, {}
-        else:
-            if r_data.vel_sf is None:
-                r_data.vel_sf, r_data.spd_sf = {}, {}
-
-        # sets the speed/velocity time counts
-        if equal_time:
-            # case is using resampling from equal time bin sizes
-            n_rs, w_prog = calc_para['n_sample'], self.work_progress
-            vel_f, xi_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
-        else:
-            # calculates the velocity kinematic frequencies
-            vel_f, xi_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
-
-        # resets the frequencies based on the types
-        for i_filt in range(len(vel_f)):
-            if len(np.shape(vel_f[i_filt])) == 4:
-                if calc_para['freq_type'] == 'All':
-                    # case is considering all frequency types (stack frequencies on top of each other)
-                    vel_f[i_filt] = np.mean(vel_f[i_filt], axis=3)
-                elif calc_para['freq_type'] == 'Decreasing':
-                    # case is only considering decreasing velocity frequencies
-                    vel_f[i_filt] = vel_f[i_filt][:, :, :, 0]
-                else:
-                    # case is only considering increasing velocity frequencies
-                    vel_f[i_filt] = vel_f[i_filt][:, :, :, 1]
-
-        # sets the comparison bin for the velocity/speed arrays
-        n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin[:, 0] == 0)[0][0]
-        r_data.is_equal_time = equal_time
-        r_data.vel_xi, r_data.spd_xi = xi_bin, xi_bin[i_bin0:, :]
-
-        if 'spd_x_rng' in calc_para:
-            x_rng = calc_para['spd_x_rng'].split()
-            r_data.i_bin_spd = list(xi_bin[i_bin0:, 0]).index(int(x_rng[0]))
-            r_data.i_bin_vel = [list(xi_bin[:, 0]).index(-int(x_rng[2])), list(xi_bin[:, 0]).index(int(x_rng[0]))]
-
-        # calculates the velocity/speed binned spiking frequencies
-        for i_filt, rr in enumerate(r_data.r_obj_kine.rot_filt_tot):
-            # memory allocation
-            tt = rr['t_type'][0]
-
-            # if the values have already been calculated, then continue
-            if equal_time:
-                if tt in r_data.vel_sf_rs:
-                    continue
-            else:
-                if tt in r_data.vel_sf:
-                    continue
-
-            # sets the speed frequencies into a single array
-            spd_f = np.vstack((np.flip(vel_f[i_filt][:, :i_bin0, :], 1), vel_f[i_filt][:, i_bin0:, :]))
-
-            if equal_time:
-                # case is using equally spaced time bins
-                r_data.vel_sf_rs[tt] = dcopy(vel_f[i_filt])
-                r_data.spd_sf_rs[tt] = dcopy(spd_f)
-
-            else:
-                # case is using the normal time bins
-                r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
-
     def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0):
         '''
 
@@ -2680,26 +2619,26 @@ class WorkerThread(QThread):
                     if r_data.pn_comp is False:
                         r_data.pn_comp, is_change = True, True
 
+                    # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
+                    if calc_para['equal_time']:
+                        if r_data.n_rs != calc_para['n_sample']:
+                            r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
+                            r_data.n_rs, is_change = calc_para['n_sample'], True
+
                 # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
                 if roc_calc:
                     if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
                         r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                         r_data.vel_sf, r_data.spd_sf = None, None
-                        r_data.vel_bin, r_data.vel_roc = vel_bin, None
+                        r_data.vel_bin, is_change = vel_bin, True
                         r_data.freq_type = calc_para['freq_type']
 
                     if r_data.is_equal_time != calc_para['equal_time']:
+                        is_change = True
+
+                    # if there was a change, then re-initialise the roc phase fields
+                    if is_change:
                         r_data.vel_roc = None
-
-                # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
-                if calc_para['equal_time']:
-                    if r_data.n_rs != calc_para['n_sample']:
-                        r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
-                        r_data.n_rs, r_data.vel_roc = calc_para['n_sample'], None
-
-                # if there was a change, then re-initialise the roc phase fields
-                if is_change:
-                    r_data.vel_roc = None
 
             elif ct == 'lda':
                 # case is the LDA calculations
@@ -2738,12 +2677,12 @@ class WorkerThread(QThread):
                                 d_data.tphase == t_phase,
                             ]
 
-                    if d_data.type == 'TrialShuffle':
+                    if d_data.type in ['TrialShuffle']:
                         is_equal += [
                             d_data.nshuffle == calc_para['n_shuffle'],
                             # d_data.bsz == calc_para['b_sz']
                         ]
-                    elif d_data.type == 'Partial':
+                    elif d_data.type in ['Partial']:
                         is_equal[3] = True
 
                         is_equal += [
@@ -2751,11 +2690,19 @@ class WorkerThread(QThread):
                             d_data.cellminpart  == calc_para['n_cell_min']
                         ]
 
-                elif d_data.type == 'Temporal':
+                elif d_data.type in ['Temporal']:
                     is_equal += [
                         d_data.dt_phs == calc_para['dt_phase'],
                         d_data.dt_ofs == calc_para['dt_ofs'],
                         d_data.phs_const == calc_para['t_phase_const'],
+                     ]
+
+                elif d_data.type in ['SpdComp']:
+                    is_equal += [
+                        d_data.spd_xrng == calc_para['spd_x_rng'],
+                        d_data.vel_bin == calc_para['vel_bin'],
+                        d_data.n_sample == calc_para['n_sample'],
+                        d_data.equal_time == calc_para['equal_time'],
                      ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field

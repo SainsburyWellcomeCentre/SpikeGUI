@@ -117,7 +117,8 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 dcopy = copy.deepcopy
 func_types = np.array(['Cluster Matching','Cluster Classification','Rotation Analysis',
                        'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis',
-                       'Rotation Discrimination Analysis', 'Single Experiment Analysis'])
+                       'Rotation Discrimination Analysis', 'Kinematic Discrimination Analysis',
+                       'Single Experiment Analysis'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
 _bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
@@ -615,7 +616,8 @@ class AnalysisGUI(QMainWindow):
                     has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                     has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
                     has_both = has_vis_expt and has_rot_expt
-                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both, has_rot_expt, True]
+                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt,
+                               has_both, has_rot_expt, has_rot_expt, True]
                     new_func_types = func_types[np.array(is_keep)]
 
                     # otherwise, enable the cluster matching comparison menu item
@@ -5902,19 +5904,6 @@ class AnalysisGUI(QMainWindow):
             c_v[2 * i + 1].set_alpha(f_alpha[1])
             c_s[2 * i + 1].set_color('w')
 
-        #
-        #
-        # #
-        # h_p = self.plot_fig.ax[0].scatter([0], [50.], marker='^')
-        # h_mark, = h_p.get_paths()
-        # h_p.remove()
-        #
-        # # updates the plot marker colours
-        # for i in range(n_cond + 1):
-        #     c[2 * i].set_color(col[i])
-        #     c[2 * i + 1].set_color(col[i])
-        #
-
         # plots the separation markers
         yL = [-2., p_mx]
         for i_plt in range(n_cond):
@@ -5929,23 +5918,6 @@ class AnalysisGUI(QMainWindow):
         lg_patch = [Patch(facecolor='k', edgecolor='k', label='Synchronous', alpha=f_alpha[0]),
                     Patch(facecolor='k', edgecolor='k', label='Non-Synchronous', alpha=f_alpha[1])]
         self.plot_fig.ax[0].legend(handles=lg_patch, ncol=2, loc=4)
-
-        # # bar graph dimensioning
-        # y_acc_mn = np.mean(y_acc, axis=0)
-        # x_bar, w_bar, p_mx = np.concatenate(([0.5], np.arange(n_cond) + 2)), 0.45, 105.
-        # col = cf.get_plot_col(len(x_bar))
-        #
-        # # plots the mean/shuffled accuracy values
-        # self.plot_fig.ax[0].bar(x_bar - w_bar / 2, 100. * y_acc_mn, width=w_bar, color=col, zorder=1)
-        # self.plot_fig.ax[0].bar(x_bar + w_bar / 2, 100. * y_acc_s_mu, width=w_bar, color=col, hatch='//', zorder=2)
-        # self.plot_fig.ax[0].errorbar(x_bar + w_bar / 2, 100. * y_acc_s_mu, yerr=y_acc_err, fmt='.', color='k',
-        #                              zorder=10, capsize=50 / len(x_bar))
-        #
-        # # sets the legend
-        # x_lim = self.plot_fig.ax[0].get_xlim()
-        # h_lg = [self.plot_fig.ax[0].bar(x_bar[-1] + 2, 100, width=1, color='w', edgecolor='k'),
-        #         self.plot_fig.ax[0].bar(x_bar[-1] + 3, 100, width=1, color='w', edgecolor='k', hatch='//')]
-        # self.plot_fig.ax[0].legend(h_lg, ['Synchronous', 'Non-Synchronous'], ncol=2, loc=2)
 
         # sets the bar plot axis properties
         self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
@@ -6037,6 +6009,19 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.set_ylim([0, 105])
         ax.grid(plot_grid)
+
+    ######################################################
+    ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
+    ######################################################
+
+    def plot_speed_comp_lda(self, plot_grid):
+        '''
+
+        :return:
+        '''
+
+        # REMOVE ME LATER
+        a = 1
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -7417,7 +7402,8 @@ class AnalysisGUI(QMainWindow):
                          'Temporal Duration/Offset LDA Analysis',
                          'Individual LDA Analysis',
                          'Shuffled LDA Analysis',
-                         'Pooling LDA Analysis']
+                         'Pooling LDA Analysis',
+                         'Speed LDA Comparison']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel):
             # if there was an error or initialising, then return a true flag
@@ -9063,7 +9049,7 @@ class AnalysisFunctions(object):
         cond_type = ['Black', 'Uniform']
         acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
 
-        # LDA parameters
+        # rotation LDA parameters
         rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
         temp_lda_para, temp_def_para = cfcn.init_lda_para(data.discrim.temp)
         indiv_lda_para, indiv_def_para  = cfcn.init_lda_para(data.discrim.indiv)
@@ -9284,6 +9270,53 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Pooling LDA Analysis',
                       func='plot_partial_lda',
+                      para=para)
+
+        ######################################
+        ####    KINEMATIC LDA FUNCTIONS   ####
+        ######################################
+
+        # velocity LDA parameters
+        spdc_lda_para, spdc_def_para = cfcn.init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
+
+        # ====> Velocity ROC Curves (Whole Experiment)
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': spdc_lda_para
+            },
+
+            'spd_x_rng': {
+                'gtype': 'C', 'type': 'L', 'text': 'Dependent Speed Range', 'list': sc_rng, 
+                'def_val': cfcn.set_def_para(spdc_def_para, 'spd_xrng', '0 to 5')
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
+                'def_val': cfcn.set_def_para(spdc_def_para, 'vel_bin', '5'),
+                'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 
+                'def_val': cfcn.set_def_para(spdc_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 
+                'def_val': cfcn.set_def_para(spdc_def_para, 'equal_time', False),
+                'link_para': ['n_sample', False]
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'is_visible': False
+            },
+            'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
+
+            # plotting parameters
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Kinematic Discrimination Analysis',
+                      name='Speed LDA Comparison',
+                      func='plot_speed_comp_lda',
                       para=para)
 
         ##########################################
@@ -10611,11 +10644,15 @@ class DiscriminationData(object):
         :return:
         '''
 
+        # rotation discrimination analysis
         self.dir = SubDiscriminationData('Direction')
         self.temp = SubDiscriminationData('Temporal')
         self.indiv = SubDiscriminationData('Individual')
         self.shuffle = SubDiscriminationData('TrialShuffle')
         self.part = SubDiscriminationData('Partial')
+
+        # kinematic discrimination analysis
+        self.spdc = SubDiscriminationData('SpdComp')
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -10659,13 +10696,20 @@ class SubDiscriminationData(object):
                 self.cellminpart = -1
                 self.xi = None
 
-        elif type == 'Temporal':
+        elif type in ['Temporal']:
             # case is the temporal LDA analysis
             self.dt_phs = -1
             self.dt_ofs = -1
             self.phs_const = -1
             self.xi_phs = None
             self.xi_ofs = None
+
+        elif type in ['SpdComp']:
+            # case is the velocity comparison
+            self.spd_xrng = -1
+            self.vel_bin = -1
+            self.n_sample = -1
+            self.equal_time = -1
 
 class MultiFileData(object):
     def __init__(self):
