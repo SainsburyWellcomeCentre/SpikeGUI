@@ -6049,7 +6049,7 @@ class AnalysisGUI(QMainWindow):
         spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
         spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
         x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, h_plt = [x[0], x[-1] + 1.], []
+        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
 
         # plots the plot/errorbar for each condition
         for i_cond in range(n_cond):
@@ -6062,12 +6062,17 @@ class AnalysisGUI(QMainWindow):
             h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
             ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
 
+        #
+        for xx in np.arange(xL[0] + 1, xL[1]):
+            ax.plot(xx * np.ones(2), yL, 'k--')
+
         # plots the chance line
         ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
         ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
 
         # sets the axis properties
         ax.set_xlim(xL)
+        ax.set_ylim(yL)
         ax.set_xticks(x + 0.5)
         ax.set_xticklabels(spd_str)
         ax.set_xlabel('Speed Bin Comparison (deg/s)')
