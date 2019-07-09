@@ -1588,6 +1588,10 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
     calc_binned_kinemetic_spike_freq(data_tmp, _plot_para, calc_para, w_prog, roc_calc=False)
 
+    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
+    _r_filt = dcopy(r_filt)
+    _r_filt['t_type'] = data_tmp.rotation.r_obj_kine.rot_filt['t_type']
+
     # retrieves the spiking frequencies based on the calculation type
     if calc_para['equal_time']:
         # case is the equal timebin (resampled) spiking frequencies
@@ -1675,7 +1679,7 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     d_data.spd_xi = data_tmp.rotation.spd_xi
 
     # sets the solver parameters
-    set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+    set_lda_para(d_data, lda_para, _r_filt, n_trial_max)
 
     # sets the phase duration/offset parameters
     d_data.spd_xrng = calc_para['spd_x_rng']
