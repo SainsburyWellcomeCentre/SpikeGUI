@@ -421,14 +421,15 @@ class WorkerThread(QThread):
                         return
 
             elif self.thread_job_secondary == 'Speed LDA Comparison':
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.spdc.lda is None:
-                    # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.spdc, True)
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
+                                                                                 data.discrim.spdc, True)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False

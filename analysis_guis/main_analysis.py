@@ -6019,8 +6019,62 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # REMOVE ME LATER
-        a = 1
+        # initialisations
+        d_data = self.data.discrim.spdc
+        n_cond = len(d_data.ttype)
+        col = cf.get_plot_col(n_cond)
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # sets the plotting data values
+        y_acc_md = np.median(100. * d_data.y_acc, axis=0)
+        y_acc_lq = np.percentile(100. * d_data.y_acc, 25, axis=0)
+        y_acc_uq = np.percentile(100. * d_data.y_acc, 75, axis=0)
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        # sets the x-tick labels
+        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
+        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
+        x = np.arange(np.size(d_data.spd_xi, axis=0))
+        xL, h_plt = [x[0], x[-1] + 1.], []
+
+        # plots the plot/errorbar for each condition
+        for i_cond in range(n_cond):
+            # sets the plot x locations and error bar values
+            x_nw = x + (i_cond + 1) / (n_cond + 1)
+            yerr = np.vstack((y_acc_md[:, i_cond] - y_acc_lq[:, i_cond],
+                              y_acc_uq[:, i_cond] - y_acc_md[:, i_cond]))
+
+            # creates the plot/errorbar
+            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+            ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+
+        # plots the chance line
+        ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
+
+        # sets the axis properties
+        ax.set_xlim(xL)
+        ax.set_xticks(x + 0.5)
+        ax.set_xticklabels(spd_str)
+        ax.set_xlabel('Speed Bin Comparison (deg/s)')
+        ax.set_ylabel('Decoding Accuracy (%)')
+        ax.set_ylim(0., 100.)
+        ax.grid(plot_grid)
+
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -10705,6 +10759,8 @@ class SubDiscriminationData(object):
 
         elif type in ['SpdComp']:
             # case is the velocity comparison
+            self.spd_xi = None
+            self.i_bin_spd = -1
             self.spd_xrng = -1
             self.vel_bin = -1
             self.n_sample = -1

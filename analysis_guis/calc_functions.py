@@ -1418,7 +1418,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     if d_data is not None:
         # sets the lda values
         d_data.lda = lda
-        d_data.i_expt = i_ex
+        d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         d_data.y_acc = y_acc
         d_data.exp_name = exp_name
@@ -1462,7 +1462,7 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     :return:
     '''
 
-    def run_lda_predictions(w_prog, spd_sf0, lda_para, i_cell, ind_t, i_ex, i_bin_spd):
+    def run_lda_predictions(spd_sf, lda_para, n_c, n_t):
         '''
 
         :param r_obj:
@@ -1473,40 +1473,116 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
         '''
 
         # array dimensioning
-        n_t = len(spd_sf0)
+        i_grp, n_grp = [], 2 * n_c
+        N, n_cell = 2 * n_t * n_c, np.size(spd_sf, axis=0)
 
         ####################################
         ####    LDA DATA ARRAY SETUP    ####
         ####################################
 
         # sets up the LDA data/group index arrays across each condition
-        for i_filt in range(n_t):
-            # retrieves the time spikes for the current filter/experiment, and then combines into a single
-            # concatenated array. calculates the final spike counts over each cell/trial and appends to the
-            # overall spike count array
-            A = dcopy(spd_sf0[ind_c[i_filt], :, :])[:, ind_t, :]
-            if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
-                # case is motordrifting (swap phases)
-                t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
-            else:
-                # case is other experiment conditions
-                t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
-
-            # calculates the spike counts and appends them to the count array
-            n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
-            t_sp.append(t_sp_tmp)
-
+        for i_filt in range(n_c):
             # sets the grouping indices
             ind_g = [2 * i_filt, 2 * i_filt + 1]
             i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
 
         # combines the spike counts/group indices into the final combined arrays
-        n_sp, t_sp, i_grp = np.hstack(n_sp).T, np.hstack(t_sp).T, np.hstack(i_grp)
+        i_grp = np.hstack(i_grp)
+
+        # normalises the spike count array (if required)
+        spd_sf_calc = dcopy(spd_sf)
+        if lda_para['is_norm']:
+            spd_sf_mn = repmat(np.mean(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_sd = repmat(np.std(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_calc = np.divide(spd_sf_calc - spd_sf_mn, spd_sf_sd)
+
+            # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+            spd_sf_calc[spd_sf_sd == 0] = 0
+
+        # transposes the array
+        spd_sf_calc = spd_sf_calc.T
+
+        ###########################################
+        ####    LDA PREDICTION CALCULATIONS    ####
+        ###########################################
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
+
+        # sets the LDA solver type
+        if lda_para['solver_type'] == 'svd':
+            # case the SVD solver
+            lda = LDA()
+        elif lda_para['solver_type'] == 'lsqr':
+            # case is the LSQR solver
+            if lda_para['use_shrinkage']:
+                lda = LDA(solver='lsqr', shrinkage='auto')
+            else:
+                lda = LDA(solver='lsqr')
+        else:
+            # case is the Eigen solver
+            if lda_para['use_shrinkage']:
+                lda = LDA(solver='eigen', shrinkage='auto')
+            else:
+                lda = LDA(solver='eigen')
+
+        # fits the LDA model and calculates the prediction for each
+        for i_pred in range(len(i_grp)):
+            # fits the one-out-trial lda model
+            ii = np.array(range(len(i_grp))) != i_pred
+            try:
+                lda.fit(spd_sf_calc[ii, :], i_grp[ii])
+            except:
+                e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                        'Either choose a different solver or alter the solver parameters before retrying'
+                return None, False, e_str
+
+            # calculates the model prediction from the remaining trial and increments the confusion matrix
+            lda_pred[i_pred] = lda.predict(spd_sf_calc[i_pred, :].reshape(1, -1))
+            p_mat[i_pred, :] = lda.predict_proba(spd_sf_calc[i_pred, :].reshape(1, -1))
+            c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+
+            # fits the one-out-trial shuffled lda model
+            ind_chance = np.random.permutation(len(i_grp) - 1)
+            lda.fit(spd_sf_calc[ii, :], i_grp[ii][ind_chance])
+
+            # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+            lda_pred_chance[i_pred] = lda.predict(spd_sf_calc[i_pred, :].reshape(1, -1))
+            c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
+        # calculates the LDA transform values (uses svd solver to accomplish this)
+        if lda_para['solver_type'] != 'lsqr':
+            # memory allocation
+            lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(spd_sf_calc, i_grp)
+
+            # calculates the variance explained
+            if len(lda_X0.explained_variance_ratio_) == 2:
+                lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
+            else:
+                lda_var_sum = lda_X0.explained_variance_ratio_.sum()
+                lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
+
+            # separates the transform values into the individual groups
+            lda_X0T = lda_X0.transform(spd_sf_calc)
+            for ig in range(n_grp):
+                lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
+        else:
+            # transform values are not possible with this solver type
+            lda_X, lda_var_exp = None, None
+
+        # returns the final values in a dictionary object
+        return {
+            'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+            'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
+            'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
+        }, True, None
 
     # initialisations
     data_tmp = reduce_cluster_data(data, i_expt)
     lda_para, tt = calc_para['lda_para'], r_filt['t_type']
-    n_c, n_ex, i_bin_spd = len(tt), len(i_cell), data_tmp.rotation.i_bin_spd
+    n_c, n_ex = len(tt), len(i_cell)
 
     # calculates the binned kinematic spike frequencies
     _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
@@ -1542,9 +1618,13 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     ind_t, xi_bin = np.array(range(n_trial_max)), data_tmp.rotation.spd_xi
     n_bin = np.size(xi_bin, axis=0)
 
+    # retrieves the dependent time bin index
+    r_data = data_tmp.rotation
+    i_bin_spd = r_data.i_bin_spd
+
     # memory allocation for accuracy binary mask calculations
     BD = np.zeros((2, 2 * n_c), dtype=bool)
-    y_acc = np.zeros((n_ex, n_bin, n_c), dtype=float)
+    y_acc = np.nan * np.ones((n_ex, n_bin, n_c), dtype=float)
 
     # sets up the binary masks for the group/direction types
     for i_c in range(n_c):
@@ -1552,16 +1632,24 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
 
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
+        # sets the progress strings
+        w_str0 = 'Speed LDA Calculations (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+
         # sets the experiment name and runs the LDA prediction calculations
         exp_name[i_ex] = f_name0[i_ex]
-
-        #
         for i_bin in range(n_bin):
+            # updates the progress string
+            w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
+
             if i_bin != i_bin_spd:
-                #
-                lda, ok = run_lda_predictions(w_prog, spd_sf_ex[i_ex], lda_para, i_cell[i_ex], ind_t, i_ex, i_bin_spd)
+                # stacks the speed spiking frequency values into a single array
+                spd_sf_bin = np.hstack([np.hstack((sf[:, i_bin_spd, :].T, sf[:, i_bin, :].T)) for sf in spd_sf_ex[i_ex]])
+
+                # runs the LDA predictions on the current spiking frequency array
+                lda, ok, e_str = run_lda_predictions(spd_sf_bin, lda_para, n_c, n_trial_max)
                 if not ok:
                     # if there was an error, then exit with a false flag
+                    w_prog.emit(e_str, 'LDA Analysis Error')
                     return False
 
                 # calculates the grouping accuracy values
@@ -1571,20 +1659,32 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
                 for i_c in range(n_c):
                     y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
-    # # creates a reduce data object and creates the rotation filter object
-    # r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
-    #                              t_ofs=t_ofs, t_phase=t_phase)
+    #######################################
+    ####    HOUSE-KEEPING EXERCISES    ####
+    #######################################
 
-    # memory allocation and other initialisations
-    A = np.empty(r_obj.n_expt, dtype=object)
-    lda, exp_name, n_sp = dcopy(A), dcopy(A), dcopy(A)
-    ind_t, n_ex = np.array(range(n_trial_max)), r_obj.n_expt
+    # sets the lda values
+    d_data.lda = 1
+    d_data.i_expt = i_expt
+    d_data.i_cell = i_cell
+    d_data.y_acc = y_acc
+    d_data.exp_name = exp_name
 
-    # memory allocation for accuracy binary mask calculations
-    n_c = len(r_filt['t_type'])
-    BG, BD = np.zeros((2 * n_c, 2 * n_c), dtype=bool), np.zeros((2, 2 * n_c), dtype=bool)
-    y_acc = np.zeros((n_ex, 1 + n_c), dtype=float)
+    # sets the rotation values
+    d_data.i_bin_spd = i_bin_spd
+    d_data.spd_xi = data_tmp.rotation.spd_xi
 
+    # sets the solver parameters
+    set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+
+    # sets the phase duration/offset parameters
+    d_data.spd_xrng = calc_para['spd_x_rng']
+    d_data.vel_bin = calc_para['vel_bin']
+    d_data.n_sample = calc_para['n_sample']
+    d_data.equal_time = calc_para['equal_time']
+
+    # returns a true value indicating success
+    return True
 
 def reduce_cluster_data(data, i_expt):
     '''
