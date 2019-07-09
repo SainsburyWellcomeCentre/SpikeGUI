@@ -4867,7 +4867,7 @@ class AnalysisGUI(QMainWindow):
 
             # retrieves the plot values
             # i_expt = list(d_data.exp_name).index(plot_exp_name)
-            i_expt = cf.get_expt_index(exp_name, self.data.cluster)
+            i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
             lda_X, lda_var_exp = d_data.lda[i_expt]['lda_X'], d_data.lda[i_expt]['lda_var_exp']
 
             # other initialisations
@@ -5260,113 +5260,41 @@ class AnalysisGUI(QMainWindow):
             # array dimensions and initialisations
             n_expt, n_cond, n_xi = np.shape(y_acc)
             yL, col = [-1., 101.], cf.get_plot_col(n_cond)
-
-            # creates the x/hue data values for the swarmplot
-            yacc_s = dcopy(y_acc).flatten()
-            xi_s = np.dstack([x * np.ones((n_expt, n_cond)) for x in xi]).flatten()
-            ttype_s = np.dstack([repmat(ttype, n_expt, 1)] * n_xi).flatten()
-
-            # # creates the violin plot
-            # v_dict = cf.setup_sns_plot_dict(ax=ax, x=xi_s, y=y_acc.flatten(), hue=ttype_s, inner=None)
-            # sns.violinplot(**v_dict)
-
-            # creates the swarmplot
-            s_dict = cf.setup_sns_plot_dict(ax=ax, x=xi_s, y=yacc_s, hue=ttype_s, dodge=True)
-            sns.swarmplot(**s_dict)
-
-            # plots the separation lines
-            xT, xL = ax.get_xticks(), ax.get_xlim()
+            x = np.arange(n_xi)
+            xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
 
             #
+            for i_cond in range(n_cond):
+                # sets the plot values
+                xi_plt = x + (i_cond + 1) / (n_cond + 1)
+                y_acc_c = y_acc[:, i_cond, :]
+
+                # sets the median plot values
+                y_acc_md = np.median(y_acc_c, axis=0)
+
+                # sets the lower/upper quartile errorbars
+                y_acc_lq = np.percentile(y_acc_c, 25., axis=0)
+                y_acc_uq = np.percentile(y_acc_c, 75., axis=0)
+                y_err = np.vstack((y_acc_md - y_acc_lq, y_acc_uq - y_acc_md))
+
+                #
+                h_plt.append(ax.plot(xi_plt, y_acc_md, c=col[i_cond]))
+                ax.errorbar(xi_plt, y_acc_md, yerr=y_err, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+
+            # creates the vertical marker lines
+            for xx in np.arange(xL[0] + 1, xL[1]):
+                ax.plot(xx * np.ones(2), yL, 'k--')
+
+            # plots the chance line
             ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-            for x in 0.5 * (xT[1:] + xT[:-1]):
-                ax.plot(x * np.ones(2), yL, 'k--')
+            ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
 
-            #
-            if plot_avg_lines:
-                for i_xi in range(n_xi):
-                    for i_cond in range(n_cond):
-                        xx = (i_xi - 0.5) + (i_cond + np.array([0, 1])) / n_cond
-                        yy = np.mean(y_acc[:, i_cond, i_xi]) * np.ones(2)
-                        ax.plot(xx, yy, c=col[i_cond], linewidth=2)
-
-            # sets the axis other properties
+            # sets the axis properties
             ax.set_xlim(xL)
             ax.set_ylim(yL)
+            ax.set_xticks(x + 0.5)
+            ax.set_xticklabels(xi)
             ax.set_ylabel('Decoding Accuracy (%)')
-            [c for c in ax.get_children() if isinstance(c, mpl.legend.Legend)][0]._set_loc(4)
-
-            # # old code
-            # n_cond, n_xi = np.size(y_acc, axis=1), np.size(y_acc, axis=1)
-            # xi_b, cap_sz = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1), 100 / n_xi
-
-            # # creates the boxplot for each conditions
-            # h_plt = []
-            # for i_cond in range(n_cond):
-            #     # plots the values
-            #     if plot_lines:
-            #         h_plt.append(ax.plot(xi_b+i_cond, y_acc[i_cond, :], 'o-', c=c[i_cond]))
-            #     else:
-            #         h_plt.append(ax.plot(xi_b + i_cond, y_acc[i_cond, :], 'o', c=c[i_cond]))
-            #
-            #     if y_err is not None:
-            #         ax.errorbar(xi_b+i_cond, y_acc[i_cond, :], yerr=y_err[i_cond], fmt='.', color=c[i_cond],
-            #                     zorder=10, capsize=cap_sz)
-
-            # # sets the new tickmark locations
-            # xi_mid, x_ticks = xi_b + (n_cond - 1) / 2, ax.get_xticks()
-            # mX = (x_ticks[-1] - x_ticks[0]) / (xi[-1] - xi[0])
-            # x0 = xi_mid[0] - xi[0] * mX
-            #
-            # # sets the new tick label/locations
-            # x_tick_lbl = np.arange(0, t_phase, 0.5)
-            # x_tick_nw = x0 + mX * x_tick_lbl
-            #
-            # if has_lg:
-            #     ax.legend([x[0] for x in h_plt], ttype, loc=4)
-            #
-            # # sets the x-axis ticks/labels
-            # ax.set_xticks(x_tick_nw)
-            # ax.set_xticklabels(x_tick_lbl)
-            # ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
-
-            # # sets the axis other properties
-            # ax.set_ylabel('Decoding Accuracy (%)')
-            # ax.set_ylim(yL)
-
-        def create_multi_boxplot(ax, xi, y_acc, t_phase, c):
-            '''
-
-            :param ax:
-            :param xi:
-            :param y_acc:
-            :param c:
-            :return:
-            '''
-
-            # array dimensions and initialisations
-            b_wid = 0.8
-            n_cond, n_xi = np.size(y_acc, axis=1), np.size(y_acc, axis=2)
-            xi_b = np.arange(1, (n_cond + 1) * n_xi, n_cond + 1)
-
-            # creates the boxplot for each conditions
-            for i_cond in range(n_cond):
-                bp = ax.boxplot(y_acc[:, i_cond, :], positions=xi_b+i_cond, sym='', widths=b_wid)
-                cf.set_box_color(bp, c[i_cond])
-
-            #
-            xi_mid, x_ticks = xi_b + (n_cond - 1) / 2, ax.get_xticks()
-            mX = (x_ticks[-1] - x_ticks[0]) / (xi[-1] - xi[0])
-            x0 = xi_mid[0] - xi[0] * mX
-
-            # sets the new tick label/locations
-            x_tick_lbl = np.arange(0, t_phase, 0.5)
-            x_tick_nw = x0 + mX * x_tick_lbl
-
-            # sets the x-axis ticks/labels
-            ax.set_xticks(x_tick_nw)
-            ax.set_xticklabels(x_tick_lbl)
-            ax.set_xlim(0.5, xi_b[-1] + (n_cond - 0.5))
 
         def setup_bin_stats(y_acc):
             '''
@@ -5408,83 +5336,61 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the important fields
         y_acc_phs, y_acc_ofs = 100. * np.dstack(d_data.y_acc[0]), 100. * np.dstack(d_data.y_acc[1])
-        # y_acc_phs_err, y_acc_ofs_err = None, None
 
-        # # retrieves the plot values
-        # if plot_all_expt:
-        #     # case is using all the experiments
-        #     n_ex = np.size(y_acc_phs, axis=0)
-        #     # y_acc_phs_mn, y_acc_ofs_mn = np.mean(y_acc_phs, axis=0), np.mean(y_acc_ofs, axis=0)
-        #
-        #     # # calculates the SEM (if more than one experiment)
-        #     # if n_ex > 1:
-        #     #     if err_type == 'SEM':
-        #     #         y_acc_phs_err = [x for x in (np.std(y_acc_phs, axis=0) / (n_c ** 0.5))[1:, :]]
-        #     #         y_acc_ofs_err = [x for x in (np.std(y_acc_ofs, axis=0) / (n_c ** 0.5))[1:, :]]
-        #     #     elif err_type == 'Min/Max':
-        #     #         # sets the differing phase duration min/max errorbar values
-        #     #         y_acc_phs_min = y_acc_phs_mn - np.min(y_acc_phs, axis=0)
-        #     #         y_acc_phs_max = np.max(y_acc_phs, axis=0) - y_acc_phs_mn
-        #     #         y_acc_phs_err = [np.vstack((x, y)) for x, y in zip(y_acc_phs_min[1:, :], y_acc_phs_max[1:, :])]
-        #     #
-        #     #         # sets the differing phase offset min/max errorbar values
-        #     #         y_acc_ofs_min = y_acc_ofs_mn - np.min(y_acc_ofs, axis=0)
-        #     #         y_acc_ofs_max = np.max(y_acc_ofs, axis=0) - y_acc_ofs_mn
-        #     #         y_acc_ofs_err = [np.vstack((x, y)) for x, y in zip(y_acc_ofs_min[1:, :], y_acc_ofs_max[1:, :])]
-        # else:
-        #     # case is using a specific experiment
-        #     i_ex, n_ex = list(d_data.exp_name).index(plot_exp_name), 1
-        #     # y_acc_phs_mn, y_acc_ofs_mn = y_acc_phs[i_ex, :, :], y_acc_ofs[i_ex, :, :]
-
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
+        ##################################
+        ####    DATA VISUALISATION    ####
+        ##################################
 
         # initialises the plot axes
         self.init_plot_axes(n_row=1, n_col=2)
         ax = self.plot_fig.ax
 
-        # creates the multiple boxplot
-        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], ttype, plot_avg_lines)
-        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], ttype, plot_avg_lines)
+        if show_stats:
+            ############################
+            ####    STATS TABLES    ####
+            ############################
 
-        # sets the axis properties for the phase duration accuracy plot
-        ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
-        ax[0].set_xlabel('Phase Duration (s)')
-        ax[0].grid(plot_grid)
+            # sets the axis properties for both subplots
+            for _ax in ax:
+                _ax.axis('off')
 
-        # sets the axis properties for the phase offset accuracy plot
-        ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
-        ax[1].set_xlabel('Phase Offset (s)')
-        ax[1].grid(plot_grid)
+            # memory allocation
+            ttype_abb, n_cond = [cf.cond_abb(x) for x in ttype], np.size(y_acc_phs, axis=1) - 1
+            col = cf.get_plot_col(n_cond)
 
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
+            # sets up the row header string arrays
+            rw_hdr = []
+            for i_row in range(n_cond):
+                for i_col in range(i_row + 1, n_cond):
+                    rw_hdr.append('{0}/{1}'.format(ttype_abb[i_row], ttype_abb[i_col]))
 
-        # if not showing the stats, then exit the function
-        if not show_stats:
-            return
+            # sets up the data for the stats table for the differing phase duration
+            t_data_phs, xi_phs = setup_bin_stats(y_acc_phs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
+            cf.add_plot_table(self.plot_fig, 0, table_font, t_data_phs, rw_hdr, xi_phs,
+                              ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_phs), 'top', p_wid=1.5, n_col=1)
 
-        # memory allocation
-        ttype_abb, n_cond = [cf.cond_abb(x) for x in ttype], np.size(y_acc_phs, axis=1) - 1
-        col = cf.get_plot_col(n_cond)
+            # sets up the data for the stats table for the differing phase offset
+            t_data_ofs, xi_ofs = setup_bin_stats(y_acc_ofs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
+            cf.add_plot_table(self.plot_fig, 1, table_font, t_data_ofs, rw_hdr, xi_ofs,
+                              ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_ofs), 'top', p_wid=1.5, n_col=1)
 
-        # sets up the row header string arrays
-        rw_hdr = []
-        for i_row in range(n_cond):
-            for i_col in range(i_row + 1, n_cond):
-                rw_hdr.append('{0}/{1}'.format(ttype_abb[i_row], ttype_abb[i_col]))
+        else:
+            #################################
+            ####    SUBPLOT CREATIONS    ####
+            #################################
 
-        # sets up the data for the stats table for the differing phase duration
-        t_data_phs, xi_phs = setup_bin_stats(y_acc_phs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
-        cf.add_plot_table(self.plot_fig, 0, table_font, t_data_phs, rw_hdr, xi_phs,
-                          ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_phs), 'bottom', p_wid=1.5, n_col=1)
+            # creates the multiple boxplot
+            create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], ttype, plot_avg_lines)
+            create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], ttype, plot_avg_lines)
 
-        # sets up the data for the stats table for the differing phase offset
-        t_data_ofs, xi_ofs = setup_bin_stats(y_acc_ofs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
-        cf.add_plot_table(self.plot_fig, 1, table_font, t_data_ofs, rw_hdr, xi_ofs,
-                          ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_ofs), 'bottom', p_wid=1.5, n_col=1)
+            # sets the titles for both subplots
+            ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+            ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+
+            # sets the axis properties for both subplots
+            for _ax, _x_lbl in zip(ax, ['Phase Duration (s)', 'Phase Offset (s)']):
+                _ax.set_xlabel(_x_lbl)
+                _ax.grid(plot_grid)
 
     def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, plot_grid):
         '''
@@ -6062,7 +5968,7 @@ class AnalysisGUI(QMainWindow):
             h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
             ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
 
-        #
+        # creates the vertical marker lines
         for xx in np.arange(xL[0] + 1, xL[1]):
             ax.plot(xx * np.ones(2), yL, 'k--')
 
@@ -6077,7 +5983,6 @@ class AnalysisGUI(QMainWindow):
         ax.set_xticklabels(spd_str)
         ax.set_xlabel('Speed Bin Comparison (deg/s)')
         ax.set_ylabel('Decoding Accuracy (%)')
-        ax.set_ylim(0., 100.)
         ax.grid(plot_grid)
 
 
@@ -9184,8 +9089,10 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'plot_avg_lines': {'type': 'B', 'text': 'Plot Avg. Decoding Accuracy', 'def_val': True},
-            'show_stats': {'type': 'B', 'text': 'Show Stats Table', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
+            },
         }
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Temporal Duration/Offset LDA Analysis',
