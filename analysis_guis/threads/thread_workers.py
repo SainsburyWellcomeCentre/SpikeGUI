@@ -1159,13 +1159,12 @@ class WorkerThread(QThread):
             d_data_i = data.discrim.indiv
             if d_data_i.lda is not None:
                 # if so, determines the trial type corresponding to the black direction decoding type
-                i_type = next((i for i in range(len(d_data_i.ttype)) if d_data_i.ttype[i] == 'Black'), None)
-                if (i_type is not None) and (ind in d_data_i.i_expt):
+                if ind in d_data_i.i_expt:
                     # if the black decoding type is present, remove the cells which have a decoding accuracy above max
                     ind_g = np.where(d_data_i.i_expt == ind)[0][0]
                     ii = np.where(d_data_i.i_cell[ind_g])[0]
-                    is_valid[ii[100. * d_data_i.y_acc[ind_g][:, i_type + 1] > lda_para['y_acc_max']]] = False
-                    is_valid[ii[100. * d_data_i.y_acc[ind_g][:, i_type + 1] < lda_para['y_acc_min']]] = False
+                    is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
+                    is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
 
             # if the number of valid cells is less than the reqd count, then set all cells to being invalid
             if np.sum(is_valid) < lda_para['n_cell_min']:

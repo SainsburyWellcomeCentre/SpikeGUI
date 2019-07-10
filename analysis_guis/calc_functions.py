@@ -18,8 +18,9 @@ from scipy import stats, signal
 from scipy.stats import poisson as p
 from scipy.stats import pearsonr as pr
 from scipy.spatial.distance import *
-from scipy.optimize import minimize
+from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
+from scipy.special import erf
 import matplotlib.pyplot as plt
 
 # sklearn module imports
@@ -1579,6 +1580,9 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
             'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
         }, True, None
 
+    # curve fit function declaration
+    fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
+
     # initialisations
     data_tmp = reduce_cluster_data(data, i_expt)
     lda_para, tt = calc_para['lda_para'], r_filt['t_type']
@@ -1663,6 +1667,29 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
                 for i_c in range(n_c):
                     y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
+    # psychometric function parameter estimation
+    d_vel = float(calc_para['vel_bin'])
+    xi = np.arange(d_vel, 80.01, d_vel) / 1000
+
+    #
+    ii = np.ones(len(xi), dtype=bool)
+    ii[r_data.i_bin_spd] = False
+
+    #
+    y_acc_mn = np.mean(y_acc, axis=0)
+    y_acc_fit = np.empty(n_c, dtype=object)
+
+    for i_c in range(n_c):
+        maxfev = 10000
+
+        while 1:
+            try:
+                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
+                y_acc_fit[i_c] = fit_func(xi, *popt)
+                break
+            except:
+                maxfev *= 2
+
     #######################################
     ####    HOUSE-KEEPING EXERCISES    ####
     #######################################
@@ -1682,6 +1709,7 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     set_lda_para(d_data, lda_para, _r_filt, n_trial_max)
 
     # sets the phase duration/offset parameters
+    d_data.y_acc_fit = y_acc_fit
     d_data.spd_xrng = calc_para['spd_x_rng']
     d_data.vel_bin = calc_para['vel_bin']
     d_data.n_sample = calc_para['n_sample']

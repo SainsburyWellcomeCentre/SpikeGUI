@@ -5919,7 +5919,7 @@ class AnalysisGUI(QMainWindow):
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
 
-    def plot_speed_comp_lda(self, plot_grid):
+    def plot_speed_comp_lda(self, show_cell_sz, show_fit, plot_type, sep_resp, plot_grid):
         '''
 
         :return:
@@ -5930,14 +5930,11 @@ class AnalysisGUI(QMainWindow):
         n_cond = len(d_data.ttype)
         col = cf.get_plot_col(n_cond)
 
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
-
-        # sets the plotting data values
-        y_acc_md = np.median(100. * d_data.y_acc, axis=0)
-        y_acc_lq = np.percentile(100. * d_data.y_acc, 25, axis=0)
-        y_acc_uq = np.percentile(100. * d_data.y_acc, 75, axis=0)
+        # sets the x-tick labels
+        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
+        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
+        x = np.arange(np.size(d_data.spd_xi, axis=0))
+        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
@@ -5947,26 +5944,70 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.setup_plot_axis()
         ax = self.plot_fig.ax[0]
 
-        ################################
-        ####    SUBPLOT CREATION    ####
-        ################################
+        ##################################
+        ####    DATA VISUALISATION    ####
+        ##################################
 
-        # sets the x-tick labels
-        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
-        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
-        x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+        if plot_type == 'Separated IQR Response':
 
-        # plots the plot/errorbar for each condition
-        for i_cond in range(n_cond):
-            # sets the plot x locations and error bar values
-            x_nw = x + (i_cond + 1) / (n_cond + 1)
-            yerr = np.vstack((y_acc_md[:, i_cond] - y_acc_lq[:, i_cond],
-                              y_acc_uq[:, i_cond] - y_acc_md[:, i_cond]))
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
 
-            # creates the plot/errorbar
-            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
-            ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+            # sets the plotting data values
+            y_acc_md = np.median(100. * d_data.y_acc, axis=0)
+            y_acc_lq = np.percentile(100. * d_data.y_acc, 25, axis=0)
+            y_acc_uq = np.percentile(100. * d_data.y_acc, 75, axis=0)
+
+            ################################
+            ####    SUBPLOT CREATION    ####
+            ################################
+
+            # plots the plot/errorbar for each condition
+            for i_cond in range(n_cond):
+                # sets the plot x locations and error bar values
+                x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
+                yerr = np.vstack((y_acc_md[:, i_cond] - y_acc_lq[:, i_cond],
+                                  y_acc_uq[:, i_cond] - y_acc_md[:, i_cond]))
+
+                # creates the plot/errorbar
+                h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+                ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+
+        else:
+
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
+
+            # array dimensioning
+            m_sz = 240
+            n_ex = np.size(d_data.y_acc, axis=0)
+
+            # sets cell count for each of the experiments (sets to 1 if not showing cell size)
+            n_cell = [sum(x) if show_cell_sz else m_sz / 8 for x in d_data.i_cell]
+            y_acc_mn, n_cell_mx = np.mean(100. * d_data.y_acc, axis=0), np.max(n_cell)
+
+            ################################
+            ####    SUBPLOT CREATION    ####
+            ################################
+
+            # plots the data for all points
+            for i_cond in range(n_cond):
+                # sets the plot x locations and error bar values
+                x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
+
+                # plots the mean marker points
+                ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz)
+
+                # plots the individual points
+                for i_ex in range(n_ex):
+                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+                               edgecolors=col[i_cond], s=n_cell[i_cond])
+
+                # plots the psychometric fit (if required)
+                if show_fit:
+                    ax.plot(x_nw, 100. * d_data.y_acc_fit[i_cond], c=col[i_cond], linewidth=2)
 
         # creates the vertical marker lines
         for xx in np.arange(xL[0] + 1, xL[1]):
@@ -5984,7 +6025,6 @@ class AnalysisGUI(QMainWindow):
         ax.set_xlabel('Speed Bin Comparison (deg/s)')
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
-
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -9243,6 +9283,7 @@ class AnalysisFunctions(object):
 
         # velocity LDA parameters
         spdc_lda_para, spdc_def_para = cfcn.init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
+        plot_type_spd = ['Separated IQR Response', 'Individual Cell Responses']
 
         # ====> Velocity ROC Curves (Whole Experiment)
         para = {
@@ -9277,6 +9318,13 @@ class AnalysisFunctions(object):
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
+            'show_cell_sz': {'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': True},
+            'show_fit': {'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[0],
+                'link_para': [['show_fit', 'Separated IQR Response'], ['show_cell_sz', 'Separated IQR Response']]
+            },
+            'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Kinematic Discrimination Analysis',
@@ -10672,6 +10720,7 @@ class SubDiscriminationData(object):
         elif type in ['SpdComp']:
             # case is the velocity comparison
             self.spd_xi = None
+            self.y_acc_fit = None
             self.i_bin_spd = -1
             self.spd_xrng = -1
             self.vel_bin = -1
