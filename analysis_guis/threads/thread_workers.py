@@ -1215,9 +1215,21 @@ class WorkerThread(QThread):
             :return:
             '''
 
+            # sets the exclusion field name to cluster field key
+            f_key = {
+                'region_name': 'chRegion',
+                'record_layer': 'chLayer',
+            }
+
             # determines the cells that are in the valid regions (RSPg and RSPd)
-            cluster = data.cluster[ind]
+            cluster, exc_filt = data.cluster[ind], data.rotation.exc_rot_filt
             is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
+
+            # removes any values that correspond to the fields in the exclusion filter
+            for ex_key in ['region_name', 'record_layer']:
+                if len(exc_filt[ex_key]):
+                    for f_exc in exc_filt[ex_key]:
+                        is_valid[cluster[f_key[ex_key]] == f_exc] = False
 
             # if the cell types have been set, then remove the cells that are not the selected type
             if lda_para['cell_types'] == 'Narrow Spike Cells':
