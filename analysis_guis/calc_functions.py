@@ -1190,7 +1190,8 @@ def run_part_lda_pool(p_data):
     return [n_cell, results[1]]
 
 
-def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None):
+def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
+                pW0=0., pW=100.):
     '''
 
     :param data:
@@ -1204,7 +1205,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     :return:
     '''
 
-    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle):
+    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle, pW0, pW):
         '''
 
         :param r_obj:
@@ -1246,7 +1247,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
         # retrieves the cell indices (over each condition) for the current experiment
         ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
-        n_cell, pW = len(ind_c[0]), 1 / r_obj.n_expt
+        n_cell, pWS = len(ind_c[0]), 1 / r_obj.n_expt
 
         ####################################
         ####    LDA DATA ARRAY SETUP    ####
@@ -1320,7 +1321,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             # updates the progress bar
             if w_prog is not None:
                 w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
-                w_prog.emit(w_str, 100. * pW * (i_ex + i_pred / len(i_grp)) )
+                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_pred / len(i_grp)) )
 
             # fits the one-out-trial lda model
             ii = np.array(range(len(i_grp))) != i_pred
@@ -1402,8 +1403,8 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
-        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para,
-                                                        i_cell[i_ex], ind_t, i_ex, is_shuffle)
+        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, i_cell[i_ex],
+                                                        ind_t, i_ex, is_shuffle, pW0, pW)
         if not ok:
             # if there was an error, then exit with a false flag
             return False
@@ -1434,7 +1435,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
         # updates the progress bar (if provided)
         if w_prog is not None:
-            w_prog.emit('Calculating Pairwise Correlations...', 99.)
+            w_prog.emit('Calculating Pairwise Correlations...', pW0 + 0.99 * pW)
 
         # calculates the noise correlation (if required)
         calc_noise_correl(d_data, n_sp)
@@ -1590,7 +1591,7 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
 
     # calculates the binned kinematic spike frequencies
     _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
-    calc_binned_kinemetic_spike_freq(data_tmp, _plot_para, calc_para, w_prog, roc_calc=False)
+    calc_binned_kinemetic_spike_freq(data_tmp, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
 
     # retrieves the rotation kinematic trial types (as they could be altered from the original list)
     _r_filt = dcopy(r_filt)
@@ -1694,6 +1695,10 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     ####    HOUSE-KEEPING EXERCISES    ####
     #######################################
 
+    # sets a copy of the lda parameters and updates the comparison conditions
+    _lda_para = dcopy(lda_para)
+    _lda_para['comp_cond'] = data_tmp.rotation.r_obj_kine.rot_filt['t_type']
+
     # sets the lda values
     d_data.lda = 1
     d_data.i_expt = i_expt
@@ -1706,7 +1711,7 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
     d_data.spd_xi = data_tmp.rotation.spd_xi
 
     # sets the solver parameters
-    set_lda_para(d_data, lda_para, _r_filt, n_trial_max)
+    set_lda_para(d_data, _lda_para, _r_filt, n_trial_max)
 
     # sets the phase duration/offset parameters
     d_data.y_acc_fit = y_acc_fit
@@ -1831,17 +1836,22 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
         # case is the default rotational LDA
         def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull'])
 
-    elif d_data.type == 'Temporal':
+    elif d_data.type in ['Temporal']:
         # case is the temporal LDA
         def_para = set_def_lda_para(d_data, ['dt_phs', 'dt_ofs', 'phs_const'])
 
-    elif d_data.type == 'TrialShuffle':
+    elif d_data.type in ['TrialShuffle']:
         # case is the shuffled trial LDA
         def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle'])
 
-    elif d_data.type == 'Partial':
+    elif d_data.type in ['Partial']:
         # case is the partial LDA
         def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'cellminpart'])
+
+    # sets the default parameters based on the type
+    if d_data.type in ['IndivFilt']:
+        # case is the default rotational LDA
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'yaccmn', 'yaccmx'])
 
     elif d_data.type in ['SpdComp']:
         # case is the velocity comparison LDA
@@ -1897,7 +1907,7 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
             setattr(d_data, conv_str[ldp], _lda_para[ldp])
 
 
-def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True):
+def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True):
     '''
 
     :param calc_para:
@@ -1910,7 +1920,10 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
     # sets the condition types (ensures that the black phase is always included)
     r_filt_base = cf.init_rotation_filter_data(False)
     if plot_para['rot_filt'] is not None:
-        r_filt_base['t_type'] = list(np.unique(r_filt_base['t_type'] + plot_para['rot_filt']['t_type']))
+        if replace_ttype:
+            r_filt_base['t_type'] = plot_para['rot_filt']['t_type']
+        else:
+            r_filt_base['t_type'] = list(np.unique(r_filt_base['t_type'] + plot_para['rot_filt']['t_type']))
 
     # sets up the black phase data filter and returns the time spikes
     r_data.r_obj_kine = RotationFilteredData(data, r_filt_base, 0, None, True, 'Whole Experiment', False)

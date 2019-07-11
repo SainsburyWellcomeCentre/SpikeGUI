@@ -443,6 +443,78 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
+            elif self.thread_job_secondary == 'Individual Cell Accuracy Filtered LDA':
+                # check to see if the individual LDA calculations have been performed
+                if data.discrim.indiv.lda is None:
+                    # if the individual LDA has not been run, then output an error to screen
+                    e_str = 'The Individual LDA must be run first before this analysis can be performed'
+                    self.work_error.emit(e_str, 'Missing Individual LDA Data')
+
+                    # sets the ok flag to false and exit the function
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                #
+                _calc_para = dcopy(calc_para)
+                _calc_para['comp_cond'] = dcopy(data.discrim.indiv.ttype)
+
+                #########################################
+                ####    ROTATION LDA CALCULATIONS    ####
+                #########################################
+
+                # sets the min/max accuracy values
+                _calc_para['lda_para']['y_acc_min'] = 0
+                _calc_para['lda_para']['y_acc_max'] = 100
+
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, _calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, _calc_para, data.discrim.dir, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=data.discrim.dir, w_prog=self.work_progress, pW=50.):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                #########################################
+                ####    FILTERED LDA CALCULATIONS    ####
+                #########################################
+
+                # sets the min/max accuracy values
+                _calc_para['lda_para']['y_acc_min'] = _calc_para['y_acc_min']
+                _calc_para['lda_para']['y_acc_max'] = _calc_para['y_acc_max']
+
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, _calc_para, g_para, ['lda'], other_para=data.discrim.filt)
+
+                # sets up the important arrays for the LDA
+                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, _calc_para, data.discrim.filt, True)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not cfcn.run_rot_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                             d_data=data.discrim.filt, w_prog=self.work_progress, pW=50., pW0=50.):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    else:
+                        # otherwise, update the calculation parameters
+                        data.discrim.filt.yaccmn = _calc_para['y_acc_min']
+                        data.discrim.filt.yaccmx = _calc_para['y_acc_max']
+
         elif self.thread_job_primary == 'update_plot':
             pass
 
@@ -2656,9 +2728,13 @@ class WorkerThread(QThread):
                     d_data.norm == lda_para['is_norm'],
                     d_data.cellmin == lda_para['n_cell_min'],
                     d_data.trialmin == lda_para['n_trial_min'],
-                    d_data.yaccmx == lda_para['y_acc_max'],
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
+
+                if hasattr(d_data,'yaccmx'):
+                    is_equal += [
+                        d_data.yaccmx == lda_para['y_acc_max'],
+                    ]
 
                 if hasattr(d_data,'yaccmn'):
                     is_equal += [
@@ -2666,7 +2742,7 @@ class WorkerThread(QThread):
                     ]
 
                 #
-                if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
+                if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt']:
                     if 'use_full_rot' in calc_para:
                         if d_data.usefull:
                             is_equal += [
@@ -2681,8 +2757,14 @@ class WorkerThread(QThread):
                     if d_data.type in ['TrialShuffle']:
                         is_equal += [
                             d_data.nshuffle == calc_para['n_shuffle'],
-                            # d_data.bsz == calc_para['b_sz']
                         ]
+
+                    if d_data.type in ['IndivFilt']:
+                        is_equal += [
+                            d_data.yaccmn == calc_para['y_acc_min'],
+                            d_data.yaccmx == calc_para['y_acc_max'],
+                        ]
+
                     elif d_data.type in ['Partial']:
                         is_equal[3] = True
 

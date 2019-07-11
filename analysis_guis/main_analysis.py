@@ -5094,15 +5094,15 @@ class AnalysisGUI(QMainWindow):
         cbar = self.plot_fig.figure.colorbar(im, cax=self.plot_fig.ax[1])
         cbar.set_clim([0., 100.])
 
-        ##########################################
-        ####    ACCURACY SWARM/VIOLINPLOTS    ####
-        ##########################################
+        # turns off the 3rd axis (not required - only used for providing gap)
+        self.plot_fig.ax[2].axis('off')
+
+        #########################################
+        ####    DECODING ACCURACY SUBPLOT    ####
+        #########################################
 
         # other parameters
         yL = [0., 102.]
-
-        # turns off the 3rd axis (not required - only used for providing gap)
-        self.plot_fig.ax[2].axis('off')
 
         if acc_type == 'Bar + Bubbleplot':
             # sets the plot colours and values
@@ -5801,7 +5801,7 @@ class AnalysisGUI(QMainWindow):
         for i in range(n_cond + 1):
             # sets the synchronous violin/swarmplot objects
             c_v[2 * i].set_color(col[i])
-            c_v[2 * i + 1].set_alpha(f_alpha[0])
+            c_v[2 * i].set_alpha(f_alpha[0])
             c_s[2 * i].set_color('w')
 
             # sets the non-synchronous violin/swarmplot objects
@@ -5915,6 +5915,132 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylim([0, 105])
         ax.grid(plot_grid)
 
+    def plot_acc_filt_lda(self, acc_type, plot_grid):
+        '''
+
+        :param acc_type:
+        :param plot_grid:
+        :return:
+        '''
+
+        # retrieves the data classes
+        d_data_d, d_data_f = self.data.discrim.dir, self.data.discrim.filt
+        n_cond, ttype = len(d_data_d.ttype), d_data_d.ttype
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # sets the decoding accuracies for the unfiltered/filtered datasets
+        y_acc = np.empty(2, dtype=object)
+        y_acc[0], y_acc[1] = d_data_d.y_acc, d_data_f.y_acc
+
+        # sets the cell count for the unfiltered/filtered datasets
+        n_cell = np.empty(2, dtype=object)
+        n_cell[0] = np.array([x['n_cell'] for x in d_data_d.lda])
+        n_cell[1] = np.array([x['n_cell'] for x in d_data_f.lda])
+
+        # bar graph dimensioning
+        x_bar, w_bar = np.arange(n_cond + 1) - 0.5, 0.425
+        bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
+        lg_str = ['Unfiltered', 'Filtered (Min={0}%/Max={1}%)'.format(d_data_f.yaccmn, d_data_f.yaccmx)]
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # initialises the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        #########################################
+        ####    DECODING ACCURACY SUBPLOT    ####
+        #########################################
+
+        # other parameters
+        yL, xL, alpha = [0., 105.], [-0.5, (n_cond + 0.5)], [1.0, 0.5]
+        col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
+
+        if acc_type == 'Bar + Bubbleplot':
+            # case is the bar + bubble plot
+
+            # sets the legend location
+            lg_loc = 2
+
+            # sets the plot colours and values
+            for i_c in range(len(y_acc)):
+                # sets the new x-location of the bars
+                x_bar_nw = x_bar + (2 * i_c + 1) / 4
+
+                # retrieves the individual plot values
+                y_acc_mn = 100. * np.mean(y_acc[i_c], axis=0)
+                y_acc_l = [100 * y_acc[i_c][:, i] for i in range(np.size(y_acc[i_c], axis=1))]
+
+                # plots the mean accuracy values
+                ax.bar(x_bar_nw, y_acc_mn, width=w_bar, color=col, alpha=alpha[i_c], zorder=1)
+
+                # creates the final plot based on the selected type
+                cf.create_bubble_boxplot(ax, y_acc_l, plot_median=False, X0=x_bar_nw,
+                                         col=['k'] * len(y_acc_l), s=4 * n_cell[i_c], wid=0.40)
+
+            # sets the bar plot axis properties
+            ax.set_xticks(x_bar + 0.5)
+            ax.set_xticklabels(bar_lbls)
+
+        else:
+            # case is the swarm/violinplot
+
+            # sets the legend location
+            lg_loc = 4
+
+            # sets the x/y plot values
+            x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls] * 2)
+            y_plt = cf.flat_list([100. * x.T.flatten() for x in y_acc])
+            z_plt = cf.flat_list([[x] * np.prod(np.shape(y)) for x, y in zip(lg_str, y_acc)])
+
+            # sets up the swarmplot dictionary
+            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, hue=z_plt, dodge=True, size=6, color='white')
+            vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, hue=z_plt, inner=None)
+
+            # creates the violin/swarmplot
+            sns.violinplot(**vl_dict)
+            sns.swarmplot(**sw_dict)
+
+            # retrieves the violin/swarmplot objects
+            c = ax.collections
+            c_v = [x for x in c if isinstance(x, matplotlib.collections.PolyCollection)]
+            c_s = [x for x in c if isinstance(x, matplotlib.collections.PathCollection)]
+
+            # updates the plot marker colours
+            for i in range(n_cond + 1):
+                # sets the synchronous violin/swarmplot objects
+                c_v[2 * i].set_color(col[i])
+                c_v[2 * i].set_alpha(alpha[0])
+                c_s[2 * i].set_color('w')
+
+                # sets the non-synchronous violin/swarmplot objects
+                c_v[2 * i + 1].set_color(col[i])
+                c_v[2 * i + 1].set_alpha(alpha[1])
+                c_s[2 * i + 1].set_color('w')
+
+        # creates the legend object
+        lg_patch = [Patch(facecolor='k', edgecolor='k', label=lg_str[0], alpha=alpha[0]),
+                    Patch(facecolor='k', edgecolor='k', label=lg_str[1], alpha=alpha[1])]
+        ax.legend(handles=lg_patch, ncol=2, loc=lg_loc)
+
+        # creates the separation marker lines
+        for i_plt in range(np.size(y_acc[0], axis=1) - 1):
+            ax.plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
+
+        # plots the chance line
+        ax.plot(xL, 50. * np.ones(2), 'gray', linewidth=2)
+
+        # sets the other general axis properties
+        ax.set_ylim(yL)
+        ax.set_xlim(xL)
+        ax.grid(plot_grid)
+        ax.set_ylabel('Decoding Accuracy (%)')
+
     ######################################################
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
@@ -5974,6 +6100,9 @@ class AnalysisGUI(QMainWindow):
                 h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
                 ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
 
+            # creates the legend
+            ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
+
         else:
 
             ###################################
@@ -5998,16 +6127,19 @@ class AnalysisGUI(QMainWindow):
                 x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
 
                 # plots the mean marker points
-                ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz)
+                h_plt.append(ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz))
 
                 # plots the individual points
                 for i_ex in range(n_ex):
                     ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
-                               edgecolors=col[i_cond], s=n_cell[i_cond])
+                                   edgecolors=col[i_cond], s=n_cell[i_ex])
 
                 # plots the psychometric fit (if required)
                 if show_fit:
                     ax.plot(x_nw, 100. * d_data.y_acc_fit[i_cond], c=col[i_cond], linewidth=2)
+
+                # creates the legend
+                ax.legend(h_plt, d_data.ttype, loc=4)
 
         # creates the vertical marker lines
         for xx in np.arange(xL[0] + 1, xL[1]):
@@ -6015,7 +6147,6 @@ class AnalysisGUI(QMainWindow):
 
         # plots the chance line
         ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
 
         # sets the axis properties
         ax.set_xlim(xL)
@@ -7406,6 +7537,7 @@ class AnalysisGUI(QMainWindow):
                          'Individual LDA Analysis',
                          'Shuffled LDA Analysis',
                          'Pooling LDA Analysis',
+                         'Individual Cell Accuracy Filtered LDA',
                          'Speed LDA Comparison']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel):
@@ -9058,6 +9190,7 @@ class AnalysisFunctions(object):
         indiv_lda_para, indiv_def_para  = cfcn.init_lda_para(data.discrim.indiv)
         shuffle_lda_para, shuffle_def_para = cfcn.init_lda_para(data.discrim.shuffle)
         part_lda_para, part_def_para = cfcn.init_lda_para(data.discrim.part)
+        filt_lda_para, filt_def_para = cfcn.init_lda_para(data.discrim, 'filt', SubDiscriminationData('IndivFilt'))
 
         # ====> Rotation Direction LDA
         para = {
@@ -9275,6 +9408,46 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Pooling LDA Analysis',
                       func='plot_partial_lda',
+                      para=para)
+
+        # ====> Individual Cell Accuracy Filtered LDA
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': filt_lda_para, 'para_gui_var': {'rmv_fields': ['y_acc_max', 'y_acc_min']}
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
+                'def_val': cfcn.set_def_para(filt_def_para, 'tphase', t_phase)
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(filt_def_para, 'tofs', t_ofs)
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(filt_def_para, 'usefull', True),
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+            'y_acc_min': {
+                'gtype': 'C', 'text': 'Min Individual Cell Accuracy (%)',
+                'def_val': cfcn.set_def_para(filt_def_para, 'yaccmn', 0)
+            },
+            'y_acc_max': {
+                'gtype': 'C', 'text': 'Max Individual Cell Accuracy (%)',
+                'def_val': cfcn.set_def_para(filt_def_para, 'yaccmx', 100)
+            },
+
+            # plotting parameters
+            'acc_type': {
+                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='Individual Cell Accuracy Filtered LDA',
+                      func='plot_acc_filt_lda',
                       para=para)
 
         ######################################
@@ -10663,6 +10836,7 @@ class DiscriminationData(object):
         self.indiv = SubDiscriminationData('Individual')
         self.shuffle = SubDiscriminationData('TrialShuffle')
         self.part = SubDiscriminationData('Partial')
+        self.filt = SubDiscriminationData('IndivFilt')
 
         # kinematic discrimination analysis
         self.spdc = SubDiscriminationData('SpdComp')
@@ -10692,7 +10866,7 @@ class SubDiscriminationData(object):
         self.yaccmx = -1
         self.yaccmn = -1
 
-        if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial']:
+        if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt']:
             # case is the direction LDA analysis
             self.tofs = -1
             self.tphase = -1
@@ -10708,6 +10882,11 @@ class SubDiscriminationData(object):
                 self.nshuffle = -1
                 self.cellminpart = -1
                 self.xi = None
+
+            elif type == 'IndivFilt':
+                # case is the individual filtered LDA analysis
+                self.yaccmn = -1
+                self.yaccmx = -1
 
         elif type in ['Temporal']:
             # case is the temporal LDA analysis
