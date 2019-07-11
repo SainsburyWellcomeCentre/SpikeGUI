@@ -610,32 +610,39 @@ class AnalysisGUI(QMainWindow):
 
                     # disnables the cluster matching comparison menu item
                     self.menu_set_compare.setEnabled(False)
-                else:
-                    #
-                    has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
-                    has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
-                    has_both = has_vis_expt and has_rot_expt
+
+                    # adds the force calculation parameter (if not present)
+                    if not hasattr(self.data, 'force_calc'):
+                        self.data.force_calc = False
+
+                # determines which epxerimental types are available
+                has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
+                has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
+                has_both = has_vis_expt and has_rot_expt
+
+                # if single experiments are loaded, then determine the function types
+                if not self.is_multi:
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt,
                                has_both, has_rot_expt, has_rot_expt, True]
                     new_func_types = func_types[np.array(is_keep)]
 
-                    # otherwise, enable the cluster matching comparison menu item
-                    self.menu_set_compare.setEnabled(True)
-                    self.menu_init_filt.setEnabled(has_rot_expt)
-                    self.menu_gen_filt.setEnabled(True)
-                    self.menu_rot_filt.setEnabled(has_rot_expt)
-                    self.menu_ud_filt.setEnabled(has_ud_expt)
+                # otherwise, enable the cluster matching comparison menu item
+                self.menu_set_compare.setEnabled(True)
+                self.menu_init_filt.setEnabled(has_rot_expt)
+                self.menu_gen_filt.setEnabled(True)
+                self.menu_rot_filt.setEnabled(has_rot_expt)
+                self.menu_ud_filt.setEnabled(has_ud_expt)
 
-                    # updates the general exclusion filter
-                    self.data.update_gen_filter()
+                # updates the general exclusion filter
+                self.data.update_gen_filter()
 
-                    # updates the exclusion rotation filter (if any experiments contain rotational data)
-                    if has_rot_expt:
-                        self.data.rotation.update_rot_filter()
+                # updates the exclusion rotation filter (if any experiments contain rotational data)
+                if has_rot_expt:
+                    self.data.rotation.update_rot_filter()
 
-                    # updates the exclusion uniformdrifting filter (if any experiments contain uniformdrifting data)
-                    if has_ud_expt:
-                        self.data.rotation.update_ud_filter()
+                # updates the exclusion uniformdrifting filter (if any experiments contain uniformdrifting data)
+                if has_ud_expt:
+                    self.data.rotation.update_ud_filter()
 
                 if self.combo_scope.count() != len(new_func_types):
                     # sets the flag which disables the function type callback function
@@ -686,6 +693,7 @@ class AnalysisGUI(QMainWindow):
                 calc_data = worker_data
                 self.thread_calc_error = False
                 self.calc_cancel = False
+                self.data.force_calc = False
 
                 # sets the data based on the calculation function that was run
                 if self.worker[iw].thread_job_secondary == 'Cluster Cross-Correlogram':
@@ -1361,6 +1369,7 @@ class AnalysisGUI(QMainWindow):
             # updates the current parameter value
             self.data.exc_gen_filt = r_filt.get_info()
             self.data.req_update = True
+            self.data.force_calc = True
 
     def init_rotfilt(self):
         '''
@@ -1376,6 +1385,7 @@ class AnalysisGUI(QMainWindow):
             # updates the current parameter value
             self.data.rotation.exc_rot_filt = r_filt.get_info()
             self.data.req_update = True
+            self.data.force_calc = True
 
     def init_udfilt(self):
         '''
@@ -1391,6 +1401,7 @@ class AnalysisGUI(QMainWindow):
             # updates the current parameter value
             self.data.rotation.exc_ud_filt = r_filt.get_info()
             self.data.req_update = True
+            self.data.force_calc = True
 
     def exit_program(self):
         '''
@@ -5958,7 +5969,7 @@ class AnalysisGUI(QMainWindow):
         #########################################
 
         # other parameters
-        yL, xL, alpha = [0., 105.], [-0.5, (n_cond + 0.5)], [1.0, 0.5]
+        yL, xL, alpha = [0., 110.], [-0.5, (n_cond + 0.5)], [1.0, 0.5]
         col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
 
         if acc_type == 'Bar + Bubbleplot':
@@ -5994,7 +6005,8 @@ class AnalysisGUI(QMainWindow):
             lg_loc = 4
 
             # sets the x/y plot values
-            x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls] * 2)
+            x_plt = cf.flat_list(
+                [cf.flat_list([['{0}'.format(x)] * np.size(y, axis=0) for x in bar_lbls]) for y in y_acc])
             y_plt = cf.flat_list([100. * x.T.flatten() for x in y_acc])
             z_plt = cf.flat_list([[x] * np.prod(np.shape(y)) for x, y in zip(lg_str, y_acc)])
 
@@ -7540,7 +7552,7 @@ class AnalysisGUI(QMainWindow):
                          'Individual Cell Accuracy Filtered LDA',
                          'Speed LDA Comparison']
 
-        if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel):
+        if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
             return True
 
@@ -8023,7 +8035,7 @@ class AnalysisGUI(QMainWindow):
             self.data.req_update = False
 
         # sets a copy of the data class
-        self.update_thread_job('Removing Excluded Cells...', 10.)
+        self.update_thread_job('Removing Excluded Cells...', 0.)
         self.data.cluster = dcopy(self.data._cluster)
 
         # if the function is not
@@ -9081,7 +9093,7 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'text': 'UniformDrifting Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
             },
             'use_full_vis': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': False,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
                 'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]]
             },
             'vis_expt_type': {
@@ -9178,12 +9190,6 @@ class AnalysisFunctions(object):
         ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
         #########################################################
 
-        # parameter lists
-        err_type = ['SEM', 'Min/Max', 'None']
-        decode_type = ['Condition', 'Dir (Black)', 'Dir (Uniform)']
-        cond_type = ['Black', 'Uniform']
-        acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
-
         # rotation LDA parameters
         rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
         temp_lda_para, temp_def_para = cfcn.init_lda_para(data.discrim.temp)
@@ -9191,6 +9197,12 @@ class AnalysisFunctions(object):
         shuffle_lda_para, shuffle_def_para = cfcn.init_lda_para(data.discrim.shuffle)
         part_lda_para, part_def_para = cfcn.init_lda_para(data.discrim.part)
         filt_lda_para, filt_def_para = cfcn.init_lda_para(data.discrim, 'filt', SubDiscriminationData('IndivFilt'))
+
+        # parameter lists
+        err_type = ['SEM', 'Min/Max', 'None']
+        decode_type = ['Condition'] + ['Dir ({0})'.format(x) for x in indiv_lda_para['comp_cond']]
+        cond_type = ['Black', 'Uniform']
+        acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
 
         # ====> Rotation Direction LDA
         para = {
@@ -10509,6 +10521,7 @@ class AnalysisData(object):
         self.multi = MultiFileData()
 
         self.req_update = True
+        self.force_calc = True
         self.exc_gen_filt = None
 
     def update_gen_filter(self):

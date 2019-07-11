@@ -360,6 +360,9 @@ class InfoDialog(QDialog):
             self.main_obj.data.req_update = True
             cl_inc[i_row] = state > 0
 
+        # force a calculation update
+        self.main_obj.data.force_calc = True
+
     def refresh_fields(self):
         '''
 

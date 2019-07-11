@@ -2615,7 +2615,7 @@ class WorkerThread(QThread):
         # loops through each of the check types determining if any parameters changed
         for ct in chk_type:
             # initialises the change flag
-            is_change = False
+            is_change = data.force_calc
 
             if ct == 'condition':
                 # case is the roc condition parameters
@@ -2648,10 +2648,6 @@ class WorkerThread(QThread):
             elif ct == 'phase':
                 # case is the phase ROC calculations
                 pass
-
-                # # if there was a change, then re-initialise the roc phase fields
-                # if is_change:
-                #     a = 1
 
             elif ct == 'visual':
                 # retrieves the visual phase time offset/duration
@@ -2789,7 +2785,7 @@ class WorkerThread(QThread):
                      ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field
-                if not np.all(is_equal):
+                if not np.all(is_equal) or data.force_calc:
                     d_data.lda = None
 
     # def calc_roc_direction_stats(self, calc_para, plot_para, data, pool):
