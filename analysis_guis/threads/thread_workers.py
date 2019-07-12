@@ -2762,12 +2762,17 @@ class WorkerThread(QThread):
                                 d_data.tphase == t_phase,
                             ]
 
-                    if d_data.type in ['TrialShuffle']:
+                    if d_data.type in ['Direction']:
+                        is_equal += [
+                            hasattr(d_data, 'z_corr')
+                        ]
+
+                    elif d_data.type in ['TrialShuffle']:
                         is_equal += [
                             d_data.nshuffle == calc_para['n_shuffle'],
                         ]
 
-                    if d_data.type in ['IndivFilt']:
+                    elif d_data.type in ['IndivFilt']:
                         is_equal += [
                             d_data.yaccmn == calc_para['y_acc_min'],
                             d_data.yaccmx == calc_para['y_acc_max'],

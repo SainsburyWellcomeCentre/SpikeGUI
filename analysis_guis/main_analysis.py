@@ -5725,7 +5725,7 @@ class AnalysisGUI(QMainWindow):
             else:
                 # retrieves the experiment index and cell count for the experiment
                 i_expt = list(d_data_d.exp_name).index(plot_exp_name)
-                n_cell = np.size(d_data_s.z_corr[i_expt][0], axis=0)
+                n_cell = np.size(d_data_d.z_corr[i_expt][0], axis=0)
 
                 # determines if the input indices don't exceed the number of cells for this experiment
                 if (i_cell_1 > n_cell) or (i_cell_2 > n_cell):
@@ -5762,23 +5762,23 @@ class AnalysisGUI(QMainWindow):
                 i_cell = [i_cell_2, i_cell_1]
 
                 # z-score values
-                z_corr[0] = d_data_s.z_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
-                z_corr[1] = d_data_s.z_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
+                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
+                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
 
                 # pair-wise correlation values
-                pw_corr[0] = d_data_s.pw_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
-                pw_corr[1] = d_data_s.pw_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
+                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
+                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
             else:
                 # sets the cell indices
                 i_cell = [i_cell_1, i_cell_2]
 
                 # z-score values
-                z_corr[0] = d_data_s.z_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
-                z_corr[1] = d_data_s.z_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
+                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
+                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
 
                 # pair-wise correlation values
-                pw_corr[0] = d_data_s.pw_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
-                pw_corr[1] = d_data_s.pw_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
+                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
+                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
 
             #############################
             ####    SUBPLOT SETUP    ####

@@ -1149,9 +1149,9 @@ def calc_noise_correl(d_data, n_sp):
 
         # returns the pairwise correlation array
         if is_3d:
-            return r_pair, z_sp_pair
-        else:
             return r_pair
+        else:
+            return r_pair, z_sp_pair
 
     # array dimensioning
     n_cond = len(d_data.ttype)
@@ -1163,19 +1163,19 @@ def calc_noise_correl(d_data, n_sp):
 
     for i_ex in range(n_ex):
         if n_dim == 2:
-            # case is analysing non-shuffled data
-            d_data.pw_corr[i_ex] = [
-                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :]) for i in range(n_cond)
-            ]
-        else:
             # memory allocation (first iteration only)
             if i_ex == 0:
                 d_data.z_corr = dcopy(A)
 
-            # case is analysing shuffled data
+            # case is analysing non-shuffled data
             d_data.pw_corr[i_ex], d_data.z_corr[i_ex] = zip(*[
-                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :], True) for i in range(n_cond)
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :]) for i in range(n_cond)
             ])
+        else:
+            # case is analysing shuffled data
+            d_data.pw_corr[i_ex] = [
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :], True) for i in range(n_cond)
+            ]
 
 
 def run_part_lda_pool(p_data):
