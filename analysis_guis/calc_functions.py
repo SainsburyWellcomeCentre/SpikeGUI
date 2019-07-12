@@ -1110,14 +1110,15 @@ def calc_noise_correl(d_data, n_sp):
     :return:
     '''
 
-    def calc_pw_noise_correl(n_spt0):
+    def calc_pw_noise_correl(n_spt0, is_3d=False):
         '''
 
         :param n_spt:
         :return:
         '''
 
-        # array dimensioning
+        # array dimensioning and parameters
+        z_tol = 3.
         n_t0, n_c = int(np.size(n_spt0, axis=0) / 2), np.size(n_spt0, axis=1)
 
         # array dimensioning
@@ -1129,26 +1130,36 @@ def calc_noise_correl(d_data, n_sp):
 
         # memory allocation
         r_pair = np.nan * np.ones((n_c, n_c))
+        z_sp_pair = np.empty((n_c, n_c), dtype=object)
 
         # calculates the pair-wise pearson correlations between each cell pair (over all trials)
         for i_c0 in range(n_c):
             for i_c1 in range(i_c0 + 1, n_c):
                 # sets up the pairwise array and from this calculates the mean/std dev
                 n_sp_pair = n_spt[:, np.array([i_c0, i_c1]), :]
-                n_sp_mn, n_sp_sd = np.mean(n_sp_pair), np.std(n_sp_pair)
+                x, y = n_sp_pair[:, 0, :].flatten(), n_sp_pair[:, 1, :].flatten()
+
+                # calculates the x/y z-scored values
+                x_z, y_z = (x - np.mean(x)) / np.std(x), (y - np.mean(y)) / np.std(y)
+                is_acc = np.logical_and(np.abs(x_z) < z_tol, np.abs(y_z) < z_tol)
 
                 # calculates the pair-wise pearson correlations
-                z_sp_pair = (n_sp_pair - n_sp_mn) / n_sp_sd
-                x, y = z_sp_pair[:, 0, :].flatten(), z_sp_pair[:, 1, :].flatten()
-                r_pair[i_c0, i_c1] = r_pair[i_c1, i_c0] = pr(x, y)[0]
+                r_pair[i_c0, i_c1] = r_pair[i_c1, i_c0] = pr(x_z[is_acc], y_z[is_acc])[0]
+                z_sp_pair[i_c0, i_c1] = np.vstack((x_z[is_acc], y_z[is_acc])).T
 
         # returns the pairwise correlation array
-        return r_pair
+        if is_3d:
+            return r_pair, z_sp_pair
+        else:
+            return r_pair
 
-    # array dimensioning and memory allocation
+    # array dimensioning
     n_cond = len(d_data.ttype)
     n_ex, n_t, n_dim = len(n_sp), int(np.size(n_sp[0], axis=0) / (2 * n_cond)), len(np.shape(n_sp[0]))
-    d_data.pw_corr = np.empty(n_ex, dtype=object)
+
+    # memory allocation
+    A = np.empty(n_ex, dtype=object)
+    d_data.pw_corr = dcopy(A)
 
     for i_ex in range(n_ex):
         if n_dim == 2:
@@ -1157,10 +1168,14 @@ def calc_noise_correl(d_data, n_sp):
                 calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :]) for i in range(n_cond)
             ]
         else:
+            # memory allocation (first iteration only)
+            if i_ex == 0:
+                d_data.z_corr = dcopy(A)
+
             # case is analysing shuffled data
-            d_data.pw_corr[i_ex] = [
-                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :]) for i in range(n_cond)
-            ]
+            d_data.pw_corr[i_ex], d_data.z_corr[i_ex] = zip(*[
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :], True) for i in range(n_cond)
+            ])
 
 
 def run_part_lda_pool(p_data):

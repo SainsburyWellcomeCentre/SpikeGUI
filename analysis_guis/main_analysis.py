@@ -5603,7 +5603,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_title('Direction Decoding Accuracy')
         self.plot_fig.ax[1].grid(plot_grid)
 
-    def plot_shuffled_lda(self, plot_exp_name, plot_all_expt, dir_type_1, dir_type_2, plot_grid):
+    def plot_shuffled_lda(self, i_cell_1, i_cell_2, plot_exp_name, plot_corr, dir_type_1, dir_type_2, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5704,6 +5704,7 @@ class AnalysisGUI(QMainWindow):
         d_data_s, d_data_d = self.data.discrim.shuffle, self.data.discrim.dir
         n_cond, ttype, nshuffle = len(d_data_d.ttype), d_data_d.ttype, d_data_s.nshuffle
         bar_lbls = ['Cond'] + ['Dir\n({0})'.format(cf.cond_abb(tt)) for tt in ttype]
+        e_str, t_str = None, None
 
         # determines the indices of the direction trial types
         ind_d1, ind_d2 = ttype.index(dir_type_1), ttype.index(dir_type_2)
@@ -5711,145 +5712,217 @@ class AnalysisGUI(QMainWindow):
             # if the user selected identical direction trial types, then output an error to screen
             e_str = 'It is not possible to run this function with identical direction trial types.\n' \
                     'Re-run this function with unique direction trial types.'
-            cf.show_error(e_str, 'Invalid Trial Type Selection')
+            t_str, 'Invalid Trial Type Selection'
+
+        elif plot_corr:
+            # determines if the cell indices are unique
+            if i_cell_1 == i_cell_2:
+                # if the user selected identical cell indices, then output an error to screen
+                e_str = 'It is not possible to run this function with identical cell indices.\n' \
+                        'Re-run this function with unique cell indices types.'
+                t_str = 'Invalid Cell Indices'
+
+            else:
+                # retrieves the experiment index and cell count for the experiment
+                i_expt = list(d_data_d.exp_name).index(plot_exp_name)
+                n_cell = np.size(d_data_s.z_corr[i_expt][0], axis=0)
+
+                # determines if the input indices don't exceed the number of cells for this experiment
+                if (i_cell_1 > n_cell) or (i_cell_2 > n_cell):
+                    # if so, then output an error to screen
+                    e_str = 'The or or both of the cell indices exceeds the number of cells for this ' \
+                            'experiment ({0}). \nRe-run this function feasible cell indices types.'
+                    t_str = 'Invalid Cell Indices'
+
+        # determines if there were any errors within the input parameters
+        if e_str is not None:
+            # if so, then output the error to screen
+            cf.show_error(e_str, t_str)
 
             # sets the acceptance flag to false and exits the function
             self.calc_ok = False
             return
 
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
-
-        #
+        # array dimensioning
         n_expt = np.size(d_data_d.y_acc, axis=0)
-        bar_lbls_col = np.array(bar_lbls).reshape(-1, 1)
 
-        # sets up the synchronised data labels
-        x_s = x_ns = list(repmat(bar_lbls, n_expt, 1).flatten())
-        y_s = list(100. * d_data_d.y_acc.flatten())
-        z_s = list(repmat(['Synchronous'], n_expt, n_cond + 1).flatten())
+        # creates the graph based on the user selection
+        if plot_corr:
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
 
-        # sets up the non-sychronised data labels
-        y_ns = cf.flat_list([100. * np.mean(x, axis=1).flatten() for x in dcopy(d_data_s.y_acc)])
-        z_ns = list(repmat(['Non-Synchronous'], n_expt, n_cond + 1).flatten())
+            # memory allocation
+            d_type = [dir_type_1, dir_type_2]
+            z_corr, pw_corr = np.empty(2, dtype=object), np.zeros(2)
 
-        # # retrieves the plot values
-        # if plot_all_expt:
-        #     # case is using all the experiments
-        #
-        #     # calculates the mean confusion matrix values
-        #     y_acc, n_expt = d_data_d.y_acc, np.size(d_data_s.y_acc, axis=0)
-        #     y_acc_s = [d_data_s.y_acc[:, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
-        #
-        # else:
-        #     # case is using a specific experiment
-        #     i_expt, n_expt = list(d_data_d.exp_name).index(plot_exp_name), 1
-        #     y_acc = d_data_d.y_acc[i_expt, :].reshape(1, -1)
-        #     y_acc_s = [d_data_s.y_acc[i_expt, i, :].flatten() for i in range(np.size(d_data_s.y_acc, axis=1))]
-        #
-        # # calculates the
-        # y_acc_s_mu = np.array([np.mean(x) for x in y_acc_s])
-        # y_acc_s_min = np.array([(y - np.min(x)) for x, y in zip(y_acc_s, y_acc_s_mu)])
-        # y_acc_s_max = np.array([(np.max(x) - y) for x, y in zip(y_acc_s, y_acc_s_mu)])
-        # y_acc_err = 100. * np.vstack((y_acc_s_min, y_acc_s_max))
+            # retrieves the z-score/pair-wise correlation values
+            if i_cell_2 < i_cell_1:
+                # sets the cell indices
+                i_cell = [i_cell_2, i_cell_1]
 
-        #############################
-        ####    SUBPLOT SETUP    ####
-        #############################
+                # z-score values
+                z_corr[0] = d_data_s.z_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
+                z_corr[1] = d_data_s.z_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
 
-        # sets up the axes dimensions
-        r_hw = self.plot_fig.height() / self.plot_fig.width()
-        top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.1, 0.1
+                # pair-wise correlation values
+                pw_corr[0] = d_data_s.pw_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
+                pw_corr[1] = d_data_s.pw_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
+            else:
+                # sets the cell indices
+                i_cell = [i_cell_1, i_cell_2]
 
-        # memory allocation
-        n_col, n_row = 9, 5
-        w_ratio, h_ratio = np.zeros(n_col), np.zeros(n_row)
+                # z-score values
+                z_corr[0] = d_data_s.z_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
+                z_corr[1] = d_data_s.z_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
 
-        # calculates the width/height ratios of each sub-plot block
-        h_ratio[0] = 0.1
-        w_ratio[3], w_ratio[-1] = 0.065, r_hw * h_ratio[0]
-        w_ratio[w_ratio == 0] = (1 - sum(w_ratio[w_ratio > 0])) / sum(w_ratio == 0)
-        h_ratio[h_ratio == 0] = (1 - sum(h_ratio[h_ratio > 0])) / sum(h_ratio == 0)
+                # pair-wise correlation values
+                pw_corr[0] = d_data_s.pw_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
+                pw_corr[1] = d_data_s.pw_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
 
-        # creates the gridspec object
-        gs = gridspec.GridSpec(n_row, n_col, figure=self.plot_fig.fig, width_ratios=w_ratio, height_ratios=h_ratio,
-                               wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
+            #############################
+            ####    SUBPLOT SETUP    ####
+            #############################
 
-        # sets up the main plot axis
-        self.plot_fig.ax = np.empty(7, dtype=object)
-        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, :3])
+            # initialises the plot axes
+            self.plot_fig.setup_plot_axis(n_row=1, n_col=2)
 
-        # sets up the first correlation axis
-        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1:, 4:8])
-        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 4:8], xticklabels=[], yticklabels=[])
-        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[1:, -1], xticklabels=[], yticklabels=[])
+            #######################################
+            ####    MAIN AXIS SUBPLOT SETUP    ####
+            #######################################
 
-        #######################################
-        ####    MAIN AXIS SUBPLOT SETUP    ####
-        #######################################
+            # axis properties
+            xL = [-3, 3]
 
-        # subplot properties
-        p_mx, f_alpha = 102., [0.9, 0.5]
-        col = cf.get_plot_col(n_cond + 1)
+            # creates the plots for each type
+            for i_ax, ax in enumerate(self.plot_fig.ax):
+                # creates the scatter-plot
+                ax.scatter(z_corr[i_ax][:, 0], z_corr[i_ax][:, 1], marker='.', c='k', s=50)
+                ax.plot(xL, xL, 'k', linewidth=2)
 
-        # sets up the swarmplot dictionary
-        sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
-                                         hue=z_s + z_ns, dodge=True, size=6, color='white')
-        vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
-                                         hue=z_s + z_ns, inner=None)
+                # sets the axis labels/titles
+                ax.set_title(d_type[i_ax])
+                ax.set_xlabel('Z-Score Response (Cell #{0})'.format(i_cell[0]))
+                ax.set_ylabel('Z-Score Response (Cell #{0})'.format(i_cell[1]))
 
-        # creates the swarmplot and retrieves the collection objects
-        sns.violinplot(**vl_dict)
-        sns.swarmplot(**sw_dict)
+                # sets the axis properties
+                ax.set_xlim(xL)
+                ax.set_ylim(xL)
+                ax.grid(plot_grid)
 
-        # retrieves the violin/swarmplot objects
-        c = self.plot_fig.ax[0].collections
-        c_v = [x for x in c if isinstance(x, matplotlib.collections.PolyCollection)]
-        c_s = [x for x in c if isinstance(x, matplotlib.collections.PathCollection)]
+                # displays the r-value
+                ax.text(-2.9, 2.8, 'r = {:4.2f}'.format(pw_corr[i_ax]))
+        else:
 
-        # updates the plot marker colours
-        for i in range(n_cond + 1):
-            # sets the synchronous violin/swarmplot objects
-            c_v[2 * i].set_color(col[i])
-            c_v[2 * i].set_alpha(f_alpha[0])
-            c_s[2 * i].set_color('w')
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
 
-            # sets the non-synchronous violin/swarmplot objects
-            c_v[2 * i + 1].set_color(col[i])
-            c_v[2 * i + 1].set_alpha(f_alpha[1])
-            c_s[2 * i + 1].set_color('w')
+            # sets up the synchronised data labels
+            x_s = x_ns = list(repmat(bar_lbls, n_expt, 1).flatten())
+            y_s = list(100. * d_data_d.y_acc.flatten())
+            z_s = list(repmat(['Synchronous'], n_expt, n_cond + 1).flatten())
 
-        # plots the separation markers
-        yL = [-2., p_mx]
-        for i_plt in range(n_cond):
-            self.plot_fig.ax[0].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
+            # sets up the non-sychronised data labels
+            y_ns = cf.flat_list([100. * np.mean(x, axis=1).flatten() for x in dcopy(d_data_s.y_acc)])
+            z_ns = list(repmat(['Non-Synchronous'], n_expt, n_cond + 1).flatten())
 
-        # plots the chance markerline
-        xL = self.plot_fig.ax[0].get_xlim()
-        self.plot_fig.ax[0].plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-        self.plot_fig.ax[0].set_xlim(xL)
+            #############################
+            ####    SUBPLOT SETUP    ####
+            #############################
 
-        # updates the legend
-        lg_patch = [Patch(facecolor='k', edgecolor='k', label='Synchronous', alpha=f_alpha[0]),
-                    Patch(facecolor='k', edgecolor='k', label='Non-Synchronous', alpha=f_alpha[1])]
-        self.plot_fig.ax[0].legend(handles=lg_patch, ncol=2, loc=4)
+            # sets up the axes dimensions
+            r_hw = self.plot_fig.height() / self.plot_fig.width()
+            top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.1, 0.1
 
-        # sets the bar plot axis properties
-        self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
-        self.plot_fig.ax[0].set_ylim(yL)
-        self.plot_fig.ax[0].grid(plot_grid)
+            # memory allocation
+            n_col, n_row = 9, 5
+            w_ratio, h_ratio = np.zeros(n_col), np.zeros(n_row)
 
-        #########################################
-        ####    CORRELATION SUBPLOT SETUP    ####
-        #########################################
+            # calculates the width/height ratios of each sub-plot block
+            h_ratio[0] = 0.1
+            w_ratio[3], w_ratio[-1] = 0.065, r_hw * h_ratio[0]
+            w_ratio[w_ratio == 0] = (1 - sum(w_ratio[w_ratio > 0])) / sum(w_ratio == 0)
+            h_ratio[h_ratio == 0] = (1 - sum(h_ratio[h_ratio > 0])) / sum(h_ratio == 0)
 
-        # retrieves the pairwise correlations
-        pw_s, pw_n = get_pw_corr(d_data_d), get_pw_corr(d_data_s)
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_row, n_col, figure=self.plot_fig.fig, width_ratios=w_ratio, height_ratios=h_ratio,
+                                   wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
 
-        # creates the correlation sub-figure plots
-        ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
-        create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
+            # sets up the main plot axis
+            self.plot_fig.ax = np.empty(7, dtype=object)
+            self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[:, :3])
+
+            # sets up the first correlation axis
+            self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1:, 4:8])
+            self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, 4:8], xticklabels=[], yticklabels=[])
+            self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[1:, -1], xticklabels=[], yticklabels=[])
+
+            #######################################
+            ####    MAIN AXIS SUBPLOT SETUP    ####
+            #######################################
+
+            # subplot properties
+            p_mx, f_alpha = 102., [0.9, 0.5]
+            col = cf.get_plot_col(n_cond + 1)
+
+            # sets up the swarmplot dictionary
+            sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
+                                             hue=z_s + z_ns, dodge=True, size=6, color='white')
+            vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[0], x=x_s + x_ns, y=y_s + y_ns,
+                                             hue=z_s + z_ns, inner=None)
+
+            # creates the swarmplot and retrieves the collection objects
+            sns.violinplot(**vl_dict)
+            sns.swarmplot(**sw_dict)
+
+            # retrieves the violin/swarmplot objects
+            c = self.plot_fig.ax[0].collections
+            c_v = [x for x in c if isinstance(x, matplotlib.collections.PolyCollection)]
+            c_s = [x for x in c if isinstance(x, matplotlib.collections.PathCollection)]
+
+            # updates the plot marker colours
+            for i in range(n_cond + 1):
+                # sets the synchronous violin/swarmplot objects
+                c_v[2 * i].set_color(col[i])
+                c_v[2 * i].set_alpha(f_alpha[0])
+                c_s[2 * i].set_color('w')
+
+                # sets the non-synchronous violin/swarmplot objects
+                c_v[2 * i + 1].set_color(col[i])
+                c_v[2 * i + 1].set_alpha(f_alpha[1])
+                c_s[2 * i + 1].set_color('w')
+
+            # plots the separation markers
+            yL = [-2., p_mx]
+            for i_plt in range(n_cond):
+                self.plot_fig.ax[0].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
+
+            # plots the chance markerline
+            xL = self.plot_fig.ax[0].get_xlim()
+            self.plot_fig.ax[0].plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+            self.plot_fig.ax[0].set_xlim(xL)
+
+            # updates the legend
+            lg_patch = [Patch(facecolor='k', edgecolor='k', label='Synchronous', alpha=f_alpha[0]),
+                        Patch(facecolor='k', edgecolor='k', label='Non-Synchronous', alpha=f_alpha[1])]
+            self.plot_fig.ax[0].legend(handles=lg_patch, ncol=2, loc=4)
+
+            # sets the bar plot axis properties
+            self.plot_fig.ax[0].set_ylabel('Decoding Accuracy (%)')
+            self.plot_fig.ax[0].set_ylim(yL)
+            self.plot_fig.ax[0].grid(plot_grid)
+
+            #########################################
+            ####    CORRELATION SUBPLOT SETUP    ####
+            #########################################
+
+            # retrieves the pairwise correlations
+            pw_s, pw_n = get_pw_corr(d_data_d), get_pw_corr(d_data_s)
+
+            # creates the correlation sub-figure plots
+            ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
+            create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
 
     def plot_partial_lda(self, err_type, plot_grid):
         '''
@@ -9361,13 +9434,14 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
+            'i_cell_1': {'text': 'First Cell Index Number', 'def_val': 1, 'min_val': 1},
+            'i_cell_2': {'text': 'Second Cell Index Number', 'def_val': 2, 'min_val': 1},
             'plot_exp_name': {
                 'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
-                'is_enabled': has_multi_expt
             },
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
-                'link_para': ['plot_exp_name', True], 'is_enabled': has_multi_expt
+            'plot_corr': {
+                'type': 'B', 'text': 'Plot Z-Score Correlations', 'def_val': False,
+                'link_para': [['i_cell_1', False], ['i_cell_2', False], ['plot_exp_name', False]]
             },
             'dir_type_1': {
                 'type': 'L', 'text': '1st Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
@@ -10866,6 +10940,7 @@ class SubDiscriminationData(object):
         self.y_acc = None
         self.exp_name = None
         self.pw_corr = None
+        self.z_corr = None
 
         # lda calculation/parameter elements
         self.ntrial = -1
