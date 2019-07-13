@@ -352,10 +352,14 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
+                # removes normalisation for the individual cell LDA calculations
+                _calc_para = dcopy(calc_para)
+                _calc_para['lda_para']['is_norm'] = False
+
                 # if the individual data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.indiv.lda is None:
                     # runs the individual LDA
-                    if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    if not self.run_individual_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max):
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
