@@ -1309,11 +1309,6 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         ####    LDA PREDICTION CALCULATIONS    ####
         ###########################################
 
-        # memory allocation
-        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-        p_mat = np.zeros((N, n_grp), dtype=float)
-
         # sets the LDA solver type
         if lda_para['solver_type'] == 'svd':
             # case the SVD solver
@@ -1331,17 +1326,27 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             else:
                 lda = LDA(solver='eigen')
 
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
+
+        #
+        xi_rmv, is_keep = np.arange(0, N, n_trial_max), np.ones(N, dtype=bool)
+
         # fits the LDA model and calculates the prediction for each
-        for i_pred in range(len(i_grp)):
+        for i_trial in range(n_trial_max):
+        # for i_pred in range(len(i_grp)):
             # updates the progress bar
             if w_prog is not None:
                 w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
-                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_pred / len(i_grp)) )
+                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / n_trial_max))
 
             # fits the one-out-trial lda model
-            ii = np.array(range(len(i_grp))) != i_pred
+            is_keep[xi_rmv + i_trial] = False
+            # ii = np.array(range(len(i_grp))) != i_pred
             try:
-                lda.fit(n_sp_calc[ii, :], i_grp[ii])
+                lda.fit(n_sp_calc[is_keep, :], i_grp[is_keep])
             except:
                 e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                         'Either choose a different solver or alter the solver parameters before retrying'
@@ -1349,17 +1354,22 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 return None, False
 
             # calculates the model prediction from the remaining trial and increments the confusion matrix
-            lda_pred[i_pred] = lda.predict(n_sp_calc[i_pred, :].reshape(1, -1))
-            p_mat[i_pred, :] = lda.predict_proba(n_sp_calc[i_pred, :].reshape(1, -1))
-            c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+            for i in (xi_rmv + i_trial):
+                lda_pred[i] = lda.predict(n_sp_calc[i, :].reshape(1, -1))
+                p_mat[i, :] = lda.predict_proba(n_sp_calc[i, :].reshape(1, -1))
+                c_mat[i_grp[i], lda_pred[i]] += 1
 
-            # fits the one-out-trial shuffled lda model
-            ind_chance = np.random.permutation(len(i_grp) - 1)
-            lda.fit(n_sp_calc[ii, :], i_grp[ii][ind_chance])
+            # resets the acceptance array
+            is_keep[xi_rmv + i_trial] = True
 
-            # calculates the chance model prediction from the remaining trial and increments the confusion matrix
-            lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp_calc[i_pred, :], (1, n_cell)))
-            c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+            # # fits the one-out-trial shuffled lda model
+            # ind_chance = np.random.permutation(len(i_grp) - 1)
+            # lda.fit(n_sp_calc[ii, :], i_grp[ii][ind_chance])
+            #
+            # # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+            # lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp_calc[i_pred, :], (1, n_cell)))
+            # c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
 
         # calculates the LDA transform values (uses svd solver to accomplish this)
         if lda_para['solver_type'] != 'lsqr':
@@ -1523,11 +1533,6 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
         ####    LDA PREDICTION CALCULATIONS    ####
         ###########################################
 
-        # memory allocation
-        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-        p_mat = np.zeros((N, n_grp), dtype=float)
-
         # sets the LDA solver type
         if lda_para['solver_type'] == 'svd':
             # case the SVD solver
@@ -1544,6 +1549,11 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
                 lda = LDA(solver='eigen', shrinkage='auto')
             else:
                 lda = LDA(solver='eigen')
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
 
         # fits the LDA model and calculates the prediction for each
         for i_pred in range(len(i_grp)):

@@ -352,14 +352,10 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-                # removes normalisation for the individual cell LDA calculations
-                _calc_para = dcopy(calc_para)
-                _calc_para['lda_para']['is_norm'] = False
-
                 # if the individual data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.indiv.lda is None:
                     # runs the individual LDA
-                    if not self.run_individual_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    if not self.run_individual_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
@@ -1512,6 +1508,10 @@ class WorkerThread(QThread):
         # initialisations and memory allocation
         d_data, w_prog = data.discrim.indiv, self.work_progress
 
+        # removes normalisation for the individual cell LDA calculations
+        _calc_para = dcopy(calc_para)
+        _calc_para['lda_para']['is_norm'] = False
+
         ################################################
         ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
         ################################################
@@ -1537,7 +1537,7 @@ class WorkerThread(QThread):
 
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
-                results = cfcn.run_rot_lda(data, calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
+                results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False
