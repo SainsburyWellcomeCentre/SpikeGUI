@@ -81,6 +81,9 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        # initialisations
+        w_prog = self.work_progress
+
         # updates the running/forced quit flagsv
         self.is_running = True
         self.forced_quit = False
@@ -166,7 +169,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
@@ -174,7 +177,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
@@ -182,7 +185,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
@@ -283,7 +286,7 @@ class WorkerThread(QThread):
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
             #     # calculates the binned kinematic spike frequencies
-            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, self.work_progress, False)
+            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, False)
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -302,7 +305,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=d_data, w_prog=self.work_progress):
+                                            d_data=d_data, w_prog=w_prog):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -347,7 +350,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                                            d_data=data.discrim.dir, w_prog=w_prog):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -376,7 +379,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress):
+                                            d_data=data.discrim.dir, w_prog=w_prog):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -408,7 +411,7 @@ class WorkerThread(QThread):
                     elif status == 2:
                         # if an update in the calculations is required, then run the rotation LDA analysis
                         if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                d_data=data.discrim.dir, w_prog=self.work_progress):
+                                                d_data=data.discrim.dir, w_prog=w_prog):
                             self.is_ok = False
                             self.work_finished.emit(thread_data)
                             return
@@ -419,29 +422,6 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-
-            elif self.thread_job_secondary == 'Speed LDA Comparison':
-                # checks to see if any base LDA calculation parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
-
-                # if the pooled data parameters have changed/has not been initialised then calculate the values
-                if data.discrim.spdc.lda is None:
-
-                    # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
-                                                                                 data.discrim.spdc, True)
-                    if status == 0:
-                        # if there was an error in the calculations, then return an error flag
-                        self.is_ok = False
-                        self.work_finished.emit(thread_data)
-                        return
-                    elif status == 2:
-                        # if an update in the calculations is required, then run the rotation LDA analysis
-                        if not cfcn.run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                      self.work_progress, d_data=data.discrim.spdc):
-                            self.is_ok = False
-                            self.work_finished.emit(thread_data)
-                            return
 
             elif self.thread_job_secondary == 'Individual Cell Accuracy Filtered LDA':
                 # check to see if the individual LDA calculations have been performed
@@ -480,7 +460,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=data.discrim.dir, w_prog=self.work_progress, pW=50.):
+                                            d_data=data.discrim.dir, w_prog=w_prog, pW=50.):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -506,7 +486,7 @@ class WorkerThread(QThread):
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not cfcn.run_rot_lda(data, _calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                             d_data=data.discrim.filt, w_prog=self.work_progress, pW=50., pW0=50.):
+                                             d_data=data.discrim.filt, w_prog=w_prog, pW=50., pW0=50.):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
@@ -514,6 +494,51 @@ class WorkerThread(QThread):
                         # otherwise, update the calculation parameters
                         data.discrim.filt.yaccmn = _calc_para['y_acc_min']
                         data.discrim.filt.yaccmx = _calc_para['y_acc_max']
+
+            elif self.thread_job_secondary == 'Speed LDA Comparison (Individual Experiments)':
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
+
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.spdc.lda is None:
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
+                                                                                 data.discrim.spdc, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not self.run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_prog):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
+
+            elif self.thread_job_secondary == 'Speed LDA Comparison (Pooled Experiments)':
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdcp)
+
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.spdcp.lda is None:
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
+                                                                                 data.discrim.spdcp, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    elif status == 2:
+                        # if an update in the calculations is required, then run the rotation LDA analysis
+                        if not self.run_pooled_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                             w_prog):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
 
         elif self.thread_job_primary == 'update_plot':
             pass
@@ -1195,9 +1220,9 @@ class WorkerThread(QThread):
         # FINISH ME!
         pass
 
-    ################################
-    ####    LDA CALCULATIONS    ####
-    ################################
+    #########################################
+    ####    ROTATION LDA CALCULATIONS    ####
+    #########################################
 
     def setup_lda(self, data, calc_para, d_data, return_reqd_arr=False):
         '''
@@ -1537,7 +1562,8 @@ class WorkerThread(QThread):
 
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
-                results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
+                results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell],
+                                           n_trial_max, is_indiv=True)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False
@@ -1689,9 +1715,160 @@ class WorkerThread(QThread):
         # sets the other parameters/arrays
         d_data.nshuffle = n_sh
         d_data.cellminpart = calc_para['n_cell_min']
+        d_data.poolexpt = calc_para['pool_expt']
         d_data.xi = xi
 
         # returns a true value indicating the calculations were successful
+        return True
+
+    ##########################################
+    ####    KINEMATIC LDA CALCULATIONS    ####
+    ##########################################
+
+    def run_kinematic_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
+        '''
+
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial:
+        :param w_prog:
+        :param d_data:
+        :return:
+        '''
+
+        # initialisations
+        d_data = data.discrim.spdc
+
+        # reduces down the cluster data array
+        _data = cfcn.reduce_cluster_data(data, i_expt)
+
+        # sets up the kinematic LDA spiking frequency array
+        w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
+        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog)
+
+        # case is the normal kinematic LDA
+        if not cfcn.run_kinematic_lda(_data, spd_sf, calc_para, _r_filt, n_trial, w_prog=w_prog, d_data=d_data):
+            # if there was an error then exit with a false flag
+            return False
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the lda values
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+
+        # returns a true value indicating success
+        return True
+
+    def run_pooled_kinematic_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial:
+        :param w_prog:
+        :return:
+        '''
+
+        # initialisations
+        d_data = data.discrim.spdcp
+        tt = r_filt['t_type']
+        lda_para, n_shuff = calc_para['lda_para'], calc_para['n_shuffle']
+
+        # reduces down the cluster data array
+        _data = cfcn.reduce_cluster_data(data, i_expt)
+
+        # sets up the kinematic LDA spiking frequency array
+        w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
+        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog, is_pooled=True)
+
+        # parameters
+        i_bin_spd, d_vel = _data.rotation.i_bin_spd, float(calc_para['vel_bin'])
+
+        #######################################
+        ####    POOLED LDA CALCULATIONS    ####
+        #######################################
+
+        # determines the cell pool groupings
+        n_cell_pool, n_cell0 = np.shape(spd_sf)[3], [1, 2, 5, 10, 20, 50, 100, 150, 200]
+        n_cell = [x for x in n_cell0 if x <= n_cell_pool]
+
+        # memory allocation
+        nC, n_tt, n_xi = len(n_cell), len(tt), len(_data.rotation.spd_xi)
+        y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
+
+        #
+        for i_c, n_c in enumerate(n_cell):
+            for i_s in range(n_shuff):
+                # updates the progressbar
+                w_str = 'Pooled Speed LDA (Shuffle {0}/{1}, Group {2}/{3})'.format(i_s + 1, n_shuff, i_c + 1, nC)
+                w_prog.emit(w_str, 100. * (i_c + (i_s / n_shuff)) / nC)
+
+                # sets the new shuffled spiking frequency array
+                ind_sh = np.sort(np.random.permutation(n_cell_pool)[:n_c])
+                spd_sf_sh = [x[:, :, ind_sh] for x in dcopy(spd_sf)]
+
+                # runs the kinematic LDA on the new data
+                results = cfcn.run_kinematic_lda(_data, [spd_sf_sh], calc_para, _r_filt, n_trial)
+                if isinstance(results, bool):
+                    # if there was an error, then return a false flag value
+                    return False
+                else:
+                    for i_tt in range(n_tt):
+                        y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
+                        # y_acc_fit[i_tt][i_s, :, i_c] = results[1][i_tt]
+
+        #############################################
+        ####    PSYCHOMETRIC FIT CALCULATIONS    ####
+        #############################################
+
+        # memory allocation
+        y_acc_fit = np.zeros((n_xi, nC, n_tt))
+
+        # calculates the psychometric fits for each condition trial type
+        for i_tt in range(n_tt):
+            A = cfcn.calc_psychometric_curve(np.mean(100. * y_acc[i_tt], axis=0), d_vel, nC, i_bin_spd)
+            y_acc_fit[:, :, i_tt] = np.vstack(A).T
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets a copy of the lda parameters and updates the comparison conditions
+        _lda_para = dcopy(lda_para)
+        _lda_para['comp_cond'] = _data.rotation.r_obj_kine.rot_filt['t_type']
+
+        # sets the lda values
+        d_data.lda = 1
+        d_data.y_acc = y_acc
+        d_data.y_acc_fit = y_acc_fit
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+        d_data.n_cell = n_cell
+        d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in _data.cluster]
+
+        # sets the rotation values
+        d_data.spd_xi = _data.rotation.spd_xi
+        d_data.i_bin_spd = _data.rotation.i_bin_spd
+
+        # sets the solver parameters
+        cfcn.set_lda_para(d_data, _lda_para, r_filt, n_trial)
+
+        # sets the phase duration/offset parameters
+        d_data.spd_xrng = calc_para['spd_x_rng']
+        d_data.vel_bin = calc_para['vel_bin']
+        d_data.n_sample = calc_para['n_sample']
+        d_data.equal_time = calc_para['equal_time']
+        d_data.nshuffle = calc_para['n_shuffle']
+
+        # returns a true value indicating success
         return True
 
     ######################################
@@ -2624,6 +2801,20 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        def check_class_para_equal(d_data, attr, chk_value):
+            '''
+
+            :param d_data:
+            :param attr:
+            :param chk_value:
+            :return:
+            '''
+
+            if hasattr(d_data, attr):
+                return getattr(d_data, attr) == chk_value
+            else:
+                return False
+
         # initialisations
         r_data = data.rotation
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
@@ -2735,35 +2926,27 @@ class WorkerThread(QThread):
 
                 # otherwise, determine if there are any changes in the parameters
                 is_equal = [
-                    d_data.solver == lda_para['solver_type'],
-                    d_data.shrinkage == lda_para['use_shrinkage'],
-                    d_data.norm == lda_para['is_norm'],
-                    d_data.cellmin == lda_para['n_cell_min'],
-                    d_data.trialmin == lda_para['n_trial_min'],
+                    check_class_para_equal(d_data, 'solver', lda_para['solver_type']),
+                    check_class_para_equal(d_data, 'shrinkage', lda_para['use_shrinkage']),
+                    check_class_para_equal(d_data, 'norm', lda_para['is_norm']),
+                    check_class_para_equal(d_data, 'cellmin', lda_para['n_cell_min']),
+                    check_class_para_equal(d_data, 'trialmin', lda_para['n_trial_min']),
+                    check_class_para_equal(d_data, 'yaccmx', lda_para['y_acc_max']),
+                    check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min']),
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
-
-                if hasattr(d_data,'yaccmx'):
-                    is_equal += [
-                        d_data.yaccmx == lda_para['y_acc_max'],
-                    ]
-
-                if hasattr(d_data,'yaccmn'):
-                    is_equal += [
-                        d_data.yaccmn == lda_para['y_acc_min'],
-                    ]
 
                 #
                 if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt']:
                     if 'use_full_rot' in calc_para:
                         if d_data.usefull:
                             is_equal += [
-                                d_data.usefull == calc_para['use_full_rot']
+                                check_class_para_equal(d_data, 'usefull', calc_para['use_full_rot']),
                             ]
                         else:
                             is_equal += [
-                                d_data.tofs == t_ofs,
-                                d_data.tphase == t_phase,
+                                check_class_para_equal(d_data, 'tofs', calc_para['t_ofs']),
+                                check_class_para_equal(d_data, 'tphase', calc_para['t_phase']),
                             ]
 
                     if d_data.type in ['Direction']:
@@ -2773,37 +2956,42 @@ class WorkerThread(QThread):
 
                     elif d_data.type in ['TrialShuffle']:
                         is_equal += [
-                            d_data.nshuffle == calc_para['n_shuffle'],
+                            check_class_para_equal(d_data, 'nshuffle', calc_para['n_shuffle']),
                         ]
 
                     elif d_data.type in ['IndivFilt']:
                         is_equal += [
-                            d_data.yaccmn == calc_para['y_acc_min'],
-                            d_data.yaccmx == calc_para['y_acc_max'],
+                            check_class_para_equal(d_data, 'yaccmn', calc_para['y_acc_min']),
+                            check_class_para_equal(d_data, 'yaccmx', calc_para['y_acc_max']),
                         ]
 
                     elif d_data.type in ['Partial']:
                         is_equal[3] = True
 
                         is_equal += [
-                            d_data.nshuffle == calc_para['n_shuffle'],
-                            d_data.cellminpart  == calc_para['n_cell_min']
+                            check_class_para_equal(d_data, 'nshuffle', calc_para['n_shuffle']),
+                            check_class_para_equal(d_data, 'cellminpart', calc_para['n_cell_min']),
                         ]
 
                 elif d_data.type in ['Temporal']:
                     is_equal += [
-                        d_data.dt_phs == calc_para['dt_phase'],
-                        d_data.dt_ofs == calc_para['dt_ofs'],
-                        d_data.phs_const == calc_para['t_phase_const'],
+                        check_class_para_equal(d_data, 'dt_phs', calc_para['dt_phase']),
+                        check_class_para_equal(d_data, 'dt_ofs', calc_para['dt_ofs']),
+                        check_class_para_equal(d_data, 'phs_const', calc_para['t_phase_const']),
                      ]
 
-                elif d_data.type in ['SpdComp']:
+                elif d_data.type in ['SpdComp', 'SpdCompPool']:
                     is_equal += [
-                        d_data.spd_xrng == calc_para['spd_x_rng'],
-                        d_data.vel_bin == calc_para['vel_bin'],
-                        d_data.n_sample == calc_para['n_sample'],
-                        d_data.equal_time == calc_para['equal_time'],
+                        check_class_para_equal(d_data, 'spd_xrng', calc_para['spd_x_rng']),
+                        check_class_para_equal(d_data, 'vel_bin', calc_para['vel_bin']),
+                        check_class_para_equal(d_data, 'n_sample', calc_para['n_sample']),
+                        check_class_para_equal(d_data, 'equal_time', calc_para['equal_time']),
                      ]
+
+                    if d_data.type in ['SpdCompPool']:
+                        is_equal += [
+                            check_class_para_equal(d_data, 'nshuffle', calc_para['n_shuffle']),
+                        ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field
                 if not np.all(is_equal) or data.force_calc:

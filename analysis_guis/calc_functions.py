@@ -41,6 +41,9 @@ try:
 except:
     pass
 
+# curve fit function declaration
+fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
+
 # other function declarations
 dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
@@ -1206,7 +1209,7 @@ def run_part_lda_pool(p_data):
 
 
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
-                pW0=0., pW=100.):
+                pW0=0., pW=100., is_indiv=False):
     '''
 
     :param data:
@@ -1220,7 +1223,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     :return:
     '''
 
-    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle, pW0, pW):
+    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle, pW0, pW, is_indiv):
         '''
 
         :param r_obj:
@@ -1329,10 +1332,13 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         # memory allocation
         lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
         lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
-        p_mat = np.zeros((N, n_grp), dtype=float)
+        p_mat, is_keep = np.zeros((N, n_grp), dtype=float), np.ones(N, dtype=bool)
 
-        #
-        xi_rmv, is_keep = np.arange(0, N, n_trial_max), np.ones(N, dtype=bool)
+        # sets the
+        if is_indiv:
+            NN, xi_rmv = n_trial_max, np.arange(0, N, n_trial_max)
+        else:
+            NN = len(i_grp)
 
         # fits the LDA model and calculates the prediction for each
         for i_trial in range(n_trial_max):
@@ -1343,8 +1349,12 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / n_trial_max))
 
             # fits the one-out-trial lda model
-            is_keep[xi_rmv + i_trial] = False
-            # ii = np.array(range(len(i_grp))) != i_pred
+            if is_indiv:
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                is_keep[i_trial] = False
+
+            # fits the one-out-trial lda model
             try:
                 lda.fit(n_sp_calc[is_keep, :], i_grp[is_keep])
             except:
@@ -1353,14 +1363,25 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 w_prog.emit(e_str, 'LDA Analysis Error')
                 return None, False
 
-            # calculates the model prediction from the remaining trial and increments the confusion matrix
-            for i in (xi_rmv + i_trial):
-                lda_pred[i] = lda.predict(n_sp_calc[i, :].reshape(1, -1))
-                p_mat[i, :] = lda.predict_proba(n_sp_calc[i, :].reshape(1, -1))
-                c_mat[i_grp[i], lda_pred[i]] += 1
-
             # resets the acceptance array
-            is_keep[xi_rmv + i_trial] = True
+            if is_indiv:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                for i in (xi_rmv + i_trial):
+                    lda_pred[i] = lda.predict(n_sp_calc[i, :].reshape(1, -1))
+                    p_mat[i, :] = lda.predict_proba(n_sp_calc[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred[i]] += 1
+
+                # resets the kept trials
+                is_keep[xi_rmv + i_trial] = True
+
+            else:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                lda_pred[i_trial] = lda.predict(n_sp_calc[i_trial, :].reshape(1, -1))
+                p_mat[i_trial, :] = lda.predict_proba(n_sp_calc[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+                # resets the kept trials
+                is_keep[i_trial] = True
 
             # # fits the one-out-trial shuffled lda model
             # ind_chance = np.random.permutation(len(i_grp) - 1)
@@ -1429,7 +1450,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
         lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, i_cell[i_ex],
-                                                        ind_t, i_ex, is_shuffle, pW0, pW)
+                                                        ind_t, i_ex, is_shuffle, pW0, pW, is_indiv)
         if not ok:
             # if there was an error, then exit with a false flag
             return False
@@ -1475,27 +1496,121 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         return [lda, y_acc, exp_name]
 
 
-def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_prog, d_data=None):
+def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog, is_pooled=False):
     '''
 
     :param data:
-    :param calc_para:
     :param r_filt:
-    :param i_expt:
+    :param calc_para:
     :param i_cell:
     :param n_trial_max:
-    :param d_data:
     :param w_prog:
+    :return:
+    '''
+
+    # initialisations
+    tt = r_filt['t_type']
+
+    # calculates the binned kinematic spike frequencies
+    _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
+    calc_binned_kinemetic_spike_freq(data, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
+
+    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
+    _r_filt = dcopy(r_filt)
+    _r_filt['t_type'] = data.rotation.r_obj_kine.rot_filt['t_type']
+
+    # retrieves the spiking frequencies based on the calculation type
+    if calc_para['equal_time']:
+        # case is the equal timebin (resampled) spiking frequencies
+        spd_sf0 = dcopy(data.rotation.spd_sf_rs)
+    else:
+        # case is the non-equal timebin spiking frequencies
+        spd_sf0 = dcopy(data.rotation.spd_sf)
+
+    # averages the spiking frequencies (between the positive/negative velocities) and sets the reqd max trials
+    n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
+    spd_sf = [0.5 * (spd_sf0[ttype][:n_t, :, :] + spd_sf0[ttype][n_t:, :, :])[:n_trial_max, :, :] for ttype in tt]
+
+    # splits up the spiking frequencies into separate experiments (removing any non-valid cells)
+    ind = np.concatenate(([0], np.cumsum([len(x) for x in i_cell])))
+    ind_ex = [np.arange(ind[i], ind[i + 1]) for i in range(len(i_cell))]
+
+    # sets up the final speed spiking frequency based on the analysis type
+    if is_pooled:
+        # case is for the pooled analysis
+        spd_sf_ex = [np.dstack([sf[:, :, i_ex][:, :, i_c] for i_ex, i_c in zip(ind_ex, i_cell)]) for sf in spd_sf]
+    else:
+        # case is for the non-pooled analysis
+        spd_sf_ex = [[sf[:, :, i_ex][:, :, i_c] for sf in spd_sf] for i_ex, i_c in zip(ind_ex, i_cell)]
+
+    # returns the final array
+    return spd_sf_ex, _r_filt
+
+
+def calc_psychometric_curve(y_acc_mn, d_vel, n_cond, i_bin_spd):
+    '''
+
+    :param y_acc_mn:
+    :param d_vel:
+    :param n_cond:
+    :param i_bin_spd:
+    :return:
+    '''
+
+    # memory allocation
+    y_acc_fit = np.empty(n_cond, dtype=object)
+
+    # psychometric function estimation parameters
+    xi = np.arange(d_vel, 80.01, d_vel) / 1000
+
+    # sets the indices of the values to be fit
+    ii = np.ones(len(xi), dtype=bool)
+    ii[i_bin_spd] = False
+
+    # loops through each of the conditions calculating the psychometric fits
+    for i_c in range(n_cond):
+        # initialisations
+        maxfev = 10000
+
+        # keep attempting to find the psychometric fit until a valid solution is found
+        while 1:
+            try:
+                # runs the fit function
+                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
+
+                # if successful, calculation the fit values and exits the inner loop
+                y_acc_fit[i_c] = fit_func(xi, *popt)
+                break
+            except:
+                # if there was an error, then increment the max function evaluation parameter
+                maxfev *= 2
+
+    # returns the fit values
+    return y_acc_fit
+
+
+def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
+    '''
+
+    :param data:
+    :param spd_sf:
+    :param calc_para:
+    :param r_filt:
+    :param i_cell:
+    :param n_trial:
+    :param w_prog:
+    :param d_data:
+    :param i_shuff:
     :return:
     '''
 
     def run_lda_predictions(spd_sf, lda_para, n_c, n_t):
         '''
 
-        :param r_obj:
-        :param cell_ok:
-        :param n_trial_max:
-        :param i_ex:
+        :param spd_sf:
+        :param lda_para:
+        :param n_c:
+        :param n_t:
         :return:
         '''
 
@@ -1606,54 +1721,21 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
             'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
         }, True, None
 
-    # curve fit function declaration
-    fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
-
     # initialisations
-    data_tmp = reduce_cluster_data(data, i_expt)
-    lda_para, tt = calc_para['lda_para'], r_filt['t_type']
-    n_c, n_ex = len(tt), len(i_cell)
-
-    # calculates the binned kinematic spike frequencies
-    _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
-    calc_binned_kinemetic_spike_freq(data_tmp, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
-
-    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
-    _r_filt = dcopy(r_filt)
-    _r_filt['t_type'] = data_tmp.rotation.r_obj_kine.rot_filt['t_type']
-
-    # retrieves the spiking frequencies based on the calculation type
-    if calc_para['equal_time']:
-        # case is the equal timebin (resampled) spiking frequencies
-        spd_sf0 = dcopy(data_tmp.rotation.spd_sf_rs)
-    else:
-        # case is the non-equal timebin spiking frequencies
-        spd_sf0 = dcopy(data_tmp.rotation.spd_sf)
-
-    # averages the spiking frequencies (between the positive/negative velocities) and sets the reqd max trials
-    n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
-    spd_sf = [0.5 * (spd_sf0[ttype][:n_t, :, :] + spd_sf0[ttype][n_t:, :, :])[:n_trial_max, :, :] for ttype in tt]
-
-    # splits up the spiking frequencies into separate experiments (removing any non-valid cells)
-    ind = np.concatenate(([0], np.cumsum([len(x) for x in i_cell])))
-    ind_ex = [np.arange(ind[i], ind[i + 1]) for i in range(len(i_cell))]
-    spd_sf_ex = [[sf[:, :, i_ex][:, :, i_c] for sf in spd_sf] for i_ex, i_c in zip(ind_ex, i_cell)]
-
-    # sets the experiment file names
-    f_name0 = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data_tmp.cluster]
+    tt = r_filt['t_type']
+    lda_para = calc_para['lda_para']
+    n_c, n_ex = len(tt), len(spd_sf)
 
     ################################
     ####    LDA CALCULATIONS    ####
     ################################
 
     # memory allocation and other initialisations
-    A = np.empty(n_ex, dtype=object)
-    lda, exp_name = dcopy(A), dcopy(A)
-    ind_t, xi_bin = np.array(range(n_trial_max)), data_tmp.rotation.spd_xi
+    ind_t, xi_bin = np.array(range(n_trial)), data.rotation.spd_xi
     n_bin = np.size(xi_bin, axis=0)
 
     # retrieves the dependent time bin index
-    r_data = data_tmp.rotation
+    r_data = data.rotation
     i_bin_spd = r_data.i_bin_spd
 
     # memory allocation for accuracy binary mask calculations
@@ -1666,87 +1748,71 @@ def run_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_pr
 
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
-        # sets the progress strings
-        w_str0 = 'Speed LDA Calculations (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+        # sets the progress strings (if progress bar handle is provided)
+        if w_prog is not None:
+            w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
 
         # sets the experiment name and runs the LDA prediction calculations
-        exp_name[i_ex] = f_name0[i_ex]
         for i_bin in range(n_bin):
-            # updates the progress string
-            w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
+            # updates the progressbar (if provided)
+            if w_prog is not None:
+                w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
 
             if i_bin != i_bin_spd:
                 # stacks the speed spiking frequency values into a single array
-                spd_sf_bin = np.hstack([np.hstack((sf[:, i_bin_spd, :].T, sf[:, i_bin, :].T)) for sf in spd_sf_ex[i_ex]])
+                spd_sf_bin = np.hstack([np.hstack((sf[:, i_bin_spd, :].T, sf[:, i_bin, :].T)) for sf in spd_sf[i_ex]])
 
                 # runs the LDA predictions on the current spiking frequency array
-                lda, ok, e_str = run_lda_predictions(spd_sf_bin, lda_para, n_c, n_trial_max)
+                lda, ok, e_str = run_lda_predictions(spd_sf_bin, lda_para, n_c, n_trial)
                 if not ok:
                     # if there was an error, then exit with a false flag
                     w_prog.emit(e_str, 'LDA Analysis Error')
                     return False
 
                 # calculates the grouping accuracy values
-                c_mat = lda['c_mat'] / n_trial_max
+                c_mat = lda['c_mat'] / n_trial
 
                 # calculates the direction accuracy values (over each condition)
                 for i_c in range(n_c):
                     y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
-    # psychometric function parameter estimation
-    d_vel = float(calc_para['vel_bin'])
-    xi = np.arange(d_vel, 80.01, d_vel) / 1000
-
-    #
-    ii = np.ones(len(xi), dtype=bool)
-    ii[r_data.i_bin_spd] = False
-
-    #
-    y_acc_mn = np.mean(y_acc, axis=0)
-    y_acc_fit = np.empty(n_c, dtype=object)
-
-    for i_c in range(n_c):
-        maxfev = 10000
-
-        while 1:
-            try:
-                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
-                y_acc_fit[i_c] = fit_func(xi, *popt)
-                break
-            except:
-                maxfev *= 2
-
     #######################################
     ####    HOUSE-KEEPING EXERCISES    ####
     #######################################
 
-    # sets a copy of the lda parameters and updates the comparison conditions
-    _lda_para = dcopy(lda_para)
-    _lda_para['comp_cond'] = data_tmp.rotation.r_obj_kine.rot_filt['t_type']
+    if d_data is not None:
+        # calculates the psychometric curves
+        y_acc_fit = calc_psychometric_curve(np.mean(y_acc, axis=0), float(calc_para['vel_bin']), n_c, r_data.i_bin_spd)
 
-    # sets the lda values
-    d_data.lda = 1
-    d_data.i_expt = i_expt
-    d_data.i_cell = i_cell
-    d_data.y_acc = y_acc
-    d_data.exp_name = exp_name
+        # sets the lda values
+        d_data.lda = 1
+        d_data.y_acc = y_acc
+        d_data.y_acc_fit = y_acc_fit
+        d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
 
-    # sets the rotation values
-    d_data.i_bin_spd = i_bin_spd
-    d_data.spd_xi = data_tmp.rotation.spd_xi
+        # sets the rotation values
+        d_data.spd_xi = data.rotation.spd_xi
+        d_data.i_bin_spd = data.rotation.i_bin_spd
 
-    # sets the solver parameters
-    set_lda_para(d_data, _lda_para, _r_filt, n_trial_max)
+        # sets a copy of the lda parameters and updates the comparison conditions
+        _lda_para = dcopy(lda_para)
+        _lda_para['comp_cond'] = data.rotation.r_obj_kine.rot_filt['t_type']
 
-    # sets the phase duration/offset parameters
-    d_data.y_acc_fit = y_acc_fit
-    d_data.spd_xrng = calc_para['spd_x_rng']
-    d_data.vel_bin = calc_para['vel_bin']
-    d_data.n_sample = calc_para['n_sample']
-    d_data.equal_time = calc_para['equal_time']
+        # sets the solver parameters
+        set_lda_para(d_data, _lda_para, r_filt, n_trial)
 
-    # returns a true value indicating success
-    return True
+        # sets the phase duration/offset parameters
+        d_data.spd_xrng = calc_para['spd_x_rng']
+        d_data.vel_bin = calc_para['vel_bin']
+        d_data.n_sample = calc_para['n_sample']
+        d_data.equal_time = calc_para['equal_time']
+
+        # returns a true value indicating success
+        return True
+    else:
+        # otherwise, return the accuracy/pyschometric fit values
+        return [y_acc]
+
 
 def reduce_cluster_data(data, i_expt):
     '''
@@ -1818,11 +1884,12 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
 
         # retrieves the values from the data class
         for ps in p_str:
-            p_val = d_data.__getattribute__(ps)
-            if p_val is None:
-                continue
-            elif p_val != -1:
-                def_para[ps] = p_val
+            if hasattr(d_data, ps):
+                p_val = d_data.__getattribute__(ps)
+                if p_val is None:
+                    continue
+                elif p_val != -1:
+                    def_para[ps] = p_val
 
         # returns the lda default parameter dictionary
         return def_para
@@ -1871,7 +1938,7 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
 
     elif d_data.type in ['Partial']:
         # case is the partial LDA
-        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'cellminpart'])
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'cellminpart', 'poolexpt'])
 
     # sets the default parameters based on the type
     if d_data.type in ['IndivFilt']:
@@ -1881,6 +1948,10 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
     elif d_data.type in ['SpdComp']:
         # case is the velocity comparison LDA
         def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time'])
+
+    elif d_data.type in ['SpdCompPool']:
+        # case is the velocity comparison LDA
+        def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time', 'nshuffle'])
 
     # returns the lda solver/default parameter dictionaries
     return lda_para, def_para

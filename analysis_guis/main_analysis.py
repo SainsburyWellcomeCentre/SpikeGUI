@@ -6159,7 +6159,7 @@ class AnalysisGUI(QMainWindow):
         ####    DATA VISUALISATION    ####
         ##################################
 
-        if plot_type == 'Separated IQR Response':
+        if plot_type == 'Inter-Quartile Ranges':
 
             ###################################
             ####    DATA PRE-PROCESSING    ####
@@ -6225,6 +6225,105 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the legend
                 ax.legend(h_plt, d_data.ttype, loc=4)
+
+        # creates the vertical marker lines
+        for xx in np.arange(xL[0] + 1, xL[1]):
+            ax.plot(xx * np.ones(2), yL, 'k--')
+
+        # plots the chance line
+        ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+
+        # sets the axis properties
+        ax.set_xlim(xL)
+        ax.set_ylim(yL)
+        ax.set_xticks(x + 0.5)
+        ax.set_xticklabels(spd_str)
+        ax.set_xlabel('Speed Bin Comparison (deg/s)')
+        ax.set_ylabel('Decoding Accuracy (%)')
+        ax.grid(plot_grid)
+
+    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_grid):
+        '''
+
+        :param show_fit:
+        :param plot_type:
+        :param plot_grid:
+        :return:
+        '''
+
+        # determines if at least one trial condition has been selected
+        if len(plot_cond) == 0:
+            # if not, then output an error to screen
+            e_str = 'At least one trial condition must be selected to run this function.'
+            cf.show_error(e_str, 'Incorrect Parameter Selection')
+
+            # sets the acceptance flag to false and exits the function
+            self.calc_ok = False
+            return
+
+        # initialisations
+        d_data = self.data.discrim.spdcp
+        n_cell = d_data.n_cell
+
+        # sets up the plot parameters
+        is_plot = np.array([x in plot_cond for x in d_data.ttype])
+        n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
+        l_col, l_style = cf.get_plot_col(len(n_cell)), ['-', '--', '-.', ':']
+
+        # sets the x-tick labels
+        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
+        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
+        x = np.arange(np.size(d_data.spd_xi, axis=0))
+        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        # parameters
+        m_sz = 240
+        h_plt_cond = []
+
+        # sets cell count for each of the experiments (sets to 1 if not showing cell size)
+        y_acc_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc]
+
+        # plots the data for all points
+        for i, i_cond in enumerate(np.where(is_plot)[0]):
+            # sets the plot x locations and error bar values
+            x_nw = x + ((i + 1) / (n_cond + 1))
+            y_acc_fit = d_data.y_acc_fit[:, :, i_cond]
+
+            # plots the dummy condition marker lines
+            h_plt_cond.append(ax.plot([-1, -2], [0, 0], l_style[i], c='k', linewidth=2))
+
+            #
+            h_plt_cell = []
+            for j, n_c in enumerate(n_cell):
+                # plots the mean marker points
+                if plot_markers:
+                    h_plt_cell.append(ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz))
+                else:
+                    h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
+
+                # plots the psychometric fit (if required)
+                ax.plot(x_nw, y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
+
+            # creates the legend
+            if i == 0:
+                h_lg_cell = ax.legend(h_plt_cell, ['N(cell) = {0}'.format(x) for x in n_cell], loc=4)
+
+        # creates the 2nd legend for the conditions (reshows the first)
+        if len(plot_cond) > 1:
+            ax.legend([x[0] for x in h_plt_cond], plot_cond, loc='upper left')
+            ax.add_artist(h_lg_cell)
 
         # creates the vertical marker lines
         for xx in np.arange(xL[0] + 1, xL[1]):
@@ -7623,7 +7722,8 @@ class AnalysisGUI(QMainWindow):
                          'Shuffled LDA Analysis',
                          'Pooling LDA Analysis',
                          'Individual Cell Accuracy Filtered LDA',
-                         'Speed LDA Comparison']
+                         'Speed LDA Comparison (Individual Experiments)',
+                         'Speed LDA Comparison (Pooled Experiments)']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -8187,6 +8287,7 @@ class AnalysisFunctions(object):
 
         # overall declarations
         data = self.get_data_fcn()
+        init_lda_para = cfcn.init_lda_para
         has_multi_expt = len(data._cluster) > 1
 
         # re-initialises the current parameter fields
@@ -9264,12 +9365,12 @@ class AnalysisFunctions(object):
         #########################################################
 
         # rotation LDA parameters
-        rot_lda_para, rot_def_para = cfcn.init_lda_para(data.discrim.dir)
-        temp_lda_para, temp_def_para = cfcn.init_lda_para(data.discrim.temp)
-        indiv_lda_para, indiv_def_para  = cfcn.init_lda_para(data.discrim.indiv)
-        shuffle_lda_para, shuffle_def_para = cfcn.init_lda_para(data.discrim.shuffle)
-        part_lda_para, part_def_para = cfcn.init_lda_para(data.discrim.part)
-        filt_lda_para, filt_def_para = cfcn.init_lda_para(data.discrim, 'filt', SubDiscriminationData('IndivFilt'))
+        rot_lda_para, rot_def_para = init_lda_para(data.discrim.dir)
+        temp_lda_para, temp_def_para = init_lda_para(data.discrim.temp)
+        indiv_lda_para, indiv_def_para  = init_lda_para(data.discrim.indiv)
+        shuff_lda_para, shuff_def_para = init_lda_para(data.discrim.shuffle)
+        part_lda_para, part_def_para = init_lda_para(data.discrim.part)
+        filt_lda_para, filt_def_para = init_lda_para(data.discrim, 'filt', SubDiscriminationData('IndivFilt'))
 
         # parameter lists
         err_type = ['SEM', 'Min/Max', 'None']
@@ -9413,24 +9514,24 @@ class AnalysisFunctions(object):
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
                 'para_reset': [['dir_type_1', self.reset_dir_acc_type], ['dir_type_2', self.reset_dir_acc_type]],
-                'def_val': shuffle_lda_para
+                'def_val': shuff_lda_para
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.10,
-                'def_val': cfcn.set_def_para(shuffle_def_para, 'tphase', t_phase)
+                'def_val': cfcn.set_def_para(shuff_def_para, 'tphase', t_phase)
             },
             't_ofs_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
-                'def_val': cfcn.set_def_para(shuffle_def_para, 'tofs', t_ofs)
+                'def_val': cfcn.set_def_para(shuff_def_para, 'tofs', t_ofs)
             },
             'use_full_rot': {
                 'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
-                'def_val': cfcn.set_def_para(shuffle_def_para, 'usefull', True),
+                'def_val': cfcn.set_def_para(shuff_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
             'n_shuffle': {
                 'gtype': 'C', 'text': 'Trial Shuffle Count',
-                'def_val': cfcn.set_def_para(shuffle_def_para, 'nshuffle', 10)
+                'def_val': cfcn.set_def_para(shuff_def_para, 'nshuffle', 10)
             },
 
             # plotting parameters
@@ -9458,7 +9559,7 @@ class AnalysisFunctions(object):
                       func='plot_shuffled_lda',
                       para=para)
 
-        # ====> Partial LDA Analysis
+        # ====> Pooled LDA
         para = {
             # calculation parameters
             'lda_para': {
@@ -9486,13 +9587,17 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'text': 'Partial Cell Shuffle Count',
                 'def_val': cfcn.set_def_para(part_def_para, 'cellminpart', 10)
             },
+            'pool_expt': {
+                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments', 'link_para': ['n_cell_min', False],
+                'def_val': cfcn.set_def_para(part_def_para, 'poolexpt', False),
+            },
 
             # plotting parameters
             'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Pooling LDA Analysis',
+                      name='Pooled LDA',
                       func='plot_partial_lda',
                       para=para)
 
@@ -9541,10 +9646,14 @@ class AnalysisFunctions(object):
         ######################################
 
         # velocity LDA parameters
-        spdc_lda_para, spdc_def_para = cfcn.init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
-        plot_type_spd = ['Separated IQR Response', 'Individual Cell Responses']
+        spdc_lda_para, spdc_def_para = init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
+        spdcp_lda_para, spdcp_def_para = init_lda_para(data.discrim, 'spdcp', SubDiscriminationData('SpdCompPool'))
 
-        # ====> Velocity ROC Curves (Whole Experiment)
+        # combobox parameter lists
+        plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
+        lda_plot_cond = spdcp_lda_para['comp_cond']
+
+        # ====> Speed LDA Comparison (Individual Experiments)
         para = {
             # calculation parameters
             'lda_para': {
@@ -9570,6 +9679,8 @@ class AnalysisFunctions(object):
                 'def_val': cfcn.set_def_para(spdc_def_para, 'equal_time', False),
                 'link_para': ['n_sample', False]
             },
+
+            # invisible parameters
             'freq_type': {
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
                 'is_visible': False
@@ -9581,14 +9692,65 @@ class AnalysisFunctions(object):
             'show_fit': {'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[0],
-                'link_para': [['show_fit', 'Separated IQR Response'], ['show_cell_sz', 'Separated IQR Response']]
+                'link_para': [['show_fit', 'Inter-Quartile Ranges'], ['show_cell_sz', 'Inter-Quartile Ranges']]
             },
             'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Kinematic Discrimination Analysis',
-                      name='Speed LDA Comparison',
+                      name='Speed LDA Comparison (Individual Experiments)',
                       func='plot_speed_comp_lda',
+                      para=para)
+
+        # ====> Speed LDA Comparison (Pooled Experiments)
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': spdcp_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl]],
+            },
+
+            'spd_x_rng': {
+                'gtype': 'C', 'type': 'L', 'text': 'Dependent Speed Range', 'list': sc_rng,
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'spd_xrng', '0 to 5')
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'vel_bin', '5'),
+                'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins',
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'equal_time', False),
+                'link_para': ['n_sample', False]
+            },
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Pooled Experiment Shuffle Count',
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'nshuffle', 5), 'min_val': 5
+            },
+
+            # invisible parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'is_visible': False
+            },
+            'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
+
+            # plotting parameters
+            'plot_markers': {'type': 'B', 'text': 'Plot Mean Value Markers', 'def_val': True},
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_cond,
+                'def_val': np.ones(len(lda_plot_cond), dtype=bool),
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Kinematic Discrimination Analysis',
+                      name='Speed LDA Comparison (Pooled Experiments)',
+                      func='plot_pooled_speed_comp_lda',
                       para=para)
 
         ##########################################
@@ -10435,6 +10597,45 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = nw_txt[i_sel]
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
+    def reset_plot_cond_cl(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # retrieves the list object corresponding to the parameter
+        h_list = self.find_obj_handle([QComboBox], p_name)[0]
+        curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
+
+        # checks if there is a change in the comparison conditions
+        nw_txt = dcopy(exp_info['comp_cond'])
+        if set(nw_txt) != set(curr_txt):
+            # determines the plot function that is currently selected
+            d_grp = self.details[self.get_plot_grp_fcn()]
+            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+            # sets the list selection index (if current selection is gone, then set to zero)
+            txt0 = dcopy([h_list.itemText(i) for i in range(1, h_list.count())])
+            is_match = [x in txt0 for x in nw_txt]
+            i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
+
+            # removes the existing items
+            for i in range(1, h_list.count()):
+                h_list.removeItem(1)
+
+            # adds the new range
+            for i, txt in enumerate(nw_txt):
+                h_list.addItem(txt, True)
+                nw_item = h_list.model().item(i + 1)
+                nw_item.setCheckState(Qt.Checked if is_match[i] else Qt.Unchecked)
+
+            # resets the associated parameter value
+            h_list.setCurrentIndex(0)
+            self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
+            d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
     #######################################
@@ -10515,7 +10716,7 @@ class AnalysisFunctions(object):
 
         # sets the object type flag
         if 'other_para' not in para:
-            para['other_para'] = True
+            para['other_para'] = None
 
         # returns the parameter dictionary
         return para
@@ -10927,6 +11128,7 @@ class DiscriminationData(object):
 
         # kinematic discrimination analysis
         self.spdc = SubDiscriminationData('SpdComp')
+        self.spdcp = SubDiscriminationData('SpdCompPool')
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -10969,6 +11171,7 @@ class SubDiscriminationData(object):
                 # case is the partial LDA analysis
                 self.nshuffle = -1
                 self.cellminpart = -1
+                self.poolexpt = False
                 self.xi = None
 
             elif type == 'IndivFilt':
@@ -10984,8 +11187,8 @@ class SubDiscriminationData(object):
             self.xi_phs = None
             self.xi_ofs = None
 
-        elif type in ['SpdComp']:
-            # case is the velocity comparison
+        elif type in ['SpdComp', 'SpdCompPool']:
+            # case is the speed comparison LDA
             self.spd_xi = None
             self.y_acc_fit = None
             self.i_bin_spd = -1
@@ -10993,6 +11196,11 @@ class SubDiscriminationData(object):
             self.vel_bin = -1
             self.n_sample = -1
             self.equal_time = -1
+
+            if type == 'SpdCompPool':
+                # case is the pooled speed comparison LDA
+                self.n_cell = None
+                self.nshuffle = -1
 
 class MultiFileData(object):
     def __init__(self):
