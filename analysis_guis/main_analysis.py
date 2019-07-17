@@ -8037,6 +8037,7 @@ class AnalysisGUI(QMainWindow):
                                   edgecolor=fig_info['eColour'][0].lower(),
                                   orientation=fig_info['figOrient'].lower())
 
+
     #########################################
     ####     MISCELLANEOUS FUNCTIONS     ####
     #########################################

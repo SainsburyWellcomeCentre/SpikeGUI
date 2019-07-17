@@ -417,7 +417,7 @@ class WorkerThread(QThread):
                             return
 
                     # runs the partial LDA
-                    if not self.run_partial_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                    if not self.run_pooled_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
@@ -1599,7 +1599,7 @@ class WorkerThread(QThread):
         # returns a true value indicating the calculations were successful
         return True
 
-    def run_partial_lda(self, pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+    def run_pooled_lda(self, pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
         '''
 
         :param data:
@@ -1611,7 +1611,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def run_partial_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell):
+        def run_pooled_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell):
             '''
 
             :param data:
@@ -1689,7 +1689,7 @@ class WorkerThread(QThread):
 
                 # initialisations and memory allocation
                 for i_xi in range(n_xi):
-                    d_data.y_acc[:, :, i_xi, i_sh] = run_partial_lda_expt(
+                    d_data.y_acc[:, :, i_xi, i_sh] = run_pooled_lda_expt(
                         data, calc_para, r_filt, i_expt, dcopy(i_cell), n_trial_max, xi[i_xi]
                     )
 
