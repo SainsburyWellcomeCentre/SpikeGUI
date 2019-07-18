@@ -296,7 +296,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
 
                 # sets up the lda values
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, d_data)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data, w_prog)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -320,7 +320,8 @@ class WorkerThread(QThread):
                     self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir)
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para,
+                                                                                 data.discrim.dir, w_prog)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -341,7 +342,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                 # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
+                                                                             w_prog, True)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -370,7 +372,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                 # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
+                                                                             w_prog, True)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -402,7 +405,8 @@ class WorkerThread(QThread):
                     self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para, data.discrim.dir, True)
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
+                                                                                 w_prog, True)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -451,7 +455,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, _calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                 # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, _calc_para, data.discrim.dir, True)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, _calc_para, data.discrim.dir,
+                                                                             w_prog, True)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -477,7 +482,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, _calc_para, g_para, ['lda'], other_para=data.discrim.filt)
 
                 # sets up the important arrays for the LDA
-                r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, _calc_para, data.discrim.filt, True)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, _calc_para, data.discrim.filt,
+                                                                             w_prog, True)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -503,8 +509,8 @@ class WorkerThread(QThread):
                 if data.discrim.spdc.lda is None:
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
-                                                                                 data.discrim.spdc, True)
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdc,
+                                                                                 w_prog, True)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -525,8 +531,8 @@ class WorkerThread(QThread):
                 if data.discrim.spdcp.lda is None:
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = self.setup_lda(data, calc_para,
-                                                                                 data.discrim.spdcp, True)
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdcp,
+                                                                                 w_prog, True)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -1224,115 +1230,6 @@ class WorkerThread(QThread):
     ####    ROTATION LDA CALCULATIONS    ####
     #########################################
 
-    def setup_lda(self, data, calc_para, d_data, return_reqd_arr=False):
-        '''
-
-        :param data:
-        :param calc_para:
-        :return:
-        '''
-
-        def det_valid_cells(data, ind, lda_para):
-            '''
-
-            :param cluster:
-            :param lda_para:
-            :return:
-            '''
-
-            # sets the exclusion field name to cluster field key
-            f_key = {
-                'region_name': 'chRegion',
-                'record_layer': 'chLayer',
-            }
-
-            # determines the cells that are in the valid regions (RSPg and RSPd)
-            cluster, exc_filt = data.cluster[ind], data.rotation.exc_rot_filt
-            is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
-
-            # removes any values that correspond to the fields in the exclusion filter
-            for ex_key in ['region_name', 'record_layer']:
-                if len(exc_filt[ex_key]):
-                    for f_exc in exc_filt[ex_key]:
-                        is_valid[cluster[f_key[ex_key]] == f_exc] = False
-
-            # if the cell types have been set, then remove the cells that are not the selected type
-            if lda_para['cell_types'] == 'Narrow Spike Cells':
-                # case is narrow spikes have been selected
-                is_valid[data.classify.grp_str[ind] == 'Wid'] = False
-            elif lda_para['cell_types'] == 'Wide Spike Cells':
-                # case is wide spikes have been selected
-                is_valid[data.classify.grp_str[ind] == 'Nar'] = False
-
-            # determines if the individual LDA has been calculated
-            d_data_i = data.discrim.indiv
-            if d_data_i.lda is not None:
-                # if so, determines the trial type corresponding to the black direction decoding type
-                if ind in d_data_i.i_expt:
-                    # if the black decoding type is present, remove the cells which have a decoding accuracy above max
-                    ind_g = np.where(d_data_i.i_expt == ind)[0][0]
-                    ii = np.where(d_data_i.i_cell[ind_g])[0]
-                    is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
-                    is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
-
-            # if the number of valid cells is less than the reqd count, then set all cells to being invalid
-            if np.sum(is_valid) < lda_para['n_cell_min']:
-                is_valid[:] = False
-
-            # returns the valid index array
-            return is_valid
-
-        # initialisations
-        lda_para, s_flag = calc_para['lda_para'], 2
-        if len(lda_para['comp_cond']) < 2:
-            # if less than 2 trial conditions are selected then output an error to screen
-            e_str = 'At least 2 trial conditions must be selected before running this function.'
-            self.work_error.emit(e_str, 'Invalid LDA Analysis Parameters')
-
-            # returns a false flag
-            return None, None, None, None, 0
-
-        # sets up the black phase data filter and returns the time spikes
-        r_filt = cf.init_rotation_filter_data(False)
-        r_filt['t_type'] = lda_para['comp_cond']
-        r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
-
-        # retrieves the trial counts from each of the filter types/experiments
-        n_trial = np.zeros((r_obj0.n_filt, r_obj0.n_expt), dtype=int)
-        for i_filt in range(r_obj0.n_filt):
-            # sets the trial counts for each experiment for the current filter option
-            i_expt_uniq, ind = np.unique(r_obj0.i_expt[i_filt], return_index=True)
-            n_trial[i_filt, i_expt_uniq] = r_obj0.n_trial[i_filt][ind]
-
-        # removes any trials less than the minimum and from this determines the overall minimum trial count
-        n_trial[n_trial < lda_para['n_trial_min']] = -1
-        n_trial_max = np.min(n_trial[n_trial > 0])
-
-        # determines if the number of trials has changed (and if the lda calculation values have been set)
-        if (n_trial_max == d_data.ntrial) and (d_data.lda is not None):
-            # if there is no change and the values are set, then exit with a true flag
-            s_flag = 1
-            if not return_reqd_arr:
-                return None, None, None, None, s_flag
-
-        # determines the valid cells from each of the loaded experiments
-        i_cell = np.array([det_valid_cells(data, ic, lda_para) for ic in range(len(data.cluster))])
-
-        # determines if there are any valid loaded experiments
-        i_expt = np.where([(np.any(x) and np.min(n_trial[:, i_ex]) >= lda_para['n_trial_min'])
-                            for i_ex, x in enumerate(i_cell)])[0]
-        if len(i_expt) == 0:
-            # if there are no valid experiments, then output an error message to screen
-            e_str = 'The LDA function can''t be run using the currently loaded experiments/parameter configuration. ' \
-                    'Either load more experiments or alter the calculation parameters.'
-            self.work_error.emit(e_str, 'Invalid LDA Experiments Loaded')
-
-            # returns a false flag
-            return None, None, None, None, 0
-
-        # returns the import values for the LDA calculations
-        return r_filt, i_expt, i_cell[i_expt], n_trial_max, s_flag
-
     def run_temporal_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
         '''
 
@@ -1797,8 +1694,8 @@ class WorkerThread(QThread):
         #######################################
 
         # determines the cell pool groupings
-        n_cell_pool, n_cell0 = np.shape(spd_sf)[3], [1, 2, 5, 10, 20, 50, 100, 150, 200]
-        n_cell = [x for x in n_cell0 if x <= n_cell_pool]
+        n_cell = cfcn.get_pool_cell_counts(data, lda_para)
+        n_cell_pool = n_cell[-1]
 
         # memory allocation
         nC, n_tt, n_xi = len(n_cell), len(tt), len(_data.rotation.spd_xi)
@@ -1806,24 +1703,29 @@ class WorkerThread(QThread):
 
         #
         for i_c, n_c in enumerate(n_cell):
-            for i_s in range(n_shuff):
+            n_shuff_nw = n_shuff if ((i_c + 1) < nC) else 1
+            for i_s in range(n_shuff_nw):
                 # updates the progressbar
-                w_str = 'Pooled Speed LDA (Shuffle {0}/{1}, Group {2}/{3})'.format(i_s + 1, n_shuff, i_c + 1, nC)
-                w_prog.emit(w_str, 100. * (i_c + (i_s / n_shuff)) / nC)
+                w_str = 'Pooled Speed LDA (Shuffle {0}/{1}, Group {2}/{3})'.format(i_s + 1, n_shuff_nw, i_c + 1, nC)
+                w_prog.emit(w_str, 100. * (i_c + (i_s / n_shuff_nw)) / nC)
 
-                # sets the new shuffled spiking frequency array
-                ind_sh = np.sort(np.random.permutation(n_cell_pool)[:n_c])
-                spd_sf_sh = [x[:, :, ind_sh] for x in dcopy(spd_sf)]
+                while 1:
+                    # sets the new shuffled spiking frequency array
+                    if n_shuff_nw == 1:
+                        spd_sf_sh = dcopy(spd_sf)
+                    else:
+                        ind_sh = np.sort(np.random.permutation(n_cell_pool)[:n_c])
+                        spd_sf_sh = [x[:, :, ind_sh] for x in dcopy(spd_sf)]
 
-                # runs the kinematic LDA on the new data
-                results = cfcn.run_kinematic_lda(_data, [spd_sf_sh], calc_para, _r_filt, n_trial)
-                if isinstance(results, bool):
-                    # if there was an error, then return a false flag value
-                    return False
-                else:
-                    for i_tt in range(n_tt):
-                        y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
-                        # y_acc_fit[i_tt][i_s, :, i_c] = results[1][i_tt]
+                    # runs the kinematic LDA on the new data
+                    results = cfcn.run_kinematic_lda(_data, [spd_sf_sh], calc_para, _r_filt, n_trial)
+                    if not isinstance(results, bool):
+                        # if successful, then retrieve the accuracy values
+                        for i_tt in range(n_tt):
+                            y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
+
+                        # exits the loop
+                        break
 
         #############################################
         ####    PSYCHOMETRIC FIT CALCULATIONS    ####
@@ -1834,7 +1736,12 @@ class WorkerThread(QThread):
 
         # calculates the psychometric fits for each condition trial type
         for i_tt in range(n_tt):
-            A = cfcn.calc_psychometric_curve(np.mean(100. * y_acc[i_tt], axis=0), d_vel, nC, i_bin_spd)
+            # sets the mean accuracy values (across all cell counts)
+            y_acc_mn = np.hstack((np.mean(100. * y_acc[i_tt][:, :, :-1], axis=0),
+                                  100. * y_acc[i_tt][0, :, -1].reshape(-1, 1)))
+
+            # calculates/sets the psychometric fit values
+            A = cfcn.calc_psychometric_curve(y_acc_mn, d_vel, nC, i_bin_spd)
             y_acc_fit[:, :, i_tt] = np.vstack(A).T
 
         #######################################

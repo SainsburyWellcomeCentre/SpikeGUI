@@ -47,6 +47,7 @@ fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - 
 # other function declarations
 dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
+n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
 
 ########################################################################################################################
 ########################################################################################################################
@@ -1181,6 +1182,121 @@ def calc_noise_correl(d_data, n_sp):
             ]
 
 
+def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
+    '''
+
+    :param data:
+    :param calc_para:
+    :return:
+    '''
+
+    def det_valid_cells(data, ind, lda_para):
+        '''
+
+        :param cluster:
+        :param lda_para:
+        :return:
+        '''
+
+        # sets the exclusion field name to cluster field key
+        f_key = {
+            'region_name': 'chRegion',
+            'record_layer': 'chLayer',
+        }
+
+        # determines the cells that are in the valid regions (RSPg and RSPd)
+        exc_filt = data.rotation.exc_rot_filt
+        cluster = data._cluster[ind] if data.cluster is None else data.cluster[ind]
+        is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
+
+        # removes any values that correspond to the fields in the exclusion filter
+        for ex_key in ['region_name', 'record_layer']:
+            if len(exc_filt[ex_key]):
+                for f_exc in exc_filt[ex_key]:
+                    is_valid[cluster[f_key[ex_key]] == f_exc] = False
+
+        # if the cell types have been set, then remove the cells that are not the selected type
+        if lda_para['cell_types'] == 'Narrow Spike Cells':
+            # case is narrow spikes have been selected
+            is_valid[data.classify.grp_str[ind] == 'Wid'] = False
+        elif lda_para['cell_types'] == 'Wide Spike Cells':
+            # case is wide spikes have been selected
+            is_valid[data.classify.grp_str[ind] == 'Nar'] = False
+
+        # determines if the individual LDA has been calculated
+        d_data_i = data.discrim.indiv
+        if d_data_i.lda is not None:
+            # if so, determines the trial type corresponding to the black direction decoding type
+            if ind in d_data_i.i_expt:
+                # if the black decoding type is present, remove the cells which have a decoding accuracy above max
+                ind_g = np.where(d_data_i.i_expt == ind)[0][0]
+                ii = np.where(d_data_i.i_cell[ind_g])[0]
+                is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
+                is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
+
+        # if the number of valid cells is less than the reqd count, then set all cells to being invalid
+        if np.sum(is_valid) < lda_para['n_cell_min']:
+            is_valid[:] = False
+
+        # returns the valid index array
+        return is_valid
+
+    # initialisations
+    lda_para, s_flag = calc_para['lda_para'], 2
+    if len(lda_para['comp_cond']) < 2:
+        # if less than 2 trial conditions are selected then output an error to screen
+        if w_prog is not None:
+            e_str = 'At least 2 trial conditions must be selected before running this function.'
+            w_prog.emit(e_str, 'Invalid LDA Analysis Parameters')
+
+        # returns a false flag
+        return None, None, None, None, 0
+
+    # sets up the black phase data filter and returns the time spikes
+    r_filt = cf.init_rotation_filter_data(False)
+    r_filt['t_type'] = lda_para['comp_cond']
+    r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+
+    # retrieves the trial counts from each of the filter types/experiments
+    n_trial = np.zeros((r_obj0.n_filt, r_obj0.n_expt), dtype=int)
+    for i_filt in range(r_obj0.n_filt):
+        # sets the trial counts for each experiment for the current filter option
+        i_expt_uniq, ind = np.unique(r_obj0.i_expt[i_filt], return_index=True)
+        n_trial[i_filt, i_expt_uniq] = r_obj0.n_trial[i_filt][ind]
+
+    # removes any trials less than the minimum and from this determines the overall minimum trial count
+    n_trial[n_trial < lda_para['n_trial_min']] = -1
+    n_trial_max = np.min(n_trial[n_trial > 0])
+
+    # determines if the number of trials has changed (and if the lda calculation values have been set)
+    if d_data is not None:
+        if (n_trial_max == d_data.ntrial) and (d_data.lda is not None):
+            # if there is no change and the values are set, then exit with a true flag
+            s_flag = 1
+            if not return_reqd_arr:
+                return None, None, None, None, s_flag
+
+    # determines the valid cells from each of the loaded experiments
+    n_clust = len(data._cluster) if data.cluster is None else len(data.cluster)
+    i_cell = np.array([det_valid_cells(data, ic, lda_para) for ic in range(n_clust)])
+
+    # determines if there are any valid loaded experiments
+    i_expt = np.where([(np.any(x) and np.min(n_trial[:, i_ex]) >= lda_para['n_trial_min'])
+                        for i_ex, x in enumerate(i_cell)])[0]
+    if len(i_expt) == 0:
+        # if there are no valid experiments, then output an error message to screen
+        if w_prog is not None:
+            e_str = 'The LDA function can''t be run using the currently loaded experiments/parameter configuration. ' \
+                    'Either load more experiments or alter the calculation parameters.'
+            w_prog.emit(e_str, 'Invalid LDA Experiments Loaded')
+
+        # returns a false flag
+        return None, None, None, None, 0
+
+    # returns the import values for the LDA calculations
+    return r_filt, i_expt, i_cell[i_expt], n_trial_max, s_flag
+
+
 def run_part_lda_pool(p_data):
     '''
 
@@ -1766,7 +1882,8 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
                 lda, ok, e_str = run_lda_predictions(spd_sf_bin, lda_para, n_c, n_trial)
                 if not ok:
                     # if there was an error, then exit with a false flag
-                    w_prog.emit(e_str, 'LDA Analysis Error')
+                    if w_prog is not None:
+                        w_prog.emit(e_str, 'LDA Analysis Error')
                     return False
 
                 # calculates the grouping accuracy values
@@ -2088,3 +2205,17 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         else:
             # case is using the normal time bins
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
+
+
+def get_pool_cell_counts(data, lda_para):
+    '''
+
+    :param data:
+    :param lda_para:
+    :return:
+    '''
+
+    _, _, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para}, None)
+    n_cell_tot = np.sum([sum(x) for x in i_cell])
+    return [x for x in n_cell_pool0 if x <= n_cell_tot] + \
+           ([n_cell_tot] if n_cell_tot not in n_cell_pool0 else [])

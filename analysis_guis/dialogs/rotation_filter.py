@@ -558,8 +558,13 @@ class RotationFilteredData(object):
         # sets the other fields
         self.i_expt0 = None
         self.n_phase = len(self.phase_lbl)
-        self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
         self.is_single_cell = plot_scope == 'Individual Cell'
+
+        #
+        if data.cluster is None:
+            self.n_expt = 1 + plot_all_expt * (len(data._cluster) - 1)
+        else:
+            self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
 
         # applies the filter and sets up the other plotting field values
         self.apply_rotation_filter(data)
@@ -621,8 +626,12 @@ class RotationFilteredData(object):
                 i_expt0 = cf.get_expt_index(self.plot_exp_name, data.cluster, cf.det_valid_rotation_expt(data))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
 
+        if data.cluster is None:
+            s_freq = [[data._cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
+        else:
+            s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
+
         # retrieves the sampling frequencies and trial/cell count
-        s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
         n_trial = [[len(x) if x is not None else 0 for x in ss] for ss in trial_ind]
         n_cell = [[len(x) if x is not None else 0 for x in ss] for ss in clust_ind]
 
@@ -641,10 +650,16 @@ class RotationFilteredData(object):
             ]
 
         # sets the cluster/channel ID flags
-        self.cl_id = [sum([list(np.array(data.cluster[x]['clustID'])[y])
-                        for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
-        self.ch_id = [sum([list(np.array(data.cluster[x]['chDepth'])[y])
-                        for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+        if data.cluster is None:
+            self.cl_id = [sum([list(np.array(data._cluster[x]['clustID'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+            self.ch_id = [sum([list(np.array(data._cluster[x]['chDepth'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+        else:
+            self.cl_id = [sum([list(np.array(data.cluster[x]['clustID'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+            self.ch_id = [sum([list(np.array(data.cluster[x]['chDepth'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
 
         # memory allocation sets the other important values for each cell/experiment
         A, dcopy = np.empty(self.n_filt, dtype=object), copy.deepcopy

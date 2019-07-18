@@ -6242,7 +6242,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
 
-    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_grid):
+    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_cell, plot_grid):
         '''
 
         :param show_fit:
@@ -6293,7 +6293,8 @@ class AnalysisGUI(QMainWindow):
         h_plt_cond = []
 
         # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-        y_acc_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc]
+        n_c = len(d_data.y_acc)
+        y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in d_data.y_acc]
 
         # plots the data for all points
         for i, i_cond in enumerate(np.where(is_plot)[0]):
@@ -6307,18 +6308,20 @@ class AnalysisGUI(QMainWindow):
             #
             h_plt_cell = []
             for j, n_c in enumerate(n_cell):
-                # plots the mean marker points
-                if plot_markers:
-                    h_plt_cell.append(ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz))
-                else:
-                    h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
+                # only include the cell if in the selected checklist
+                if str(n_c) in plot_cell:
+                    # plots the mean marker points
+                    if plot_markers:
+                        h_plt_cell.append(ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz))
+                    else:
+                        h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
 
-                # plots the psychometric fit (if required)
-                ax.plot(x_nw, y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
+                    # plots the psychometric fit (if required)
+                    ax.plot(x_nw, y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
 
             # creates the legend
             if i == 0:
-                h_lg_cell = ax.legend(h_plt_cell, ['N(cell) = {0}'.format(x) for x in n_cell], loc=4)
+                h_lg_cell = ax.legend(h_plt_cell, ['N(cell) = {0}'.format(x) for x in plot_cell], loc=4)
 
         # creates the 2nd legend for the conditions (reshows the first)
         if len(plot_cond) > 1:
@@ -9654,6 +9657,9 @@ class AnalysisFunctions(object):
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_cond = spdcp_lda_para['comp_cond']
 
+        # determines the cell count checklist values
+        n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
+
         # ====> Speed LDA Comparison (Individual Experiments)
         para = {
             # calculation parameters
@@ -9708,7 +9714,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': spdcp_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl]],
+                'def_val': spdcp_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl],
+                                                          ['plot_cell', self.reset_plot_cell_cl]],
             },
 
             'spd_x_rng': {
@@ -9746,6 +9753,10 @@ class AnalysisFunctions(object):
             'plot_cond': {
                 'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_cond,
                 'def_val': np.ones(len(lda_plot_cond), dtype=bool),
+            },
+            'plot_cell': {
+                'type': 'CL', 'text': 'Plot Cell Counts', 'list': n_cell_list,
+                'def_val': np.ones(len(n_cell_list), dtype=bool), 'other_para': '--- Select Plot Cell Counts ---'
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -10610,17 +10621,57 @@ class AnalysisFunctions(object):
         h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
-        # checks if there is a change in the comparison conditions
+        # retrieves the new text list
         nw_txt = dcopy(exp_info['comp_cond'])
-        if set(nw_txt) != set(curr_txt):
+
+        # checks if there is a change in the comparison conditions
+        if set(nw_txt) != set(curr_txt[1:]):
             # determines the plot function that is currently selected
             d_grp = self.details[self.get_plot_grp_fcn()]
             i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
 
             # sets the list selection index (if current selection is gone, then set to zero)
-            txt0 = dcopy([h_list.itemText(i) for i in range(1, h_list.count())])
-            is_match = [x in txt0 for x in nw_txt]
-            i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
+            is_match = [x in self.curr_para[p_name] for x in nw_txt]
+
+            # removes the existing items
+            for i in range(1, h_list.count()):
+                h_list.removeItem(1)
+
+            # adds the new range
+            for i, txt in enumerate(nw_txt):
+                h_list.addItem(txt, True)
+                nw_item = h_list.model().item(i + 1)
+                nw_item.setCheckState(Qt.Checked if is_match[i] else Qt.Unchecked)
+
+            # resets the associated parameter value
+            h_list.setCurrentIndex(0)
+            self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
+            d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
+    def reset_plot_cell_cl(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # retrieves the list object corresponding to the parameter
+        h_list = self.find_obj_handle([QComboBox], p_name)[0]
+        curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
+
+        # retrieves the new text list
+        nw_txt = [str(x) for x in cfcn.get_pool_cell_counts(self.get_data_fcn(), exp_info)]
+
+        # checks if there is a change in the comparison conditions
+        if set(nw_txt) != set(curr_txt[1:]):
+            # determines the plot function that is currently selected
+            d_grp = self.details[self.get_plot_grp_fcn()]
+            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+            # sets the list selection index (if current selection is gone, then set to zero)
+            is_match = [x in self.curr_para[p_name] for x in nw_txt]
+            is_match[-1] = True
 
             # removes the existing items
             for i in range(1, h_list.count()):
