@@ -2150,12 +2150,6 @@ class AnalysisGUI(QMainWindow):
             for xt in self.plot_fig.ax[i_plot].get_xticklabels():
                 xt.set_rotation(90)
 
-        # # shows the final plot
-        # if p_type == 'boxplot':
-        #     self.plot_fig.fig.tight_layout(h_pad=-0.8)
-        # else:
-        #     self.plot_fig.fig.tight_layout(h_pad=-0.9)
-
     def plot_cluster_isi(self, i_cluster, plot_all, t_lim, plot_all_bin, is_norm, equal_ax, exp_name, plot_grid=True):
         '''
 
@@ -5135,7 +5129,7 @@ class AnalysisGUI(QMainWindow):
             x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls])
             y_plt = 100. * y_acc.T.flatten()
 
-            #
+            # sets the violin/swarmplot dictionaries
             vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None)
             sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, color='white', edgecolor='gray')
 
@@ -5195,7 +5189,6 @@ class AnalysisGUI(QMainWindow):
                         else:
                             if i_col == 0:
                                 # case is the condition accuracy statistics
-                                ind = np.array([i_col, i_row])
 
                                 # sets up the stats calculations
                                 results = r_stats.wilcox_test(FloatVector(y_acc[:, i_col]),
@@ -6166,9 +6159,9 @@ class AnalysisGUI(QMainWindow):
             ###################################
 
             # sets the plotting data values
-            y_acc_md = np.median(100. * d_data.y_acc, axis=0)
-            y_acc_lq = np.percentile(100. * d_data.y_acc, 25, axis=0)
-            y_acc_uq = np.percentile(100. * d_data.y_acc, 75, axis=0)
+            y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
+            y_acc_lq = 100. * np.percentile(d_data.y_acc, 25, axis=0)
+            y_acc_uq = 100. * np.percentile(d_data.y_acc, 75, axis=0)
 
             ################################
             ####    SUBPLOT CREATION    ####
@@ -6288,12 +6281,10 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT CREATION    ####
         ################################
 
-        # parameters
-        m_sz = 240
-        h_plt_cond = []
+        # parameters and initialisations
+        m_sz, h_plt_cond = 240, []
 
         # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-        n_c = len(d_data.y_acc)
         y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in d_data.y_acc]
 
         # plots the data for all points
@@ -7720,10 +7711,10 @@ class AnalysisGUI(QMainWindow):
                          'Velocity ROC Curves (Pos/Neg Comparison)',
                          'Combined Direction ROC Curves (Whole Experiment)',
                          'Rotation Direction LDA',
-                         'Temporal Duration/Offset LDA Analysis',
-                         'Individual LDA Analysis',
-                         'Shuffled LDA Analysis',
-                         'Pooling LDA Analysis',
+                         'Temporal Duration/Offset LDA',
+                         'Individual LDA',
+                         'Shuffled LDA',
+                         'Pooled Neuron LDA',
                          'Individual Cell Accuracy Filtered LDA',
                          'Speed LDA Comparison (Individual Experiments)',
                          'Speed LDA Comparison (Pooled Experiments)']
@@ -9430,7 +9421,7 @@ class AnalysisFunctions(object):
                       func='plot_rotation_dir_lda',
                       para=para)
 
-        # ====> Temporal Duration/Offset LDA Analysis
+        # ====> Temporal Duration/Offset LDA
         para = {
             # calculation parameters
             'lda_para': {
@@ -9458,11 +9449,11 @@ class AnalysisFunctions(object):
             },
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Temporal Duration/Offset LDA Analysis',
+                      name='Temporal Duration/Offset LDA',
                       func='plot_temporal_lda',
                       para=para)
 
-        # ====> Individual LDA Analysis
+        # ====> Individual LDA
         para = {
             # calculation parameters
             'lda_para': {
@@ -9508,11 +9499,11 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Individual LDA Analysis',
+                      name='Individual LDA',
                       func='plot_individual_lda',
                       para=para)
 
-        # ====> Shuffled LDA Analysis
+        # ====> Shuffled LDA
         para = {
             # calculation parameters
             'lda_para': {
@@ -9559,11 +9550,11 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Shuffled LDA Analysis',
+                      name='Shuffled LDA',
                       func='plot_shuffled_lda',
                       para=para)
 
-        # ====> Pooled LDA
+        # ====> Pooled Neuron LDA
         para = {
             # calculation parameters
             'lda_para': {
@@ -9585,14 +9576,14 @@ class AnalysisFunctions(object):
             },
             'n_cell_min': {
                 'gtype': 'C', 'text': 'Min Experiment Cell Count',
-                'def_val': cfcn.set_def_para(part_def_para, 'nshuffle', 10)
+                'def_val': cfcn.set_def_para(part_def_para, 'cellminpart', 10)
             },
             'n_shuffle': {
                 'gtype': 'C', 'text': 'Partial Cell Shuffle Count',
-                'def_val': cfcn.set_def_para(part_def_para, 'cellminpart', 10)
+                'def_val': cfcn.set_def_para(part_def_para, 'nshuffle', 10)
             },
             'pool_expt': {
-                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments', 'link_para': ['n_cell_min', False],
+                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments', 'link_para': ['n_cell_min', True],
                 'def_val': cfcn.set_def_para(part_def_para, 'poolexpt', False),
             },
 
@@ -9601,7 +9592,7 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
-                      name='Pooled LDA',
+                      name='Pooled Neuron LDA',
                       func='plot_partial_lda',
                       para=para)
 

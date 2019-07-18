@@ -48,6 +48,7 @@ fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - 
 dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
 n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
+n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
 
 ########################################################################################################################
 ########################################################################################################################
@@ -1325,7 +1326,7 @@ def run_part_lda_pool(p_data):
 
 
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
-                pW0=0., pW=100., is_indiv=False):
+                pW0=0., pW=100., is_indiv=False, n_sp0=None):
     '''
 
     :param data:
@@ -1339,7 +1340,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     :return:
     '''
 
-    def run_lda_predictions(w_prog, r_obj, lda_para, i_cell, ind_t, i_ex, is_shuffle, pW0, pW, is_indiv):
+    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, ind_t, i_ex, is_shuffle, pW0, pW, is_indiv):
         '''
 
         :param r_obj:
@@ -1376,40 +1377,51 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             return n_sp
 
         # memory allocation and initialisations
-        n_sp, t_sp, i_grp = [], [], []
         n_t, n_grp, N = n_trial_max, 2 * r_obj.n_filt, 2 * r_obj.n_filt * n_trial_max
-
-        # retrieves the cell indices (over each condition) for the current experiment
-        ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
-        n_cell, pWS = len(ind_c[0]), 1 / r_obj.n_expt
+        pWS = 1 / r_obj.n_expt
 
         ####################################
         ####    LDA DATA ARRAY SETUP    ####
         ####################################
 
-        # sets up the LDA data/group index arrays across each condition
-        for i_filt in range(r_obj.n_filt):
-            # retrieves the time spikes for the current filter/experiment, and then combines into a single
-            # concatenated array. calculates the final spike counts over each cell/trial and appends to the
-            # overall spike count array
-            A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
-            if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
-                # case is motordrifting (swap phases)
-                t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
-            else:
-                # case is other experiment conditions
-                t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+        if n_sp is None:
+            # case is the spike counts haven't been provided
 
-            # calculates the spike counts and appends them to the count array
-            n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
-            t_sp.append(t_sp_tmp)
+            # memory allocation
+            n_sp, t_sp, i_grp = [], [], []
+            ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
+            n_cell = len(ind_c[0])
 
-            # sets the grouping indices
-            ind_g = [2 * i_filt, 2 * i_filt + 1]
-            i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+            # sets up the LDA data/group index arrays across each condition
+            for i_filt in range(r_obj.n_filt):
+                # retrieves the time spikes for the current filter/experiment, and then combines into a single
+                # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+                # overall spike count array
+                A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
+                if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+                    # case is motordrifting (swap phases)
+                    t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+                else:
+                    # case is other experiment conditions
+                    t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
 
-        # combines the spike counts/group indices into the final combined arrays
-        n_sp, t_sp, i_grp = np.hstack(n_sp).T, np.hstack(t_sp).T, np.hstack(i_grp)
+                # calculates the spike counts and appends them to the count array
+                n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+                t_sp.append(t_sp_tmp)
+
+                # sets the grouping indices
+                ind_g = [2 * i_filt, 2 * i_filt + 1]
+                i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+            # combines the spike counts/group indices into the final combined arrays
+            n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
+
+        else:
+            # case is the spike counts have been provided
+
+            # retrieves the cell count and group indices
+            n_cell = np.size(n_sp, axis=1)
+            i_grp = np.array(cf.flat_list([list(x * np.ones(n_trial_max, dtype=int)) for x in range(n_grp)]))
 
         # shuffles the trials (if required)
         if is_shuffle:
@@ -1457,12 +1469,11 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             NN = len(i_grp)
 
         # fits the LDA model and calculates the prediction for each
-        for i_trial in range(n_trial_max):
-        # for i_pred in range(len(i_grp)):
+        for i_trial in range(NN):
             # updates the progress bar
             if w_prog is not None:
                 w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
-                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / n_trial_max))
+                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / NN))
 
             # fits the one-out-trial lda model
             if is_indiv:
@@ -1474,9 +1485,10 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             try:
                 lda.fit(n_sp_calc[is_keep, :], i_grp[is_keep])
             except:
-                e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
-                        'Either choose a different solver or alter the solver parameters before retrying'
-                w_prog.emit(e_str, 'LDA Analysis Error')
+                if w_prog is not None:
+                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                            'Either choose a different solver or alter the solver parameters before retrying'
+                    w_prog.emit(e_str, 'LDA Analysis Error')
                 return None, False
 
             # resets the acceptance array
@@ -1547,7 +1559,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     # memory allocation and other initialisations
     A = np.empty(r_obj.n_expt, dtype=object)
     lda, exp_name, n_sp = dcopy(A), dcopy(A), dcopy(A)
-    ind_t, n_ex = np.array(range(n_trial_max)), r_obj.n_expt
+    ind_t, n_ex = np.array(range(n_trial_max)), len(i_expt)
 
     # memory allocation for accuracy binary mask calculations
     n_c = len(r_filt['t_type'])
@@ -1565,7 +1577,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
-        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, i_cell[i_ex],
+        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, n_sp0, i_cell[i_ex],
                                                         ind_t, i_ex, is_shuffle, pW0, pW, is_indiv)
         if not ok:
             # if there was an error, then exit with a false flag
@@ -1661,48 +1673,6 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
 
     # returns the final array
     return spd_sf_ex, _r_filt
-
-
-def calc_psychometric_curve(y_acc_mn, d_vel, n_cond, i_bin_spd):
-    '''
-
-    :param y_acc_mn:
-    :param d_vel:
-    :param n_cond:
-    :param i_bin_spd:
-    :return:
-    '''
-
-    # memory allocation
-    y_acc_fit = np.empty(n_cond, dtype=object)
-
-    # psychometric function estimation parameters
-    xi = np.arange(d_vel, 80.01, d_vel) / 1000
-
-    # sets the indices of the values to be fit
-    ii = np.ones(len(xi), dtype=bool)
-    ii[i_bin_spd] = False
-
-    # loops through each of the conditions calculating the psychometric fits
-    for i_c in range(n_cond):
-        # initialisations
-        maxfev = 10000
-
-        # keep attempting to find the psychometric fit until a valid solution is found
-        while 1:
-            try:
-                # runs the fit function
-                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
-
-                # if successful, calculation the fit values and exits the inner loop
-                y_acc_fit[i_c] = fit_func(xi, *popt)
-                break
-            except:
-                # if there was an error, then increment the max function evaluation parameter
-                maxfev *= 2
-
-    # returns the fit values
-    return y_acc_fit
 
 
 def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
@@ -1950,6 +1920,48 @@ def reduce_cluster_data(data, i_expt):
 
     # returns the reduced data class object
     return data_tmp
+
+
+def calc_psychometric_curve(y_acc_mn, d_vel, n_cond, i_bin_spd):
+    '''
+
+    :param y_acc_mn:
+    :param d_vel:
+    :param n_cond:
+    :param i_bin_spd:
+    :return:
+    '''
+
+    # memory allocation
+    y_acc_fit = np.empty(n_cond, dtype=object)
+
+    # psychometric function estimation parameters
+    xi = np.arange(d_vel, 80.01, d_vel) / 1000
+
+    # sets the indices of the values to be fit
+    ii = np.ones(len(xi), dtype=bool)
+    ii[i_bin_spd] = False
+
+    # loops through each of the conditions calculating the psychometric fits
+    for i_c in range(n_cond):
+        # initialisations
+        maxfev = 10000
+
+        # keep attempting to find the psychometric fit until a valid solution is found
+        while 1:
+            try:
+                # runs the fit function
+                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
+
+                # if successful, calculation the fit values and exits the inner loop
+                y_acc_fit[i_c] = fit_func(xi, *popt)
+                break
+            except:
+                # if there was an error, then increment the max function evaluation parameter
+                maxfev *= 2
+
+    # returns the fit values
+    return y_acc_fit
 
 
 def init_lda_solver_para():
@@ -2207,7 +2219,7 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
 
 
-def get_pool_cell_counts(data, lda_para):
+def get_pool_cell_counts(data, lda_para, type=0):
     '''
 
     :param data:
@@ -2215,7 +2227,14 @@ def get_pool_cell_counts(data, lda_para):
     :return:
     '''
 
+    if type == 0:
+        n_cell = n_cell_pool0
+    else:
+        n_cell = n_cell_pool1
+
+    # determine the valid cell counts for each experiment
     _, _, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para}, None)
     n_cell_tot = np.sum([sum(x) for x in i_cell])
-    return [x for x in n_cell_pool0 if x <= n_cell_tot] + \
-           ([n_cell_tot] if n_cell_tot not in n_cell_pool0 else [])
+
+    # returns the final cell count
+    return [x for x in n_cell if x <= n_cell_tot] + ([n_cell_tot] if n_cell_tot not in n_cell else [])

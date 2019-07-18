@@ -310,7 +310,7 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-            elif self.thread_job_secondary == 'Temporal Duration/Offset LDA Analysis':
+            elif self.thread_job_secondary == 'Temporal Duration/Offset LDA':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.temp)
 
@@ -336,7 +336,7 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
-            elif self.thread_job_secondary == 'Individual LDA Analysis':
+            elif self.thread_job_secondary == 'Individual LDA':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
@@ -366,7 +366,7 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-            elif self.thread_job_secondary == 'Shuffled LDA Analysis':
+            elif self.thread_job_secondary == 'Shuffled LDA':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
@@ -394,7 +394,7 @@ class WorkerThread(QThread):
                     self.work_finished.emit(thread_data)
                     return
 
-            elif self.thread_job_secondary == 'Pooling LDA Analysis':
+            elif self.thread_job_secondary == 'Pooled Neuron LDA':
                 # resets the minimum cell count and checks if the pooled parameters have been altered
                 calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.part)
@@ -407,18 +407,19 @@ class WorkerThread(QThread):
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
                                                                                  w_prog, True)
-                    if status == 0:
-                        # if there was an error in the calculations, then return an error flag
-                        self.is_ok = False
-                        self.work_finished.emit(thread_data)
-                        return
-                    elif status == 2:
-                        # if an update in the calculations is required, then run the rotation LDA analysis
-                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                d_data=data.discrim.dir, w_prog=w_prog):
+                    if not calc_para['pool_expt']:
+                        if status == 0:
+                            # if there was an error in the calculations, then return an error flag
                             self.is_ok = False
                             self.work_finished.emit(thread_data)
                             return
+                        elif status == 2:
+                            # if an update in the calculations is required, then run the rotation LDA analysis
+                            if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                    d_data=data.discrim.dir, w_prog=w_prog):
+                                self.is_ok = False
+                                self.work_finished.emit(thread_data)
+                                return
 
                     # runs the partial LDA
                     if not self.run_pooled_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
@@ -1508,7 +1509,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def run_pooled_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell):
+        def run_pooled_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell, n_sp):
             '''
 
             :param data:
@@ -1522,37 +1523,82 @@ class WorkerThread(QThread):
             '''
 
             # sets the required number of cells for the LDA analysis
-            for i_ex in range(len(i_expt)):
-                # determines the original valid cells for the current experiment
-                ii = np.where(i_cell[i_ex])[0]
+            if calc_para['pool_expt']:
 
-                # from these cells, set n_cell cells as being valid (for analysis purposes)
-                i_cell[i_ex][:] = False
-                i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+                n_sp = n_sp[:, np.random.permutation(np.size(n_sp, axis=1))[:n_cell]]
+            else:
+                for i_ex in range(len(i_expt)):
+                    # determines the original valid cells for the current experiment
+                    ii = np.where(i_cell[i_ex])[0]
+
+                    # from these cells, set n_cell cells as being valid (for analysis purposes)
+                    i_cell[i_ex][:] = False
+                    i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
 
             # runs the LDA
-            results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max)
+            results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_sp0=n_sp)
 
             # returns the decoding accuracy values
             return results[1]
 
         # initialisations
         d_data = data.discrim.part
+        w_prog, n_sp = self.work_progress, None
 
         #############################################
         ####    PARTIAL CELL LDA CALCULATIONS    ####
         #############################################
 
         # initialisations
-        xi = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50]
-        y_acc_d, w_prog = data.discrim.dir.y_acc, self.work_progress
-        n_expt, n_cond, n_xi, n_sh = min([3, len(i_expt)]), len(r_filt['t_type']), len(xi), calc_para['n_shuffle']
+        if calc_para['pool_expt']:
+            # case is all experiments are pooled
 
-        # retrieves the top n_expt experiments based on the base decoding accuracy
-        ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
-        i_expt, i_cell = i_expt[ii], i_cell[ii]
+            # initialisations and memory allocation
+            ind_t, n_sp = np.arange(n_trial_max), []
+            t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+
+            # creates a reduce data object and creates the rotation filter object
+            data_tmp = cfcn.reduce_cluster_data(data, i_expt)
+            r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
+                                         t_ofs=t_ofs, t_phase=t_phase)
+
+            # sets up the LDA data/group index arrays across each condition
+            for i_filt in range(r_obj.n_filt):
+                # retrieves the time spikes for the current filter/experiment, and then combines into a single
+                # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+                # overall spike count array
+                A = dcopy(r_obj.t_spike[i_filt])[:, ind_t, :]
+                if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+                    # case is motordrifting (swap phases)
+                    t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+                else:
+                    # case is other experiment conditions
+                    t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+
+                # calculates the spike counts and appends them to the count array
+                n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+
+            # combines the spike counts/group indices into the final combined arrays
+            n_sp, n_expt, i_expt = np.hstack(n_sp).T, 1, np.array([0])
+            xi = cfcn.get_pool_cell_counts(data, calc_para['lda_para'], 1)
+            i_cell = np.array([np.ones(np.size(n_sp, axis=1), dtype=bool)])
+
+        else:
+            # case is all experiments are pooled
+
+            # initialisations
+            y_acc_d, n_expt = data.discrim.dir.y_acc, min([3, len(i_expt)])
+
+            # retrieves the top n_expt experiments based on the base decoding accuracy
+            ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
+            i_expt, i_cell = i_expt[ii], i_cell[ii]
+
+            # determines the cell count (based on the minimum cell count over all valid experiments)
+            n_cell_min = np.min([sum(x) for x in i_cell])
+            xi = [x for x in cfcn.n_cell_pool1 if x <= n_cell_min]
 
         # memory allocation
+        n_xi, n_sh, n_cond = len(xi), calc_para['n_shuffle'], len(r_filt['t_type'])
         d_data.y_acc = np.zeros((n_expt, n_cond + 1, n_xi, n_sh))
 
         # loops through each of the cell counts calculating the partial LDA
@@ -1561,34 +1607,35 @@ class WorkerThread(QThread):
             w_str = 'Pooling LDA Calculations (Shuffle {0} of {1})'.format(i_sh + 1, n_sh)
             w_prog.emit(w_str, 100. * (i_sh / n_sh))
 
-            # runs the analysis based on the operating system
-            if 'Windows' in platform.platform():
-                # case is Richard's local computer
+            # # runs the analysis based on the operating system
+            # if 'Windows' in platform.platform():
+            #     # case is Richard's local computer
+            #
+            #     # initialisations and memory allocation
+            #     p_data = [[] for _ in range(n_xi)]
+            #     for i_xi in range(n_xi):
+            #         p_data[i_xi].append(data)
+            #         p_data[i_xi].append(calc_para)
+            #         p_data[i_xi].append(r_filt)
+            #         p_data[i_xi].append(i_expt)
+            #         p_data[i_xi].append(i_cell)
+            #         p_data[i_xi].append(n_trial_max)
+            #         p_data[i_xi].append(xi[i_xi])
+            #
+            #     # runs the pool object to run the partial LDA
+            #     p_results = pool.map(cfcn.run_part_lda_pool, p_data)
+            #     for i_xi in range(n_xi):
+            #         j_xi = xi.index(p_results[i_xi][0])
+            #         d_data.y_acc[:, :, j_xi, i_sh] = p_results[i_xi][1]
+            # else:
 
-                # initialisations and memory allocation
-                p_data = [[] for _ in range(n_xi)]
-                for i_xi in range(n_xi):
-                    p_data[i_xi].append(data)
-                    p_data[i_xi].append(calc_para)
-                    p_data[i_xi].append(r_filt)
-                    p_data[i_xi].append(i_expt)
-                    p_data[i_xi].append(i_cell)
-                    p_data[i_xi].append(n_trial_max)
-                    p_data[i_xi].append(xi[i_xi])
+            # case is Subiculum
 
-                # runs the pool object to run the partial LDA
-                p_results = pool.map(cfcn.run_part_lda_pool, p_data)
-                for i_xi in range(n_xi):
-                    j_xi = xi.index(p_results[i_xi][0])
-                    d_data.y_acc[:, :, j_xi, i_sh] = p_results[i_xi][1]
-            else:
-                # case is Subiculum
-
-                # initialisations and memory allocation
-                for i_xi in range(n_xi):
-                    d_data.y_acc[:, :, i_xi, i_sh] = run_pooled_lda_expt(
-                        data, calc_para, r_filt, i_expt, dcopy(i_cell), n_trial_max, xi[i_xi]
-                    )
+            # initialisations and memory allocation
+            for i_xi in range(n_xi):
+                d_data.y_acc[:, :, i_xi, i_sh] = run_pooled_lda_expt(
+                    data, calc_para, r_filt, i_expt, dcopy(i_cell), n_trial_max, xi[i_xi], dcopy(n_sp)
+                )
 
         #######################################
         ####    HOUSE KEEPING EXERCISES    ####
@@ -1689,9 +1736,9 @@ class WorkerThread(QThread):
         # parameters
         i_bin_spd, d_vel = _data.rotation.i_bin_spd, float(calc_para['vel_bin'])
 
-        #######################################
-        ####    POOLED LDA CALCULATIONS    ####
-        #######################################
+        ##############################################
+        ####    POOLED NEURON LDA CALCULATIONS    ####
+        ##############################################
 
         # determines the cell pool groupings
         n_cell = cfcn.get_pool_cell_counts(data, lda_para)
