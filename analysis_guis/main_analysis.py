@@ -6235,7 +6235,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
 
-    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_cell, plot_grid):
+    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_cell, plot_para, plot_grid):
         '''
 
         :param show_fit:
@@ -6256,84 +6256,144 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         d_data = self.data.discrim.spdcp
-        n_cell = d_data.n_cell
+        n_cell, y_acc = d_data.n_cell, d_data.y_acc
 
         # sets up the plot parameters
         is_plot = np.array([x in plot_cond for x in d_data.ttype])
         n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
-        l_col, l_style = cf.get_plot_col(len(n_cell)), ['-', '--', '-.', ':']
 
-        # sets the x-tick labels
-        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
-        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
-        x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+        # calculates the psychometric curves (if not present)
+        if not hasattr(d_data, 'p_acc'):
+            cfcn.calc_all_psychometric_curves(d_data, np.diff(d_data.spd_xi[0, :])[0])
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
         #######################################
 
         # sets up the plot axis
-        self.plot_fig.setup_plot_axis()
-        ax = self.plot_fig.ax[0]
+        self.plot_fig.setup_plot_axis(n_row=1, n_col=1+plot_para)
 
         ################################
         ####    SUBPLOT CREATION    ####
         ################################
 
-        # parameters and initialisations
-        m_sz, h_plt_cond = 240, []
+        if plot_para:
 
-        # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-        y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in d_data.y_acc]
+            ###########################################
+            ####    PSYCHOMETRIC FIT PARAMETERS    ####
+            ###########################################
 
-        # plots the data for all points
-        for i, i_cond in enumerate(np.where(is_plot)[0]):
-            # sets the plot x locations and error bar values
-            x_nw = x + ((i + 1) / (n_cond + 1))
-            y_acc_fit = d_data.y_acc_fit[:, :, i_cond]
+            # initialisations
+            ax, n_cond = self.plot_fig.ax, sum(is_plot)
+            l_col = cf.get_plot_col(n_cond)
+            p_type, p_unit = ['Rate Factor', 'Half-Activation Speed'], ['s/deg', 'deg/s']
+            p_acc, p_acc_lo, p_acc_hi = d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi
 
-            # plots the dummy condition marker lines
-            h_plt_cond.append(ax.plot([-1, -2], [0, 0], l_style[i], c='k', linewidth=2))
+            # sets the x-tick labels and axis limits
+            x = n_cell
+            xL, h_plt = [x[0], x[-1] + 1.], [[] for _ in range(2)]
 
-            #
-            h_plt_cell = []
-            for j, n_c in enumerate(n_cell):
-                # only include the cell if in the selected checklist
-                if str(n_c) in plot_cell:
-                    # plots the mean marker points
-                    if plot_markers:
-                        h_plt_cell.append(ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz))
-                    else:
-                        h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
+            # plots the data for all points
+            for i, i_cond in enumerate(np.where(is_plot)[0]):
+                # sets the plot x locations and error bar values
+                _p_acc, _p_acc_lo, _p_acc_hi = p_acc[i_cond], p_acc_lo[i_cond], p_acc_hi[i_cond]
 
-                    # plots the psychometric fit (if required)
-                    ax.plot(x_nw, y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
+                for j, i_para in enumerate([2, 3]):
+                    # plots the parameter values
+                    h_plt[j].append(ax[j].plot(x, _p_acc[:, i_para], 'o-', c=l_col[i]))
 
-            # creates the legend
-            if i == 0:
-                h_lg_cell = ax.legend(h_plt_cell, ['N(cell) = {0}'.format(x) for x in plot_cell], loc=4)
+                    # # creates the errorbars
+                    # y_err = np.vstack((_p_acc[:, i_para] - _p_acc_lo[:, i_para],
+                    #                    _p_acc_hi[:, i_para] - _p_acc[:, i_para]))
+                    # ax[j].errorbar(x, _p_acc[:, i_para], yerr=y_err, ecolor=l_col[i], fmt='.', capsize=10.0 / n_cond)
 
-        # creates the 2nd legend for the conditions (reshows the first)
-        if len(plot_cond) > 1:
-            ax.legend([x[0] for x in h_plt_cond], plot_cond, loc='upper left')
-            ax.add_artist(h_lg_cell)
+                    # sets the axis properties
+                    if i == 0:
+                        ax[j].set_title('{0} vs Cell Count'.format(p_type[j]))
+                        ax[j].set_ylabel('{0} ({1})'.format(p_type[j], p_unit[j]))
+                        ax[j].set_xlabel('Cell Count')
 
-        # creates the vertical marker lines
-        for xx in np.arange(xL[0] + 1, xL[1]):
-            ax.plot(xx * np.ones(2), yL, 'k--')
+            # creates the 2nd legend for the conditions (reshows the first)
+            ax[0].legend([x[0] for x in h_plt[0]], plot_cond, loc='upper left')
+            ax[1].legend([x[0] for x in h_plt[1]], plot_cond, loc='upper right')
 
-        # plots the chance line
-        ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+            # sets the x-axis scale to logarithmic
+            ax[0].set_xscale('log')
+            ax[1].set_xscale('log')
 
-        # sets the axis properties
-        ax.set_xlim(xL)
-        ax.set_ylim(yL)
-        ax.set_xticks(x + 0.5)
-        ax.set_xticklabels(spd_str)
-        ax.set_xlabel('Speed Bin Comparison (deg/s)')
-        ax.set_ylabel('Decoding Accuracy (%)')
-        ax.grid(plot_grid)
+        else:
+
+            ##################################
+            ####    PSYCHOMETRIC PLOTS    ####
+            ##################################
+
+            # parameters and initialisations
+            ax = self.plot_fig.ax[0]
+            m_sz, h_plt_cond = 240, []
+            l_col, l_style = cf.get_plot_col(len(n_cell)), ['-', '--', '-.', ':']
+            y_acc_fit = d_data.y_acc_fit
+
+            # sets the x-tick labels and axis limits
+            x = np.arange(np.size(d_data.spd_xi, axis=0))
+            spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
+            x_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
+            xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+
+            # sets cell count for each of the experiments (sets to 1 if not showing cell size)
+            y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in y_acc]
+
+            # plots the data for all points
+            for i, i_cond in enumerate(np.where(is_plot)[0]):
+                # sets the plot x locations and error bar values
+                x_nw = x + ((i + 1) / (n_cond + 1))
+                _y_acc_fit = y_acc_fit[:, :, i_cond]
+
+                # plots the dummy condition marker lines
+                h_plt_cond.append(ax.plot([-1, -2], [0, 0], l_style[i], c='k', linewidth=2))
+
+                #
+                h_plt_cell = []
+                for j, n_c in enumerate(n_cell):
+                    # only include the cell if in the selected checklist
+                    if str(n_c) in plot_cell:
+                        # plots the mean marker points
+                        if plot_markers:
+                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz)
+                            if i == 0:
+                                h_plt_cell.append(h_plt_cell_nw)
+                        elif i == 0:
+                            h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
+
+                        # plots the psychometric fit (if required)
+                        ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
+
+                # creates the legend
+                if i == 0:
+                    h_lg_cell = ax.legend(h_plt_cell, ['N(cell) = {0}'.format(x) for x in plot_cell], loc=4)
+
+            # creates the 2nd legend for the conditions (reshows the first)
+            if len(plot_cond) > 1:
+                ax.legend([x[0] for x in h_plt_cond], plot_cond, loc='upper left')
+                ax.add_artist(h_lg_cell)
+
+            # creates the vertical marker lines
+            for xx in np.arange(xL[0] + 1, xL[1]):
+                ax.plot(xx * np.ones(2), yL, 'k--')
+
+            # plots the chance line
+            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+
+            # sets the axis properties
+            ax.set_ylim(yL)
+            ax.set_ylabel('Decoding Accuracy (%)')
+            ax.set_xlabel('Speed Bin Comparison (deg/s)')
+            ax.set_xticks(x + 0.5)
+            ax.set_xticklabels(x_str)
+
+        # sets the common axis properties
+        for _ax in self.plot_fig.ax:
+            _ax.set_xlim(xL)
+            _ax.grid(plot_grid)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -9749,6 +9809,9 @@ class AnalysisFunctions(object):
                 'type': 'CL', 'text': 'Plot Cell Counts', 'list': n_cell_list,
                 'def_val': np.ones(len(n_cell_list), dtype=bool), 'other_para': '--- Select Plot Cell Counts ---'
             },
+            'plot_para': {
+                'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False, 'link_para': ['plot_cell', True],
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Kinematic Discrimination Analysis',
@@ -11234,6 +11297,9 @@ class SubDiscriminationData(object):
             # case is the speed comparison LDA
             self.spd_xi = None
             self.y_acc_fit = None
+            self.p_acc = None
+            self.p_acc_lo = None
+            self.p_acc_hi = None
             self.i_bin_spd = -1
             self.spd_xrng = -1
             self.vel_bin = -1

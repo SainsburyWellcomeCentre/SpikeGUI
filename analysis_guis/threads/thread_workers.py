@@ -1461,7 +1461,7 @@ class WorkerThread(QThread):
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
                 results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell],
-                                           n_trial_max, is_indiv=True)
+                                           n_trial_max, is_indiv=False)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False
@@ -1526,6 +1526,7 @@ class WorkerThread(QThread):
             if calc_para['pool_expt']:
 
                 n_sp = n_sp[:, np.random.permutation(np.size(n_sp, axis=1))[:n_cell]]
+
             else:
                 for i_ex in range(len(i_expt)):
                     # determines the original valid cells for the current experiment
@@ -1733,9 +1734,6 @@ class WorkerThread(QThread):
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
         spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog, is_pooled=True)
 
-        # parameters
-        i_bin_spd, d_vel = _data.rotation.i_bin_spd, float(calc_para['vel_bin'])
-
         ##############################################
         ####    POOLED NEURON LDA CALCULATIONS    ####
         ##############################################
@@ -1774,23 +1772,6 @@ class WorkerThread(QThread):
                         # exits the loop
                         break
 
-        #############################################
-        ####    PSYCHOMETRIC FIT CALCULATIONS    ####
-        #############################################
-
-        # memory allocation
-        y_acc_fit = np.zeros((n_xi, nC, n_tt))
-
-        # calculates the psychometric fits for each condition trial type
-        for i_tt in range(n_tt):
-            # sets the mean accuracy values (across all cell counts)
-            y_acc_mn = np.hstack((np.mean(100. * y_acc[i_tt][:, :, :-1], axis=0),
-                                  100. * y_acc[i_tt][0, :, -1].reshape(-1, 1)))
-
-            # calculates/sets the psychometric fit values
-            A = cfcn.calc_psychometric_curve(y_acc_mn, d_vel, nC, i_bin_spd)
-            y_acc_fit[:, :, i_tt] = np.vstack(A).T
-
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####
         #######################################
@@ -1802,7 +1783,6 @@ class WorkerThread(QThread):
         # sets the lda values
         d_data.lda = 1
         d_data.y_acc = y_acc
-        d_data.y_acc_fit = y_acc_fit
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         d_data.n_cell = n_cell
@@ -1821,6 +1801,9 @@ class WorkerThread(QThread):
         d_data.n_sample = calc_para['n_sample']
         d_data.equal_time = calc_para['equal_time']
         d_data.nshuffle = calc_para['n_shuffle']
+
+        # calculates the psychometric curves
+        cfcn.calc_all_psychometric_curves(d_data, float(calc_para['vel_bin']))
 
         # returns a true value indicating success
         return True

@@ -21,6 +21,7 @@ from scipy.spatial.distance import *
 from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
 from scipy.special import erf
+from scipy.stats.distributions import t
 import matplotlib.pyplot as plt
 
 # sklearn module imports
@@ -41,8 +42,8 @@ try:
 except:
     pass
 
-# curve fit function declaration
-fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
+# # curve fit function declaration
+# fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
 
 # other function declarations
 dcopy = copy.deepcopy
@@ -1922,7 +1923,42 @@ def reduce_cluster_data(data, i_expt):
     return data_tmp
 
 
-def calc_psychometric_curve(y_acc_mn, d_vel, n_cond, i_bin_spd):
+def calc_all_psychometric_curves(d_data, d_vel):
+    '''
+
+    :param d_data:
+    :param d_vel:
+    :return:
+    '''
+
+    # parameters and array indexing
+    vel_mx = 80.
+    nC, n_tt, n_xi = len(d_data.n_cell), len(d_data.ttype), len(d_data.spd_xi)
+
+    # memory allocation
+    y_acc_fit, A = np.zeros((n_xi, nC, n_tt)), np.empty(n_tt, dtype=object)
+    p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
+
+    # other initialisations
+    y_acc = dcopy(d_data.y_acc)
+    i_bin_spd = d_data.i_bin_spd
+    xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+
+    # calculates the psychometric fits for each condition trial type
+    for i_tt in range(n_tt):
+        # sets the mean accuracy values (across all cell counts)
+        y_acc_mn = np.hstack((np.mean(100. * y_acc[i_tt][:, :, :-1], axis=0),
+                              100. * y_acc[i_tt][0, :, -1].reshape(-1, 1)))
+
+        # calculates/sets the psychometric fit values
+        y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
+                            calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_bin_spd)
+
+    # updates the class fields
+    d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi
+
+
+def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
     '''
 
     :param y_acc_mn:
@@ -1932,36 +1968,113 @@ def calc_psychometric_curve(y_acc_mn, d_vel, n_cond, i_bin_spd):
     :return:
     '''
 
-    # memory allocation
-    y_acc_fit = np.empty(n_cond, dtype=object)
+    from lmfit import Model
 
-    # psychometric function estimation parameters
-    xi = np.arange(d_vel, 80.01, d_vel) / 1000
+    def fit_func(x, y0, yA, k, xH):
+        '''
+
+        :param x:
+        :param p0:
+        :param p1:
+        :param p2:
+        :param p3:
+        :return:
+        '''
+
+        # checks if the sum of the scale/steady state value is infeasible
+        if y0 + yA > 100:
+            # if infeasible, then return a high value
+            return 1e6 * np.ones(len(x))
+        else:
+            # calculates the function values for the current parameters
+            F = y0 + (yA / (1. + np.exp(-k * (x - xH))))
+            if F[0] < 0 or F[-1] > 100:
+                # if the function values are infeasible, then return a high value
+                return 1e6 * np.ones(len(x))
+            else:
+                # otherwise, return the function values
+                return F
+
+    def init_fit_para(x, y, n_para):
+        '''
+
+        :param y:
+        :return:
+        '''
+
+        # memory allocation
+        x0 = np.zeros(n_para)
+
+        # calculates the estimated initial/steady state values
+        y_min, y_max = np.min(y), np.max(y)
+        x0[0], x0[1] = y_min, y_max - y_min
+
+        # calculates the estimated half activation point
+        x0[3] = xi[np.argmin(np.abs(((y - y_min) / (y_max - y_min)) - 0.5))]
+
+        # calculates the inverse exponent values
+        z = np.divide(-np.log(np.divide(x0[1], y - x0[0]) - 1), x - x0[3])
+
+        # calculates the estimated exponential rate value
+        is_feas = np.logical_and(~np.isinf(z), z > 0)
+        if not np.any(is_feas):
+            # if there are no feasible values, then set a default value
+            x0[2] = 0.05
+        else:
+            # otherwise, calculate the mean of the feasible values
+            x0[2] = np.mean(z[is_feas])
+
+        # returns the initial parameter estimate
+        return x0
+
+    # student-t value for the dof and confidence level
+    n_para, alpha = 4, 0.05
+    tval = t.ppf(1. - alpha / 2., max(0, len(xi) - n_para))
+    bounds = ((0., 0., 0., 0.), (100., 100., 0.5, 200.))
+
+    # memory allocation
+    y_acc_fit, A = np.empty(n_cond, dtype=object), np.zeros((n_cond, n_para))
+    p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
 
     # sets the indices of the values to be fit
     ii = np.ones(len(xi), dtype=bool)
     ii[i_bin_spd] = False
+
+    # gmodel = Model(fit_func)
 
     # loops through each of the conditions calculating the psychometric fits
     for i_c in range(n_cond):
         # initialisations
         maxfev = 10000
 
+        # sets up the initial parameters
+        p0 = init_fit_para(xi[ii], y_acc_mn[ii, i_c], n_para)
+        # params = gmodel.make_params(y0=p0[0], yA=p0[1], k=p0[2], xH=p0[3])
+
         # keep attempting to find the psychometric fit until a valid solution is found
         while 1:
             try:
                 # runs the fit function
-                popt, _ = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], maxfev=maxfev)
+                p_acc[i_c, :], pcov = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], p0=p0, maxfev=maxfev,
+                                                bounds=bounds)
+                # result = gmodel.fit(y_acc_mn[ii, i_c], params, x=xi[ii])
 
                 # if successful, calculation the fit values and exits the inner loop
-                y_acc_fit[i_c] = fit_func(xi, *popt)
+                y_acc_fit[i_c] = fit_func(xi, *p_acc[i_c, :])
+                for i_p, pp, pc in zip(range(n_para), p_acc[i_c, :], np.diag(pcov)):
+                    sigma = pc ** 0.5
+                    if i_p in [0, 1]:
+                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), min(100., pp + sigma * tval)
+                    else:
+                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), pp + sigma * tval
+
                 break
             except:
                 # if there was an error, then increment the max function evaluation parameter
                 maxfev *= 2
 
     # returns the fit values
-    return y_acc_fit
+    return np.vstack(y_acc_fit).T, p_acc, p_acc_lo, p_acc_hi
 
 
 def init_lda_solver_para():
