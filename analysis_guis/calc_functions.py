@@ -1442,21 +1442,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         ###########################################
 
         # sets the LDA solver type
-        if lda_para['solver_type'] == 'svd':
-            # case the SVD solver
-            lda = LDA()
-        elif lda_para['solver_type'] == 'lsqr':
-            # case is the LSQR solver
-            if lda_para['use_shrinkage']:
-                lda = LDA(solver='lsqr', shrinkage='auto')
-            else:
-                lda = LDA(solver='lsqr')
-        else:
-            # case is the Eigen solver
-            if lda_para['use_shrinkage']:
-                lda = LDA(solver='eigen', shrinkage='auto')
-            else:
-                lda = LDA(solver='eigen')
+        lda = setup_lda_solver(lda_para)
 
         # memory allocation
         lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
@@ -1676,6 +1662,180 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
     return spd_sf_ex, _r_filt
 
 
+def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
+    '''
+
+    :param data:
+    :param spd_sf:
+    :param calc_para:
+    :param r_filt:
+    :param n_trial:
+    :param w_prog:
+    :param d_data:
+    :return:
+    '''
+
+    def run_lda_predictions(w_prog, w_str0, pw_0, n_ex, lda, spd_sf, i_grp):
+        '''
+
+        :param spd_sf:
+        :param lda:
+        :return:
+        '''
+
+        # array dimensioning
+        N, n_grp = np.size(spd_sf, axis=0), i_grp[-1] + 1
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
+
+        ###########################################
+        ####    LDA PREDICTION CALCULATIONS    ####
+        ###########################################
+
+        # fits the LDA model and calculates the prediction for each
+        for i_pred in range(len(i_grp)):
+            # updates the progressbar (if provided)
+            if w_prog is not None:
+                w_str = '{0}, Group {1}/{2})'.format(w_str0, i_grp[i_pred] + 1, n_grp)
+                w_prog.emit(w_str, 100. * (pw_0 + (i_pred / len(i_grp)) / n_ex))
+
+            # fits the one-out-trial lda model
+            ii = np.array(range(len(i_grp))) != i_pred
+            try:
+                lda.fit(spd_sf[ii, :], i_grp[ii])
+            except:
+                e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                        'Either choose a different solver or alter the solver parameters before retrying'
+                return None, False, e_str
+
+            # calculates the model prediction from the remaining trial and increments the confusion matrix
+            lda_pred[i_pred] = lda.predict(spd_sf[i_pred, :].reshape(1, -1))
+            p_mat[i_pred, :] = lda.predict_proba(spd_sf[i_pred, :].reshape(1, -1))
+            c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+
+        # returns the final values in a dictionary object
+        return {
+            'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+        }, True, None
+
+    def set_binary_mask(i_bin, n_c, n_bin):
+        '''
+
+        :param i_bin:
+        :param n_c:
+        :param n_bin:
+        :return:
+        '''
+
+        # memory allocation
+        B = np.zeros((1, n_c * n_bin), dtype=bool)
+
+        # sets the masks values
+        for i_c in range(n_c):
+            B[0, i_c * n_bin + i_bin] = True
+
+        # returns the array
+        return B
+
+    # initialisations
+    tt = r_filt['t_type']
+    lda_para = calc_para['lda_para']
+    n_c, n_ex = len(tt), len(spd_sf)
+
+    #########################
+    ####    LDA SETUP    ####
+    #########################
+
+    # memory allocation and other initialisations
+    ind_t, xi_bin = np.array(range(n_trial)), data.rotation.spd_xi
+    n_bin = np.size(xi_bin, axis=0)
+
+    # memory allocation for accuracy binary mask calculations
+    BD = np.zeros((n_bin, n_bin * n_c), dtype=int)
+    y_acc = np.nan * np.ones((n_ex, n_bin, n_c), dtype=float)
+
+    # sets up the group indices
+    i_grp0 = np.array(cf.flat_list([list(x * np.ones(n_trial, dtype=int)) for x in range(n_bin)]))
+    i_grp = np.array(cf.flat_list([list(i_c * n_bin + i_grp0) for i_c in range(n_c)]))
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        for i_bin in range(n_bin):
+            BD[i_bin, (i_c * n_bin) + i_bin] = True
+
+    # sets the LDA solver type
+    lda_0 = setup_lda_solver(lda_para)
+
+    ################################
+    ####    LDA CALCULATIONS    ####
+    ################################
+
+    # loops through each of the experiments performing the lda calculations
+    for i_ex in range(n_ex):
+        # sets the progress strings (if progress bar handle is provided)
+        if w_prog is not None:
+            w_str0, pw_0 = 'Kinematic LDA (Expt {0}/{1}'.format(i_ex + 1, n_ex), i_ex / n_ex
+
+        # combines the spiking frequencies into a single array (for the current experiment)
+        spd_sf_ex = np.hstack([np.hstack([sf[:, i_bin, :].T for i_bin in range(n_bin)]) for sf in spd_sf[i_ex]]).T
+
+        # normalises the spike count array (if required)
+        if lda_para['is_norm']:
+            N = np.size(spd_sf_ex, axis=1)
+            spd_sf_mn = repmat(np.mean(spd_sf_ex, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_sd = repmat(np.std(spd_sf_ex, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_ex = np.divide(spd_sf_ex - spd_sf_mn, spd_sf_sd)
+
+            # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+            spd_sf_ex[spd_sf_sd == 0] = 0
+
+        # runs the LDA predictions on the current spiking frequency array
+        lda, ok, e_str = run_lda_predictions(w_prog, w_str0, pw_0, n_ex, lda_0, spd_sf_ex, i_grp)
+        if not ok:
+            # if there was an error, then exit with a false flag
+            if w_prog is not None:
+                w_prog.emit(e_str, 'LDA Analysis Error')
+            return False
+
+        # calculates the grouping accuracy values
+        c_mat = lda['c_mat'] / n_trial
+
+        # calculates the direction accuracy values (over each condition)
+        for i_c in range(n_c):
+            c_mat_sub = c_mat[(i_c * n_bin):((i_c + 1) * n_bin), :]
+            for i_bin in range(n_bin):
+                BD_sub = set_binary_mask(i_bin, n_c, n_bin)
+                y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(c_mat_sub[i_bin, :], BD_sub))
+
+    #######################################
+    ####    HOUSE-KEEPING EXERCISES    ####
+    #######################################
+
+    # sets the lda values
+    d_data.lda = 1
+    d_data.y_acc = y_acc
+
+    # sets the rotation values
+    d_data.spd_xi = data.rotation.spd_xi
+
+    # sets a copy of the lda parameters and updates the comparison conditions
+    _lda_para = dcopy(lda_para)
+    _lda_para['comp_cond'] = data.rotation.r_obj_kine.rot_filt['t_type']
+
+    # sets the solver parameters
+    set_lda_para(d_data, _lda_para, r_filt, n_trial)
+
+    # sets the phase duration/offset parameters
+    d_data.vel_bin = calc_para['vel_bin']
+    d_data.n_sample = calc_para['n_sample']
+    d_data.equal_time = calc_para['equal_time']
+
+    # returns a true value indicating success
+    return True
+
 def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
     '''
 
@@ -1701,7 +1861,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         :return:
         '''
 
-        # array dimensioning
+        # array dimensioning and memory allocation
         i_grp, n_grp = [], 2 * n_c
         N, n_cell = 2 * n_t * n_c, np.size(spd_sf, axis=0)
 
@@ -1735,22 +1895,8 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         ####    LDA PREDICTION CALCULATIONS    ####
         ###########################################
 
-        # sets the LDA solver type
-        if lda_para['solver_type'] == 'svd':
-            # case the SVD solver
-            lda = LDA()
-        elif lda_para['solver_type'] == 'lsqr':
-            # case is the LSQR solver
-            if lda_para['use_shrinkage']:
-                lda = LDA(solver='lsqr', shrinkage='auto')
-            else:
-                lda = LDA(solver='lsqr')
-        else:
-            # case is the Eigen solver
-            if lda_para['use_shrinkage']:
-                lda = LDA(solver='eigen', shrinkage='auto')
-            else:
-                lda = LDA(solver='eigen')
+        # creates the lda solver object
+        lda = setup_lda_solver(lda_para)
 
         # memory allocation
         lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
@@ -1818,12 +1964,9 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
     ################################
 
     # memory allocation and other initialisations
+    i_bin_spd = data.rotation.i_bin_spd
     ind_t, xi_bin = np.array(range(n_trial)), data.rotation.spd_xi
     n_bin = np.size(xi_bin, axis=0)
-
-    # retrieves the dependent time bin index
-    r_data = data.rotation
-    i_bin_spd = r_data.i_bin_spd
 
     # memory allocation for accuracy binary mask calculations
     BD = np.zeros((2, 2 * n_c), dtype=bool)
@@ -1869,13 +2012,9 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
     #######################################
 
     if d_data is not None:
-        # calculates the psychometric curves
-        y_acc_fit = calc_psychometric_curve(np.mean(y_acc, axis=0), float(calc_para['vel_bin']), n_c, r_data.i_bin_spd)
-
         # sets the lda values
         d_data.lda = 1
         d_data.y_acc = y_acc
-        d_data.y_acc_fit = y_acc_fit
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
 
         # sets the rotation values
@@ -1894,6 +2033,11 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         d_data.vel_bin = calc_para['vel_bin']
         d_data.n_sample = calc_para['n_sample']
         d_data.equal_time = calc_para['equal_time']
+
+        # calculates the psychometric curves
+        y_acc_mn, d_vel, vel_mx = np.mean(y_acc, axis=0), float(calc_para['vel_bin']), 80.
+        xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+        d_data.y_acc_fit, _, _, _ = calc_psychometric_curves(y_acc_mn, xi_fit, n_c, i_bin_spd)
 
         # returns a true value indicating success
         return True
@@ -2187,6 +2331,10 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
         # case is the default rotational LDA
         def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'yaccmn', 'yaccmx'])
 
+    elif d_data.type in ['SpdAcc']:
+        # case is the velocity comparison LDA
+        def_para = set_def_lda_para(d_data, ['vel_bin', 'n_sample', 'equal_time'])
+
     elif d_data.type in ['SpdComp']:
         # case is the velocity comparison LDA
         def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time'])
@@ -2212,7 +2360,7 @@ def set_def_para(para, p_str, def_val):
     return para[p_str] if p_str in para else def_val
 
 
-def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
+def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
     '''
 
     :param d_data:
@@ -2221,6 +2369,10 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=[]):
     :param n_trial_max:
     :return:
     '''
+
+    #
+    if ignore_list is None:
+        ignore_list = []
 
     # sets the parameter to class conversion strings
     conv_str = {
@@ -2332,6 +2484,34 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
 
 
+def setup_lda_solver(lda_para):
+    '''
+
+    :param lda_para:
+    :return:
+    '''
+
+    # sets the LDA solver type
+    if lda_para['solver_type'] == 'svd':
+        # case the SVD solver
+        lda = LDA()
+    elif lda_para['solver_type'] == 'lsqr':
+        # case is the LSQR solver
+        if lda_para['use_shrinkage']:
+            lda = LDA(solver='lsqr', shrinkage='auto')
+        else:
+            lda = LDA(solver='lsqr')
+    else:
+        # case is the Eigen solver
+        if lda_para['use_shrinkage']:
+            lda = LDA(solver='eigen', shrinkage='auto')
+        else:
+            lda = LDA(solver='eigen')
+
+    # returns the lda solver object
+    return lda
+
+
 def get_pool_cell_counts(data, lda_para, type=0):
     '''
 
@@ -2347,7 +2527,34 @@ def get_pool_cell_counts(data, lda_para, type=0):
 
     # determine the valid cell counts for each experiment
     _, _, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para}, None)
-    n_cell_tot = np.sum([sum(x) for x in i_cell])
 
     # returns the final cell count
-    return [x for x in n_cell if x <= n_cell_tot] + ([n_cell_tot] if n_cell_tot not in n_cell else [])
+    if i_cell is None:
+        return []
+    else:
+        n_cell_tot = np.sum([sum(x) for x in i_cell])
+        return [x for x in n_cell if x <= n_cell_tot] + ([n_cell_tot] if n_cell_tot not in n_cell else [])
+
+
+# def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
+#     '''
+#
+#     :param spd_sf_calc:
+#     :param N:
+#     :return:
+#     '''
+#
+#     # normalises the spiking frequencies
+#     if i_ax == 0:
+#         spd_sf_mn = repmat(np.mean(spd_sf_calc, axis=0).reshape(-1, 1), N, 1)
+#         spd_sf_sd = repmat(np.std(spd_sf_calc, axis=0).reshape(-1, 1), N, 1)
+#     else:
+#         spd_sf_mn = repmat(np.mean(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+#         spd_sf_sd = repmat(np.std(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+#
+#     # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+#     spd_sf_calc = np.divide(spd_sf_calc - spd_sf_mn, spd_sf_sd)
+#     spd_sf_calc[spd_sf_sd == 0] = 0
+#
+#     # returns the normalised array
+#     return spd_sf_calc

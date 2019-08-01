@@ -744,9 +744,13 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     if rot_filt['is_ud'][0]:
         t_type, is_ud = 'UniformDrifting', True
         exc_filt = data.rotation.exc_ud_filt
+        if exc_filt is None:
+            exc_filt = cf.init_rotation_filter_data(True, is_empty=True)
     else:
         t_type, is_ud = rot_filt['t_type'][0], False
         exc_filt = data.rotation.exc_rot_filt
+        if exc_filt is None:
+            exc_filt = cf.init_rotation_filter_data(False, is_empty=True)
 
     # memory allocation
     n_expt, d_copy = len(d_clust), copy.deepcopy

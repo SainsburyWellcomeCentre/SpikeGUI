@@ -567,6 +567,10 @@ class AnalysisGUI(QMainWindow):
                                 self.data.multi = MultiFileData()
                                 self.data.multi.set_multi_file_data(self.worker[iw].thread_job_para[0])
 
+                    if init_data:
+                        self.data.rotation.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
+                        self.data.rotation.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
+
                 # sets up the analysis functions and resets the current parameter fields
                 self.fcn_data.init_all_func()
 
@@ -3534,8 +3538,8 @@ class AnalysisGUI(QMainWindow):
     ####    UNIFORM DRIFT ANALYSIS FUNCTIONS    ####
     ################################################
 
-    def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
-                                   n_bin, plot_grid, rmv_median):
+    def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
+                                   n_bin, plot_grid, rmv_median, show_pref_dir):
         '''
 
         :param rot_filter:
@@ -4728,7 +4732,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations and memory allocation
         n_grp, r_data = [2, 4, 2], self.data.rotation
-        stats_type = ['Rotation Motion Sensitivity', 'Rotation/Visual DS', 'Congruency']
+        stats_type = ['Rotation Motion Sensitivity', 'Rotation/Visual Direction Selectivity', 'Congruency']
 
         #
         if plot_type == 'Motion Sensitivity':
@@ -4795,6 +4799,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
         t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
+        ax_pos_tbb = dcopy(ax.get_tightbbox(self.plot_fig.get_renderer()).bounds)
 
         # sets up the n-value table
         for i in range(len(t_props)):
@@ -4802,7 +4807,7 @@ class AnalysisGUI(QMainWindow):
             nT = n_grp[i]
             t_props[i] = cf.add_plot_table(self.plot_fig, ax, table_font, t_data[i].astype(int), row_hdr, col_hdr[i],
                                            cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT]  + [(0.75, 0.75, 0.75)],
-                                           None, n_row=1, n_col=2, h_title=h_title[i])
+                                           None, n_row=1, n_col=2, ax_pos_tbb=ax_pos_tbb)
 
             # calculates the height between the title and the top of the table
             if i == 0:
@@ -6123,6 +6128,19 @@ class AnalysisGUI(QMainWindow):
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
 
+    def plot_speed_accuracy_lda(self, plot_grid):
+        '''
+
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        d_data = self.data.discrim.spdacc
+        n_cond = len(d_data.ttype)
+        col = cf.get_plot_col(n_cond)
+
+
     def plot_speed_comp_lda(self, show_cell_sz, show_fit, plot_type, sep_resp, plot_grid):
         '''
 
@@ -6214,7 +6232,7 @@ class AnalysisGUI(QMainWindow):
 
                 # plots the psychometric fit (if required)
                 if show_fit:
-                    ax.plot(x_nw, 100. * d_data.y_acc_fit[i_cond], c=col[i_cond], linewidth=2)
+                    ax.plot(x_nw, 100. * d_data.y_acc_fit[:, i_cond], c=col[i_cond], linewidth=2)
 
                 # creates the legend
                 ax.legend(h_plt, d_data.ttype, loc=4)
@@ -7642,15 +7660,15 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         if stats_type == 'Motion Sensitivity':
             n_DS_Full = cf.add_rowcol_sum(n_DS)
-            col_hdr = ['None', 'Inhibited', 'Excited', 'Mixed']
+            col_hdr = ['None', 'Inh.', 'Exc.', 'Mixed', 'Total']
         else:
-            n_DS_Full = cf.add_rowcol_sum(n_DS).T
+            n_DS_Full = cf.add_rowcol_sum(n_DS.T)
             col_hdr = ['Sensitive', 'Insensitive', 'Total']
 
         # creates the colours (if not provided)
-        if c is None:
-            c = cf.get_plot_col(np.size(n_DS, axis=1))
-            c2 = cf.get_plot_col(4, np.size(n_DS, axis=1))
+        # if c is None:
+        n_row_d, n_col_d = np.shape(n_DS_Full)
+        c_row, c_col = cf.get_plot_col(n_row_d - 1), cf.get_plot_col(n_col_d - 1, n_row_d - 1)
 
         # creates the title text object
         t_str = '{0} N-Values'.format(stats_type)
@@ -7658,9 +7676,10 @@ class AnalysisGUI(QMainWindow):
         row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
 
         # sets up the n-value table
+        ax_pos_tbb = dcopy(ax.get_tightbbox(self.plot_fig.get_renderer()).bounds)
         t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(int), row_hdr,
-                                      col_hdr, c + [(0.75, 0.75, 0.75)], c2[0:4]  + [(0.75, 0.75, 0.75)], None,
-                                      n_row=n_row, n_col=n_col, h_title=h_title)
+                                      col_hdr, c_row + [(0.75, 0.75, 0.75)], c_col  + [(0.75, 0.75, 0.75)], None,
+                                      n_row=n_row, n_col=n_col, h_title=h_title, ax_pos_tbb=ax_pos_tbb)
 
         # calculates the height between the title and the top of the table
         dh_title = h_title.get_position()[1] - (t_props[0]._bbox[1] + t_props[0]._bbox[3])
@@ -7703,8 +7722,10 @@ class AnalysisGUI(QMainWindow):
             row_hdr_1 = col_hdr_1 = ['#{0}'.format(str(x + 1)) for x in range(n_filt)]
 
             # sets up the n-value table
+            c_stats = cf.get_plot_col(len(row_hdr_1))
             t_props_2 = cf.add_plot_table(self.plot_fig, ax, table_font, chi_stats, row_hdr_1, col_hdr_1,
-                                          c, c, None, n_row=n_row, n_col=n_col, h_title=h_title_2)
+                                          c_stats, c_stats, None, n_row=n_row, n_col=n_col,
+                                          ax_pos_tbb=ax_pos_tbb)
 
             # resets the bottom location of the upper table
             t_props_2[0]._bbox[1] = t_props[0]._bbox[1] - (t_props[0]._bbox[3] + c_hght)
@@ -7776,6 +7797,7 @@ class AnalysisGUI(QMainWindow):
                          'Shuffled LDA',
                          'Pooled Neuron LDA',
                          'Individual Cell Accuracy Filtered LDA',
+                         'Speed LDA Accuracy',
                          'Speed LDA Comparison (Individual Experiments)',
                          'Speed LDA Comparison (Pooled Experiments)']
 
@@ -8630,8 +8652,8 @@ class AnalysisFunctions(object):
         # ====> Rotation Trial Motion/Direction Selectivity
         para = {
             # # calculation parameters
-            # 't_phase_vis': {'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
-            # 't_ofs_vis': {'gtype': 'C', 'text': 'UniformDrifting Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
+            # 't_phase_vis': {'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10},
+            # 't_ofs_vis': {'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00},
 
             # plotting parameters
             'rot_filt': {
@@ -8786,11 +8808,12 @@ class AnalysisFunctions(object):
                 'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
                               ['plot_all_expt', 'Individual Cell']]
             },
-            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
 
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 100, 'min_val': 10},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'rmv_median': {'type': 'B', 'text': 'Remove Baseline Median', 'def_val': True},
+
+            'rmv_median': {'type': 'B', 'text': 'Remove Baseline Median', 'def_val': True, 'is_visible': False},
+            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': False, 'is_visible': False},
         }
         self.add_func(type='UniformDrift Analysis',
                       name='UniformDrift Trial Spiking Rates',
@@ -9316,10 +9339,10 @@ class AnalysisFunctions(object):
                 'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
             },
             't_phase_vis': {
-                'gtype': 'C', 'text': 'UniformDrifting Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
             },
             't_ofs_vis': {
-                'gtype': 'C', 'text': 'UniformDrifting Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
             },
             'use_full_vis': {
                 'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
@@ -9701,6 +9724,7 @@ class AnalysisFunctions(object):
         ######################################
 
         # velocity LDA parameters
+        spdacc_lda_para, spdacc_def_para = init_lda_para(data.discrim, 'spdacc', SubDiscriminationData('SpdAcc'))
         spdc_lda_para, spdc_def_para = init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
         spdcp_lda_para, spdcp_def_para = init_lda_para(data.discrim, 'spdcp', SubDiscriminationData('SpdCompPool'))
 
@@ -9710,6 +9734,44 @@ class AnalysisFunctions(object):
 
         # determines the cell count checklist values
         n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
+
+        # ====> Speed LDA Accuracy
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': spdacc_lda_para
+            },
+
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
+                'def_val': cfcn.set_def_para(spdacc_def_para, 'vel_bin', '5'),
+                'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(spdacc_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins',
+                'def_val': cfcn.set_def_para(spdacc_def_para, 'equal_time', False),
+                'link_para': ['n_sample', False]
+            },
+
+            # invisible parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'is_visible': False
+            },
+            'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
+
+            # plotting parameters
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Kinematic Discrimination Analysis',
+                      name='Speed LDA Accuracy',
+                      func='plot_speed_accuracy_lda',
+                      para=para)
 
         # ====> Speed LDA Comparison (Individual Experiments)
         para = {
@@ -10980,6 +11042,8 @@ class ClassifyData(object):
     def __init__(self):
         # initialisation
         self.is_set = False
+        self.class_set = False
+        self.action_set = False
 
     def init_classify_fields(self, expt_name, clust_id):
         '''
@@ -10991,8 +11055,6 @@ class ClassifyData(object):
 
         # initialisation
         self.is_set = False
-        self.class_set = False
-        self.action_set = False
 
         # memory allocation
         n_expt = len(expt_name)
@@ -11233,6 +11295,7 @@ class DiscriminationData(object):
         self.filt = SubDiscriminationData('IndivFilt')
 
         # kinematic discrimination analysis
+        self.spdacc = SubDiscriminationData('SpdAcc')
         self.spdc = SubDiscriminationData('SpdComp')
         self.spdcp = SubDiscriminationData('SpdCompPool')
 
@@ -11293,22 +11356,24 @@ class SubDiscriminationData(object):
             self.xi_phs = None
             self.xi_ofs = None
 
-        elif type in ['SpdComp', 'SpdCompPool']:
+        elif type in ['SpdAcc', 'SpdComp', 'SpdCompPool']:
             # case is the speed comparison LDA
             self.spd_xi = None
-            self.y_acc_fit = None
-            self.p_acc = None
-            self.p_acc_lo = None
-            self.p_acc_hi = None
             self.i_bin_spd = -1
-            self.spd_xrng = -1
             self.vel_bin = -1
             self.n_sample = -1
             self.equal_time = -1
 
-            if type == 'SpdCompPool':
+            if type in ['SpdComp', 'SpdCompPool']:
+                self.y_acc_fit = None
+                self.spd_xrng = -1
+
+            if type in ['SpdCompPool']:
                 # case is the pooled speed comparison LDA
                 self.n_cell = None
+                self.p_acc = None
+                self.p_acc_lo = None
+                self.p_acc_hi = None
                 self.nshuffle = -1
 
 class MultiFileData(object):

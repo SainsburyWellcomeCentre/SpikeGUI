@@ -611,20 +611,29 @@ class RotationFilteredData(object):
         '''
 
         # sets the experiment indices
-        clust_ind, trial_ind = self.clust_ind, self.trial_ind
+        clust_ind, trial_ind, e_str = self.clust_ind, self.trial_ind, None
+
+        if len(clust_ind) == 0:
+            # if the cluster index is not valid, then output an error to screen
+            e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
+                    'different index or rotation analysis filter.'
+
         if self.is_single_cell:
             if i_cluster not in (clust_ind[0][0] + 1):
                 # if the cluster index is not valid, then output an error to screen
                 e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
                         'different index or rotation analysis filter.'
-                cf.show_error(e_str, 'Infeasible Cluster Indices')
-                self.is_ok = False
-                return
             else:
                 # otherwise, set the cluster index value for the given experiment
                 clust_ind = [[np.array([i_cluster-1], dtype=int)] for _ in range(self.n_filt)]
                 i_expt0 = cf.get_expt_index(self.plot_exp_name, data.cluster, cf.det_valid_rotation_expt(data))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
+
+        # if there was an error then output a message to screen and exit the function
+        if e_str is not None:
+            cf.show_error(e_str, 'Infeasible Cluster Indices')
+            self.is_ok = False
+            return
 
         if data.cluster is None:
             s_freq = [[data._cluster[i]['sFreq'] for i in x] for x in self.i_expt0]

@@ -1908,8 +1908,8 @@ def calc_cell_group_types(auc_sig, stats_type):
 
 
 # calculates the table dimensions
-def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_loc,
-                   cell_cols=None, n_row=1, n_col=2, pfig_sz=1.0, t_ofs=0, h_title=None, p_wid=1.0):
+def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_loc, cell_cols=None,
+                   n_row=1, n_col=2, pfig_sz=1.0, t_ofs=0, h_title=None, p_wid=1.5, ax_pos_tbb=None):
     '''
 
     :param ax:
@@ -1930,6 +1930,10 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
     # sets the axis object (if the axis index was provided)
     if isinstance(ax, int):
         ax = fig.ax[ax]
+
+    # retrieves the bounding box position array (if not provided)
+    if ax_pos_tbb is None:
+        ax_pos_tbb = ax.get_tightbbox(fig.get_renderer()).bounds
 
     # objection dimensioning
     fig_wid, fig_hght = fig.width(), fig.height() * pfig_sz
@@ -1984,7 +1988,7 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
                   n_row_data * (cell_hght0 + (n_rowhdr_line + 1) * h_gap))
 
     # if the table width it too large, then rescale
-    sp_width = get_axes_tight_bbox(fig, ax, pfig_sz)[2] / ax.get_position().width
+    sp_width = get_axes_tight_bbox(fig, ax_pos_tbb, pfig_sz)[2] / ax.get_position().width
     if table_wid > sp_width:
         ptable_wid = sp_width / table_wid
         cell_wid, cell_wid_row = ptable_wid * cell_wid, ptable_wid * cell_wid_row
@@ -2003,7 +2007,7 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
     # sets the bounding box dimensions
     ax_hght_new = pfig_sz * (ax_y1 - ax_y0) / fig_hght
     ax_fig_hght = ax_hght_new * fig_hght
-    table_x0 = get_axis_scaled_xval(ax, fig, (1 - table_wid) / 2, n_col, pfig_sz)
+    table_x0 = get_axis_scaled_xval(ax, fig, ax_pos_tbb, (1 - table_wid) / 2, pfig_sz)
 
     if t_loc == 'bottom':
         table_y0 = -(table_hght + (1 + pWT) * title_hght + cell_hght0 * (1 + n_line)) / ax_fig_hght
@@ -2025,7 +2029,7 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
 
     # resets the position of the title object
     if h_title is not None:
-        x_title = get_axis_scaled_xval(ax, fig, 0.5, n_col, pfig_sz, False)
+        x_title = get_axis_scaled_xval(ax, fig, ax_pos_tbb, 0.5, pfig_sz, False)
         h_title.set_position([x_title, table_y0 + (table_hght + pWT * title_hght) / ax_fig_hght])
 
     # sets the table parameters based on whether there is a row header column
@@ -2061,7 +2065,7 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
     return [h_table, table_y0, ax_fig_hght]
 
 
-def get_axes_tight_bbox(fig, ax, pfig_sz=1.):
+def get_axes_tight_bbox(fig, ax_pos_tbb, pfig_sz=1.):
     '''
 
     :param fig:
@@ -2074,7 +2078,7 @@ def get_axes_tight_bbox(fig, ax, pfig_sz=1.):
     r_fig_pos = np.array([fig_wid, fig_hght, fig_wid, fig_hght])
 
     # returns the
-    return np.array(ax.get_tightbbox(fig.get_renderer()).bounds) / r_fig_pos
+    return ax_pos_tbb / r_fig_pos
 
 
 def get_subplot_width(fig, ax, n_col):
@@ -2087,7 +2091,7 @@ def get_subplot_width(fig, ax, n_col):
     return (t_wid_f / n_col) / ax.get_position().width
 
 
-def get_axis_scaled_xval(ax, fig, x, n_col, pfig_sz, is_scaled=True):
+def get_axis_scaled_xval(ax, fig, ax_pos_tbb, x, pfig_sz, is_scaled=True):
     '''
 
     :param ax:
@@ -2097,16 +2101,17 @@ def get_axis_scaled_xval(ax, fig, x, n_col, pfig_sz, is_scaled=True):
 
     # retrieves the axis normal/tight position vector
     ax_pos = np.array(ax.get_position().bounds)
-    ax_pos_t = get_axes_tight_bbox(fig, ax, pfig_sz)
+    ax_pos_t = get_axes_tight_bbox(fig, ax_pos_tbb, pfig_sz)
 
     # sets the column locations (for each column)
-    x_ofs = (1 - t_wid_f) / (2 * ax_pos_t[2])
-    pp = np.linspace(x_ofs + (ax_pos_t[0] - ax_pos[0]) / ax_pos[2],
-                     (1 - x_ofs) + ((ax_pos_t[0] + ax_pos_t[2]) - (ax_pos[2] + ax_pos[0])) / ax_pos[2], n_col + 1)
+    # pp = np.linspace(x_ofs + (ax_pos_t[0] - ax_pos[0]) / ax_pos[2],
+    #                  (1 - x_ofs) + ((ax_pos_t[0] + ax_pos_t[2]) - (ax_pos[2] + ax_pos[0])) / ax_pos[2], n_col + 1)
+    # i_col = int(np.floor(ax_pos[0] / (1 / n_col)) / n_col)
 
     # calculates the subplot axis left/right location
-    i_col = int(np.floor(ax_pos[0] / (1 / n_col)) / n_col)
-    sp_left, sp_right = pp[i_col], pp[i_col + 1]
+    x_ofs = (1 - t_wid_f) / (2 * ax_pos_t[2])
+    sp_left = x_ofs + (ax_pos_t[0] - ax_pos[0]) / ax_pos[2]
+    sp_right = (1 - x_ofs) + ((ax_pos_t[0] + ax_pos_t[2]) - (ax_pos[2] + ax_pos[0])) / ax_pos[2]
 
     # returns the scaled value
     if is_scaled:

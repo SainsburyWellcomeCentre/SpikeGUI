@@ -502,6 +502,27 @@ class WorkerThread(QThread):
                         data.discrim.filt.yaccmn = _calc_para['y_acc_min']
                         data.discrim.filt.yaccmx = _calc_para['y_acc_max']
 
+            elif self.thread_job_secondary == 'Speed LDA Accuracy':
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdacc)
+
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.spdc.lda is None:
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdacc,
+                                                                                 w_prog, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    elif status == 2:
+                        if not self.run_speed_lda_accuracy(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, w_prog):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
+
             elif self.thread_job_secondary == 'Speed LDA Comparison (Individual Experiments)':
                 # checks to see if any base LDA calculation parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
@@ -1669,6 +1690,45 @@ class WorkerThread(QThread):
     ##########################################
     ####    KINEMATIC LDA CALCULATIONS    ####
     ##########################################
+
+    def run_speed_lda_accuracy(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial:
+        :param w_prog:
+        :return:
+        '''
+
+        # initialisations
+        d_data = data.discrim.spdacc
+
+        # reduces down the cluster data array
+        _data = cfcn.reduce_cluster_data(data, i_expt)
+
+        # sets up the kinematic LDA spiking frequency array
+        w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
+        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog)
+
+        # case is the normal kinematic LDA
+        if not cfcn.run_full_kinematic_lda(_data, dcopy(spd_sf), calc_para, _r_filt, n_trial, w_prog, d_data):
+            # if there was an error then exit with a false flag
+            return False
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the lda values
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+
+        # returns a true value indicating success
+        return True
 
     def run_kinematic_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
         '''
@@ -2917,13 +2977,17 @@ class WorkerThread(QThread):
                         check_class_para_equal(d_data, 'phs_const', calc_para['t_phase_const']),
                      ]
 
-                elif d_data.type in ['SpdComp', 'SpdCompPool']:
+                elif d_data.type in ['SpdAcc', 'SpdComp', 'SpdCompPool']:
                     is_equal += [
-                        check_class_para_equal(d_data, 'spd_xrng', calc_para['spd_x_rng']),
                         check_class_para_equal(d_data, 'vel_bin', calc_para['vel_bin']),
                         check_class_para_equal(d_data, 'n_sample', calc_para['n_sample']),
                         check_class_para_equal(d_data, 'equal_time', calc_para['equal_time']),
                      ]
+
+                    if d_data.type in ['SpdComp', 'SpdCompPool']:
+                        is_equal += [
+                            check_class_para_equal(d_data, 'spd_xrng', calc_para['spd_x_rng']),
+                        ]
 
                     if d_data.type in ['SpdCompPool']:
                         is_equal += [
