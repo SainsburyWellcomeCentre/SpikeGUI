@@ -6128,7 +6128,7 @@ class AnalysisGUI(QMainWindow):
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
 
-    def plot_speed_accuracy_lda(self, plot_grid):
+    def plot_speed_accuracy_lda(self, marker_type, plot_grid):
         '''
 
         :param plot_grid:
@@ -6136,10 +6136,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        d_data = self.data.discrim.spdacc
-        n_cond = len(d_data.ttype)
-        col = cf.get_plot_col(n_cond)
-
+        self.create_kinematic_lda_plots(self.data.discrim.spdacc, marker_type, plot_grid, plot_chance=False)
 
     def plot_speed_comp_lda(self, show_cell_sz, show_fit, plot_type, sep_resp, plot_grid):
         '''
@@ -6211,7 +6208,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets cell count for each of the experiments (sets to 1 if not showing cell size)
             n_cell = [sum(x) if show_cell_sz else m_sz / 8 for x in d_data.i_cell]
-            y_acc_mn, n_cell_mx = np.mean(100. * d_data.y_acc, axis=0), np.max(n_cell)
+            y_acc_mn, n_cell_mx = 100. * np.mean(d_data.y_acc, axis=0), np.max(n_cell)
 
             ################################
             ####    SUBPLOT CREATION    ####
@@ -6412,6 +6409,99 @@ class AnalysisGUI(QMainWindow):
         for _ax in self.plot_fig.ax:
             _ax.set_xlim(xL)
             _ax.grid(plot_grid)
+
+    def plot_speed_dir_lda(self, marker_type, plot_grid):
+        '''
+
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, plot_chance=False)
+
+    def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, plot_chance=False):
+        '''
+
+        :param d_data:
+        :param plot_err:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        m_sz = 240
+        n_cond, n_ex = len(d_data.ttype), np.size(d_data.y_acc, axis=0)
+        col = cf.get_plot_col(n_cond)
+
+        # sets the x-tick labels
+        spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
+        x = np.arange(np.size(d_data.spd_xi, axis=0))
+        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # sets the plotting data values
+        y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
+        y_acc_sem = 100. * np.std(d_data.y_acc, axis=0) / (n_ex ** 0.5)
+
+        n_cell = [sum(x) for x in d_data.i_cell]
+
+        ##################################
+        ####    DATA VISUALISATION    ####
+        ##################################
+
+        # plots the data for all points
+        for i_cond in range(n_cond):
+            # sets the plot x locations and error bar values
+            x_nw = x + (i_cond + 1) / (n_cond + 1)
+
+            # plots the mean marker points
+            h_plt.append(ax.plot(x_nw, y_acc_mn[:, i_cond], c=col[i_cond]))
+
+            # plots the individual points
+            if marker_type == 'Individual Experiment Markers':
+                # case is the individual experiment
+                for i_ex in range(n_ex):
+                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+                               edgecolors=col[i_cond], s=n_cell[i_ex])
+
+            elif marker_type == 'Experiment SEM Area':
+                # case is the experiment SEM Area
+                sem_vert = [*zip(x_nw, y_acc_mn[:, i_cond] + y_acc_sem[:, i_cond]),
+                            *zip(x_nw[::-1], y_acc_mn[::-1, i_cond] - y_acc_sem[::-1, i_cond])]
+                poly = Polygon(sem_vert, facecolor=col[i_cond], alpha=0.2)
+                ax.add_patch(poly)
+
+        # creates the legend
+        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
+
+        # creates the vertical marker lines
+        for xx in np.arange(xL[0] + 1, xL[1]):
+            ax.plot(xx * np.ones(2), yL, 'k--')
+
+        # plots the chance line
+        if plot_chance:
+            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+
+        # sets the axis properties
+        ax.set_xlim(xL)
+        ax.set_ylim(yL)
+        ax.set_xticks(x + 0.5)
+        ax.set_xticklabels(spd_str)
+        ax.set_xlabel('Speed Bin (deg/s)')
+        ax.set_ylabel('Decoding Accuracy (%)')
+        ax.grid(plot_grid)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -7799,7 +7889,8 @@ class AnalysisGUI(QMainWindow):
                          'Individual Cell Accuracy Filtered LDA',
                          'Speed LDA Accuracy',
                          'Speed LDA Comparison (Individual Experiments)',
-                         'Speed LDA Comparison (Pooled Experiments)']
+                         'Speed LDA Comparison (Pooled Experiments)',
+                         'Speed Direction Discrimination LDA']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -9727,10 +9818,12 @@ class AnalysisFunctions(object):
         spdacc_lda_para, spdacc_def_para = init_lda_para(data.discrim, 'spdacc', SubDiscriminationData('SpdAcc'))
         spdc_lda_para, spdc_def_para = init_lda_para(data.discrim, 'spdc', SubDiscriminationData('SpdComp'))
         spdcp_lda_para, spdcp_def_para = init_lda_para(data.discrim, 'spdcp', SubDiscriminationData('SpdCompPool'))
+        spddir_lda_para, spddir_def_para = init_lda_para(data.discrim, 'spddir', SubDiscriminationData('SpdCompDir'))
 
         # combobox parameter lists
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_cond = spdcp_lda_para['comp_cond']
+        spr_type = ['Individual Experiment Markers', 'Experiment SEM Area', 'No Markers']
 
         # determines the cell count checklist values
         n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
@@ -9763,9 +9856,9 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
                 'is_visible': False
             },
-            'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
+            'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Kinematic Discrimination Analysis',
@@ -9879,6 +9972,45 @@ class AnalysisFunctions(object):
         self.add_func(type='Kinematic Discrimination Analysis',
                       name='Speed LDA Comparison (Pooled Experiments)',
                       func='plot_pooled_speed_comp_lda',
+                      para=para)
+
+        # ====> Speed Direction Discrimination LDA
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': spdacc_lda_para
+            },
+
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
+                'def_val': cfcn.set_def_para(spddir_def_para, 'vel_bin', '5'),
+                'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(spddir_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins',
+                'def_val': cfcn.set_def_para(spddir_def_para, 'equal_time', False),
+                'link_para': ['n_sample', False]
+            },
+
+            # invisible parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'is_visible': False
+            },
+
+            # plotting parameters
+            'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+
+        self.add_func(type='Kinematic Discrimination Analysis',
+                      name='Speed Direction Discrimination LDA',
+                      func='plot_speed_dir_lda',
                       para=para)
 
         ##########################################
@@ -11298,6 +11430,7 @@ class DiscriminationData(object):
         self.spdacc = SubDiscriminationData('SpdAcc')
         self.spdc = SubDiscriminationData('SpdComp')
         self.spdcp = SubDiscriminationData('SpdCompPool')
+        self.spddir = SubDiscriminationData('SpdCompDir')
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -11356,7 +11489,7 @@ class SubDiscriminationData(object):
             self.xi_phs = None
             self.xi_ofs = None
 
-        elif type in ['SpdAcc', 'SpdComp', 'SpdCompPool']:
+        elif type in ['SpdAcc', 'SpdComp', 'SpdCompPool', 'SpdCompDir']:
             # case is the speed comparison LDA
             self.spd_xi = None
             self.i_bin_spd = -1

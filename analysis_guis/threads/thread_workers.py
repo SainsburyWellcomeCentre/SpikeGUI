@@ -568,6 +568,28 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
+            elif self.thread_job_secondary == 'Speed Direction Discrimination LDA':
+                # checks to see if any base LDA calculation parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spddir)
+
+                # if the pooled data parameters have changed/has not been initialised then calculate the values
+                if data.discrim.spddir.lda is None:
+
+                    # sets up the important arrays for the LDA
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spddir,
+                                                                                 w_prog, True)
+                    if status == 0:
+                        # if there was an error in the calculations, then return an error flag
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+                    elif status == 2:
+                        if not self.run_speed_dir_lda_accuracy(data, calc_para, r_filt, i_expt, i_cell,
+                                                               n_trial_max, w_prog):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
+
         elif self.thread_job_primary == 'update_plot':
             pass
 
@@ -1868,6 +1890,44 @@ class WorkerThread(QThread):
         # returns a true value indicating success
         return True
 
+    def run_speed_dir_lda_accuracy(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
+        '''
+
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial_max:
+        :param w_prog:
+        :return:
+        '''
+
+        # initialisations
+        d_data = data.discrim.spddir
+
+        # reduces down the cluster data array
+        _data = cfcn.reduce_cluster_data(data, i_expt)
+
+        # sets up the kinematic LDA spiking frequency array
+        w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
+        vel_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog, use_spd=False)
+
+        # case is the normal kinematic LDA
+        if not cfcn.run_vel_dir_lda(_data, dcopy(vel_sf), calc_para, _r_filt, n_trial, w_prog, d_data):
+            # if there was an error then exit with a false flag
+            return False
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the lda values
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+
+        # returns a true value indicating success
+        return True
+
     ######################################
     ####    ROC CURVE CALCULATIONS    ####
     ######################################
@@ -2977,7 +3037,7 @@ class WorkerThread(QThread):
                         check_class_para_equal(d_data, 'phs_const', calc_para['t_phase_const']),
                      ]
 
-                elif d_data.type in ['SpdAcc', 'SpdComp', 'SpdCompPool']:
+                elif d_data.type in ['SpdAcc', 'SpdComp', 'SpdCompPool', 'SpdCompDir']:
                     is_equal += [
                         check_class_para_equal(d_data, 'vel_bin', calc_para['vel_bin']),
                         check_class_para_equal(d_data, 'n_sample', calc_para['n_sample']),
