@@ -1313,6 +1313,7 @@ def reorder_array(h, i_grp, sd, dtype=int, m=1):
     else:
         # index array needs to be reversed
         j_grp = max(i_grp) - dcopy(i_grp)
+        i_row = 1 - i_row
 
     # sets the values into the array
     for i in range(len(j_grp)):

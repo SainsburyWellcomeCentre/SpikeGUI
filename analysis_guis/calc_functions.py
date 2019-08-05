@@ -1202,9 +1202,9 @@ def set_def_para(para, p_str, def_val):
 ####                                           LDA CALCULATION FUNCTIONS                                            ####
 ########################################################################################################################
 
-#######################################
-####    KINEMATIC LDA FUNCTIONS    ####
-#######################################
+######################################
+####    ROTATION LDA FUNCTIONS    ####
+######################################
 
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
                 pW0=0., pW=100., is_indiv=False, n_sp0=None):
@@ -1624,14 +1624,16 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
 
     # calculates the binned kinematic spike frequencies
     _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
-    calc_binned_kinemetic_spike_freq(data, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
 
-    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
-    _r_filt = dcopy(r_filt)
-    _r_filt['t_type'] = data.rotation.r_obj_kine.rot_filt['t_type']
+    # splits up the spiking frequencies into separate experiments (removing any non-valid cells)
+    ind = np.concatenate(([0], np.cumsum([len(x) for x in i_cell])))
+    ind_ex = [np.arange(ind[i], ind[i + 1]) for i in range(len(i_cell))]
 
     # averages the spiking frequencies (between the positive/negative velocities) and sets the reqd max trials
     if use_spd:
+        # calculates the binned spiking frequencies
+        calc_binned_kinemetic_spike_freq(data, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
+
         # retrieves the spiking frequencies based on the calculation type
         if calc_para['equal_time']:
             # case is the equal timebin (resampled) spiking frequencies
@@ -1644,20 +1646,31 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
         n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
         sf = [0.5 * (spd_sf0[ttype][:n_t, :, :] + spd_sf0[ttype][n_t:, :, :])[:n_trial_max, :, :] for ttype in tt]
     else:
-        # retrieves the spiking frequencies based on the calculation type
-        if calc_para['equal_time']:
-            # case is the equal timebin (resampled) spiking frequencies
-            vel_sf0 = dcopy(data.rotation.vel_sf_rs)
-        else:
-            # case is the non-equal timebin spiking frequencies
-            vel_sf0 = dcopy(data.rotation.vel_sf)
+        # initialisations and memory allocation
+        sf, _calc_para = np.empty(2, dtype=object), dcopy(calc_para)
 
-        # reduces the arrays to only include the first n_trial_max trials
-        sf = [vel_sf0[ttype][:n_trial_max, :, :] for ttype in tt]
+        # calculates the binned spiking frequencies
+        for i_ft, ft in enumerate(['Decreasing', 'Increasing']):
+            # resets the velocity spiking freqencies
+            if calc_para['equal_time']:
+                data.rotation.vel_sf_rs = None
+            else:
+                data.rotation.vel_sf = None
 
-    # splits up the spiking frequencies into separate experiments (removing any non-valid cells)
-    ind = np.concatenate(([0], np.cumsum([len(x) for x in i_cell])))
-    ind_ex = [np.arange(ind[i], ind[i + 1]) for i in range(len(i_cell))]
+            # calculates the binned frequecies
+            _calc_para['freq_type'] = ft
+            calc_binned_kinemetic_spike_freq(data, _plot_para, _calc_para, w_prog, roc_calc=False, replace_ttype=True)
+
+            # retrieves the spiking frequencies based on the calculation type
+            if calc_para['equal_time']:
+                # case is the equal timebin (resampled) spiking frequencies
+                vel_sf0 = dcopy(data.rotation.vel_sf_rs)
+            else:
+                # case is the non-equal timebin spiking frequencies
+                vel_sf0 = dcopy(data.rotation.vel_sf)
+
+            # reduces the arrays to only include the first n_trial_max trials
+            sf[i_ft] = [vel_sf0[ttype][:n_trial_max, :, :] for ttype in tt]
 
     # sets up the final speed spiking frequency based on the analysis type
     if is_pooled:
@@ -1665,7 +1678,15 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
         sf_ex = [np.dstack([_sf[:, :, i_ex][:, :, i_c] for i_ex, i_c in zip(ind_ex, i_cell)]) for _sf in sf]
     else:
         # case is for the non-pooled analysis
-        sf_ex = [[_sf[:, :, i_ex][:, :, i_c] for _sf in sf] for i_ex, i_c in zip(ind_ex, i_cell)]
+        if use_spd:
+            sf_ex = [[_sf[:, :, i_ex][:, :, i_c] for _sf in sf] for i_ex, i_c in zip(ind_ex, i_cell)]
+        else:
+            sf_ex = [[[_sf[:, :, i_ex][:, :, i_c] for _sf in sf[i]] for i in range(2)]
+                                                  for i_ex, i_c in zip(ind_ex, i_cell)]
+
+    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
+    _r_filt = dcopy(r_filt)
+    _r_filt['t_type'] = data.rotation.r_obj_kine.rot_filt['t_type']
 
     # returns the final array
     return sf_ex, _r_filt
@@ -1974,7 +1995,7 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
 
     # memory allocation for accuracy binary mask calculations
     BD = np.zeros((2, 2 * n_c), dtype=bool)
-    y_acc = np.nan * np.ones((n_ex, n_bin_h, n_c), dtype=float)
+    y_acc = np.nan * np.ones((n_ex, n_bin_h, n_c, 2), dtype=float)
 
     # sets up the binary masks for the group/direction types
     for i_c in range(n_c):
@@ -1991,24 +2012,32 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
             if w_prog is not None:
                 w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin_h), 100. * (i_ex + (i_bin / n_bin_h)) / n_ex)
 
-            # stacks the speed spiking frequency values into a single array
+            # sets the positive/negative velocity indices
             i_neg, i_pos = i_bin, n_bin - (i_bin + 1)
-            vel_sf_bin = np.hstack([np.hstack((sf[:, i_neg, :].T, sf[:, i_pos, :].T)) for sf in vel_sf[i_ex]])
 
-            # runs the LDA predictions on the current spiking frequency array
-            lda, ok, e_str = run_kinematic_lda_predictions(vel_sf_bin, lda_para, n_c, n_trial)
-            if not ok:
-                # if there was an error, then exit with a false flag
-                if w_prog is not None:
-                    w_prog.emit(e_str, 'LDA Analysis Error')
-                return False
+            for i_dir in range(2):
+                # stacks the speed spiking frequency values into a single array
+                j, k, vel_sf_bin0 = 1 - i_dir, i_dir, [[] for _ in range(n_c)]
+                for i_c in range(n_c):
+                    vel_sf_bin0[i_c] = np.hstack((vel_sf[i_ex][j][i_c][:, i_pos, :].T,
+                                                  vel_sf[i_ex][k][i_c][:, i_neg, :].T))
 
-            # calculates the grouping accuracy values
-            c_mat = lda['c_mat'] / n_trial
+                # runs the LDA predictions on the current spiking frequency array
+                vel_sf_bin = np.hstack(vel_sf_bin0)
+                lda, ok, e_str = run_kinematic_lda_predictions(vel_sf_bin, lda_para, n_c, n_trial)
+                if not ok:
+                    # if there was an error, then exit with a false flag
+                    if w_prog is not None:
+                        w_prog.emit(e_str, 'LDA Analysis Error')
+                    return False
 
-            # calculates the direction accuracy values (over each condition)
-            for i_c in range(n_c):
-                y_acc[i_ex, i_pos - n_bin_h, i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+                # calculates the grouping accuracy values
+                c_mat = lda['c_mat'] / n_trial
+
+                # calculates the direction accuracy values (over each condition)
+                for i_c in range(n_c):
+                    y_acc[i_ex, i_pos - n_bin_h, i_c, i_dir] = \
+                                                np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
     #######################################
     ####    HOUSE-KEEPING EXERCISES    ####
@@ -2016,7 +2045,7 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
 
     # sets the lda values
     d_data.lda = 1
-    d_data.y_acc = y_acc
+    d_data.y_acc = np.mean(y_acc, axis=3)
 
     # sets the rotation values
     d_data.spd_xi = data.rotation.spd_xi

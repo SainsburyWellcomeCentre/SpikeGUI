@@ -122,13 +122,17 @@ class WorkerThread(QThread):
             calc_para, plot_para = self.thread_job_para[0], self.thread_job_para[1]
             data, pool, g_para = self.thread_job_para[2], self.thread_job_para[3], self.thread_job_para[4]
 
+        ################################################
+        ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
+        ################################################
+
             if self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-            elif self.thread_job_secondary == 'Shuffled Cluster Distances':
-                # case is the shuffled cluster distances
-                thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
+        ######################################
+        ####    ROC ANALYSIS FUNCTIONS    ####
+        ######################################
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
@@ -222,6 +226,10 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
+        ###############################################
+        ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
+        ###############################################
+
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
                 # calculates the phase roc curve/significance values
                 self.calc_phase_roc_curves(data, calc_para, 50.)
@@ -287,6 +295,10 @@ class WorkerThread(QThread):
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, False)
+
+        ######################################
+        ####    ROTATION LDA FUNCTIONS    ####
+        ######################################
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -502,6 +514,10 @@ class WorkerThread(QThread):
                         data.discrim.filt.yaccmn = _calc_para['y_acc_min']
                         data.discrim.filt.yaccmx = _calc_para['y_acc_max']
 
+        #######################################
+        ####    KINEMATIC LDA FUNCTIONS    ####
+        #######################################
+
             elif self.thread_job_secondary == 'Speed LDA Accuracy':
                 # checks to see if any base LDA calculation parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdacc)
@@ -568,7 +584,7 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
-            elif self.thread_job_secondary == 'Speed Direction Discrimination LDA':
+            elif self.thread_job_secondary == 'Velocity Direction Discrimination LDA':
                 # checks to see if any base LDA calculation parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spddir)
 
@@ -589,6 +605,14 @@ class WorkerThread(QThread):
                             self.is_ok = False
                             self.work_finished.emit(thread_data)
                             return
+
+        ###############################
+        ####    OTHER FUNCTIONS    ####
+        ###############################
+
+            elif self.thread_job_secondary == 'Shuffled Cluster Distances':
+                # case is the shuffled cluster distances
+                thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
 
         elif self.thread_job_primary == 'update_plot':
             pass

@@ -6418,7 +6418,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, plot_chance=False)
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, plot_chance=True)
 
     def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, plot_chance=False):
         '''
@@ -7890,7 +7890,7 @@ class AnalysisGUI(QMainWindow):
                          'Speed LDA Accuracy',
                          'Speed LDA Comparison (Individual Experiments)',
                          'Speed LDA Comparison (Pooled Experiments)',
-                         'Speed Direction Discrimination LDA']
+                         'Velocity Direction Discrimination LDA']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -9999,7 +9999,7 @@ class AnalysisFunctions(object):
 
             # invisible parameters
             'freq_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'Increasing',
                 'is_visible': False
             },
 
@@ -10009,7 +10009,7 @@ class AnalysisFunctions(object):
         }
 
         self.add_func(type='Kinematic Discrimination Analysis',
-                      name='Speed Direction Discrimination LDA',
+                      name='Velocity Direction Discrimination LDA',
                       func='plot_speed_dir_lda',
                       para=para)
 
