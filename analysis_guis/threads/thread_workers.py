@@ -614,6 +614,18 @@ class WorkerThread(QThread):
                 # case is the shuffled cluster distances
                 thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
 
+        #######################################
+        ####    MISCELLANEOUS FUNCTIONS    ####
+        #######################################
+
+            elif self.thread_job_secondary == 'Encoding Spiking Frequency Dataframe':
+                # checks to see if any base spiking frequency dataframe parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['spikedf'], other_para=data.spikedf)
+
+                # only continue if the spiking frequency dataframe has not been set up
+                if not data.spikedf.is_set:
+                    self.setup_spiking_freq_dataframe(data, calc_para)
+
         elif self.thread_job_primary == 'update_plot':
             pass
 
@@ -1500,7 +1512,7 @@ class WorkerThread(QThread):
 
         # removes normalisation for the individual cell LDA calculations
         _calc_para = dcopy(calc_para)
-        _calc_para['lda_para']['is_norm'] = False
+        # _calc_para['lda_para']['is_norm'] = False
 
         ################################################
         ####    INDIVIDUAL CELL LDA CALCULATIONS    ####
@@ -2852,6 +2864,148 @@ class WorkerThread(QThread):
                             r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
                             r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
 
+    ###################################################
+    ####    MISCELLANEOUS FUNCTION CALCULATIONS    ####
+    ###################################################
+
+    def setup_spiking_freq_dataframe(self, data, calc_para):
+        '''
+
+        :param data:
+        :param calc_para:
+        :return:
+        '''
+
+        def setup_expt_dataframe(data, calc_para, i_ex, t_phase):
+            '''
+
+            :param w_prog:
+            :param calc_para:
+            :param c:
+            :param i_ex:
+            :param n_ex:
+            :param t_phase:
+            :return:
+            '''
+
+            # initialisations
+            w, c = np.pi / t_phase, data._cluster[i_ex]
+            r_filt, exp_name = calc_para['rot_filt'], c['expInfo']['name']
+            t_ofs0, n_cond, n_cell, mlt = 0., len(r_filt['t_type']), c['nC'], [1., -1]
+            t_phs, dt_ofs, n_bin_f = calc_para['bin_sz'] / 1000., calc_para['t_over'] / 1000., calc_para['n_future']
+
+            # memory allocation
+            n_bin_tot = int(np.floor((t_phase - (n_bin_f + 1) * t_phs) / dt_ofs))
+            sf, v_bin = np.empty((n_bin_tot, n_cond), dtype=object), np.zeros((n_bin_tot, 1))
+
+            # calculates the spiking frequencies for all cells over the duration configuration
+            for i_bin_tot in range(n_bin_tot):
+                # check to see if the current time offset will allow for a feasible number of future time bins (i.e.,
+                # the current time bin + the future time bins must fit into the phase duration). if not then exit loop
+                if (t_ofs0 + (n_bin_f + 1) * t_phs) > t_phase:
+                    break
+
+                # memory allocation
+                sp_f_tmp = np.zeros((n_cond, n_cell, 2, n_bin_f + 1))
+                for i_bin_f in range(n_bin_f + 1):
+                    # retrieves the filtered time spiking data for the current phase/duration configuration
+                    r_obj = RotationFilteredData(data, r_filt, None, exp_name, False, 'Whole Experiment', False,
+                                                 t_phase=t_phs, t_ofs=t_ofs0 + (i_bin_f * t_phs))
+
+                    # calculates the average spiking frequency data for the current experiment
+                    _, sp_f_bin = cf.calc_phase_spike_freq(r_obj)
+
+                    # stores the spiking frequency/avg. bin velocity data
+                    sp_f_tmp[:, :, :, i_bin_f] = np.array(sp_f_bin)[:, :, 1:]
+                    if i_bin_f == 0:
+                        # if the first bin, calculate the average speed over the bin's duration
+                        w_vals0 = rot.calc_waveform_values(90, w, t_ofs0)
+                        w_vals1 = rot.calc_waveform_values(90, w, t_ofs0 + t_phs)
+                        v_bin[i_bin_tot] = 0.5 * (w_vals1[1] + w_vals0[1])
+
+                # splits/stores the spiking frequency by the condition
+                for i_cond in range(n_cond):
+                    sf[i_bin_tot, i_cond] = sp_f_tmp[i_cond, :, :, :]
+
+                # increments the time offset by the time-overlap
+                t_ofs0 += dt_ofs
+
+
+
+            # initialisations
+            df_tot = []
+            g_str = {'Nar': 'Narrow', 'Wid': 'Wide'}
+
+            # sets the trial condition type column
+            tt_col = np.array(cf.flat_list([[x] * (2 * n_bin_tot) for x in r_filt['t_type']])).reshape(-1, 1)
+
+            #
+            for i_cell in range(n_cell):
+                # combines the
+                sf_cell = np.vstack([np.vstack([np.hstack((mlt[i_dir] * v_bin, np.vstack(
+                    [_sf[i_cell, i_dir, :] for _sf in sf[:, i_cond]]))) for i_dir in range(2)])
+                                           for i_cond in range(n_cond)]
+                )
+
+                # sets the other column details
+                n_row = np.size(sf_cell, axis=0)
+                ind_col = (i_cell + 1) * np.ones((n_row, 1), dtype=int)
+                reg_col = np.array([c['chRegion'][i_cell]] * n_row).reshape(-1, 1)
+                layer_col = np.array([c['chLayer'][i_cell]] * n_row).reshape(-1, 1)
+                # add in fixed/free cell type here!
+
+                # appends all the data for the given cell
+                if data.classify.class_set:
+                    # adds in the cell group type (if calculated)
+                    grp_col = np.array([g_str[data.classify.grp_str[i_ex][i_cell]]] * n_row).reshape(-1, 1)
+                    df_tot.append(np.hstack((ind_col, sf_cell, tt_col, reg_col, layer_col, grp_col)))
+                else:
+                    # otherwise, use the existing information only
+                    df_tot.append(np.hstack((ind_col, sf_cell, tt_col, reg_col, layer_col)))
+
+            # combines all data from each cell (along with the experiment index) into a final np array
+            exp_col = (i_ex + 1) * np.ones((n_row * n_cell, 1), dtype=int)
+            return np.hstack((exp_col, np.vstack(df_tot)))
+
+        # memory allocation and initialisations
+        n_ex = len(data._cluster)
+        sf_data = np.empty(n_ex, dtype=object)
+        w_prog, d_data, n_bin = self.work_progress, data.spikedf, calc_para['n_future']
+
+        # returns the overall rotation filter class object
+        r_obj = RotationFilteredData(data, calc_para['rot_filt'], None, None, True, 'Whole Experiment', False)
+
+        # creates the spiking frequency dataframe for the each experiment
+        for i_ex in range(n_ex):
+            # updates the progress bar
+            w_str = 'Combining Spike Freq. Data (Expt #{0}/{1})'.format(i_ex + 1, n_ex)
+            w_prog.emit(w_str, 100. * (i_ex / n_ex))
+
+            # sets the data for the current experiment
+            sf_data[i_ex] = setup_expt_dataframe(data, calc_para, i_ex, r_obj.t_phase[0][0])
+
+        ######################################
+        ####    HOUSEKEEPING EXERCISES    ####
+        ######################################
+
+        # updates the progressbar
+        w_prog.emit('Setting Final Dataframe...', 100.)
+
+        # sets the calculation parameters
+        d_data.rot_filt = calc_para['rot_filt']
+        d_data.bin_sz = calc_para['bin_sz']
+        d_data.t_over = calc_para['t_over']
+        d_data.n_future = calc_para['n_future']
+
+        # creates the final dataframe
+        c_str = ['Expt #', 'Cell #', 'Speed', 'Bin(i)'] + ['Bin(i+{0})'.format(x+1) for x in range(n_bin)] + \
+                ['Trial Condition', 'Region', 'Layer'] + (['Cell Type'] if data.classify.class_set else [])
+        d_data.sf_df = pd.DataFrame(data=np.vstack(sf_data), columns=c_str)
+
+    ###########################################
+    ####    OTHER CALCULATION FUNCTIONS    ####
+    ###########################################
+
     def check_combined_conditions(self, calc_para, plot_para):
         '''
 
@@ -3228,4 +3382,22 @@ class WorkerThread(QThread):
 
     # plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, p_value, plot_grid, plot_scope)
 
+            elif ct == 'spikedf':
+                # initialisations
+                d_data = other_para
 
+                # if the spike frequency dataframe has not been setup, then exit the function
+                if not d_data.is_set:
+                    return
+
+                # case is the spiking frequency dataframe
+                is_equal = [
+                    check_class_para_equal(d_data, 'rot_filt', calc_para['rot_filt']),
+                    check_class_para_equal(d_data, 'bin_sz', calc_para['bin_sz']),
+                    check_class_para_equal(d_data, 't_over', calc_para['t_over']),
+                    check_class_para_equal(d_data, 'n_future', calc_para['n_future']),
+                ]
+
+                # if there was a change in any of the parameters, then reset the LDA data field
+                if not np.all(is_equal) or data.force_calc:
+                    d_data.is_set = False

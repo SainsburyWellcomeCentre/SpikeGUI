@@ -10,7 +10,7 @@ from numpy import ndarray
 from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
-
+from matplotlib.patches import Polygon
 
 # pyqt5 module import
 from PyQt5.QtGui import QFont, QFontMetrics, QColor
@@ -2439,3 +2439,21 @@ def setup_sns_plot_dict(**kwargs):
 
     # returns the plot dictionary
     return sns_dict
+
+
+def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2):
+    '''
+
+    :param x:
+    :param y_mn:
+    :param y_err:
+    :param col:
+    :return:
+    '''
+
+    # sets up the error patch vertices
+    err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err[::-1])]
+
+    # creates the polygon object and adds it to the axis
+    poly = Polygon(err_vert, facecolor=col, alpha=f_alpha)
+    ax.add_patch(poly)

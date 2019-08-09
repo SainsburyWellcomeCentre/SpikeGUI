@@ -1195,7 +1195,7 @@ def set_def_para(para, p_str, def_val):
     '''
 
     # returns the parameter value if present in the para dictionary, otherwise return the default value
-    return para[p_str] if p_str in para else def_val
+    return dcopy(para[p_str]) if p_str in para else dcopy(def_val)
 
 
 ########################################################################################################################
@@ -2371,6 +2371,57 @@ def init_lda_solver_para():
         'y_acc_min': 0,
     }
 
+
+def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
+    '''
+
+    :param d_data_0:
+    :param d_data_f:
+    :param d_data_def:
+    :return:
+    '''
+
+    def set_def_class_para(d_data, p_str):
+        '''
+
+        :param d_data:
+        :param p_str:
+        :return:
+        '''
+
+        # initialisations
+        def_para = {}
+
+        # retrieves the values from the data class
+        for ps in p_str:
+            if hasattr(d_data, ps):
+                p_val = d_data.__getattribute__(ps)
+                if p_val is None:
+                    continue
+                elif p_val != -1:
+                    def_para[ps] = p_val
+
+        # returns the lda default parameter dictionary
+        return def_para
+
+    if d_data_f is None:
+        # if the field name is not provided, set the default data class
+        d_data = d_data_0
+    elif hasattr(d_data_0, d_data_f):
+        # if the class does have the sub-field, then retrieves the sub-class
+        d_data = getattr(d_data_0, d_data_f)
+    else:
+        # otherwise, use the default sub-class and add it to the parent class
+        d_data = d_data_def
+        setattr(d_data_0, d_data_f, d_data_def)
+
+    # set the default parameter object (based on type)
+    if d_data_f == 'spikedf':
+        # case is the spiking frequency dataframe
+        def_para = set_def_class_para(d_data, ['rot_filt', 'bin_sz', 't_over', 'n_future'])
+
+    # returns the default parameter object
+    return def_para
 
 def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
     '''

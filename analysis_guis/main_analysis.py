@@ -118,7 +118,7 @@ dcopy = copy.deepcopy
 func_types = np.array(['Cluster Matching','Cluster Classification','Rotation Analysis',
                        'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis',
                        'Rotation Discrimination Analysis', 'Kinematic Discrimination Analysis',
-                       'Single Experiment Analysis'])
+                       'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
 _bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
@@ -627,7 +627,7 @@ class AnalysisGUI(QMainWindow):
                 # if single experiments are loaded, then determine the function types
                 if not self.is_multi:
                     is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt,
-                               has_both, has_rot_expt, has_rot_expt, True]
+                               has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
                     new_func_types = func_types[np.array(is_keep)]
 
                 # otherwise, enable the cluster matching comparison menu item
@@ -3281,7 +3281,8 @@ class AnalysisGUI(QMainWindow):
                     k_sf_tmp = np.mean(k_sf, axis=2)
 
                 # calculates the mean spiking frequency over all cells
-                return np.mean(k_sf_tmp, axis=0)
+                n_cell = np.size(k_sf_tmp, axis=0)
+                return np.mean(k_sf_tmp, axis=0), np.std(k_sf_tmp, axis=0) / (n_cell ** 0.5)
 
             def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz):
                 '''
@@ -3306,7 +3307,7 @@ class AnalysisGUI(QMainWindow):
 
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the mean plot values
-                        k_sf_mn = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+                        k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot)
 
                         # creates the polar plot
                         d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
@@ -3343,7 +3344,7 @@ class AnalysisGUI(QMainWindow):
                 '''
 
                 # initialisations
-                n_plot, c, mlt = len(ax), cf.get_plot_col(r_obj.n_filt), 1
+                n_plot, c, mlt, yL = len(ax), cf.get_plot_col(r_obj.n_filt), 1, [1e6, -1e6]
                 t_str = ['Velocity ({0})'.format(x) for x in ['Decreasing', 'Increasing', 'Averaged']]
 
                 # sets the bin values
@@ -3358,7 +3359,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the plots for each of the
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the plot values
-                        k_sf_mn = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+                        k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot)
 
                         # smooths the signal (if required)
                         if is_smooth:
@@ -3366,6 +3367,10 @@ class AnalysisGUI(QMainWindow):
 
                         # creates the line plot
                         h_plt.append(ax[i_plot].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
+                        cf.create_error_area_patch(ax[i_plot], xi_mid, k_sf_mn, k_sf_sem, c[i_filt])
+
+                        # determines the overall min/max axis values
+                        yL = [min(0.95 * min(k_sf_mn - k_sf_sem), yL[0]), max(1.05 * max(k_sf_mn + k_sf_sem), yL[1])]
 
                         # sets the plot axis title/x-axis properties
                         if i_filt == 0:
@@ -3373,10 +3378,8 @@ class AnalysisGUI(QMainWindow):
                             ax[i_plot].set_xticks(x_tick)
                             ax[i_plot].set_xticklabels([str(int(np.round(mlt * x))) for x in x_tick])
 
-                # determines the overall limits
-                yL = [min([_ax.get_ylim()[0] for _ax in ax]), max([_ax.get_ylim()[1] for _ax in ax])]
+                # resets the axis limits over all axes
                 for _ax in ax:
-                    # adds in the bin lines for the polar plot
                     _ax.set_ylim(yL)
 
             # if there was an error setting up the rotation calculation object, then exit the function with an error
@@ -6478,10 +6481,7 @@ class AnalysisGUI(QMainWindow):
 
             elif marker_type == 'Experiment SEM Area':
                 # case is the experiment SEM Area
-                sem_vert = [*zip(x_nw, y_acc_mn[:, i_cond] + y_acc_sem[:, i_cond]),
-                            *zip(x_nw[::-1], y_acc_mn[::-1, i_cond] - y_acc_sem[::-1, i_cond])]
-                poly = Polygon(sem_vert, facecolor=col[i_cond], alpha=0.2)
-                ax.add_patch(poly)
+                cf.create_error_area_patch(ax, x_nw, y_acc_mn[:, i_cond], y_acc_sem[:, i_cond], col[i_cond])
 
         # creates the legend
         ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
@@ -6691,6 +6691,24 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
+
+    def output_spiking_freq_dataframe(self):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the spike frequency dataframe
+        sf_df = self.data.spikedf.sf_df
+
+        # sets the base output file name
+        base_name = os.path.join(self.def_data['dir']['dataDir'], 'DataFrame')
+
+        #
+        sf_df.to_csv
+
+        # FINISH ME!
+        pass
 
     #########################################
     ####    COMMON ANALYSIS FUNCTIONS    ####
@@ -7890,7 +7908,8 @@ class AnalysisGUI(QMainWindow):
                          'Speed LDA Accuracy',
                          'Speed LDA Comparison (Individual Experiments)',
                          'Speed LDA Comparison (Pooled Experiments)',
-                         'Velocity Direction Discrimination LDA']
+                         'Velocity Direction Discrimination LDA',
+                         'Encoding Spiking Frequency Dataframe']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -8455,8 +8474,8 @@ class AnalysisFunctions(object):
 
         # overall declarations
         data = self.get_data_fcn()
-        init_lda_para = cfcn.init_lda_para
         has_multi_expt = len(data._cluster) > 1
+        init_lda_para, init_def_class_para = cfcn.init_lda_para, cfcn.init_def_class_para
 
         # re-initialises the current parameter fields
         self.reset_curr_para_fields()
@@ -10063,6 +10082,39 @@ class AnalysisFunctions(object):
                       multi_fig=['i_comp'],
                       para=para)
 
+        ######################################
+        ####    MISCELLANEOUS FUNCTIONS   ####
+        ######################################
+
+        # sets the default class parameters
+        sf_def_para = init_def_class_para(data, 'spikedf', SpikingFreqData())
+        rot_filt_df = dcopy(cf.init_rotation_filter_data(False))
+
+        # ====> Encoding Spiking Frequency Dataframe
+        para = {
+            # calculation parameters
+            'rot_filt': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': cfcn.set_def_para(sf_def_para, 'rot_filt', rot_filt_df)
+            },
+            'bin_sz': {
+                'gtype': 'C', 'text': 'Time Bin Size (ms)',
+                'def_val': cfcn.set_def_para(sf_def_para, 'bin_sz', 200)
+            },
+            't_over': {
+                'gtype': 'C', 'text': 'Bin Overlap Duration (ms)',
+                'def_val': cfcn.set_def_para(sf_def_para, 't_over', 100)
+            },
+            'n_future': {
+                'gtype': 'C', 'text': 'Number of Future Bins',
+                'def_val': cfcn.set_def_para(sf_def_para, 'n_future', 5)
+            },
+        }
+        self.add_func(type='Miscellaneous Functions',
+                      name='Encoding Spiking Frequency Dataframe',
+                      func='output_spiking_freq_dataframe',
+                      para=para)
+
         # initialises the parameter dictionary
         self.init_para_dict()
 
@@ -11094,6 +11146,7 @@ class AnalysisData(object):
         self.rotation = RotationData()
         self.discrim = DiscriminationData()
         self.multi = MultiFileData()
+        self.spikedf = SpikingFreqData()
 
         self.req_update = True
         self.force_calc = True
@@ -11528,6 +11581,18 @@ class MultiFileData(object):
             self.is_multi, self.names, self.files = False, None, None
         else:
             self.is_multi, self.names, self.files = True, dcopy(dlg_info.exp_name), dcopy(dlg_info.exp_files)
+
+class SpikingFreqData(object):
+    def __init__(self):
+        # initialises the class fields
+        self.is_set = False
+        self.sf_df = None
+
+        # calculation parameters
+        self.bin_sz = -1
+        self.t_over = -1
+        self.n_future = -1
+        self.rot_filt = cf.init_rotation_filter_data(False)
 
 ########################################################################################################################
 ########################################################################################################################
