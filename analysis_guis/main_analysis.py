@@ -6692,7 +6692,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
 
-    def output_spiking_freq_dataframe(self):
+    def output_spiking_freq_dataframe(self, plot_all_expt, plot_scope):
         '''
 
         :return:
@@ -8995,7 +8995,7 @@ class AnalysisFunctions(object):
         dv, v_rng, n_boot_def = 5, 80, 100
 
         # type lists
-        roc_vel_bin = ['5', '10', '20', '40']
+        roc_vel_bin = ['5', '10', '20', '40', '80']
         hist_bin_sz = ['2', '5', '10', '20', '25', '50']
         md_grp_type = ['MS/DS', 'MS/Not DS', 'Not MS', 'All Cells']
         pd_grp_type = ['None', 'Rotation', 'Visual', 'Both', 'All Cells']
@@ -10095,6 +10095,7 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter,
                 'def_val': cfcn.set_def_para(sf_def_para, 'rot_filt', rot_filt_df)
             },
+
             'bin_sz': {
                 'gtype': 'C', 'text': 'Time Bin Size (ms)',
                 'def_val': cfcn.set_def_para(sf_def_para, 'bin_sz', 200)
@@ -10106,6 +10107,12 @@ class AnalysisFunctions(object):
             'n_future': {
                 'gtype': 'C', 'text': 'Number of Future Bins',
                 'def_val': cfcn.set_def_para(sf_def_para, 'n_future', 5)
+            },
+
+            # invisible parameters
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
         }
         self.add_func(type='Miscellaneous Functions',

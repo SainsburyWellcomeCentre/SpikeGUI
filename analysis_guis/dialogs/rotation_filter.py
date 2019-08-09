@@ -159,7 +159,7 @@ class RotationFilter(QDialog):
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
         # retrieves the trial-types from each experiment
-        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis']) or \
+        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis', 'Miscellaneous Functions']) or \
            (self.is_exc and (not self.is_ud)):
             t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
             if self.use_both:

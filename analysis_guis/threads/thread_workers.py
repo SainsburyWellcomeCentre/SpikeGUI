@@ -2914,9 +2914,11 @@ class WorkerThread(QThread):
 
                     # calculates the average spiking frequency data for the current experiment
                     _, sp_f_bin = cf.calc_phase_spike_freq(r_obj)
+                    try:
+                        sp_f_tmp[:, :, :, i_bin_f] = np.array(sp_f_bin)[:, :, 1:]
+                    except:
+                        return None
 
-                    # stores the spiking frequency/avg. bin velocity data
-                    sp_f_tmp[:, :, :, i_bin_f] = np.array(sp_f_bin)[:, :, 1:]
                     if i_bin_f == 0:
                         # if the first bin, calculate the average speed over the bin's duration
                         w_vals0 = rot.calc_waveform_values(90, w, t_ofs0)
@@ -2929,8 +2931,6 @@ class WorkerThread(QThread):
 
                 # increments the time offset by the time-overlap
                 t_ofs0 += dt_ofs
-
-
 
             # initialisations
             df_tot = []
@@ -2972,8 +2972,14 @@ class WorkerThread(QThread):
         sf_data = np.empty(n_ex, dtype=object)
         w_prog, d_data, n_bin = self.work_progress, data.spikedf, calc_para['n_future']
 
+        # retrieves the rotation filter
+        r_filt = calc_para['rot_filt']
+        if r_filt is None:
+            # if not set, then initialise
+            r_filt = cf.init_rotation_filter_data(False)
+
         # returns the overall rotation filter class object
-        r_obj = RotationFilteredData(data, calc_para['rot_filt'], None, None, True, 'Whole Experiment', False)
+        r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
 
         # creates the spiking frequency dataframe for the each experiment
         for i_ex in range(n_ex):
@@ -2992,7 +2998,7 @@ class WorkerThread(QThread):
         w_prog.emit('Setting Final Dataframe...', 100.)
 
         # sets the calculation parameters
-        d_data.rot_filt = calc_para['rot_filt']
+        d_data.rot_filt = dcopy(calc_para['rot_filt'])
         d_data.bin_sz = calc_para['bin_sz']
         d_data.t_over = calc_para['t_over']
         d_data.n_future = calc_para['n_future']
@@ -3000,7 +3006,8 @@ class WorkerThread(QThread):
         # creates the final dataframe
         c_str = ['Expt #', 'Cell #', 'Speed', 'Bin(i)'] + ['Bin(i+{0})'.format(x+1) for x in range(n_bin)] + \
                 ['Trial Condition', 'Region', 'Layer'] + (['Cell Type'] if data.classify.class_set else [])
-        d_data.sf_df = pd.DataFrame(data=np.vstack(sf_data), columns=c_str)
+        sf_data_valid = np.vstack([x for x in sf_data if x is not None])
+        d_data.sf_df = pd.DataFrame(sf_data_valid, columns=c_str)
 
     ###########################################
     ####    OTHER CALCULATION FUNCTIONS    ####

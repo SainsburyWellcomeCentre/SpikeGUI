@@ -1154,7 +1154,7 @@ def get_expt_index(exp_name, cluster, ind_arr=None):
     '''
 
     # returns the index of the experiment corresponding to the experiment with name, exp_name
-    i_expt = next(i for i in range(len(cluster)) if extract_file_name(cluster[i]['expFile']) == exp_name)
+    i_expt = next(i for i in range(len(cluster)) if exp_name in extract_file_name(cluster[i]['expFile']))
     if ind_arr is None:
         return i_expt
     else:
