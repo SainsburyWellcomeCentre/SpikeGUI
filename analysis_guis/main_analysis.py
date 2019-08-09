@@ -6704,11 +6704,9 @@ class AnalysisGUI(QMainWindow):
         # sets the base output file name
         base_name = os.path.join(self.def_data['dir']['dataDir'], 'DataFrame')
 
-        #
-        sf_df.to_csv
-
-        # FINISH ME!
-        pass
+        # outputs the data to csv/pickle files
+        sf_df.to_csv('{0}.csv'.format(base_name))
+        sf_df.to_pickle('{0}.pkl'.format(base_name))
 
     #########################################
     ####    COMMON ANALYSIS FUNCTIONS    ####
