@@ -3253,21 +3253,29 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_kinematic_plots(r_obj, b_sz, n_smooth, is_smooth, plot_grid):
+        def create_kinematic_plots(r_obj, b_sz, n_smooth, is_smooth, is_single_cell, plot_grid):
             '''
 
+            :param r_obj:
             :param b_sz:
+            :param n_smooth:
+            :param is_smooth:
+            :param is_single_cell:
             :param plot_grid:
             :return:
             '''
 
-            def get_kinematic_plot_values(k_sf, i_plot):
+            def get_kinematic_plot_values(k_sf, i_plot, is_single_cell):
                 '''
 
                 :param k_sf:
                 :param i_plot:
                 :return:
                 '''
+
+                # removes any singleton dimensions
+                if is_single_cell:
+                    k_sf = np.squeeze(k_sf)
 
                 # sets the temporary spiking frequency arrays
                 if i_plot == 0:
@@ -3284,7 +3292,7 @@ class AnalysisGUI(QMainWindow):
                 n_cell = np.size(k_sf_tmp, axis=0)
                 return np.mean(k_sf_tmp, axis=0), np.std(k_sf_tmp, axis=0) / (n_cell ** 0.5)
 
-            def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz):
+            def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz, is_single_cell):
                 '''
 
                 :return:
@@ -3307,7 +3315,7 @@ class AnalysisGUI(QMainWindow):
 
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the mean plot values
-                        k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+                        k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # creates the polar plot
                         d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
@@ -3337,9 +3345,16 @@ class AnalysisGUI(QMainWindow):
                     _ax.set_thetamin(0)
                     _ax.set_thetamax(180)
 
-            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth):
+            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth, is_single_cell):
                 '''
 
+                :param ax:
+                :param r_obj:
+                :param k_sf:
+                :param xi_bin:
+                :param k_rng:
+                :param is_smooth:
+                :param is_single_cell:
                 :return:
                 '''
 
@@ -3359,7 +3374,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the plots for each of the
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the plot values
-                        k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot)
+                        k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # smooths the signal (if required)
                         if is_smooth:
@@ -3392,14 +3407,14 @@ class AnalysisGUI(QMainWindow):
             proj_type = ['polar', 'polar', 'polar', None, None, None]
 
             # calculates the position/velocity values over all trials/cells
-            k_sf, xi_bin = rot.calc_kinemetic_spike_freq(self.data, r_obj, b_sz)
+            k_sf, xi_bin = rot.calc_kinemetic_spike_freq(self.data, r_obj, b_sz, calc_type=2+is_single_cell)
 
             # creates the plot outlay and titles
             self.init_plot_axes(n_row=2, n_col=3, proj_type=proj_type)
 
             # creates the position polar/velocity line plots
-            create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0])
-            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth)
+            create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0], is_single_cell)
+            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth, is_single_cell)
 
             # resets the subplot layout
             self.plot_fig.fig.set_tight_layout(False)
@@ -3426,9 +3441,12 @@ class AnalysisGUI(QMainWindow):
                 self.calc_ok = False
                 return
 
+        # determines what analysis type is being used
+        is_single_cell = plot_scope == 'Individual Cell'
+
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_grid)
+        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, is_single_cell, plot_grid)
 
     def plot_overall_direction_bias(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid, plot_scope):
         '''
@@ -6127,6 +6145,20 @@ class AnalysisGUI(QMainWindow):
         ax.grid(plot_grid)
         ax.set_ylabel('Decoding Accuracy (%)')
 
+    def plot_lda_weights(self, plot_grid):
+        '''
+
+        :param plot_grid:
+        :return:
+        '''
+
+        # retrieves the data classes
+        d_data = self.data.discrim.wght
+        n_cond, ttype = len(d_data.ttype), d_data.ttype
+
+        #
+        a = 1
+
     ######################################################
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
@@ -7903,6 +7935,7 @@ class AnalysisGUI(QMainWindow):
                          'Shuffled LDA',
                          'Pooled Neuron LDA',
                          'Individual Cell Accuracy Filtered LDA',
+                         'LDA Group Weightings',
                          'Speed LDA Accuracy',
                          'Speed LDA Comparison (Individual Experiments)',
                          'Speed LDA Comparison (Pooled Experiments)',
@@ -9557,6 +9590,7 @@ class AnalysisFunctions(object):
         shuff_lda_para, shuff_def_para = init_lda_para(data.discrim.shuffle)
         part_lda_para, part_def_para = init_lda_para(data.discrim.part)
         filt_lda_para, filt_def_para = init_lda_para(data.discrim, 'filt', SubDiscriminationData('IndivFilt'))
+        wght_lda_para, wght_def_para = init_lda_para(data.discrim, 'wght', SubDiscriminationData('LDAWeight'))
 
         # parameter lists
         err_type = ['SEM', 'Min/Max', 'None']
@@ -9825,6 +9859,35 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Discrimination Analysis',
                       name='Individual Cell Accuracy Filtered LDA',
                       func='plot_acc_filt_lda',
+                      para=para)
+
+        # ====> LDA Group Weightings
+        para = {
+            # calculation parameters
+            'lda_para': {
+                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                'def_val': wght_lda_para
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
+                'def_val': cfcn.set_def_para(wght_def_para, 'tphase', t_phase)
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                'def_val': cfcn.set_def_para(wght_def_para, 'tofs', t_ofs)
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                'def_val': cfcn.set_def_para(wght_def_para, 'usefull', True),
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Discrimination Analysis',
+                      name='LDA Group Weightings',
+                      func='plot_lda_weights',
                       para=para)
 
         ######################################
@@ -11483,6 +11546,7 @@ class DiscriminationData(object):
         self.shuffle = SubDiscriminationData('TrialShuffle')
         self.part = SubDiscriminationData('Partial')
         self.filt = SubDiscriminationData('IndivFilt')
+        self.wght = SubDiscriminationData('LDAWeight')
 
         # kinematic discrimination analysis
         self.spdacc = SubDiscriminationData('SpdAcc')
@@ -11515,8 +11579,10 @@ class SubDiscriminationData(object):
         self.trialmin = -1
         self.yaccmx = -1
         self.yaccmn = -1
+        self.yaucmx = -1
+        self.yaucmn = -1
 
-        if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt']:
+        if type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt', 'LDAWeight']:
             # case is the direction LDA analysis
             self.tofs = -1
             self.tphase = -1
@@ -11538,6 +11604,11 @@ class SubDiscriminationData(object):
                 # case is the individual filtered LDA analysis
                 self.yaccmn = -1
                 self.yaccmx = -1
+
+            elif type == 'LDAWeight':
+                # case is the LDA weights
+                self.c_ind = None
+                self.c_wght = None
 
         elif type in ['Temporal']:
             # case is the temporal LDA analysis

@@ -589,6 +589,7 @@ def norm_array_rows(metric, max_norm=True):
 ####    MISCELLANEOUS CALCULATION FUNCTIONS    ####
 ###################################################
 
+
 def cluster_distance(data_fix, data_free, n_shuffle=100, n_spikes=10, i_cluster=[1]):
     '''
 
@@ -1206,6 +1207,74 @@ def set_def_para(para, p_str, def_val):
 ####    ROTATION LDA FUNCTIONS    ####
 ######################################
 
+def setup_lda_spike_counts(r_obj, i_cell, i_ex, n_t, return_all=True):
+    '''
+
+    :param r_obj:
+    :param i_cell:
+    :param i_ex:
+    :param n_t:
+    :return:
+    '''
+
+    # memory allocation
+    n_sp, t_sp, i_grp = [], [], []
+    ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
+    n_cell, ind_t = len(ind_c[0]), np.array(range(n_t))
+
+    # sets up the LDA data/group index arrays across each condition
+    for i_filt in range(r_obj.n_filt):
+        # retrieves the time spikes for the current filter/experiment, and then combines into a single
+        # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+        # overall spike count array
+        A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
+        if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+            # case is motordrifting (swap phases)
+            t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+        else:
+            # case is other experiment conditions
+            t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+
+        # calculates the spike counts and appends them to the count array
+        n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+        t_sp.append(t_sp_tmp)
+
+        # sets the grouping indices
+        ind_g = [2 * i_filt, 2 * i_filt + 1]
+        i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+    # combines the spike counts/group indices into the final combined arrays
+    n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
+
+    # returns the important arrays
+    if return_all:
+        return n_sp, t_sp, i_grp, n_cell
+    else:
+        return n_sp, i_grp
+
+
+def norm_spike_counts(n_sp, N, is_norm):
+    '''
+
+    :param n_sp:
+    :return:
+    '''
+
+    # makes a copy of the spike count array
+    n_sp_calc = dcopy(n_sp)
+
+    # normalises the spike counts (if required)
+    if is_norm:
+        n_sp_mn, n_sp_sd = np.mean(n_sp_calc, axis=0), np.std(n_sp_calc, axis=0)
+        n_sp_calc = np.divide(n_sp_calc - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
+
+        # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+        n_sp_calc[:, n_sp_sd == 0] = 0
+
+    # returns the final values
+    return n_sp_calc
+
+
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
                 pW0=0., pW=100., is_indiv=False, n_sp0=None):
     '''
@@ -1267,35 +1336,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
         if n_sp is None:
             # case is the spike counts haven't been provided
-
-            # memory allocation
-            n_sp, t_sp, i_grp = [], [], []
-            ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
-            n_cell = len(ind_c[0])
-
-            # sets up the LDA data/group index arrays across each condition
-            for i_filt in range(r_obj.n_filt):
-                # retrieves the time spikes for the current filter/experiment, and then combines into a single
-                # concatenated array. calculates the final spike counts over each cell/trial and appends to the
-                # overall spike count array
-                A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
-                if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
-                    # case is motordrifting (swap phases)
-                    t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
-                else:
-                    # case is other experiment conditions
-                    t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
-
-                # calculates the spike counts and appends them to the count array
-                n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
-                t_sp.append(t_sp_tmp)
-
-                # sets the grouping indices
-                ind_g = [2 * i_filt, 2 * i_filt + 1]
-                i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
-
-            # combines the spike counts/group indices into the final combined arrays
-            n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
+            n_sp, t_sp, i_grp, n_cell = setup_lda_spike_counts(r_obj, i_cell, i_ex, n_trial_max)
 
         else:
             # case is the spike counts have been provided
@@ -1309,13 +1350,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             n_sp = shuffle_trial_counts(n_sp, n_trial_max)
 
         # normalises the spike count array (if required)
-        n_sp_calc = dcopy(n_sp)
-        if lda_para['is_norm']:
-            n_sp_mn, n_sp_sd = np.mean(n_sp_calc, axis=0), np.std(n_sp_calc, axis=0)
-            n_sp_calc = np.divide(n_sp_calc - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
-
-            # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
-            n_sp_calc[:, n_sp_sd == 0] = 0
+        n_sp_calc = norm_spike_counts(n_sp, N, lda_para['is_norm'])
 
         ###########################################
         ####    LDA PREDICTION CALCULATIONS    ####
@@ -2369,6 +2404,8 @@ def init_lda_solver_para():
         'cell_types': 'All Cells',
         'y_acc_max': 100,
         'y_acc_min': 0,
+        'y_auc_max': 100,
+        'y_auc_min': 50,
     }
 
 
@@ -2499,8 +2536,18 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
         else:
             lda_para['y_acc_min'] = 0
 
+        if hasattr(d_data, 'yaucmx'):
+            lda_para['y_auc_max'] = set_lda_para(lda_para['y_auc_max'], d_data.yaucmx)
+        else:
+            lda_para['y_auc_max'] = 0
+
+        if hasattr(d_data, 'yaucmn'):
+            lda_para['y_auc_min'] = set_lda_para(lda_para['y_auc_min'], d_data.yaucmn)
+        else:
+            lda_para['y_auc_min'] = 0
+
     # sets the default parameters based on the type
-    if d_data.type in ['Direction', 'Individual']:
+    if d_data.type in ['Direction', 'Individual', 'LDAWeight']:
         # case is the default rotational LDA
         def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull'])
 
@@ -2561,6 +2608,8 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
         'cell_types': 'ctype',
         'y_acc_max': 'yaccmx',
         'y_acc_min': 'yaccmn',
+        'y_auc_max': 'yaucmx',
+        'y_auc_min': 'yaucmn',
         'comp_cond': 'ttype',
     }
 
@@ -2649,6 +2698,22 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
                 ii = np.where(d_data_i.i_cell[ind_g])[0]
                 is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
                 is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
+
+        #
+        r_data = data.rotation
+        if r_data.phase_roc_auc is not None:
+            # sets the indices
+            ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
+            ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
+
+            # retrieves the black phase roc auc values (ensures the compliment is calculated)
+            auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
+            ii = auc_ex < 0.5
+            auc_ex[ii] = 1 - auc_ex[ii]
+
+            # determines which values meet the criteria
+            is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
+            is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
 
         # if the number of valid cells is less than the reqd count, then set all cells to being invalid
         if np.sum(is_valid) < lda_para['n_cell_min']:

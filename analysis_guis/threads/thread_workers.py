@@ -514,6 +514,25 @@ class WorkerThread(QThread):
                         data.discrim.filt.yaccmn = _calc_para['y_acc_min']
                         data.discrim.filt.yaccmx = _calc_para['y_acc_max']
 
+            elif self.thread_job_secondary == 'LDA Group Weightings':
+                # checks to see if the data class as changed parameters
+                d_data, w_prog = data.discrim.wght, self.work_progress
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+
+                # sets up the lda values
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data, w_prog)
+                if status == 0:
+                    # if there was an error in the calculations, then return an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                elif status == 2:
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not self.run_wght_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
         #######################################
         ####    KINEMATIC LDA FUNCTIONS    ####
         #######################################
@@ -1743,6 +1762,107 @@ class WorkerThread(QThread):
         d_data.xi = xi
 
         # returns a true value indicating the calculations were successful
+        return True
+
+    def run_wght_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param r_filt:
+        :param i_expt:
+        :param i_cell:
+        :param n_trial_max:
+        :param d_data:
+        :param w_prog:
+        :return:
+        '''
+
+        # initialisations and memory allocation
+        d_data, w_prog = data.discrim.wght, self.work_progress
+        if d_data.lda is not None:
+            # if no change, then exit flagging the calculations are already done
+            return True
+        else:
+            lda_para = calc_para['lda_para']
+
+        #######################################
+        ####    LDA WEIGHT CALCULATIONS    ####
+        #######################################
+
+        # initialisations
+        t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+        n_ex, n_tt, n_t, _r_filt = len(i_expt), len(r_filt['t_type']), dcopy(n_trial_max), dcopy(r_filt)
+
+        # memory allocation
+        A = np.empty((n_ex, n_tt), dtype=object)
+        n_sp, c_ind, c_wght = dcopy(A), dcopy(A), dcopy(A)
+
+        # reduces down the data cluster to the valid experiments
+        data_tmp = cfcn.reduce_cluster_data(data, i_expt)
+
+        # sets the LDA solver type
+        lda = cfcn.setup_lda_solver(lda_para)
+
+        # creates a reduce data object and creates the rotation filter object
+        for i_tt, tt in enumerate(r_filt['t_type']):
+            # retrieves the rotation filter for the current
+            _r_filt['t_type'] = [tt]
+            r_obj = RotationFilteredData(data_tmp, _r_filt, None, None, True, 'Whole Experiment', False,
+                                         t_ofs=t_ofs, t_phase=t_phase)
+
+            # calculates the cell weight scores for each experiment
+            for i_ex in range(n_ex):
+                #
+                w_str = 'Weighting Calculations (Expt {0}/{1}, {2})'.format(i_ex + 1, n_ex, tt)
+                w_prog.emit(w_str, 100. * (i_tt + (i_ex + 1) / n_ex) / n_ex)
+
+                # retrieves the spike counts for the current experiment
+                n_sp[i_ex, i_tt], i_grp = cfcn.setup_lda_spike_counts(r_obj, i_cell[i_ex], i_ex, n_t, return_all=False)
+
+                try:
+                    # normalises the spike counts and fits the lda model
+                    n_sp_norm = cfcn.norm_spike_counts(n_sp[i_ex, i_tt], 2 * n_t, lda_para['is_norm'])
+                    lda.fit(n_sp_norm, i_grp)
+                except:
+                    if w_prog is not None:
+                        e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                                'Either choose a different solver or alter the solver parameters before retrying'
+                        w_prog.emit(e_str, 'LDA Analysis Error')
+                    return False
+
+                # retrieves the coefficients from the LDA solver
+                coef0 = dcopy(lda.coef_)
+                coef0 /= np.max(np.abs(coef0))
+
+                # sets the sorting indices and re-orders the weights
+                c_ind[i_ex, i_tt] = np.argsort(-np.abs(coef0))
+                c_wght[i_ex, i_tt] = coef0[0, c_ind[i_ex, i_tt]]
+                n_sp[i_ex, i_tt] = n_sp[i_ex, i_tt][:, c_ind[i_ex, i_tt]]
+
+                # lda.predict(n_sp[i_ex, i_tt][0, :].reshape(1, -1))
+                # lda.predict_proba(n_sp[i_ex, i_tt][0, :].reshape(1, -1))
+
+        #######################################
+        ####    HOUSE KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the solver parameters
+        d_data.lda = 1
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+        cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+
+        # sets the phase offset/duration parametrs
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
+
+        # sets the other parameters
+        d_data.c_ind = c_ind
+        d_data.c_wght = c_wght
+
+        # return the calculations were a success
         return True
 
     ##########################################
@@ -3175,11 +3295,13 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 'trialmin', lda_para['n_trial_min']),
                     check_class_para_equal(d_data, 'yaccmx', lda_para['y_acc_max']),
                     check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min']),
+                    check_class_para_equal(d_data, 'yaucmx', lda_para['y_auc_max']),
+                    check_class_para_equal(d_data, 'yaucmn', lda_para['y_auc_min']),
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
 
                 #
-                if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt']:
+                if d_data.type in ['Direction', 'Individual', 'TrialShuffle', 'Partial', 'IndivFilt', 'LDAWeight']:
                     if 'use_full_rot' in calc_para:
                         if d_data.usefull:
                             is_equal += [

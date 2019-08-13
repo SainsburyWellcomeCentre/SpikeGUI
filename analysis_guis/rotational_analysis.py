@@ -1289,8 +1289,11 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     elif calc_type == 1:
         # calculation type is velocity data only
         return vel_f, xi_bin[1]
-    else:
+    elif calc_type == 2:
         # calculation type is both kinematic types
+        return [pos_f, vel_f], xi_bin
+    else:
+        # calculation type is both kinematic types (but non-averaged values)
         return [pos_f, vel_f], xi_bin
 
 

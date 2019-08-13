@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QPushButton, QGrid
 
 # custom module import
 import analysis_guis.common_func as cf
+import analysis_guis.calc_functions as cfcn
 
 # parameters
 dX = 10
@@ -93,6 +94,7 @@ class LDASolverPara(QDialog):
         # retrieves the data clusters for each of the valid rotation experiments
         is_rot_expt = cf.det_valid_rotation_expt(self.data)
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
+        r_data, d_data = self.data.rotation, self.data.discrim.indiv
 
         # retrieves the trial-types from each experiment
         comp_cond = list(np.unique(cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])))
@@ -105,6 +107,8 @@ class LDASolverPara(QDialog):
         check_types = ['Normalise Counts? ', 'Use LDA Shrinkage? ']
         max_acc_types = ['Max Individual Decoding Accuracy']
         min_acc_types = ['Min Individual Decoding Accuracy']
+        max_auc_types = ['Max Individual ROC AUC']
+        min_auc_types = ['Min Individual ROC AUC']
 
         # sets the filter field parameter information
         self.fields = [
@@ -113,8 +117,10 @@ class LDASolverPara(QDialog):
             ['LDA Solver Type', 'ListGroup', 'solver_type', solver_type, True, ['use_shrinkage', 'svd']],
             ['Comparison Conditions', 'CheckCombo', 'comp_cond', comp_cond, True, None],
             ['Cell Signal Types', 'ListGroup', 'cell_types', cell_types, self.data.classify.is_set, None],
-            ['', 'NumberGroup', ['y_acc_max'], max_acc_types, self.data.discrim.indiv.lda is not None, None],
-            ['', 'NumberGroup', ['y_acc_min'], min_acc_types, self.data.discrim.indiv.lda is not None, None],
+            ['', 'NumberGroup', ['y_acc_max'], max_acc_types, d_data.lda is not None, None],
+            ['', 'NumberGroup', ['y_acc_min'], min_acc_types, d_data.lda is not None, None],
+            ['', 'NumberGroup', ['y_auc_max'], max_auc_types, r_data.phase_roc_auc is not None, None],
+            ['', 'NumberGroup', ['y_auc_min'], min_auc_types, r_data.phase_roc_auc is not None, None],
         ]
 
         # removes any other fields (if specified)
@@ -386,6 +392,10 @@ class LDASolverPara(QDialog):
             min_val, max_val, is_int = self.f_data['y_acc_min'], 100, False
         elif p_name == 'y_acc_min':
             min_val, max_val, is_int = 0, self.f_data['y_acc_max'], False
+        elif p_name == 'y_auc_max':
+            min_val, max_val, is_int = self.f_data['y_auc_min'], 100, False
+        elif p_name == 'y_auc_min':
+            min_val, max_val, is_int = 50, self.f_data['y_auc_max'], False
         else:
             min_val, max_val, is_int = 0, 1000, True
 
