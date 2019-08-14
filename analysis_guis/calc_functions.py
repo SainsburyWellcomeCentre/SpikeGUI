@@ -1290,7 +1290,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     :return:
     '''
 
-    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, ind_t, i_ex, is_shuffle, pW0, pW, is_indiv):
+    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, i_ex, is_shuffle, pW0, pW, is_indiv):
         '''
 
         :param r_obj:
@@ -1461,7 +1461,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     # memory allocation and other initialisations
     A = np.empty(r_obj.n_expt, dtype=object)
     lda, exp_name, n_sp = dcopy(A), dcopy(A), dcopy(A)
-    ind_t, n_ex = np.array(range(n_trial_max)), len(i_expt)
+    n_ex = len(i_expt)
 
     # memory allocation for accuracy binary mask calculations
     n_c = len(r_filt['t_type'])
@@ -1480,7 +1480,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
         lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, n_sp0, i_cell[i_ex],
-                                                        ind_t, i_ex, is_shuffle, pW0, pW, is_indiv)
+                                                        i_ex, is_shuffle, pW0, pW, is_indiv)
         if not ok:
             # if there was an error, then exit with a false flag
             return False
@@ -1550,6 +1550,86 @@ def run_part_lda_pool(p_data):
 
     # returns the cell count and LDA decoding accuracy values
     return [n_cell, results[1]]
+
+
+def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, is_dec=False):
+    '''
+
+    :param w_prog:
+    :param lda:
+    :param calc_para:
+    :param n_sp:
+    :param j_grp:
+    :param n_t:
+    :param is_dec:
+    :return:
+    '''
+
+    def run_lda_predictions(lda, n_sp, i_grp):
+        '''
+
+        :param w_prog:
+        :param lda:
+        :param n_sp:
+        :param i_grp:
+        :return:
+        '''
+
+        # memory allocation
+        n_t, n_cell = np.shape(n_sp)
+        c_mat, is_keep = np.zeros((2, 2), dtype=int), np.ones(n_t, dtype=bool)
+
+        # calculates the predictions for the one-out-trial lda model
+        for i_trial in range(n_t):
+            # removes the current trial
+            is_keep[i_trial] = False
+
+            # fits the one-out-trial lda model
+            try:
+                lda.fit(n_sp[is_keep, :], i_grp[is_keep])
+            except:
+                if w_prog is not None:
+                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                            'Either choose a different solver or alter the solver parameters before retrying'
+                    w_prog.emit(e_str, 'LDA Analysis Error')
+                return np.nan
+
+            # calculates the model prediction from the remaining trial and increments the confusion matrix
+            lda_pred = lda.predict(n_sp[i_trial, :].reshape(1, -1))
+            c_mat[i_grp[i_trial], lda_pred] += 1
+
+            # re-adds the current trial
+            is_keep[i_trial] = True
+
+        # returns the decoding accuracy
+        return (c_mat[0, 0] + c_mat[1, 1]) / n_t
+
+    # array indexing and memory allocation
+    n_tf, n_cell = np.shape(n_sp)
+    use_cell, y_acc = np.ones(n_cell, dtype=bool), np.zeros(n_cell)
+
+    #
+    for i_cell in range(n_cell):
+        # updates the progressbar
+        w_str_nw = '{0}, Cell {1}/{2})'.format(w_str, i_cell + 1, n_cell)
+        w_prog.emit(w_str_nw, 100 * (p_w0  + p_w * (i_cell / n_cell)))
+
+        # normalises the spike counts (based on the remaining cells)
+        n_sp_norm = norm_spike_counts(n_sp[:, use_cell], n_tf, lda_para['is_norm'])
+
+        # runs the lda predictions for the current configuration
+        y_acc[i_cell] = run_lda_predictions(lda, n_sp_norm, i_grp)
+
+        # removes the next cell from the analysis
+        if is_dec:
+            # case is the top rated coefficients are being removed
+            use_cell[i_cell] = False
+        else:
+            # case is the lowest rated coefficients are being removed
+            use_cell[-(i_cell + 1)] = False
+
+    # returns the accuracy values
+    return y_acc
 
 #######################################
 ####    KINEMATIC LDA FUNCTIONS    ####

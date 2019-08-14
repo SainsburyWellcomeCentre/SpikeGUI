@@ -15,6 +15,7 @@ from scipy.stats import norm
 from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
+from scipy.interpolate import interp1d
 
 # sklearn module imports
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
@@ -33,6 +34,7 @@ from probez.spike_handling import spike_io
 # other parameters
 dcopy = copy.deepcopy
 default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
+interp_arr = lambda xi, y: np.vstack([interp1d(np.linspace(0, 1, len(x)), x, kind='nearest')(xi) for x in y])
 
 ########################################################################################################################
 ########################################################################################################################
@@ -1793,10 +1795,12 @@ class WorkerThread(QThread):
         # initialisations
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
         n_ex, n_tt, n_t, _r_filt = len(i_expt), len(r_filt['t_type']), dcopy(n_trial_max), dcopy(r_filt)
+        p_wt, p_wex, xi = 1 / n_tt, 1 / n_ex, np.linspace(0, 1, 101)
+        p_w = p_wt * p_wex
 
         # memory allocation
-        A = np.empty((n_ex, n_tt), dtype=object)
-        n_sp, c_ind, c_wght = dcopy(A), dcopy(A), dcopy(A)
+        B, C = np.empty(n_ex, dtype=object), np.empty(n_tt, dtype=object)
+        c_wght, y_top, y_bot = dcopy(C), dcopy(C), dcopy(C)
 
         # reduces down the data cluster to the valid experiments
         data_tmp = cfcn.reduce_cluster_data(data, i_expt)
@@ -1811,18 +1815,21 @@ class WorkerThread(QThread):
             r_obj = RotationFilteredData(data_tmp, _r_filt, None, None, True, 'Whole Experiment', False,
                                          t_ofs=t_ofs, t_phase=t_phase)
 
+            # memory allocation
+            y_acc_bot, y_acc_top, c_wght_ex = dcopy(B), dcopy(B), dcopy(B)
+
             # calculates the cell weight scores for each experiment
             for i_ex in range(n_ex):
-                #
-                w_str = 'Weighting Calculations (Expt {0}/{1}, {2})'.format(i_ex + 1, n_ex, tt)
-                w_prog.emit(w_str, 100. * (i_tt + (i_ex + 1) / n_ex) / n_ex)
+                # updates the progress bar
+                w_str = 'Weighting LDA ({0}, Expt {1}/{2}'.format(tt, i_ex + 1, n_ex)
+                p_w0 = p_wt * (i_tt + p_wex * i_ex)
 
                 # retrieves the spike counts for the current experiment
-                n_sp[i_ex, i_tt], i_grp = cfcn.setup_lda_spike_counts(r_obj, i_cell[i_ex], i_ex, n_t, return_all=False)
+                n_sp, i_grp = cfcn.setup_lda_spike_counts(r_obj, i_cell[i_ex], i_ex, n_t, return_all=False)
 
                 try:
                     # normalises the spike counts and fits the lda model
-                    n_sp_norm = cfcn.norm_spike_counts(n_sp[i_ex, i_tt], 2 * n_t, lda_para['is_norm'])
+                    n_sp_norm = cfcn.norm_spike_counts(n_sp, 2 * n_t, lda_para['is_norm'])
                     lda.fit(n_sp_norm, i_grp)
                 except:
                     if w_prog is not None:
@@ -1836,12 +1843,17 @@ class WorkerThread(QThread):
                 coef0 /= np.max(np.abs(coef0))
 
                 # sets the sorting indices and re-orders the weights
-                c_ind[i_ex, i_tt] = np.argsort(-np.abs(coef0))
-                c_wght[i_ex, i_tt] = coef0[0, c_ind[i_ex, i_tt]]
-                n_sp[i_ex, i_tt] = n_sp[i_ex, i_tt][:, c_ind[i_ex, i_tt]]
+                c_ind = np.argsort(-np.abs(coef0))[0]
+                c_wght_ex[i_ex] = coef0[0, c_ind]
+                n_sp = n_sp[:, c_ind]
 
-                # lda.predict(n_sp[i_ex, i_tt][0, :].reshape(1, -1))
-                # lda.predict_proba(n_sp[i_ex, i_tt][0, :].reshape(1, -1))
+                # calculates the top/bottom removed cells lda performance
+                y_acc_bot[i_ex] = cfcn.run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w/2, w_str, True)
+                y_acc_top[i_ex] = cfcn.run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0+p_w/2, p_w/2, w_str)
+
+            # calculates the interpolated bottom/top removed values
+            c_wght[i_tt] = interp_arr(xi, np.abs(c_wght_ex))
+            y_bot[i_tt], y_top[i_tt] = interp_arr(xi, y_acc_bot), interp_arr(xi, y_acc_top)
 
         #######################################
         ####    HOUSE KEEPING EXERCISES    ####
@@ -1859,8 +1871,10 @@ class WorkerThread(QThread):
         d_data.usefull = calc_para['use_full_rot']
 
         # sets the other parameters
-        d_data.c_ind = c_ind
+        d_data.xi = xi
         d_data.c_wght = c_wght
+        d_data.y_acc_bot = y_bot
+        d_data.y_acc_top = y_top
 
         # return the calculations were a success
         return True

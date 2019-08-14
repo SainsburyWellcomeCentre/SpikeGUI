@@ -6155,9 +6155,95 @@ class AnalysisGUI(QMainWindow):
         # retrieves the data classes
         d_data = self.data.discrim.wght
         n_cond, ttype = len(d_data.ttype), d_data.ttype
+        col = cf.get_plot_col(n_cond)
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # calculates the coefficient weight survival curves
+        c_wght_mn = [np.mean(x, axis=0) for x in d_data.c_wght]
+        c_wght_sem = [np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.c_wght]
+
+        # calculates the bottom-removed coefficient accuracy values
+        y_top_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_top]
+        y_top_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_top]
+
+        # calculates the bottom-removed coefficient accuracy values
+        y_bot_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
+        y_bot_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_bot]
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # sets up the axes dimensions
+        top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(2, 2, width_ratios=[1 / 2] * 2, height_ratios=[1 / 2] * 2, figure=self.plot_fig.fig,
+                               wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
+
+        # creates the subplots
+        self.plot_fig.ax = np.empty(3, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, 0])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[1, 1])
 
         #
-        a = 1
+        ax = self.plot_fig.ax
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        # initialisations
+        xi, h_plt = 100. * d_data.xi, []
+
+        #
+        for i_tt, tt in enumerate(ttype):
+            # creates the subplot graphs
+            h_plt.append(ax[0].plot(xi, c_wght_mn[i_tt], col[i_tt]))
+            cf.create_error_area_patch(ax[0], xi, c_wght_mn[i_tt], c_wght_sem[i_tt], col[i_tt])
+
+            # creates the subplot graphs
+            ax[1].plot(xi, y_top_mn[i_tt], col[i_tt])
+            cf.create_error_area_patch(ax[1], xi, y_top_mn[i_tt], y_top_sem[i_tt], col[i_tt])
+
+            #
+            ax[2].plot(xi, y_bot_mn[i_tt], col[i_tt])
+            cf.create_error_area_patch(ax[2], xi, y_bot_mn[i_tt], y_bot_sem[i_tt], col[i_tt])
+
+        # sets the legend
+        ax[0].legend([x[0] for x in h_plt], ttype, loc=0)
+
+        # sets the axis limits
+        xL, yL = [0., 100.], [0., 100.]
+        for i_ax, _ax in enumerate(ax):
+            # resets x-axis limits
+            _ax.set_xlim(xL)
+            _ax.grid(plot_grid)
+
+            if i_ax == 0:
+                # sets the x/y-labels
+                _ax.set_xlabel('% of Cell Population')
+                _ax.set_ylabel('Normalised Coefficient Value (a.u.)')
+
+                # sets the y-axis limits
+                _ax.set_ylim([0., 1.])
+            else:
+                # sets the x/y-labels
+                _ax.set_xlabel('% of Cell Removed')
+                _ax.set_ylabel('% Accuracy')
+
+                # plots the chance line
+                _ax.set_ylim(yL)
+                _ax.plot(xL, [50., 50.], c='gray', linewidth=2)
+
+        # sets the subplot titles
+        ax[0].set_title('Normalised LDA Coefficient Weights')
+        ax[1].set_title('LDA Accuracy (Worst-Ranked Coefficient Removed)')
+        ax[2].set_title('LDA Accuracy (Top-Ranked Coefficient Removed)')
 
     ######################################################
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
@@ -11607,8 +11693,10 @@ class SubDiscriminationData(object):
 
             elif type == 'LDAWeight':
                 # case is the LDA weights
-                self.c_ind = None
+                self.xi = None
                 self.c_wght = None
+                self.y_acc_bot = None
+                self.y_acc_top = None
 
         elif type in ['Temporal']:
             # case is the temporal LDA analysis
