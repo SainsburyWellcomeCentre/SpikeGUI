@@ -6145,12 +6145,46 @@ class AnalysisGUI(QMainWindow):
         ax.grid(plot_grid)
         ax.set_ylabel('Decoding Accuracy (%)')
 
-    def plot_lda_weights(self, plot_grid):
+    def plot_lda_weights(self, wght_thresh, plot_grid):
         '''
 
         :param plot_grid:
         :return:
         '''
+
+        def get_channel_depths(data, d_data):
+            '''
+
+            :param cluster:
+            :return:
+            '''
+
+            # retrieves the important indices
+            i_expt, c_ind = d_data.i_expt, d_data.c_ind
+            i_c = [np.where(x)[0] for x in d_data.i_cell]
+
+            # memory allocation
+            n_tt = np.size(c_ind, axis=1)
+            A = np.empty(n_tt, dtype=object)
+            chL, chD, cW = dcopy(A), dcopy(A), dcopy(A)
+
+            # retrieves the channel depth map/indices over each cluster
+            _data = cfcn.reduce_cluster_data(data, i_expt)
+            chDepth = [c['chDepth'][_ic] for c, _ic in zip(_data._cluster, i_c)]
+            chMap = [c['expInfo']['channel_map'] for c in _data._cluster]
+
+            # retrieves the channel layer/depths for each valid cluster
+            chL0 = [c['chLayer'][_ic] for c, _ic in zip(_data._cluster, i_c)]
+            chD0 = [np.array([_chM[_chM[:, 1] == x, 3][0] for x in _chD]) for _chM, _chD in zip(chMap, chDepth)]
+
+            # reorders the channel layer/depth values by decreasing
+            for i_tt in range(n_tt):
+                chL[i_tt] = np.hstack([chL[ind] for chL, ind in zip(chL0, c_ind[:, i_tt])]).reshape(-1, 1)
+                chD[i_tt] = np.hstack([chD[ind] for chD, ind in zip(chD0, c_ind[:, i_tt])]).reshape(-1, 1)
+                cW[i_tt] = np.abs(np.hstack([x for x in d_data.c_wght0[:, i_tt]])).reshape(-1, 1)
+
+            # return channel layer/depth values
+            return chD, chL, cW
 
         # retrieves the data classes
         d_data = self.data.discrim.wght
@@ -6173,24 +6207,30 @@ class AnalysisGUI(QMainWindow):
         y_bot_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
         y_bot_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_bot]
 
+        # retrieves the channel depths/layer and normalised coefficient weights
+        chDepth, chLayer, cWght = get_channel_depths(self.data, d_data)
+
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
         #######################################
 
         # sets up the axes dimensions
-        top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
+        n_row, n_col = 2, 6
+        top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.5, 0.25
 
         # creates the gridspec object
-        gs = gridspec.GridSpec(2, 2, width_ratios=[1 / 2] * 2, height_ratios=[1 / 2] * 2, figure=self.plot_fig.fig,
-                               wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
+        gs = gridspec.GridSpec(n_row, n_col, width_ratios=[1 / n_col] * n_col, height_ratios=[1 / n_row] * n_row,
+                               figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                               bottom=bottom, top=top)
 
         # creates the subplots
-        self.plot_fig.ax = np.empty(3, dtype=object)
-        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :])
-        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, 0])
-        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[1, 1])
+        self.plot_fig.ax = np.empty(4, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :4])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :3])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[1, 3:])
+        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 4:])
 
-        #
+        # retrieves the axes handles
         ax = self.plot_fig.ax
 
         ################################
@@ -6202,15 +6242,15 @@ class AnalysisGUI(QMainWindow):
 
         #
         for i_tt, tt in enumerate(ttype):
-            # creates the subplot graphs
+            # creates the coefficient weighting survival curve
             h_plt.append(ax[0].plot(xi, c_wght_mn[i_tt], col[i_tt]))
             cf.create_error_area_patch(ax[0], xi, c_wght_mn[i_tt], c_wght_sem[i_tt], col[i_tt])
 
-            # creates the subplot graphs
+            # creates the worst-ranked removed LDA accuracy
             ax[1].plot(xi, y_top_mn[i_tt], col[i_tt])
             cf.create_error_area_patch(ax[1], xi, y_top_mn[i_tt], y_top_sem[i_tt], col[i_tt])
 
-            #
+            # creates the best-ranked removed LDA accuracy
             ax[2].plot(xi, y_bot_mn[i_tt], col[i_tt])
             cf.create_error_area_patch(ax[2], xi, y_bot_mn[i_tt], y_bot_sem[i_tt], col[i_tt])
 
@@ -6219,7 +6259,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the axis limits
         xL, yL = [0., 100.], [0., 100.]
-        for i_ax, _ax in enumerate(ax):
+        for i_ax, _ax in enumerate(ax[:3]):
             # resets x-axis limits
             _ax.set_xlim(xL)
             _ax.grid(plot_grid)
@@ -6240,10 +6280,36 @@ class AnalysisGUI(QMainWindow):
                 _ax.set_ylim(yL)
                 _ax.plot(xL, [50., 50.], c='gray', linewidth=2)
 
+        # plots the coefficient weight threshold
+        ax[0].plot(xL, wght_thresh * np.ones(2), 'r--', linewidth=2)
+
         # sets the subplot titles
-        ax[0].set_title('Normalised LDA Coefficient Weights')
-        ax[1].set_title('LDA Accuracy (Worst-Ranked Coefficient Removed)')
-        ax[2].set_title('LDA Accuracy (Top-Ranked Coefficient Removed)')
+        ax[0].set_title('Normalised LDA Coefficient Survival Curve')
+        ax[1].set_title('LDA Accuracy (Worst-Ranked Removed)')
+        ax[2].set_title('LDA Accuracy (Top-Ranked Removed)')
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        # sets the x index
+        m_sz, m_type = 120., 'o^s*'
+        chLayer_uniq = list(np.unique(chLayer[0]))
+        mType = [m_type[chLayer_uniq.index(x)] for x in chLayer[0]]
+
+        #
+        for i_tt in range(len(chLayer)):
+            for i_c in range(len(mType)):
+                ax[3].scatter(cWght[i_tt][i_c], chDepth[i_tt][i_c], facecolor='none',
+                              edgecolors=col[i_tt], marker=mType[i_c])
+
+        # # plots the mean marker points
+        # ax[3].scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz)
+        #
+        # # plots the individual points
+        # for i_ex in range(n_ex):
+        #     ax[3].scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+        #                   edgecolors=col[i_cond], s=n_cell[i_ex])
 
     ######################################################
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
@@ -9969,6 +10035,7 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
+            'wght_thresh': {'text': 'Coefficient Weight Threshold', 'def_val': 0.05, 'min_val': 0.0, 'max_val': 1.0},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -11695,6 +11762,7 @@ class SubDiscriminationData(object):
                 # case is the LDA weights
                 self.xi = None
                 self.c_wght = None
+                self.c_wght0 = None
                 self.y_acc_bot = None
                 self.y_acc_top = None
 

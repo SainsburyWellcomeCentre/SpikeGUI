@@ -1799,7 +1799,8 @@ class WorkerThread(QThread):
         p_w = p_wt * p_wex
 
         # memory allocation
-        B, C = np.empty(n_ex, dtype=object), np.empty(n_tt, dtype=object)
+        A, B, C = np.empty((n_ex, n_tt), dtype=object), np.empty(n_ex, dtype=object), np.empty(n_tt, dtype=object)
+        c_ind, c_wght0 = dcopy(A), dcopy(A)
         c_wght, y_top, y_bot = dcopy(C), dcopy(C), dcopy(C)
 
         # reduces down the data cluster to the valid experiments
@@ -1843,16 +1844,16 @@ class WorkerThread(QThread):
                 coef0 /= np.max(np.abs(coef0))
 
                 # sets the sorting indices and re-orders the weights
-                c_ind = np.argsort(-np.abs(coef0))[0]
-                c_wght_ex[i_ex] = coef0[0, c_ind]
-                n_sp = n_sp[:, c_ind]
+                c_ind[i_ex, i_tt] = np.argsort(-np.abs(coef0))[0]
+                c_wght0[i_ex, i_tt] = coef0[0, c_ind[i_ex, i_tt]]
+                n_sp = n_sp[:, c_ind[i_ex, i_tt]]
 
                 # calculates the top/bottom removed cells lda performance
                 y_acc_bot[i_ex] = cfcn.run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w/2, w_str, True)
                 y_acc_top[i_ex] = cfcn.run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0+p_w/2, p_w/2, w_str)
 
             # calculates the interpolated bottom/top removed values
-            c_wght[i_tt] = interp_arr(xi, np.abs(c_wght_ex))
+            c_wght[i_tt] = interp_arr(xi, np.abs(c_wght0[:, i_tt]))
             y_bot[i_tt], y_top[i_tt] = interp_arr(xi, y_acc_bot), interp_arr(xi, y_acc_top)
 
         #######################################
@@ -1872,7 +1873,9 @@ class WorkerThread(QThread):
 
         # sets the other parameters
         d_data.xi = xi
+        d_data.c_ind = c_ind
         d_data.c_wght = c_wght
+        d_data.c_wght0 = c_wght0
         d_data.y_acc_bot = y_bot
         d_data.y_acc_top = y_top
 
