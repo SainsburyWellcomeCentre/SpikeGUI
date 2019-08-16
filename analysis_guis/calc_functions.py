@@ -1677,14 +1677,17 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
     for i_filt in range(len(vel_f)):
         if len(np.shape(vel_f[i_filt])) == 4:
             if calc_para['freq_type'] == 'All':
-                # case is considering all frequency types (stack frequencies on top of each other)
+                # case is considering mean frequency types (take mean of the decreasing/increasing velocity frequencies)
                 vel_f[i_filt] = np.mean(vel_f[i_filt], axis=3)
             elif calc_para['freq_type'] == 'Decreasing':
                 # case is only considering decreasing velocity frequencies
                 vel_f[i_filt] = vel_f[i_filt][:, :, :, 0]
-            else:
+            elif calc_para['freq_type'] == 'Increasing':
                 # case is only considering increasing velocity frequencies
                 vel_f[i_filt] = vel_f[i_filt][:, :, :, 1]
+            elif calc_para['freq_type'] == 'Both':
+                # case is only considering both velocity frequency types (stack both types on top of each other)
+                vel_f[i_filt] = np.vstack((vel_f[i_filt][:, :, :, 0], vel_f[i_filt][:, :, :, 1]))
 
     # sets the comparison bin for the velocity/speed arrays
     n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin[:, 0] == 0)[0][0]
@@ -2719,9 +2722,13 @@ def reduce_cluster_data(data, i_expt):
     data_tmp = dcopy(data)
 
     # reduces down the number of
-    if len(i_expt) != len(data_tmp.cluster):
-        data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
-        data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
+    if data_tmp.cluster is not None:
+        if len(i_expt) != len(data_tmp.cluster):
+            data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
+
+    if data_tmp._cluster is not None:
+        if len(i_expt) != len(data_tmp._cluster):
+            data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
 
     # returns the reduced data class object
     return data_tmp
@@ -2882,6 +2889,20 @@ def get_pool_cell_counts(data, lda_para, type=0):
         return [x for x in n_cell if x <= n_cell_tot] + ([n_cell_tot] if n_cell_tot not in n_cell else [])
 
 
+def det_uniq_channel_layers(data, lda_para):
+    '''
+
+    :param data:
+    :param wght_lda_para:
+    :return:
+    '''
+
+    # retrieves the valid experiment/cell and reduces down the cluster data array
+    _, i_expt, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para})
+    _data = reduce_cluster_data(data, i_expt)
+
+    # returns the unique layer types
+    return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
 
 # def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
 #     '''

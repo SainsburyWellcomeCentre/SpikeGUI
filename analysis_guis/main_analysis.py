@@ -4089,7 +4089,7 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, use_resp_grp_type,
+    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, mark_type,
                                    show_grp_markers, plot_trend, plot_grid, plot_scope):
         '''
 
@@ -4117,16 +4117,24 @@ class AnalysisGUI(QMainWindow):
             return
 
         # memory allocation and other initialisations
-        x_trend = np.arange(0, 10, 0.02)
+        x_trend, is_cong = np.arange(0, 10, 0.02), False
         n_filt, r_data = r_obj.n_filt, self.data.rotation
         A = np.empty(n_filt, dtype=object)
 
         #
-        if use_resp_grp_type:
-            grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
-        else:
+        if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
             st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
             grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
+        elif mark_type == 'Rotation/Visual Response':
+            grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
+        elif mark_type == 'Congruency':
+            grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
+
+        # if use_resp_grp_type:
+        #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
+        # else:
+        #     st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
+        #     grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
 
         # determine the matching cell indices between the current and black filter
         i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
@@ -4177,7 +4185,7 @@ class AnalysisGUI(QMainWindow):
                 y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
 
                 # removes any cells where the group type was not calculated
-                is_ok = g_type_m >= 0
+                is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
                 if not np.all(is_ok):
                     g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
                     i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
@@ -4193,11 +4201,17 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the final significance plot colours
                 if show_grp_markers:
+                    mlt = 3
                     sig_col_plt, mlt = np.array([sig_col[x] if x > 0 else None for x in xy_sig]), 3
-                    jj = xy_sig > 0
+                    if is_cong:
+                        jj = np.ones(len(xy_sig), dtype=bool)
+                        sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                    else:
+                        jj = xy_sig > 0
+                        sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
                 else:
-                    sig_col_plt, mlt = np.array([sig_col[x] for x in xy_sig]), 1
-                    jj = np.ones(len(xy_sig), dtype=bool)
+                    sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                    jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
 
                 # creates the significance markers
                 self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], c=sig_col_plt[jj], marker=m[i], s=mlt*m_size)
@@ -6145,7 +6159,7 @@ class AnalysisGUI(QMainWindow):
         ax.grid(plot_grid)
         ax.set_ylabel('Decoding Accuracy (%)')
 
-    def plot_lda_weights(self, wght_thresh, plot_grid):
+    def plot_lda_weights(self, wght_thresh, plot_cond, plot_layer, plot_comp, plot_grid):
         '''
 
         :param plot_grid:
@@ -6191,6 +6205,17 @@ class AnalysisGUI(QMainWindow):
         n_cond, ttype = len(d_data.ttype), d_data.ttype
         col = cf.get_plot_col(n_cond)
 
+        #
+        if plot_cond:
+            if (len(plot_cond) == 0) or (len(plot_layer) == 0):
+                # if not valid, then output an error message to screen
+                e_str = 'At least one plot condition/layer type must be selected to run this function.'
+                cf.show_error(e_str, 'Invalid Plotting Configuration')
+
+                # exit with a error flag and exit the function
+                self.calc_ok = False
+                return
+
         ###################################
         ####    DATA PRE-PROCESSING    ####
         ###################################
@@ -6207,9 +6232,6 @@ class AnalysisGUI(QMainWindow):
         y_bot_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
         y_bot_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_bot]
 
-        # retrieves the channel depths/layer and normalised coefficient weights
-        chDepth, chLayer, cWght = get_channel_depths(self.data, d_data)
-
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
         #######################################
@@ -6224,11 +6246,18 @@ class AnalysisGUI(QMainWindow):
                                bottom=bottom, top=top)
 
         # creates the subplots
-        self.plot_fig.ax = np.empty(4, dtype=object)
-        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :4])
+        self.plot_fig.ax = np.empty(3 + plot_comp, dtype=object)
         self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :3])
         self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[1, 3:])
-        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 4:])
+
+        # creates the top row subplots (based on the plot type)
+        if plot_comp:
+            # case is plotting the comparison sub-plot
+            self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :4])
+            self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[0, 4:])
+        else:
+            # case is not plotting the comparison sub-plot
+            self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :])
 
         # retrieves the axes handles
         ax = self.plot_fig.ax
@@ -6292,16 +6321,52 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT CREATION    ####
         ################################
 
+        # if not plotting the comparison, then exit the function
+        if not plot_comp:
+            return
+
+        # retrieves the channel depths/layer and normalised coefficient weights
+        chDepth, chLayer, cWght = get_channel_depths(self.data, d_data)
+
         # sets the x index
-        m_sz, m_type = 120., 'o^s*'
+        m_sz, m_type, h_plt = 120., 'o^s*', []
         chLayer_uniq = list(np.unique(chLayer[0]))
         mType = [m_type[chLayer_uniq.index(x)] for x in chLayer[0]]
 
-        #
+        # creates the scatterplot
         for i_tt in range(len(chLayer)):
-            for i_c in range(len(mType)):
-                ax[3].scatter(cWght[i_tt][i_c], chDepth[i_tt][i_c], facecolor='none',
-                              edgecolors=col[i_tt], marker=mType[i_c])
+            # only plot the values if the trial type is in the user defined parameters
+            if ttype[i_tt] in plot_cond:
+                for i_c in range(len(mType)):
+
+                    # only plot the values if the layer type is in the user defined parameters
+                    if chLayer[0][i_c] in plot_layer:
+                        ax[3].scatter(cWght[i_tt][i_c], chDepth[i_tt][i_c], facecolor='none',
+                                      edgecolors=col[i_tt], marker=mType[i_c])
+
+        # retrieves the axis limits
+        xL, yL, lg_str = ax[3].get_xlim(), list(ax[3].get_ylim()), dcopy(plot_layer)
+        yL[1] *= 1.25
+
+        # plots the dummy layer type markers
+        for i_chL, chL in enumerate(chLayer_uniq):
+            if chL in plot_layer:
+                h_plt.append(ax[3].scatter(-1, -1, facecolor='none', edgecolors='k', marker=m_type[i_chL]))
+
+        # plots the dummy layer type markers
+        for i_tt, tt in enumerate(ttype):
+            if tt in plot_cond:
+                lg_str.append(tt)
+                h_plt.append(ax[3].scatter(-1, -1, facecolor=col[i_tt], edgecolors=col[i_tt], marker='o'))
+
+        # creates the legend object
+        ax[3].legend(h_plt, lg_str, loc='upper right', ncol=2)
+
+        # sets the axis properties
+        ax[3].set_title('Depth vs Coefficient')
+        ax[3].set_ylabel('Depth (um)')
+        ax[3].set_xlim(xL)
+        ax[3].set_ylim(yL)
 
         # # plots the mean marker points
         # ax[3].scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz)
@@ -9189,6 +9254,7 @@ class AnalysisFunctions(object):
         freq_type = ['Decreasing', 'Increasing', 'All']
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
+        resp_grp_type = ['Rotation/Visual Response', 'Motion Sensitivity/Direction Selectivity', 'Congruency']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -9596,12 +9662,15 @@ class AnalysisFunctions(object):
             'plot_cond': {
                 'type': 'L', 'text': 'Comparison Condition', 'list': p_cond, 'def_val': 'Uniform',
             },
+            'mark_type': {
+                'type': 'L', 'text': 'Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
+            },
             'show_grp_markers': {
-                'type': 'B', 'text': 'Show Grouping Markers', 'def_val': False
+                'type': 'B', 'text': 'Show Grouping Type Markers', 'def_val': False, 'link_para': ['mark_type', False]
             },
-            'use_resp_grp_type': {
-                'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
-            },
+            # 'use_resp_grp_type': {
+            #     'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
+            # },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -9747,7 +9816,8 @@ class AnalysisFunctions(object):
         # parameter lists
         err_type = ['SEM', 'Min/Max', 'None']
         decode_type = ['Condition'] + ['Dir ({0})'.format(x) for x in indiv_lda_para['comp_cond']]
-        cond_type = ['Black', 'Uniform']
+        wght_plot_cond = wght_lda_para['comp_cond']
+        wght_plot_layer = cfcn.det_uniq_channel_layers(data, wght_lda_para)
         acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
 
         # ====> Rotation Direction LDA
@@ -10018,7 +10088,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': wght_lda_para
+                'def_val': wght_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl],
+                                                         ['plot_layer', self.reset_plot_layer]],
             },
             't_phase_rot': {
                 'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
@@ -10036,6 +10107,16 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'wght_thresh': {'text': 'Coefficient Weight Threshold', 'def_val': 0.05, 'min_val': 0.0, 'max_val': 1.0},
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': wght_plot_cond,
+                'def_val': np.ones(len(wght_plot_cond), dtype=bool),
+            },
+            'plot_layer': {
+                'type': 'CL', 'text': 'Plot Channel Layers', 'list': wght_plot_layer,
+                'def_val': np.ones(len(wght_plot_layer), dtype=bool), 'other_para': '--- Select Layer Types ---'
+            },
+            'plot_comp': {'type': 'B', 'text': 'Show Coefficient/Depth Comparison', 'def_val': False,
+                          'link_para': [['plot_cond', False], ['plot_layer', False]]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -10232,8 +10313,8 @@ class AnalysisFunctions(object):
 
             # invisible parameters
             'freq_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'Increasing',
-                'is_visible': False
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['Increasing'],
+                'def_val': 'Increasing', 'is_visible': False
             },
 
             # plotting parameters
@@ -11144,6 +11225,45 @@ class AnalysisFunctions(object):
 
         # retrieves the new text list
         nw_txt = dcopy(exp_info['comp_cond'])
+
+        # checks if there is a change in the comparison conditions
+        if set(nw_txt) != set(curr_txt[1:]):
+            # determines the plot function that is currently selected
+            d_grp = self.details[self.get_plot_grp_fcn()]
+            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+            # sets the list selection index (if current selection is gone, then set to zero)
+            is_match = [x in self.curr_para[p_name] for x in nw_txt]
+
+            # removes the existing items
+            for i in range(1, h_list.count()):
+                h_list.removeItem(1)
+
+            # adds the new range
+            for i, txt in enumerate(nw_txt):
+                h_list.addItem(txt, True)
+                nw_item = h_list.model().item(i + 1)
+                nw_item.setCheckState(Qt.Checked if is_match[i] else Qt.Unchecked)
+
+            # resets the associated parameter value
+            h_list.setCurrentIndex(0)
+            self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
+            d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
+    def reset_plot_layer(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # retrieves the list object corresponding to the parameter
+        h_list = self.find_obj_handle([QComboBox], p_name)[0]
+        curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
+
+        # retrieves the new text list
+        nw_txt = cfcn.det_uniq_channel_layers(self.get_data_fcn(), exp_info)
 
         # checks if there is a change in the comparison conditions
         if set(nw_txt) != set(curr_txt[1:]):
