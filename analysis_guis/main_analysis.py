@@ -4958,7 +4958,7 @@ class AnalysisGUI(QMainWindow):
         ################################
 
         #
-        m, col = ['s', '^'], ['b', 'r']
+        col, m = ['b', 'r'], ['s', '^'],
 
         #
         for i_tt, tt in enumerate(t_type):
