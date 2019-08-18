@@ -159,7 +159,8 @@ class RotationFilter(QDialog):
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
         # retrieves the trial-types from each experiment
-        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis', 'Miscellaneous Functions']) or \
+        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
+                              'Miscellaneous Functions', 'Depth-Based Analysis']) or \
            (self.is_exc and (not self.is_ud)):
             t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
             if self.use_both:
@@ -222,10 +223,10 @@ class RotationFilter(QDialog):
             # sets the exclusion filter based on the analysis type
             if self.is_ud:
                 # case is uniformdrifting analysis
-                exc_filt = self.data.rotation.exc_ud_filt
+                exc_filt = self.data.exc_ud_filt
             else:
                 # case is rotation analysis
-                exc_filt = self.data.rotation.exc_rot_filt
+                exc_filt = self.data.exc_rot_filt
 
             # loops through each of the filter keys removing any
             for fk in exc_filt.keys():

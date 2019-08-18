@@ -85,16 +85,20 @@ class LDASolverPara(QDialog):
 
         self.f_data = cfcn.init_lda_solver_para()
 
-    def init_filter_fields(self):
+    def init_filter_fields(self, r_data):
         '''
 
         :return:
         '''
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = self.data.rotation
+
         # retrieves the data clusters for each of the valid rotation experiments
         is_rot_expt = cf.det_valid_rotation_expt(self.data)
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
-        r_data, d_data = self.data.rotation, self.data.discrim.indiv
+        d_data = self.data.discrim.indiv
 
         # retrieves the trial-types from each experiment
         comp_cond = list(np.unique(cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])))

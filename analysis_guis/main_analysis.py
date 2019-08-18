@@ -115,8 +115,8 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 
 # other initialisations
 dcopy = copy.deepcopy
-func_types = np.array(['Cluster Matching','Cluster Classification','Rotation Analysis',
-                       'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis',
+func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Rotation Analysis',
+                       'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis', 'Depth-Based Analysis',
                        'Rotation Discrimination Analysis', 'Kinematic Discrimination Analysis',
                        'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
@@ -560,16 +560,23 @@ class AnalysisGUI(QMainWindow):
                 if (worker_data is not None) and len(worker_data):
                     for loaded_data in worker_data:
                         if isinstance(loaded_data, dict):
+                            # case is a single file
                             self.data._cluster.append(loaded_data)
                         else:
+                            # case is a multi-file
                             self.data, init_data = loaded_data, False
+
+                            # initialises the multi file data field (if not provided)
                             if not hasattr(loaded_data, 'multi'):
                                 self.data.multi = MultiFileData()
                                 self.data.multi.set_multi_file_data(self.worker[iw].thread_job_para[0])
 
+                            # adds in any missing
+                            self.data.check_missing_fields()
+
                     if init_data:
-                        self.data.rotation.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
-                        self.data.rotation.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
+                        self.data.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
+                        self.data.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
                 # sets up the analysis functions and resets the current parameter fields
                 self.fcn_data.init_all_func()
@@ -594,6 +601,7 @@ class AnalysisGUI(QMainWindow):
                     self.data.comp.init_comparison_data()
                     self.data.classify.init_classify_fields(exp_name, clust_id)
                     self.data.rotation.init_rot_fields()
+                    self.data.depth.init_rot_fields()
                     self.data.discrim.init_discrim_fields()
 
                 # enables the menu item
@@ -626,7 +634,7 @@ class AnalysisGUI(QMainWindow):
 
                 # if single experiments are loaded, then determine the function types
                 if not self.is_multi:
-                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt,
+                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
                                has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
                     new_func_types = func_types[np.array(is_keep)]
 
@@ -642,11 +650,11 @@ class AnalysisGUI(QMainWindow):
 
                 # updates the exclusion rotation filter (if any experiments contain rotational data)
                 if has_rot_expt:
-                    self.data.rotation.update_rot_filter()
+                    self.data.update_rot_filter()
 
                 # updates the exclusion uniformdrifting filter (if any experiments contain uniformdrifting data)
                 if has_ud_expt:
-                    self.data.rotation.update_ud_filter()
+                    self.data.update_ud_filter()
 
                 if self.combo_scope.count() != len(new_func_types):
                     # sets the flag which disables the function type callback function
@@ -1382,12 +1390,12 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # runs the rotation filter in exclustion mode
-        r_filt = RotationFilter(self.fcn_data, init_data=self.data.rotation.exc_rot_filt, is_exc=True)
+        r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_rot_filt, is_exc=True)
 
         # determines if the gui was updated correctly
         if r_filt.is_ok:
             # updates the current parameter value
-            self.data.rotation.exc_rot_filt = r_filt.get_info()
+            self.data.exc_rot_filt = r_filt.get_info()
             self.data.req_update = True
             self.data.force_calc = True
 
@@ -1398,12 +1406,12 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # runs the uniformdrifting filter in exclustion mode
-        r_filt = RotationFilter(self.fcn_data, init_data=self.data.rotation.exc_ud_filt, is_exc=True)
+        r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_ud_filt, is_exc=True)
 
         # determines if the gui was updated correctly
         if r_filt.is_ok:
             # updates the current parameter value
-            self.data.rotation.exc_ud_filt = r_filt.get_info()
+            self.data.exc_ud_filt = r_filt.get_info()
             self.data.req_update = True
             self.data.force_calc = True
 
@@ -1557,7 +1565,7 @@ class AnalysisGUI(QMainWindow):
         # determines the calculation parameters
         if len(calc_para):
             # if there are any calculation parameters, then determine if any of them have changed (or have been set)
-            if self.det_calc_para_change(calc_para, plot_para, current_fcn):
+            if self.det_calc_para_change(calc_para, plot_para, current_fcn, plot_scope):
                 # if so, then run the calculation thread
                 self.fcn_data.prev_fcn = dcopy(current_fcn)
                 self.fcn_data.prev_calc_para = dcopy(calc_para)
@@ -4353,9 +4361,6 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].plot([1, 10], [1, 10])
         self.plot_fig.ax[2].plot([1, 10], [1, 10])
 
-        # FINISH ME!
-        a = 1
-
     def setup_pooled_neuron(r_obj, i_filt, pref_cw_dir, mtrial_type='Min Match', i_pool=None, p_sz=None):
         '''
 
@@ -4884,6 +4889,142 @@ class AnalysisGUI(QMainWindow):
 
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
                                        plot_grp_type, cell_grp_type, plot_grid, plot_scope, True)
+
+    ##############################################
+    ####    DEPTH-BASED ANALYSIS FUNCTIONS    ####
+    ##############################################
+
+    def plot_depth_spiking(self, rot_filt, depth_type, plot_grid, plot_all_expt,  plot_scope):
+        '''
+
+        :param rot_filt:
+        :param depth_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # initialisations
+        r_data = self.data.depth
+        plt, stats, ind, t_type = r_data.plt, r_data.stats, r_data.ind, r_data.r_filt['t_type']
+        n_tt, ch_depth, ch_region, ch_layer = len(t_type), r_data.ch_depth, r_data.ch_region, r_data.ch_layer
+
+        #
+        auc = r_data.cond_roc_auc
+        col, n_phase, p_value = ['r', 'b'], 3, 0.05
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        if depth_type == 'Preferred/Baseline FR Difference':
+            # sets up the significance
+            imx = np.argmax(np.array(plt[2]), axis=0)
+            p_sig = np.array([stats[_imx][i] for i, _imx in enumerate(imx)])
+            is_sig = [p_sig[_ind] < p_value for _ind in ind]
+
+            # sets up the plot values
+            dsf_Pref_BL = np.max(np.array(plt[2]), axis=0) - np.array(plt[0])[0, :]
+            x_plt = [dsf_Pref_BL[_ind] for _ind in ind]
+
+            # sets the x-axis limits/label
+            xL = np.ceil(max(max([np.max(x) for x in x_plt]), np.abs(min([np.min(x) for x in x_plt]))))
+            x_lim, x_lbl, x_mid = [-xL, xL], 'FR(Pref) - FR(BL) (spike/s)', 0
+
+        elif depth_type == 'CW/CCW auROC Difference':
+            # sets the x-axis limits/label
+            x_lim, x_lbl, x_mid = [-1, 1], 'auROC(CCW) - auROC(CW) (a.u.)', 0
+
+            # sets up the plot values
+            x_plt = [np.diff(auc[tt][:, 1:], axis=1) for tt in t_type]
+
+        elif depth_type == 'CW/CCW FR Difference':
+            # sets up the plot values
+            x_plt = [np.diff(np.array(plt[2])[:, _ind], axis=0) for _ind in ind]
+
+            # sets the x-axis limits/label
+            xL = np.ceil(max(max([np.max(x) for x in x_plt]), np.abs(min([np.min(x) for x in x_plt]))))
+            x_lim, x_lbl, x_mid = [-xL, xL], 'FR(CCW) - FR(CW) (spike/s)', 0
+
+        #############################
+        ####    SUBPLOT SETUP    ####
+        #############################
+
+        # initialises the plot axis
+        self.plot_fig.setup_plot_axis(n_row=1, n_col=n_tt)
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        #
+        m, col = ['s', '^'], ['b', 'r']
+
+        #
+        for i_tt, tt in enumerate(t_type):
+            # initialisations
+            ax = self.plot_fig.ax[i_tt]
+
+            # retrieves the indices of the
+            is_rspg, y_depth, y_layer = (ch_region[tt] == 'RSPg'), ch_depth[tt], ch_layer[tt]
+
+            #
+            i_grp = [
+                np.logical_and(is_rspg, is_sig[i_tt]),
+                np.logical_and(is_rspg, np.logical_not(is_sig[i_tt])),
+                np.logical_and(np.logical_not(is_rspg), is_sig[i_tt]),
+                np.logical_and(np.logical_not(is_rspg), np.logical_not(is_sig[i_tt])),
+            ]
+
+            #
+            for i in range(2):
+                for j in range(2):
+                    k = 2 * i + j
+                    x0, is_sig_nw = x_plt[i_tt][i_grp[k]], is_sig[i_tt][i_grp[k]]
+                    e_col = [col[is_pos] for is_pos in (x0 < x_mid)]
+
+                    for kk in range(len(x0)):
+                        h_nw = ax.scatter(x0[kk], y_depth[i_grp[k]][kk], marker=m[i],
+                                          facecolor=e_col[kk] if j==0 else 'w', edgecolors=e_col[kk], s=120)
+
+            # plots the midline
+            yL = ax.get_ylim()
+            ax.plot([0, 0], yL, 'k--')
+            ax.set_ylim(yL)
+
+            #
+            if i_tt == 0:
+                h_lg = []
+                lg_str = ['{0}{1})'.format(_lg_str, x_mid) for _lg_str in ['RSPg (<', 'RSPg (>', 'RSPd (<', 'RSPd (>']]
+
+                for i in range(2):
+                    for j in range(2):
+                        h_lg.append(ax.scatter(0, 10000., marker=m[i], facecolor=col[j], edgecolor=col[j]))
+
+                ax.legend(h_lg, lg_str, loc=0)
+
+            # sets the plot axis
+            ax.set_title(tt)
+            ax.set_xlim(x_lim)
+            ax.set_xlabel(x_lbl)
+            ax.grid(plot_grid)
+
+            # sets the y-axis label
+            if i_tt == 0:
+                ax.set_ylabel('Depth from Electrode Tip (um)')
+
+    def plot_depth_spiking_multi(self, rot_filt, depth_type, plot_grid, plot_all_expt, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param depth_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # REMOVE ME LATER
+        a = 1
 
     #########################################################
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
@@ -7027,10 +7168,11 @@ class AnalysisGUI(QMainWindow):
             # if showing the preferred direction, then re-order the arrays accordingly
             if show_pref_dir:
                 for i_c in range(np.size(t_sp_t[i_filt, 1], axis=0)):
-                    # determines which trials need to be swapped (and swaps accordingly)
+                    # determines which trials need to be swapped
                     is_swap = [False if ((x is None) or (y is None)) else (len(y)) > len(x)
                                for x, y in zip(t_sp_t[i_filt, 1][i_c, :], t_sp_t[i_filt, 2][i_c, :])]
                     for i_s in np.where(is_swap)[0]:
+                        # swaps all the required trials
                         t_sp_t[i_filt, 1][i_c, i_s], t_sp_t[i_filt, 2][i_c, i_s] = \
                             t_sp_t[i_filt, 2][i_c, i_s], t_sp_t[i_filt, 1][i_c, i_s]
 
@@ -7226,7 +7368,7 @@ class AnalysisGUI(QMainWindow):
         # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
         sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj)
         s_plt, sf_trend, sf_stats, i_grp[0] = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub,
-                                                                           plot_trend=plot_trend, is_3d=is_3d)
+                                                                              plot_trend=plot_trend, is_3d=is_3d)
 
         #########################################
         ####    SCATTERPLOT SUBPLOT SETUP    ####
@@ -8128,7 +8270,7 @@ class AnalysisGUI(QMainWindow):
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-    def det_calc_para_change(self, calc_para, plot_para, current_fcn):
+    def det_calc_para_change(self, calc_para, plot_para, current_fcn, plot_scope):
         '''
 
         :param calc_para:
@@ -8136,28 +8278,17 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        # mandatory update plot scope list
+        plot_scope_chk = ['ROC Analysis',
+                          'Combined Analysis',
+                          'Depth-Based Analysis',
+                          'Rotation Discrimination Analysis',
+                          'Kinematic Discrimination Analysis',
+                          'Miscellaneous Functions']
+
         # mandatory update function list
-        func_plot_chk = ['Direction ROC Curves (Single Cell)',
-                         'Direction ROC Curves (Whole Experiment)',
-                         'Direction ROC AUC Histograms',
-                         'Motion/Direction Selectivity Cell Grouping Scatterplot',
-                         'Rotation/Visual Stimuli Response Statistics',
-                         'Velocity ROC Curves (Single Cell)',
-                         'Velocity ROC Curves (Whole Experiment)',
-                         'Velocity ROC Curves (Pos/Neg Comparison)',
-                         'Combined Direction ROC Curves (Whole Experiment)',
-                         'Rotation Direction LDA',
-                         'Temporal Duration/Offset LDA',
-                         'Individual LDA',
-                         'Shuffled LDA',
-                         'Pooled Neuron LDA',
-                         'Individual Cell Accuracy Filtered LDA',
-                         'LDA Group Weightings',
-                         'Speed LDA Accuracy',
-                         'Speed LDA Comparison (Individual Experiments)',
-                         'Speed LDA Comparison (Pooled Experiments)',
-                         'Velocity Direction Discrimination LDA',
-                         'Encoding Spiking Frequency Dataframe']
+        func_plot_chk = ['Shuffled Cluster Distances',
+                         'Cluster Cross-Correlogram']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -8182,7 +8313,7 @@ class AnalysisGUI(QMainWindow):
                     return True
 
             # if in the analysis list, determine if any of the plotting parameters have changed
-            if current_fcn in func_plot_chk:
+            if (current_fcn in func_plot_chk) or (plot_scope in plot_scope_chk):
                 for pp in plot_para:
                     if pp in self.fcn_data.prev_plot_para:
                         if (pp != 'exp_name') and (plot_para[pp] != self.fcn_data.prev_plot_para[pp]):
@@ -9800,6 +9931,121 @@ class AnalysisFunctions(object):
                       func='plot_combined_direction_roc_curves',
                       para=para)
 
+        #############################################
+        ####    DEPTH BASED ANALYSIS FUNCTIONS   ####
+        #############################################
+
+        # parameter initialisations
+        r_filt_depth = cf.init_rotation_filter_data(False)
+
+        # parameter lists
+        depth_type = ['Preferred/Baseline FR Difference', 'CW/CCW auROC Difference', 'CW/CCW FR Difference']
+
+        # ====> Depth Spiking Rate Comparison
+        para = {
+            # calculation parameters
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]]
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # invisible calculation parameters
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': ['Wilcoxon Paired Test'],
+                'def_val': 'Wilcoxon Paired Test', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': dcopy(r_filt_depth),
+                'para_gui_var': {'rmv_fields': ['region_name']}
+            },
+            'depth_type': {
+                'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible plotting parameters
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Depth-Based Analysis',
+                      name='Depth Spiking Rate Comparison',
+                      func='plot_depth_spiking',
+                      para=para)
+
+        # ====> Depth Spiking Rate Comparison (Multi-Sensory)
+        para = {
+            # calculation parameters
+            't_phase_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_vis': {
+                'gtype': 'C', 'text': 'Visual Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_vis': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Visual Phase', 'def_val': False,
+                'link_para': [['t_phase_vis', True], ['t_ofs_vis', True]]
+            },
+            'vis_expt_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Visual Experiment Type', 'list': vis_type, 'def_val': vis_type_0
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # invisible calculation parameters
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': ['Wilcoxon Paired Test'],
+                'def_val': 'Wilcoxon Paired Test', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': dcopy(r_filt_depth),
+                'para_gui_var': {'rmv_fields': ['region_name']}
+            },
+            'depth_type': {
+                'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible plotting parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Depth-Based Analysis',
+                      name='Depth Spiking Rate Comparison (Multi-Sensory)',
+                      func='plot_depth_spiking_multi',
+                      para=para)
+
         #########################################################
         ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
         #########################################################
@@ -10359,24 +10605,6 @@ class AnalysisFunctions(object):
                       multi_fig=['i_cluster'],
                       para=para)
 
-        # ====> Cross Cross-Correlogram
-        para = {
-            # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
-            'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
-            'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp',True]},
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
-            'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
-            'p_lim': {'text': 'Confidence Interval (%)', 'def_val': 99.99, 'min_val': 90.0, 'max_val': 100.0 - 1e-6},
-            'f_cutoff': {'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
-        }
-        self.add_func(type='Single Experiment Analysis',
-                      name='Cross-Correlogram',
-                      func='plot_cluster_cross_ccgram',
-                      multi_fig=['i_comp'],
-                      para=para)
-
         ######################################
         ####    MISCELLANEOUS FUNCTIONS   ####
         ######################################
@@ -10415,6 +10643,28 @@ class AnalysisFunctions(object):
         self.add_func(type='Miscellaneous Functions',
                       name='Encoding Spiking Frequency Dataframe',
                       func='output_spiking_freq_dataframe',
+                      para=para)
+
+        ##############################
+        ####    OTHER FUNCTIONS   ####
+        ##############################
+
+        # ====> Cross Cross-Correlogram
+        para = {
+            # plotting parameters
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
+            'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
+            'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp',True]},
+            'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
+            'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
+            'p_lim': {'text': 'Confidence Interval (%)', 'def_val': 99.99, 'min_val': 90.0, 'max_val': 100.0 - 1e-6},
+            'f_cutoff': {'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
+        }
+        self.add_func(type='Single Experiment Analysis',
+                      name='Cross-Correlogram',
+                      func='plot_cluster_cross_ccgram',
+                      multi_fig=['i_comp'],
                       para=para)
 
         # initialises the parameter dictionary
@@ -11484,14 +11734,59 @@ class AnalysisData(object):
         self.cluster = None
         self.comp = ComparisonData()
         self.classify = ClassifyData()
-        self.rotation = RotationData()
+        self.rotation = RotationData('rotation')
+        self.depth = RotationData('depth')
         self.discrim = DiscriminationData()
         self.multi = MultiFileData()
         self.spikedf = SpikingFreqData()
 
+        # exclusion filter fields
+        self.exc_gen_filt = None
+        self.exc_rot_filt = None
+        self.exc_ud_filt = None
+
+        # other flags
         self.req_update = True
         self.force_calc = True
-        self.exc_gen_filt = None
+
+    def check_missing_fields(self):
+        '''
+
+        :param f_name:
+        :return:
+        '''
+
+        # field strings to check
+        fld_str = ['_cluster', 'cluster', 'comp', 'classify', 'rotation', 'depth', 'discrim', 'spikedf']
+
+        # changes the location of the rotation/uniformdrifting exclusion filters (if in the wrong location)
+        if hasattr(self, 'rotation') and (not hasattr(self, 'exc_rot_filt')):
+            setattr(self, 'exc_rot_filt', self.rotation.exc_rot_filt)
+            setattr(self, 'exc_ud_filt', self.rotation.exc_ud_filt)
+
+        # checks if the above fields exist in the data object. if not, then add them in
+        for fs in fld_str:
+            if not hasattr(self, fs):
+                if fs == '_cluster':
+                    setattr(self, fs, [])
+                elif fs == 'cluster':
+                    setattr(self, fs, None)
+                elif fs == 'comp':
+                    setattr(self, fs, ComparisonData())
+                    self.comp.init_comparison_data()
+                elif fs == 'classify':
+                    setattr(self, fs, ClassifyData())
+                elif fs == 'rotation':
+                    setattr(self, fs, RotationData('rotation'))
+                    self.rotation.init_rot_fields()
+                elif fs == 'depth':
+                    setattr(self, fs, RotationData('depth'))
+                    self.depth.init_rot_fields()
+                elif fs == 'discrim':
+                    setattr(self, fs, DiscriminationData())
+                    self.discrim.init_discrim_fields()
+                elif fs == 'spikedf':
+                    setattr(self, fs, SpikingFreqData())
 
     def update_gen_filter(self):
         '''
@@ -11503,6 +11798,28 @@ class AnalysisData(object):
         # initialises the rotation filter (if not already done so)
         if self.exc_gen_filt is None:
             self.exc_gen_filt = cf.init_general_filter_data()
+
+    def update_rot_filter(self):
+        '''
+
+        :param c_data:
+        :return:
+        '''
+
+        # initialises the rotation filter (if not already done so)
+        if self.exc_rot_filt is None:
+            self.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
+
+    def update_ud_filter(self):
+        '''
+
+        :param c_data:
+        :return:
+        '''
+
+        # initialises the uniform drifting filter (if not already done so)
+        if self.exc_ud_filt is None:
+            self.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
 class ComparisonData(object):
     def __init__(self):
@@ -11671,12 +11988,13 @@ class ClassifyData(object):
                                  np.zeros(len(x), dtype=bool) for i, x in enumerate(t_dur[i])]
 
 class RotationData(object):
-    def __init__(self):
+    def __init__(self, type):
+
+        # sets the type flag
+        self.type = type
+
         # initialisation
         self.is_set = False
-        self.exc_rot_filt = None
-        self.exc_ud_filt = None
-        # self.init_rot_fields()
 
     def init_rot_fields(self):
         '''
@@ -11778,27 +12096,14 @@ class RotationData(object):
         self.spd_ci_lo = None                   # speed roc lower confidence interval
         self.spd_ci_hi = None                   # speed roc upper confidence interval
 
-    def update_rot_filter(self):
-        '''
+        # sets the depth class specific fields
+        if self.type == 'depth':
+            self.ch_depth, self.ch_region, self.ch_layer = None, None, None
+            self.ch_depth_ms, self.ch_region_ms, self.ch_layer_ms = None, None, None
 
-        :param c_data:
-        :return:
-        '''
-
-        # initialises the rotation filter (if not already done so)
-        if self.exc_rot_filt is None:
-            self.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
-
-    def update_ud_filter(self):
-        '''
-
-        :param c_data:
-        :return:
-        '''
-
-        # initialises the uniform drifting filter (if not already done so)
-        if self.exc_ud_filt is None:
-            self.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
+            self.plt, self.stats, self.ind, self.r_filt = None, None, None, None
+            self.plt_rms, self.stats_rms, self.ind_rms, self.r_filt_rms = None, None, None, None
+            self.plt_vms, self.stats_vms, self.ind_vms, self.r_filt_vms = None, None, None, None
 
 class DiscriminationData(object):
     def __init__(self):

@@ -743,12 +743,12 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     # sets the trial types
     if rot_filt['is_ud'][0]:
         t_type, is_ud = 'UniformDrifting', True
-        exc_filt = data.rotation.exc_ud_filt
+        exc_filt = data.exc_ud_filt
         if exc_filt is None:
             exc_filt = cf.init_rotation_filter_data(True, is_empty=True)
     else:
         t_type, is_ud = rot_filt['t_type'][0], False
-        exc_filt = data.rotation.exc_rot_filt
+        exc_filt = data.exc_rot_filt
         if exc_filt is None:
             exc_filt = cf.init_rotation_filter_data(False, is_empty=True)
 
@@ -973,7 +973,7 @@ def calc_kinematic_bin_times(b_sz, k_rng, w, calc_type=2):
         return xi_bin0, xi_bin, t_bin, i_bin
 
 
-def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None):
+def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None, r_data=None):
     '''
 
     :param data:
@@ -1010,8 +1010,12 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         else:
             return len(t_sp)
 
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
     # initialisations
-    r_data, v_rng, w, is_full_rs = data.rotation, 80, np.pi / r_obj.t_phase[0][0], indD is None
+    v_rng, w, is_full_rs = 80, np.pi / r_obj.t_phase[0][0], indD is None
     xi_bin0, xi_bin, t_bin, i_grp = calc_kinematic_bin_times([10, b_sz[0]], [90, v_rng], w, calc_type=1)
     n_vbin, sd_vel = np.size(xi_bin, axis=0), np.sign(np.diff(xi_bin0))
 

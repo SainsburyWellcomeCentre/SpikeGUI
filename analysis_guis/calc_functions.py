@@ -42,9 +42,6 @@ try:
 except:
     pass
 
-# # curve fit function declaration
-# fit_func = lambda x, G, L, U, V: G + (1 - G - L) * 0.5 * (1 + erf(np.divide(x - U, m.sqrt(2 * (V ** 2.)))))
-
 # other function declarations
 dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
@@ -452,6 +449,7 @@ def calc_dtw_indices(comp, data_fix, data_free, is_feas):
 ####    HISTOGRAM SIMILARITY METRICS    ####
 ############################################
 
+
 def calc_total_distance(y_fix, y_free, n_pts):
     '''
 
@@ -471,6 +469,7 @@ def calc_total_distance(y_fix, y_free, n_pts):
             d_tot[i, j] = pp_g.distance(lines[j])
 
     return d_tot
+
 
 def calc_kldiverge(hist_1, hist_2):
     '''
@@ -530,6 +529,7 @@ def calc_wasserstein(hist_1, hist_2):
 ###################################################
 ####    NORMALISATION CALCULATION FUNCTIONS    ####
 ###################################################
+
 
 def norm_signal(y_signal, y_max=None, y_min=None):
     '''
@@ -1207,6 +1207,7 @@ def set_def_para(para, p_str, def_val):
 ####    ROTATION LDA FUNCTIONS    ####
 ######################################
 
+
 def setup_lda_spike_counts(r_obj, i_cell, i_ex, n_t, return_all=True):
     '''
 
@@ -1525,6 +1526,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         # otherwise, return the calculated values
         return [lda, y_acc, exp_name]
 
+
 def run_part_lda_pool(p_data):
     '''
 
@@ -1635,15 +1637,20 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
 ####    KINEMATIC LDA FUNCTIONS    ####
 #######################################
 
-def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True):
+
+def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True, r_data=None):
     '''
 
     :param calc_para:
     :return:
     '''
 
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
     # parameters and initialisations
-    vel_bin, r_data, equal_time = float(calc_para['vel_bin']), data.rotation, calc_para['equal_time']
+    vel_bin, equal_time = float(calc_para['vel_bin']), calc_para['equal_time']
 
     # sets the condition types (ensures that the black phase is always included)
     r_filt_base = cf.init_rotation_filter_data(False)
@@ -1725,7 +1732,8 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
 
 
-def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog, is_pooled=False, use_spd=True):
+def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
+                           is_pooled=False, use_spd=True, r_data=None):
     '''
 
     :param data:
@@ -1736,6 +1744,10 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
     :param w_prog:
     :return:
     '''
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
 
     # initialisations
     tt = r_filt['t_type']
@@ -1755,10 +1767,10 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
         # retrieves the spiking frequencies based on the calculation type
         if calc_para['equal_time']:
             # case is the equal timebin (resampled) spiking frequencies
-            spd_sf0 = dcopy(data.rotation.spd_sf_rs)
+            spd_sf0 = dcopy(r_data.spd_sf_rs)
         else:
             # case is the non-equal timebin spiking frequencies
-            spd_sf0 = dcopy(data.rotation.spd_sf)
+            spd_sf0 = dcopy(r_data.spd_sf)
 
             # reduces the arrays to only include the first n_trial_max trials (averages pos/neg phases)
         n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
@@ -1771,9 +1783,9 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
         for i_ft, ft in enumerate(['Decreasing', 'Increasing']):
             # resets the velocity spiking freqencies
             if calc_para['equal_time']:
-                data.rotation.vel_sf_rs = None
+                r_data.vel_sf_rs = None
             else:
-                data.rotation.vel_sf = None
+                r_data.vel_sf = None
 
             # calculates the binned frequecies
             _calc_para['freq_type'] = ft
@@ -1782,10 +1794,10 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
             # retrieves the spiking frequencies based on the calculation type
             if calc_para['equal_time']:
                 # case is the equal timebin (resampled) spiking frequencies
-                vel_sf0 = dcopy(data.rotation.vel_sf_rs)
+                vel_sf0 = dcopy(r_data.vel_sf_rs)
             else:
                 # case is the non-equal timebin spiking frequencies
-                vel_sf0 = dcopy(data.rotation.vel_sf)
+                vel_sf0 = dcopy(r_data.vel_sf)
 
             # reduces the arrays to only include the first n_trial_max trials
             sf[i_ft] = [vel_sf0[ttype][:n_trial_max, :, :] for ttype in tt]
@@ -1804,13 +1816,14 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
 
     # retrieves the rotation kinematic trial types (as they could be altered from the original list)
     _r_filt = dcopy(r_filt)
-    _r_filt['t_type'] = data.rotation.r_obj_kine.rot_filt['t_type']
+    _r_filt['t_type'] = r_data.r_obj_kine.rot_filt['t_type']
 
     # returns the final array
     return sf_ex, _r_filt
 
 
-def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
+def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
+                           w_prog=None, d_data=None, r_data=None):
     '''
 
     :param data:
@@ -1888,9 +1901,13 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None
         # returns the array
         return B
 
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
     # initialisations
     tt = r_filt['t_type']
-    lda_para, xi_bin = calc_para['lda_para'], data.rotation.spd_xi
+    lda_para, xi_bin = calc_para['lda_para'], r_data.spd_xi
     n_c, n_ex, n_bin = len(tt), len(spd_sf), np.size(xi_bin, axis=0)
 
     #########################
@@ -1963,11 +1980,11 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None
     d_data.y_acc = y_acc
 
     # sets the rotation values
-    d_data.spd_xi = data.rotation.spd_xi
+    d_data.spd_xi = r_data.spd_xi
 
     # sets a copy of the lda parameters and updates the comparison conditions
     _lda_para = dcopy(lda_para)
-    _lda_para['comp_cond'] = data.rotation.r_obj_kine.rot_filt['t_type']
+    _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
 
     # sets the solver parameters
     set_lda_para(d_data, _lda_para, r_filt, n_trial)
@@ -1981,7 +1998,7 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None
     return True
 
 
-def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None):
+def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None, r_data=None):
     '''
 
     :param data:
@@ -1996,6 +2013,10 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
     :return:
     '''
 
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
     # initialisations
     tt = r_filt['t_type']
     lda_para = calc_para['lda_para']
@@ -2006,8 +2027,8 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
     ################################
 
     # memory allocation and other initialisations
-    i_bin_spd = data.rotation.i_bin_spd
-    ind_t, xi_bin = np.array(range(n_trial)), data.rotation.spd_xi
+    i_bin_spd = r_data.i_bin_spd
+    ind_t, xi_bin = np.array(range(n_trial)), r_data.spd_xi
     n_bin = np.size(xi_bin, axis=0)
 
     # memory allocation for accuracy binary mask calculations
@@ -2060,12 +2081,12 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
 
         # sets the rotation values
-        d_data.spd_xi = data.rotation.spd_xi
-        d_data.i_bin_spd = data.rotation.i_bin_spd
+        d_data.spd_xi = r_data.spd_xi
+        d_data.i_bin_spd = r_data.i_bin_spd
 
         # sets a copy of the lda parameters and updates the comparison conditions
         _lda_para = dcopy(lda_para)
-        _lda_para['comp_cond'] = data.rotation.r_obj_kine.rot_filt['t_type']
+        _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
 
         # sets the solver parameters
         set_lda_para(d_data, _lda_para, r_filt, n_trial)
@@ -2088,7 +2109,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         return [y_acc]
 
 
-def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
+def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data, r_data=None):
     '''
 
     :param data:
@@ -2101,9 +2122,13 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
     :return:
     '''
 
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
     # initialisations
     tt = r_filt['t_type']
-    lda_para, vel_xi = calc_para['lda_para'], data.rotation.vel_xi
+    lda_para, vel_xi = calc_para['lda_para'], r_data.vel_xi
     n_c, n_ex, n_bin = len(tt), len(vel_sf), np.size(vel_xi, axis=0)
     n_bin_h = int(n_bin / 2)
 
@@ -2166,11 +2191,11 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data):
     d_data.y_acc = np.mean(y_acc, axis=3)
 
     # sets the rotation values
-    d_data.spd_xi = data.rotation.spd_xi
+    d_data.spd_xi = r_data.spd_xi
 
     # sets a copy of the lda parameters and updates the comparison conditions
     _lda_para = dcopy(lda_para)
-    _lda_para['comp_cond'] = data.rotation.r_obj_kine.rot_filt['t_type']
+    _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
 
     # sets the solver parameters
     set_lda_para(d_data, _lda_para, r_filt, n_trial)
@@ -2290,6 +2315,7 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
 ############################################
 ####    PSYCHOMETRIC CURVE FUNCTIONS    ####
 ############################################
+
 
 def calc_all_psychometric_curves(d_data, d_vel):
     '''
@@ -2448,6 +2474,7 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
 ####    LDA SOLVER PARAMETER/SETUP FUNCTIONS    ####
 ####################################################
 
+
 def setup_lda_solver(lda_para):
     '''
 
@@ -2542,6 +2569,7 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
 
     # returns the default parameter object
     return def_para
+
 
 def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
     '''
@@ -2734,7 +2762,7 @@ def reduce_cluster_data(data, i_expt):
     return data_tmp
 
 
-def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
+def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, r_data=None):
     '''
 
     :param data:
@@ -2742,7 +2770,7 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
     :return:
     '''
 
-    def det_valid_cells(data, ind, lda_para):
+    def det_valid_cells(data, ind, lda_para, r_data=None):
         '''
 
         :param cluster:
@@ -2756,8 +2784,12 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
             'record_layer': 'chLayer',
         }
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # determines the cells that are in the valid regions (RSPg and RSPd)
-        exc_filt = data.rotation.exc_rot_filt
+        exc_filt = data.exc_rot_filt
         cluster = data._cluster[ind] if data.cluster is None else data.cluster[ind]
         is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
 
@@ -2787,20 +2819,20 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False):
                 is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
 
         #
-        r_data = data.rotation
-        if r_data.phase_roc_auc is not None:
-            # sets the indices
-            ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
-            ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
+        if hasattr(r_data, 'phase_roc_auc'):
+            if r_data.phase_roc_auc is not None:
+                # sets the indices
+                ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
+                ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
 
-            # retrieves the black phase roc auc values (ensures the compliment is calculated)
-            auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
-            ii = auc_ex < 0.5
-            auc_ex[ii] = 1 - auc_ex[ii]
+                # retrieves the black phase roc auc values (ensures the compliment is calculated)
+                auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
+                ii = auc_ex < 0.5
+                auc_ex[ii] = 1 - auc_ex[ii]
 
-            # determines which values meet the criteria
-            is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
-            is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
+                # determines which values meet the criteria
+                is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
+                is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
 
         # if the number of valid cells is less than the reqd count, then set all cells to being invalid
         if np.sum(is_valid) < lda_para['n_cell_min']:
@@ -2903,6 +2935,72 @@ def det_uniq_channel_layers(data, lda_para):
 
     # returns the unique layer types
     return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
+
+
+########################################################################################################################
+####                                      MISCELLANEOUS CALCULATION FUNCTIONS                                       ####
+########################################################################################################################
+
+def get_rsp_reduced_clusters(data):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    # memory allocation
+    _data = dcopy(data)
+
+    # reduces the data for each cluster
+    for c in data._cluster:
+        # determines the cells that are in the valid regions (RSPg and RSPd)
+        i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
+
+        # removes the non-valid cells from the depth, region and layer arrays
+        c['clustID'] = list(np.array(c['clustID'])[i_cell])
+        c['chDepth'] = c['chDepth'][i_cell]
+        c['chRegion'] = c['chRegion'][i_cell]
+        c['chLayer'] = c['chLayer'][i_cell]
+
+        # removes the non-valid cell from the time spikes
+        for tt in c['rotInfo']['trial_type']:
+            c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
+
+    # returns the valid cells array
+    return _data
+
+
+def get_channel_depths_tt(cluster, tt_type):
+    '''
+
+    :param cluster:
+    :param comp_cond:
+    :return:
+    '''
+
+    # memory allocation
+    ch_depth, ch_region, ch_layer = {}, {}, {}
+
+    #
+    for tt in tt_type:
+        # memory allocation
+        depth_nw, region_nw, layer_nw = [], [], []
+
+        for c in cluster:
+            if tt in c['rotInfo']['trial_type']:
+                # calculates the depth of the cell in the current experiment
+                chMap, depth_max = c['expInfo']['channel_map'], c['expInfo']['channel_map'][-1, -1]
+                depth_nw.append(depth_max - chMap[c['chDepth'].astype(int), 3])
+                region_nw.append(list(c['chRegion']))
+                layer_nw.append(list(c['chLayer']))
+
+        #
+        ch_depth[tt] = np.array(cf.flat_list(depth_nw))
+        ch_region[tt] = np.array(cf.flat_list(region_nw))
+        ch_layer[tt] = np.array(cf.flat_list(layer_nw))
+
+    # returns the final array
+    return ch_depth, ch_region, ch_layer
 
 # def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
 #     '''

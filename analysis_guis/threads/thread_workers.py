@@ -255,10 +255,8 @@ class WorkerThread(QThread):
                 if plot_para['rot_filt'] is None:
                     plot_para['rot_filt'] = cf.init_rotation_filter_data(False)
 
-                # creates a copy of the plotting/calculation parameters
-                _plot_para, _calc_para = dcopy(plot_para), dcopy(calc_para)
-
                 # adds motordrifting (if the visual expt type)
+                _plot_para, _calc_para = dcopy(plot_para), dcopy(calc_para)
                 if calc_para['vis_expt_type'] == 'MotorDrifting':
                     _plot_para['rot_filt']['t_type'].append('MotorDrifting')
 
@@ -298,9 +296,119 @@ class WorkerThread(QThread):
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, False)
 
-        ######################################
-        ####    ROTATION LDA FUNCTIONS    ####
-        ######################################
+
+        ##########################################################
+        ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+        ##########################################################
+
+            elif self.thread_job_secondary == 'Depth Spiking Rate Comparison':
+                # make a copy of the plotting/calculation parameters
+                _plot_para, _calc_para, r_data = dcopy(plot_para), dcopy(calc_para), data.depth
+                _plot_para['plot_exp_name'] = None
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+
+                # reduces the data clusters to only include the RSPd/RSPg cells
+                _data = cfcn.get_rsp_reduced_clusters(data)
+
+                # calculates the phase roc-curves for each cell
+                if not self.calc_cond_roc_curves(_data, pool, _calc_para, _plot_para, g_para, False, 33., r_data=r_data):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # calculates the phase roc curve/significance values
+                self.calc_phase_roc_curves(_data, _calc_para, 66., r_data=r_data)
+
+                ############################################
+                ####    SPIKING FREQUENCY CALCULATION   ####
+                ############################################
+
+                # initialisations
+                r_filt = _plot_para['rot_filt']
+                r_data.ch_depth, r_data.ch_region, r_data.ch_layer = \
+                                cfcn.get_channel_depths_tt(_data._cluster, r_filt['t_type'])
+                t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
+
+                # rotation filtered object calculation
+                r_obj_rot = RotationFilteredData(_data, r_filt, None, None, True, 'Whole Experiment', False,
+                                                 t_ofs=t_ofs, t_phase=t_phase)
+
+                # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
+                sp_f0_rot, sp_f_rot = cf.calc_phase_spike_freq(r_obj_rot)
+                s_plt, _, sf_stats, ind = cf.setup_spike_freq_plot_arrays(r_obj_rot, sp_f0_rot, sp_f_rot, None, 3)
+                r_data.plt, r_data.stats, r_data.ind, r_data.r_filt = s_plt, sf_stats, ind, dcopy(r_filt)
+
+            elif self.thread_job_secondary == 'Depth Spiking Rate Comparison (Multi-Sensory)':
+                # checks that the conditions are correct for running the function
+                if not self.check_combined_conditions(calc_para, plot_para):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+                else:
+                    # otherwise, make a copy of the plotting/calculation parameters
+                    _plot_para, _calc_para, r_data = dcopy(plot_para), dcopy(calc_para), data.depth
+                    _plot_para['plot_exp_name'], r_filt = None, _plot_para['rot_filt']
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+
+                # adds motordrifting (if it is the visual expt type)
+                if calc_para['vis_expt_type'] == 'MotorDrifting':
+                    _plot_para['rot_filt']['t_type'].append('MotorDrifting')
+
+                # reduces the data clusters to only include the RSPd/RSPg cells
+                _data = cfcn.get_rsp_reduced_clusters(data)
+
+                # calculates the phase roc-curves for each cell
+                if not self.calc_cond_roc_curves(_data, pool, _calc_para, _plot_para, g_para, False, 33., r_data=r_data):
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # calculates the phase roc curve/significance values
+                self.calc_phase_roc_curves(_data, _calc_para, 66., r_data=r_data)
+                if (calc_para['vis_expt_type'] == 'UniformDrifting'):
+                    # sets up the visual rotation filter
+                    r_filt_v = cf.init_rotation_filter_data(False)
+                    r_filt_v['t_type'], r_filt_v['is_ud'], r_filt_v['t_cycle'] = ['UniformDrifting'], [True], ['15']
+
+                    # retrieves the visual filter object
+                    r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_v, None, None, True,
+                                                                   'Whole Experiment', 2., t_phase, t_ofs)
+
+                    # calculates the full uniform-drifting curves
+                    self.calc_ud_roc_curves(_data, r_obj_vis, ind_type, 66., r_data=r_data)
+
+                    # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
+                    sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj_vis)
+                    s_plt, _, sf_stats, ind = cf.setup_spike_freq_plot_arrays(r_obj_vis, sp_f0, sp_f, ind_type, 2)
+                    r_data.plt_vms, r_data.stats_vms, r_data.ind_vms = s_plt, sf_stats, ind, r_filt_v
+                    r_data.r_filt_vms = dcopy(r_filt_v)
+                else:
+                    # resets the uniform drifting fields
+                    r_data.plt_vms, r_data.stats_vms, r_data.ind_vms, r_data.r_filt_vms = None, None, None, None
+
+                ############################################
+                ####    SPIKING FREQUENCY CALCULATION   ####
+                ############################################
+
+                # rotation filtered object calculation
+                r_obj_rot = RotationFilteredData(_data, r_filt, None, None, True, 'Whole Experiment', False,
+                                                 t_phase=t_phase, t_ofs=t_ofs)
+                r_data.ch_depth_ms, r_data.ch_region_ms, r_data.ch_layer_ms = \
+                                    cfcn.get_channel_depths_tt(_data._cluster, r_filt['t_type'])
+
+                # calculates the individual trial/mean spiking rates and sets up the plot/stats arrays
+                sp_f0_rot, sp_f_rot = cf.calc_phase_spike_freq(r_obj_rot)
+                s_plt, _, sf_stats, ind = cf.setup_spike_freq_plot_arrays(r_obj_rot, sp_f0_rot, sp_f_rot, None, 3)
+                r_data.plt_rms, r_data.stats_rms, r_data.ind_rms = s_plt, sf_stats, ind
+                r_data.r_filt_rms = dcopy(r_filt)
+
+        ##########################################################
+        ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+        ##########################################################
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -539,6 +647,10 @@ class WorkerThread(QThread):
         ####    KINEMATIC LDA FUNCTIONS    ####
         #######################################
 
+        ###########################################################
+        ####    KINEMATIC DISCRIMINATION ANALYSIS FUNCTIONS    ####
+        ###########################################################
+
             elif self.thread_job_secondary == 'Speed LDA Accuracy':
                 # checks to see if any base LDA calculation parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdacc)
@@ -627,14 +739,6 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
-        ###############################
-        ####    OTHER FUNCTIONS    ####
-        ###############################
-
-            elif self.thread_job_secondary == 'Shuffled Cluster Distances':
-                # case is the shuffled cluster distances
-                thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
-
         #######################################
         ####    MISCELLANEOUS FUNCTIONS    ####
         #######################################
@@ -646,6 +750,14 @@ class WorkerThread(QThread):
                 # only continue if the spiking frequency dataframe has not been set up
                 if not data.spikedf.is_set:
                     self.setup_spiking_freq_dataframe(data, calc_para)
+
+        ###############################
+        ####    OTHER FUNCTIONS    ####
+        ###############################
+
+            elif self.thread_job_secondary == 'Shuffled Cluster Distances':
+                # case is the shuffled cluster distances
+                thread_data = self.calc_shuffled_cluster_dist(calc_para, data.cluster)
 
         elif self.thread_job_primary == 'update_plot':
             pass
@@ -1964,7 +2076,7 @@ class WorkerThread(QThread):
         # returns a true value indicating success
         return True
 
-    def run_pooled_kinematic_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
+    def run_pooled_kinematic_lda(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog, r_data_type='rotation'):
         '''
 
         :param data:
@@ -1993,12 +2105,15 @@ class WorkerThread(QThread):
         ####    POOLED NEURON LDA CALCULATIONS    ####
         ##############################################
 
+        # initialises the RotationData class object (if not provided)
+        r_data = getattr(_data, r_data_type)
+
         # determines the cell pool groupings
         n_cell = cfcn.get_pool_cell_counts(data, lda_para)
         n_cell_pool = n_cell[-1]
 
         # memory allocation
-        nC, n_tt, n_xi = len(n_cell), len(tt), len(_data.rotation.spd_xi)
+        nC, n_tt, n_xi = len(n_cell), len(tt), len(r_data.spd_xi)
         y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
 
         #
@@ -2033,7 +2148,7 @@ class WorkerThread(QThread):
 
         # sets a copy of the lda parameters and updates the comparison conditions
         _lda_para = dcopy(lda_para)
-        _lda_para['comp_cond'] = _data.rotation.r_obj_kine.rot_filt['t_type']
+        _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
 
         # sets the lda values
         d_data.lda = 1
@@ -2044,8 +2159,8 @@ class WorkerThread(QThread):
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in _data.cluster]
 
         # sets the rotation values
-        d_data.spd_xi = _data.rotation.spd_xi
-        d_data.i_bin_spd = _data.rotation.i_bin_spd
+        d_data.spd_xi = r_data.spd_xi
+        d_data.i_bin_spd = r_data.i_bin_spd
 
         # sets the solver parameters
         cfcn.set_lda_para(d_data, _lda_para, r_filt, n_trial)
@@ -2105,7 +2220,7 @@ class WorkerThread(QThread):
     ####    ROC CURVE CALCULATIONS    ####
     ######################################
 
-    def calc_partial_roc_curves(self, data, calc_para, plot_para, pW):
+    def calc_partial_roc_curves(self, data, calc_para, plot_para, pW, r_data=None):
         '''
 
         :param data:
@@ -2115,8 +2230,11 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # memory allocation
-        r_data = data.rotation
         r_data.part_roc, r_data.part_roc_xy, r_data.part_roc_auc = {}, {}, {}
 
         # initisalises the rotational filter (if not initialised already)
@@ -2127,9 +2245,9 @@ class WorkerThread(QThread):
         for tt in plot_para['rot_filt']['t_type']:
             # if tt not in r_data.part_roc:
             r_data.part_roc[tt], r_data.part_roc_xy[tt], r_data.part_roc_auc[tt] = \
-                                        self.calc_phase_roc_curves(data, calc_para, pW, t_type=tt)
+                                        self.calc_phase_roc_curves(data, calc_para, pW, t_type=tt, r_data=None)
 
-    def calc_phase_roc_curves(self, data, calc_para, pW, t_type=None):
+    def calc_phase_roc_curves(self, data, calc_para, pW, t_type=None, r_data=None):
         '''
 
         :param calc_para:
@@ -2140,7 +2258,9 @@ class WorkerThread(QThread):
         '''
 
         # parameters and initialisations
-        phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
+        phase_str = ['CW/BL', 'CCW/BL', 'CCW/CW']
+        if r_data is None:
+            r_data = data.rotation
 
         # if the black phase is calculated already, then exit the function
         if (r_data.phase_roc is not None) and (t_type is None):
@@ -2192,7 +2312,7 @@ class WorkerThread(QThread):
         else:
             return roc, roc_xy, roc_auc
 
-    def calc_ud_roc_curves(self, data, r_obj_vis, ind_type, pW):
+    def calc_ud_roc_curves(self, data, r_obj_vis, ind_type, pW, r_data=None):
         '''
 
         :param data:
@@ -2202,8 +2322,12 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # parameters and initialisations
-        phase_str, r_data, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation, np.array([0, 1])
+        phase_str, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], np.array([0, 1])
         ind_CC, ind_CCW = ind_type[0][0], ind_type[1][0]
 
         # if the uniformdrifting phase is calculated already, then exit the function
@@ -2247,7 +2371,7 @@ class WorkerThread(QThread):
         r_data.phase_roc_ud, r_data.phase_roc_xy_ud, r_data.phase_roc_auc_ud = roc, roc_xy, roc_auc
 
     def calc_cond_roc_curves(self, data, pool, calc_para, plot_para, g_para, calc_cell_grp, pW,
-                             force_black_calc=False):
+                             force_black_calc=False, r_data=None):
         '''
 
         :param calc_para:
@@ -2257,10 +2381,14 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # parameters and initialisations
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
         r_obj_sig, plot_scope, c_lvl = None, 'Whole Experiment', float(g_para['roc_clvl'])
-        phase_str, r_data = ['CW/BL', 'CCW/BL', 'CCW/CW'], data.rotation
+        phase_str = ['CW/BL', 'CCW/BL', 'CCW/CW']
 
         # initisalises the rotational filter (if not initialised already)
         if plot_para['rot_filt'] is None:
@@ -2400,7 +2528,7 @@ class WorkerThread(QThread):
         return True
 
     def calc_phase_roc_significance(self, calc_para, g_para, data, pool, pW, c_type='phase',
-                                    roc=None, auc=None, g_type=None, auc_sig=None, r_obj=None):
+                                    roc=None, auc=None, g_type=None, auc_sig=None, r_obj=None, r_data=None):
         '''
 
         :param calc_data:
@@ -2409,8 +2537,12 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # sets the roc objects/integrals (if not provided)
-        r_data, c_lvl = data.rotation, float(g_para['roc_clvl'])
+        c_lvl = float(g_para['roc_clvl'])
         if c_type == 'phase':
             # case is the significance tests are being calculated for the phase
             r_data.phase_grp_stats_type = calc_para['grp_stype']
@@ -2503,22 +2635,7 @@ class WorkerThread(QThread):
         # calculates the cell group types
         g_type[:, i_col] = cf.calc_cell_group_types(auc_sig, calc_para['grp_stype'])
 
-    def calc_roc_conf_intervals(self, pool, roc, phase_stype, n_boot, c_lvl):
-        '''
-
-        :param r_data:
-        :return:
-        '''
-
-        # sets the parameters for the multi-processing pool
-        p_data = []
-        for i_cell in range(len(roc)):
-            p_data.append([roc[i_cell], phase_stype, n_boot, c_lvl])
-
-        # returns the rotation data class object
-        return np.array(pool.map(cf.calc_roc_conf_intervals, p_data))
-
-    def calc_dirsel_group_types(self, data, pool, calc_para, plot_para, g_para):
+    def calc_dirsel_group_types(self, data, pool, calc_para, plot_para, g_para, r_data=None):
         '''
 
         :param data:
@@ -2626,6 +2743,10 @@ class WorkerThread(QThread):
                 # case is the roc analysis statistics (only consider the CW/CCW comparison for ds)
                 return sf_score[:, 2] > 0
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # initialises the rotation filter (if not set)
         rot_filt = plot_para['rot_filt']
         if rot_filt is None:
@@ -2638,7 +2759,7 @@ class WorkerThread(QThread):
             p_val = 0.05
 
         # initialisations and memory allocation
-        p_scope, n_grp, r_data, grp_stype = 'Whole Experiment', 4, data.rotation, calc_para['grp_stype']
+        p_scope, n_grp, r_data, grp_stype = 'Whole Experiment', 4, r_data, calc_para['grp_stype']
         r_filt_rot, r_filt_vis = dcopy(rot_filt), dcopy(rot_filt)
         plot_exp_name, plot_all_expt = plot_para['plot_exp_name'], plot_para['plot_all_expt']
         r_data.ds_p_value = dcopy(p_val)
@@ -2787,7 +2908,7 @@ class WorkerThread(QThread):
         # return a true flag to indicate the analysis was valid
         return True
 
-    def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0):
+    def calc_kinematic_roc_curves(self, data, pool, calc_para, g_para, pW0, r_data=None):
         '''
 
         :param calc_para:
@@ -2838,8 +2959,12 @@ class WorkerThread(QThread):
             # returns the arrays and auc mean/confidence intervals
             return _roc_xy[:, 0], _roc_xy[:, 1], roc_auc_mn, roc_auc_ci
 
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
         # initialisations
-        r_data, pW1, c_lvl = data.rotation, 50., float(g_para['roc_clvl'])
+        pW1, c_lvl = 50., float(g_para['roc_clvl'])
 
         # memory allocation (if the conditions have not been set)
         if r_data.vel_roc is None:
@@ -3000,6 +3125,21 @@ class WorkerThread(QThread):
                             # sets the upper and lower speed confidence intervals
                             r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
                             r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
+
+    def calc_roc_conf_intervals(self, pool, roc, phase_stype, n_boot, c_lvl):
+        '''
+
+        :param r_data:
+        :return:
+        '''
+
+        # sets the parameters for the multi-processing pool
+        p_data = []
+        for i_cell in range(len(roc)):
+            p_data.append([roc[i_cell], phase_stype, n_boot, c_lvl])
+
+        # returns the rotation data class object
+        return np.array(pool.map(cf.calc_roc_conf_intervals, p_data))
 
     ###################################################
     ####    MISCELLANEOUS FUNCTION CALCULATIONS    ####
