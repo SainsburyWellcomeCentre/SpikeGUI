@@ -47,6 +47,7 @@ dcopy = copy.deepcopy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
 n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
 n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
+lda_trial_type = None
 
 ########################################################################################################################
 ########################################################################################################################
@@ -2281,9 +2282,9 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
         ind_chance = np.random.permutation(len(i_grp) - 1)
         lda.fit(sf_calc[ii, :], i_grp[ii][ind_chance])
 
-        # calculates the chance model prediction from the remaining trial and increments the confusion matrix
-        lda_pred_chance[i_pred] = lda.predict(sf_calc[i_pred, :].reshape(1, -1))
-        c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+        # # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+        # lda_pred_chance[i_pred] = lda.predict(sf_calc[i_pred, :].reshape(1, -1))
+        # c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
 
     # calculates the LDA transform values (uses svd solver to accomplish this)
     if lda_para['solver_type'] != 'lsqr':
@@ -2936,6 +2937,20 @@ def det_uniq_channel_layers(data, lda_para):
     # returns the unique layer types
     return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
 
+
+def get_glob_para(gp_type):
+    '''
+
+    :param trial_type:
+    :return:
+    '''
+
+    # loads the default file
+    with open(cf.default_dir_file, 'rb') as fp:
+        def_data = p.load(fp)
+
+    # sets the trial type value
+    return def_data['g_para'][gp_type]
 
 ########################################################################################################################
 ####                                      MISCELLANEOUS CALCULATION FUNCTIONS                                       ####

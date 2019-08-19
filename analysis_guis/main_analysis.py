@@ -86,7 +86,6 @@ dY_obj = 25
 grp_Y0 = 10
 n_plot_max = 25
 table_fsize = 12
-default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
 
 # font objects
 txt_font = cf.create_font_obj()
@@ -145,9 +144,9 @@ class AnalysisGUI(QMainWindow):
         self.analysis_scope = 'Unprocessed'
 
         # determines if the default data file has been set
-        if os.path.isfile(default_dir_file):
+        if os.path.isfile(cf.default_dir_file):
             # if so, then the data from the file
-            with open(default_dir_file, 'rb') as fp:
+            with open(cf.default_dir_file, 'rb') as fp:
                 self.def_data = p.load(fp)
         else:
             # otherwise, set the initial data to None
@@ -452,14 +451,15 @@ class AnalysisGUI(QMainWindow):
         # global parameters
         g_para = {'n_hist': '100', 'n_spike': '1000', 'd_max': '2', 'r_max': '100.0',
                   'sig_corr_min': '0.95', 'sig_diff_max': '0.30', 'isi_corr_min': '0.65', 'sig_feat_min': '0.50',
-                  'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'roc_clvl': '0.99'}
+                  'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'roc_clvl': '0.99',
+                  'lda_trial_type': 'One-Trial Out'}
         def_dir = {'configDir': data_dir, 'inputDir': data_dir, 'dataDir': data_dir, 'figDir': data_dir}
 
         # sets the final default data dictionary
         def_data = {'dir': def_dir, 'g_para': g_para}
 
         # writes the data to file
-        with open(default_dir_file, 'wb') as fw:
+        with open(cf.default_dir_file, 'wb') as fw:
             p.dump(def_data, fw)
 
         # returns the default data dictionary
@@ -1315,7 +1315,7 @@ class AnalysisGUI(QMainWindow):
         if def_dir_new is not None:
             # if the user set the default directories, then update the default directory data file
             self.def_data['dir'] = def_dir_new
-            with open(default_dir_file, 'wb') as fw:
+            with open(cf.default_dir_file, 'wb') as fw:
                 p.dump(self.def_data, fw)
 
     def update_glob_para(self):
@@ -1323,6 +1323,9 @@ class AnalysisGUI(QMainWindow):
 
         :return:
         '''
+
+        # parameter lists
+        lda_type = ['One-Trial Out', 'One-Phase Out']
 
         # initialisations
         dlg_info = [
@@ -1339,7 +1342,9 @@ class AnalysisGUI(QMainWindow):
             ['Signal Feature Score Weight', 'w_sig_feat', 'Number', '', True, False, 4, _blue],
             ['Signal Comparison Score Weight', 'w_sig_comp', 'Number', '', True, False, 4, _blue],
             ['ISI Score Weight', 'w_isi', 'Number', '', True, False, 5, _blue],
-            ['ROC Conf. Interval Level', 'roc_clvl', 'Number', '', True, False, 5, _gray],
+            ['ROC Conf. Interval Level', 'roc_clvl', 'Number', '', True, False, 5, _bright_red],
+
+            ['LDA Trial Setup Type', 'lda_trial_type', 'List', lda_type, True, False, 6, _gray],
         ]
 
         # opens up the config dialog box and retrieves the final file information
@@ -1355,7 +1360,7 @@ class AnalysisGUI(QMainWindow):
         if g_para_new is not None:
             # if the user set the default directories, then update the default directory data file
             self.def_data['g_para'] = g_para_new
-            with open(default_dir_file, 'wb') as fw:
+            with open(cf.default_dir_file, 'wb') as fw:
                 p.dump(self.def_data, fw)
 
     def show_info(self):

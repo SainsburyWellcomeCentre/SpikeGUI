@@ -60,7 +60,7 @@ _delta = '\u0394'
 t_wid_f = 0.99
 dcopy = copy.deepcopy
 is_linux = sys.platform == 'linux'
-
+default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
 
 def flat_list(l):
     '''

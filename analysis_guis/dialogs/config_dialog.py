@@ -229,8 +229,17 @@ class ConfigDialog(QDialog):
             self.fInfo[self.dlg_info[i_grp][1]] = self.dlg_info[i_grp][3][0]
             cf.set_obj_fixed_size(h_obj, width=grp_wid / mlt - bSz, height=22)
 
+            if self.init_data is None:
+                h_obj.setCurrentIndex(0)
+            else:
+                try:
+                    i_sel = self.dlg_info[i_grp][3].index(self.init_data[self.dlg_info[i_grp][1]])
+                except:
+                    i_sel = 0
+
+                h_obj.setCurrentIndex(i_sel)
+
             # sets the callback function
-            h_obj.setCurrentIndex(0)
             cb_func = functools.partial(self.pop_change, i_grp, self.dlg_info[i_grp][3])
             h_obj.activated.connect(cb_func)
 
