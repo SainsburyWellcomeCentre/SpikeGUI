@@ -1407,8 +1407,8 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                     p_mat[i, :] = lda.predict_proba(n_sp_calc[i, :].reshape(1, -1))
                     c_mat[i_grp[i], lda_pred[i]] += 1
 
-                # resets the kept trials
-                is_keep[xi_rmv + i_trial] = True
+                    # re-adds the removed trial
+                    is_keep[i] = True
 
             else:
                 # calculates the model prediction from the remaining trial and increments the confusion matrix
@@ -1416,7 +1416,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 p_mat[i_trial, :] = lda.predict_proba(n_sp_calc[i_trial, :].reshape(1, -1))
                 c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
 
-                # resets the kept trials
+                # re-adds the removed trial
                 is_keep[i_trial] = True
 
             # # fits the one-out-trial shuffled lda model
@@ -1506,6 +1506,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         d_data.i_cell = i_cell
         d_data.y_acc = y_acc
         d_data.exp_name = exp_name
+        d_data.lda_trial_type = get_glob_para('lda_trial_type')
 
         # sets the solver parameters
         set_lda_para(d_data, lda_para, r_filt, n_trial_max)
@@ -1524,9 +1525,11 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
 
         # returns a true value
         return True
+
     elif is_shuffle:
         # otherwise, return the calculated values
         return [lda, y_acc, exp_name, n_sp]
+
     else:
         # otherwise, return the calculated values
         return [lda, y_acc, exp_name]
@@ -1583,14 +1586,25 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
         '''
 
         # memory allocation
-        n_t, n_cell = np.shape(n_sp)
-        c_mat, is_keep = np.zeros((2, 2), dtype=int), np.ones(n_t, dtype=bool)
-        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+        n_tt, n_cell = np.shape(n_sp)
+        c_mat, is_keep, n_grp = np.zeros((2, 2), dtype=int), np.ones(n_tt, dtype=bool), i_grp[-1] + 1
+        is_OTO, n_t = get_glob_para('lda_trial_type') == 'One-Trial Out', int(n_tt / n_grp)
 
-        # calculates the predictions for the one-out-trial lda model
-        for i_trial in range(n_t):
-            # removes the current trial
-            is_keep[i_trial] = False
+        # sets the total number of iterations (based on trial setup type)
+        if is_OTO:
+            # case is "one-trial out" setup
+            NN, xi_rmv = n_t, np.arange(0, n_tt, n_t)
+        else:
+            # case is "one-phase out" setup
+            NN = len(i_grp)
+
+        # fits the LDA model and calculates the prediction for each
+        for i_trial in range(NN):
+            # fits the one-out-trial lda model
+            if is_OTO:
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                is_keep[i_trial] = False
 
             # fits the one-out-trial lda model
             try:
@@ -1602,21 +1616,29 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
                     w_prog.emit(e_str, 'LDA Analysis Error')
                 return np.nan
 
-            # calculates the model prediction from the remaining trial and increments the confusion matrix
-            lda_pred = lda.predict(n_sp[i_trial, :].reshape(1, -1))
-            c_mat[i_grp[i_trial], lda_pred] += 1
+            if is_OTO:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                for i in (xi_rmv + i_trial):
+                    lda_pred = lda.predict(n_sp[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred] += 1
 
-            # re-adds the current trial
-            is_keep[i_trial] = True
+                    # re-adds the removed trial
+                    is_keep[i] = True
+            else:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                lda_pred = lda.predict(n_sp[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred] += 1
+
+                # re-adds the removed trial
+                is_keep[i_trial] = True
 
         # returns the decoding accuracy
-        return (c_mat[0, 0] + c_mat[1, 1]) / n_t
+        return (c_mat[0, 0] + c_mat[1, 1]) / n_tt
 
     # array indexing and memory allocation
     n_tf, n_cell = np.shape(n_sp)
     use_cell, y_acc = np.ones(n_cell, dtype=bool), np.zeros(n_cell)
 
-    #
     for i_cell in range(n_cell):
         # updates the progressbar
         w_str_nw = '{0}, Cell {1}/{2})'.format(w_str, i_cell + 1, n_cell)
@@ -1852,6 +1874,8 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
 
         # array dimensioning
         N, n_grp = np.size(spd_sf, axis=0), i_grp[-1] + 1
+        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+        is_keep, n_t = np.ones(N, dtype=bool), int(N / n_grp)
 
         # memory allocation
         lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
@@ -1862,26 +1886,52 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
         ####    LDA PREDICTION CALCULATIONS    ####
         ###########################################
 
+        if is_OTO:
+            # case is "one-trial out" setup
+            NN, xi_rmv = n_t, np.arange(0, N, n_t)
+        else:
+            # case is "one-phase out" setup
+            NN = len(i_grp)
+
         # fits the LDA model and calculates the prediction for each
-        for i_pred in range(len(i_grp)):
+        for i_trial in range(NN):
             # updates the progressbar (if provided)
             if w_prog is not None:
-                w_str = '{0}, Group {1}/{2})'.format(w_str0, i_grp[i_pred] + 1, n_grp)
-                w_prog.emit(w_str, 100. * (pw_0 + (i_pred / len(i_grp)) / n_ex))
+                w_str = '{0}, Group {1}/{2})'.format(w_str0, i_grp[i_trial] + 1, n_grp)
+                w_prog.emit(w_str, 100. * (pw_0 + (i_trial / NN) / n_ex))
+
+            # removes the trial/phase from the training dataset
+            if is_OTO:
+                # case is "one-trial out" setup
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                # case is "one-phase out" setup
+                is_keep[i_trial] = False
 
             # fits the one-out-trial lda model
-            ii = np.array(range(len(i_grp))) != i_pred
             try:
-                lda.fit(spd_sf[ii, :], i_grp[ii])
+                lda.fit(spd_sf[is_keep, :], i_grp[is_keep])
             except:
                 e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                         'Either choose a different solver or alter the solver parameters before retrying'
                 return None, False, e_str
 
             # calculates the model prediction from the remaining trial and increments the confusion matrix
-            lda_pred[i_pred] = lda.predict(spd_sf[i_pred, :].reshape(1, -1))
-            p_mat[i_pred, :] = lda.predict_proba(spd_sf[i_pred, :].reshape(1, -1))
-            c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+            if is_OTO:
+                for i in xi_rmv + i_trial:
+                    lda_pred[i] = lda.predict(spd_sf[i, :].reshape(1, -1))
+                    p_mat[i, :] = lda.predict_proba(spd_sf[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred[i]] += 1
+
+                    # re-adds the removed trials
+                    is_keep[i] = True
+            else:
+                lda_pred[i_trial] = lda.predict(spd_sf[i_trial, :].reshape(1, -1))
+                p_mat[i_trial, :] = lda.predict_proba(spd_sf[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+                # re-adds the removed trial
+                is_keep[i_trial] = True
 
         # returns the final values in a dictionary object
         return {
@@ -1984,6 +2034,7 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
     # sets the lda values
     d_data.lda = 1
     d_data.y_acc = y_acc
+    d_data.lda_trial_type = get_glob_para('lda_trial_type')
 
     # sets the rotation values
     d_data.spd_xi = r_data.spd_xi
@@ -2085,6 +2136,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
         d_data.lda = 1
         d_data.y_acc = y_acc
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
+        d_data.lda_trial_type = get_glob_para('lda_trial_type')
 
         # sets the rotation values
         d_data.spd_xi = r_data.spd_xi
@@ -2195,6 +2247,7 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data, r_
     # sets the lda values
     d_data.lda = 1
     d_data.y_acc = np.mean(y_acc, axis=3)
+    d_data.lda_trial_type = get_glob_para('lda_trial_type')
 
     # sets the rotation values
     d_data.spd_xi = r_data.spd_xi
@@ -2228,6 +2281,8 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
     # array dimensioning and memory allocation
     i_grp, n_grp = [], 2 * n_c
     N, n_cell = 2 * n_t * n_c, np.size(sf, axis=0)
+    is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+    is_keep = np.ones(N, dtype=bool)
 
     ####################################
     ####    LDA DATA ARRAY SETUP    ####
@@ -2267,25 +2322,49 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
     lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
     p_mat = np.zeros((N, n_grp), dtype=float)
 
+    if is_OTO:
+        # case is "one-trial out" setup
+        NN, xi_rmv = n_t, np.arange(0, N, n_t)
+    else:
+        # case is "one-phase out" setup
+        NN = len(i_grp)
+
     # fits the LDA model and calculates the prediction for each
-    for i_pred in range(len(i_grp)):
+    for i_trial in range(NN):
         # fits the one-out-trial lda model
-        ii = np.array(range(len(i_grp))) != i_pred
+        if is_OTO:
+            is_keep[xi_rmv + i_trial] = False
+        else:
+            is_keep[i_trial] = False
+
         try:
-            lda.fit(sf_calc[ii, :], i_grp[ii])
+            lda.fit(sf_calc[is_keep, :], i_grp[is_keep])
         except:
             e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                     'Either choose a different solver or alter the solver parameters before retrying'
             return None, False, e_str
 
         # calculates the model prediction from the remaining trial and increments the confusion matrix
-        lda_pred[i_pred] = lda.predict(sf_calc[i_pred, :].reshape(1, -1))
-        p_mat[i_pred, :] = lda.predict_proba(sf_calc[i_pred, :].reshape(1, -1))
-        c_mat[i_grp[i_pred], lda_pred[i_pred]] += 1
+        if is_OTO:
+            for i in xi_rmv + i_trial:
+                lda_pred[i] = lda.predict(sf_calc[i, :].reshape(1, -1))
+                p_mat[i, :] = lda.predict_proba(sf_calc[i, :].reshape(1, -1))
+                c_mat[i_grp[i], lda_pred[i]] += 1
 
-        # fits the one-out-trial shuffled lda model
-        ind_chance = np.random.permutation(len(i_grp) - 1)
-        lda.fit(sf_calc[ii, :], i_grp[ii][ind_chance])
+                # re-adds the removed trial
+                is_keep[i] = True
+
+        else:
+            lda_pred[i_trial] = lda.predict(sf_calc[i_trial, :].reshape(1, -1))
+            p_mat[i_trial, :] = lda.predict_proba(sf_calc[i_trial, :].reshape(1, -1))
+            c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+            # re-adds the removed trial
+            is_keep[i_trial] = True
+
+        # # fits the one-out-trial shuffled lda model
+        # ind_chance = np.random.permutation(len(i_grp) - 1)
+        # lda.fit(sf_calc[ii, :], i_grp[ii][ind_chance])
 
         # # calculates the chance model prediction from the remaining trial and increments the confusion matrix
         # lda_pred_chance[i_pred] = lda.predict(sf_calc[i_pred, :].reshape(1, -1))

@@ -4133,6 +4133,7 @@ class AnalysisGUI(QMainWindow):
         x_trend, is_cong = np.arange(0, 10, 0.02), False
         n_filt, r_data = r_obj.n_filt, self.data.rotation
         A = np.empty(n_filt, dtype=object)
+        c0 = ['Color1', 'Color2', 'Color3', 'Color4'] # ENTER COLOURS HERE
 
         #
         if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
@@ -4142,6 +4143,11 @@ class AnalysisGUI(QMainWindow):
             grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
         elif mark_type == 'Congruency':
             grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
+
+        if c0[0] == 'Color1':
+            c = cf.get_plot_col(len(grp_type))
+        else:
+            c = np.array(c0)[:len(grp_type)]
 
         # if use_resp_grp_type:
         #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
@@ -12216,6 +12222,7 @@ class SubDiscriminationData(object):
         self.exp_name = None
         self.pw_corr = None
         self.z_corr = None
+        self.lda_trial_type = None
 
         # lda calculation/parameter elements
         self.ntrial = -1

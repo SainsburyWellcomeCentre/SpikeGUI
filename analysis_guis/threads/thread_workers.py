@@ -1612,6 +1612,7 @@ class WorkerThread(QThread):
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the phase offset/duration parameters
         d_data.tofs = t_ofs
@@ -1700,6 +1701,7 @@ class WorkerThread(QThread):
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the phase offset/duration
         d_data.tofs = t_ofs
@@ -1863,6 +1865,7 @@ class WorkerThread(QThread):
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=['n_cell_min'])
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the phase offset/duration parametrs
         d_data.tofs = t_ofs
@@ -2157,6 +2160,7 @@ class WorkerThread(QThread):
         d_data.i_cell = i_cell
         d_data.n_cell = n_cell
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in _data.cluster]
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the rotation values
         d_data.spd_xi = r_data.spd_xi
@@ -3439,7 +3443,7 @@ class WorkerThread(QThread):
                 # case is the LDA calculations
 
                 # if initialising the LDA then continue (as nothing has been set)
-                d_data, lda_para = other_para, calc_para['lda_para']
+                d_data, lda_para, lda_tt = other_para, calc_para['lda_para'], cfcn.get_glob_para('lda_trial_type')
                 if d_data.lda is None:
                     continue
 
@@ -3454,6 +3458,8 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min'], def_val=True),
                     check_class_para_equal(d_data, 'yaucmx', lda_para['y_auc_max'], def_val=True),
                     check_class_para_equal(d_data, 'yaucmn', lda_para['y_auc_min'], def_val=True),
+
+                    check_class_para_equal(d_data, 'lda_trial_type', lda_tt, def_val=True),
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
 
