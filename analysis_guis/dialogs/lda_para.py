@@ -85,7 +85,7 @@ class LDASolverPara(QDialog):
 
         self.f_data = cfcn.init_lda_solver_para()
 
-    def init_filter_fields(self, r_data):
+    def init_filter_fields(self, r_data=None):
         '''
 
         :return:

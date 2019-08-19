@@ -5400,7 +5400,7 @@ class AnalysisGUI(QMainWindow):
                 self.plot_fig.ax[4].set_ylabel('Decoding Accuracy (%)')
                 self.plot_fig.ax[4].set_ylim([np.floor(np.min(100. * d_data.y_acc)) - 10, 105])
                 self.plot_fig.ax[4].grid(plot_grid)
-                self.plot_fig.ax[4].legend([x[0] for x in h_plt], lg_str)
+                self.plot_fig.ax[4].legend([x[0] for x in h_plt], lg_str, loc='bottom right')
 
                 #
                 if add_accuracy_trend and (len(n_cell) > 1):
@@ -5422,7 +5422,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the datacursor
                     datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
-    def plot_temporal_lda(self, plot_avg_lines, show_stats, plot_grid):
+    def plot_temporal_lda(self, use_stagger, plot_err, show_stats, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5431,7 +5431,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_multi_plot(ax, xi, y_acc, ttype, plot_avg_lines):
+        def create_multi_plot(ax, xi, y_acc, use_stagger, plot_err):
             '''
 
             :param ax:
@@ -5451,20 +5451,23 @@ class AnalysisGUI(QMainWindow):
             #
             for i_cond in range(n_cond):
                 # sets the plot values
-                xi_plt = x + (i_cond + 1) / (n_cond + 1)
+                xi_plt = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
                 y_acc_c = y_acc[:, i_cond, :]
 
                 # sets the median plot values
                 y_acc_md = np.median(y_acc_c, axis=0)
 
-                # sets the lower/upper quartile errorbars
-                y_acc_lq = np.percentile(y_acc_c, 25., axis=0)
-                y_acc_uq = np.percentile(y_acc_c, 75., axis=0)
-                y_err = np.vstack((y_acc_md - y_acc_lq, y_acc_uq - y_acc_md))
+                # adds the median plot lines
+                h_plt.append(ax.plot(xi_plt, y_acc_md, c=col[i_cond], linewidth=2))
 
-                #
-                h_plt.append(ax.plot(xi_plt, y_acc_md, c=col[i_cond]))
-                ax.errorbar(xi_plt, y_acc_md, yerr=y_err, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+                # creates the errorbars (if requred)
+                if plot_err:
+                    # sets the lower/upper quartile errorbars
+                    y_acc_lq = np.percentile(y_acc_c, 25., axis=0)
+                    y_acc_uq = np.percentile(y_acc_c, 75., axis=0)
+
+                    # creates the area patch
+                    cf.create_error_area_patch(ax, xi_plt, None, y_acc_lq, col[i_cond], y_err2=y_acc_uq)
 
             # creates the vertical marker lines
             for xx in np.arange(xL[0] + 1, xL[1]):
@@ -5565,8 +5568,8 @@ class AnalysisGUI(QMainWindow):
             #################################
 
             # creates the multiple boxplot
-            create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], ttype, plot_avg_lines)
-            create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], ttype, plot_avg_lines)
+            create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], use_stagger, plot_err)
+            create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], use_stagger, plot_err)
 
             # sets the titles for both subplots
             ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
@@ -6098,7 +6101,7 @@ class AnalysisGUI(QMainWindow):
             ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
             create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
 
-    def plot_partial_lda(self, err_type, plot_grid):
+    def plot_partial_lda(self, err_type, y_upper, x_max, use_x_max, plot_grid):
         '''
 
         :param plot_grid:
@@ -6120,9 +6123,16 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the mean, min/max and SEM decoding accuracy values over all shuffles
         y_acc_mu = 100. * np.hstack((zz, np.mean(y_acc, axis=2)))
-        y_acc_min = y_acc_mu - 100. * np.hstack((zz, np.min(y_acc, axis=2)))
-        y_acc_max = 100. * np.hstack((zz, np.max(y_acc, axis=2))) - y_acc_mu
+        y_acc_md = 100. * np.hstack((zz, np.median(y_acc, axis=2)))
+
+        # sets up the min/max and SEM values
+        y_acc_min = 100. * np.hstack((zz, np.min(y_acc, axis=2)))
+        y_acc_max = 100. * np.hstack((zz, np.max(y_acc, axis=2)))
         y_acc_sem = 100. * np.hstack((zz, np.std(y_acc, axis=2) / (d_data_p.nshuffle ** 0.5)))
+
+        # sets up the interquartile range values
+        y_acc_uq = 100. * np.hstack((zz, np.percentile(y_acc, 75, axis=2)))
+        y_acc_lq = 100. * np.hstack((zz, np.percentile(y_acc, 25, axis=2)))
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -6144,29 +6154,42 @@ class AnalysisGUI(QMainWindow):
         for i_plt in range(len(col)):
             # plots the mean accuracy values
             xi_nw = [0] + list(np.array(xi[1:]) + xi_del[i_plt])
-            h_plt.append(ax.plot(xi_nw, y_acc_mu[i_plt, :], 'o-', c=col[i_plt]))
-
-            # plots the errorbars
-            if err_type == 'None':
-                continue
-            elif err_type == 'SEM':
-                # case is plotting the SEM errorbars
-                ax.errorbar(xi_nw, y_acc_mu[i_plt, :], yerr=y_acc_sem[i_plt, :], fmt='.', color=col[i_plt], capsize=c_sz)
+            if err_type == 'IQR':
+                #
+                h_plt.append(ax.plot(xi_nw, y_acc_md[i_plt, :], 'o-', c=col[i_plt]))
+                cf.create_error_area_patch(ax, xi_nw, None, y_acc_lq[i_plt, :], col[i_plt], y_err2=y_acc_uq[i_plt, :])
             else:
-                # case is plotting the SEM errorbars
-                y_err = np.vstack([y_acc_min[i_plt, :], y_acc_max[i_plt, :]])
-                ax.errorbar(xi_nw, y_acc_mu[i_plt, :], yerr=y_err, fmt='.', color=col[i_plt], capsize=c_sz)
+                h_plt.append(ax.plot(xi_nw, y_acc_mu[i_plt, :], 'o-', c=col[i_plt]))
+
+                # plots the errorbars
+                if err_type == 'None':
+                    continue
+                elif err_type == 'SEM':
+                    # case is plotting the SEM errorbars
+                    cf.create_error_area_patch(ax, xi_nw, y_acc_mu[i_plt, :], y_acc_sem[i_plt, :], col[i_plt])
+                else:
+                    # case is plotting the SEM errorbars
+                    cf.create_error_area_patch(ax, xi_nw, None, y_acc_lq[i_plt, :], col[i_plt],
+                                               y_err2=y_acc_uq[i_plt, :])
+
+        # sets the upper x-axis limits
+        if use_x_max:
+            xL = [0, x_max]
+        else:
+            xL = ax.get_xlim()
 
         # plots the chance line
-        xL = ax.get_xlim()
-        ax.plot(xL, [50, 50], 'r--')
-        ax.plot(xL, [95, 95], 'r--')
+        ax.plot(xL, 50 * np.ones(2), 'r--')
+        ax.plot(xL, y_upper * np.ones(2), 'r--')
         ax.set_xlim(xL)
+
+        # updates the ticklabels (if max cell count is not too high)
+        if xi[-1] < 100:
+            ax.set_xticks(xi)
 
         # sets the axis properties
         ax.legend([x[0] for x in h_plt], plt_lbls, loc=4)
         ax.set_yticks(np.arange(0, 100.1, 10))
-        ax.set_xticks(xi)
         ax.set_title('Experiment Count = {0}'.format(n_expt))
         ax.set_xlabel('Cell Count')
         ax.set_ylabel('Decoding Accuracy (%)')
@@ -6300,7 +6323,7 @@ class AnalysisGUI(QMainWindow):
         ax.grid(plot_grid)
         ax.set_ylabel('Decoding Accuracy (%)')
 
-    def plot_lda_weights(self, wght_thresh, plot_cond, plot_layer, plot_comp, plot_grid):
+    def plot_lda_weights(self, error_type, wght_thresh, plot_cond, plot_layer, plot_comp, plot_grid):
         '''
 
         :param plot_grid:
@@ -6344,7 +6367,7 @@ class AnalysisGUI(QMainWindow):
         # retrieves the data classes
         d_data = self.data.discrim.wght
         n_cond, ttype = len(d_data.ttype), d_data.ttype
-        col = cf.get_plot_col(n_cond)
+        col, is_sem = cf.get_plot_col(n_cond), error_type == 'SEM'
 
         #
         if plot_cond:
@@ -6361,17 +6384,34 @@ class AnalysisGUI(QMainWindow):
         ####    DATA PRE-PROCESSING    ####
         ###################################
 
-        # calculates the coefficient weight survival curves
-        c_wght_mn = [np.mean(x, axis=0) for x in d_data.c_wght]
-        c_wght_sem = [np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.c_wght]
+        if is_sem:
+            # calculates the coefficient weight survival curves
+            c_wght = [np.mean(x, axis=0) for x in d_data.c_wght]
+            c_wght_sem = [np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.c_wght]
 
-        # calculates the bottom-removed coefficient accuracy values
-        y_top_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_top]
-        y_top_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_top]
+            # calculates the bottom-removed coefficient accuracy values
+            y_top = [100. * np.mean(x, axis=0) for x in d_data.y_acc_top]
+            y_top_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_top]
 
-        # calculates the bottom-removed coefficient accuracy values
-        y_bot_mn = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
-        y_bot_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_bot]
+            # calculates the bottom-removed coefficient accuracy values
+            y_bot = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
+            y_bot_sem = [100. * np.std(x, axis=0) / (np.size(x, axis=0) ** 0.5) for x in d_data.y_acc_bot]
+
+        else:
+            # calculates the coefficient weight survival curves
+            c_wght = [np.median(x, axis=0) for x in d_data.c_wght]
+            c_wght_lq = [np.percentile(x, 25, axis=0) for x in d_data.c_wght]
+            c_wght_uq = [np.percentile(x, 75, axis=0) for x in d_data.c_wght]
+
+            # calculates the bottom-removed coefficient accuracy values
+            y_top = [100. * np.mean(x, axis=0) for x in d_data.y_acc_top]
+            y_top_lq = [100. * np.percentile(x, 25, axis=0) for x in d_data.y_acc_top]
+            y_top_uq = [100. * np.percentile(x, 75, axis=0) for x in d_data.y_acc_top]
+
+            # calculates the bottom-removed coefficient accuracy values
+            y_bot = [100. * np.mean(x, axis=0) for x in d_data.y_acc_bot]
+            y_bot_lq = [100. * np.percentile(x, 25, axis=0) for x in d_data.y_acc_bot]
+            y_bot_uq = [100. * np.percentile(x, 75, axis=0) for x in d_data.y_acc_bot]
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
@@ -6413,16 +6453,26 @@ class AnalysisGUI(QMainWindow):
         #
         for i_tt, tt in enumerate(ttype):
             # creates the coefficient weighting survival curve
-            h_plt.append(ax[0].plot(xi, c_wght_mn[i_tt], col[i_tt]))
-            cf.create_error_area_patch(ax[0], xi, c_wght_mn[i_tt], c_wght_sem[i_tt], col[i_tt])
+            h_plt.append(ax[0].plot(xi, c_wght[i_tt], col[i_tt]))
+            if is_sem:
+                cf.create_error_area_patch(ax[0], xi, c_wght[i_tt], c_wght_sem[i_tt], col[i_tt])
+            else:
+                cf.create_error_area_patch(ax[0], xi, None, c_wght_lq[i_tt], col[i_tt], y_err2=c_wght_uq[i_tt])
 
             # creates the worst-ranked removed LDA accuracy
-            ax[1].plot(xi, y_top_mn[i_tt], col[i_tt])
-            cf.create_error_area_patch(ax[1], xi, y_top_mn[i_tt], y_top_sem[i_tt], col[i_tt])
+            ax[1].plot(xi, y_top[i_tt], col[i_tt])
+            if is_sem:
+                cf.create_error_area_patch(ax[1], xi, y_top[i_tt], y_top_sem[i_tt], col[i_tt])
+            else:
+                cf.create_error_area_patch(ax[1], xi, None, y_top_lq[i_tt], col[i_tt], y_err2=y_top_uq[i_tt])
 
             # creates the best-ranked removed LDA accuracy
-            ax[2].plot(xi, y_bot_mn[i_tt], col[i_tt])
-            cf.create_error_area_patch(ax[2], xi, y_bot_mn[i_tt], y_bot_sem[i_tt], col[i_tt])
+            ax[2].plot(xi, y_bot[i_tt], col[i_tt])
+            if is_sem:
+                cf.create_error_area_patch(ax[2], xi, y_bot[i_tt], y_bot_sem[i_tt], col[i_tt])
+            else:
+                cf.create_error_area_patch(ax[2], xi, None, y_bot_lq[i_tt], col[i_tt], y_err2=y_bot_uq[i_tt])
+
 
         # sets the legend
         ax[0].legend([x[0] for x in h_plt], ttype, loc=0)
@@ -6803,7 +6853,7 @@ class AnalysisGUI(QMainWindow):
             _ax.set_xlim(xL)
             _ax.grid(plot_grid)
 
-    def plot_speed_dir_lda(self, marker_type, plot_grid):
+    def plot_speed_dir_lda(self, use_stagger, marker_type, plot_grid, show_stats):
         '''
 
         :param plot_grid:
@@ -6811,9 +6861,9 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, plot_chance=True)
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, use_stagger, show_stats, plot_chance=True)
 
-    def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, plot_chance=False):
+    def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, use_stagger=False, show_stats=False, plot_chance=False):
         '''
 
         :param d_data:
@@ -6845,9 +6895,11 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # sets the plotting data values
-        y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
-        y_acc_sem = 100. * np.std(d_data.y_acc, axis=0) / (n_ex ** 0.5)
+        y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
+        y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
+        y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
 
+        # sets the number of cells/expt
         n_cell = [sum(x) for x in d_data.i_cell]
 
         ##################################
@@ -6857,10 +6909,10 @@ class AnalysisGUI(QMainWindow):
         # plots the data for all points
         for i_cond in range(n_cond):
             # sets the plot x locations and error bar values
-            x_nw = x + (i_cond + 1) / (n_cond + 1)
+            x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
 
             # plots the mean marker points
-            h_plt.append(ax.plot(x_nw, y_acc_mn[:, i_cond], c=col[i_cond]))
+            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
 
             # plots the individual points
             if marker_type == 'Individual Experiment Markers':
@@ -6871,7 +6923,7 @@ class AnalysisGUI(QMainWindow):
 
             elif marker_type == 'Experiment SEM Area':
                 # case is the experiment SEM Area
-                cf.create_error_area_patch(ax, x_nw, y_acc_mn[:, i_cond], y_acc_sem[:, i_cond], col[i_cond])
+                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
 
         # creates the legend
         ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
@@ -10060,10 +10112,11 @@ class AnalysisFunctions(object):
         wght_lda_para, wght_def_para = init_lda_para(data.discrim, 'wght', SubDiscriminationData('LDAWeight'))
 
         # parameter lists
-        err_type = ['SEM', 'Min/Max', 'None']
+        err_type = ['IQR', 'SEM', 'Min/Max', 'None']
         decode_type = ['Condition'] + ['Dir ({0})'.format(x) for x in indiv_lda_para['comp_cond']]
         wght_plot_cond = wght_lda_para['comp_cond']
         wght_plot_layer = cfcn.det_uniq_channel_layers(data, wght_lda_para)
+        wght_plot_err = ['IQR', 'SEM']
         acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
 
         # ====> Rotation Direction LDA
@@ -10135,7 +10188,8 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            'plot_avg_lines': {'type': 'B', 'text': 'Plot Avg. Decoding Accuracy', 'def_val': True},
+            'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
+            'plot_err': {'type': 'B', 'text': 'Show Error Shaded Region', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
@@ -10282,6 +10336,11 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'err_type': {'type': 'L', 'text': 'Error Type', 'list': err_type, 'def_val': err_type[0]},
+            'y_upper': {'text': 'Upper Accuracy Threshold Location', 'def_val': 95, 'min_val': 50, 'max_val': 100},
+            'x_max': {'text': 'X-Axis Upper Limit', 'def_val': 100},
+            'use_x_max': {
+                'type': 'B', 'text': 'Use X-Axis Upper Limit', 'def_val': False,
+                'link_para': ['x_max', False]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Discrimination Analysis',
@@ -10352,6 +10411,9 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
+            'error_type': {
+                'type': 'L', 'text': 'Signal Error Type', 'list': wght_plot_err, 'def_val': wght_plot_err[0]
+            },
             'wght_thresh': {'text': 'Coefficient Weight Threshold', 'def_val': 0.05, 'min_val': 0.0, 'max_val': 1.0},
             'plot_cond': {
                 'type': 'CL', 'text': 'Plot Conditions', 'list': wght_plot_cond,
@@ -10383,7 +10445,7 @@ class AnalysisFunctions(object):
         # combobox parameter lists
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_cond = spdcp_lda_para['comp_cond']
-        spr_type = ['Individual Experiment Markers', 'Experiment SEM Area', 'No Markers']
+        spr_type = ['Experiment SEM Area', 'Individual Experiment Markers', 'No Markers']
 
         # determines the cell count checklist values
         n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
@@ -10564,8 +10626,12 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
+            'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
             'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
+            },
         }
 
         self.add_func(type='Kinematic Discrimination Analysis',

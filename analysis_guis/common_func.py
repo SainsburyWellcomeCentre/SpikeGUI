@@ -2424,9 +2424,7 @@ def check_existing_file(hParent, out_file):
 def setup_sns_plot_dict(**kwargs):
     '''
 
-    :param ax:
-    :param y_acc:
-    :param y_acc_plt:
+    :param kwargs:
     :return:
     '''
 
@@ -2441,19 +2439,31 @@ def setup_sns_plot_dict(**kwargs):
     return sns_dict
 
 
-def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2):
+def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
     '''
 
+    :param ax:
     :param x:
     :param y_mn:
     :param y_err:
     :param col:
+    :param f_alpha:
+    :param y_err2:
     :return:
     '''
 
     # sets up the error patch vertices
-    err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err[::-1])]
+    if y_err2 is None:
+        if y_mn is None:
+            err_vert = [*zip(x, y_err), *zip(x[::-1], y_err[::-1])]
+        else:
+            err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err[::-1])]
+    else:
+        if y_mn is None:
+            err_vert = [*zip(x, y_err), *zip(x[::-1], y_err2[::-1])]
+        else:
+            err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err2[::-1])]
 
     # creates the polygon object and adds it to the axis
-    poly = Polygon(err_vert, facecolor=col, alpha=f_alpha)
+    poly = Polygon(err_vert, facecolor=col, alpha=f_alpha, edgecolor=col, linewidth=4)
     ax.add_patch(poly)

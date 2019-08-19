@@ -350,6 +350,7 @@ class WorkerThread(QThread):
                     # otherwise, make a copy of the plotting/calculation parameters
                     _plot_para, _calc_para, r_data = dcopy(plot_para), dcopy(calc_para), data.depth
                     _plot_para['plot_exp_name'], r_filt = None, _plot_para['rot_filt']
+                    t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
@@ -1673,7 +1674,7 @@ class WorkerThread(QThread):
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
                 results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell],
-                                           n_trial_max, is_indiv=False)
+                                           n_trial_max, is_indiv=True)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False
@@ -3320,7 +3321,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def check_class_para_equal(d_data, attr, chk_value):
+        def check_class_para_equal(d_data, attr, chk_value, def_val=False):
             '''
 
             :param d_data:
@@ -3332,7 +3333,7 @@ class WorkerThread(QThread):
             if hasattr(d_data, attr):
                 return getattr(d_data, attr) == chk_value
             else:
-                return False
+                return def_val
 
         # initialisations
         r_data = data.rotation
@@ -3451,9 +3452,9 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 'cellmin', lda_para['n_cell_min']),
                     check_class_para_equal(d_data, 'trialmin', lda_para['n_trial_min']),
                     check_class_para_equal(d_data, 'yaccmx', lda_para['y_acc_max']),
-                    check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min']),
-                    check_class_para_equal(d_data, 'yaucmx', lda_para['y_auc_max']),
-                    check_class_para_equal(d_data, 'yaucmn', lda_para['y_auc_min']),
+                    check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min'], def_val=True),
+                    check_class_para_equal(d_data, 'yaucmx', lda_para['y_auc_max'], def_val=True),
+                    check_class_para_equal(d_data, 'yaucmn', lda_para['y_auc_min'], def_val=True),
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
 
