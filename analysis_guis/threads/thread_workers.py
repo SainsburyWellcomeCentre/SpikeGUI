@@ -1673,8 +1673,7 @@ class WorkerThread(QThread):
 
                 # sets the cell for analysis and runs the LDA
                 _i_cell[i_c] = True
-                results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell],
-                                           n_trial_max, is_indiv=True)
+                results = cfcn.run_rot_lda(data, _calc_para, r_filt, [i_expt[i_ex]], [_i_cell], n_trial_max)
                 if isinstance(results, bool):
                     # if there was an error, then return a false flag value
                     return False

@@ -7,6 +7,7 @@ import copy
 import random
 import peakutils
 import math as m
+import pickle as _p
 import numpy as np
 import quantities as pq
 from fastdtw import fastdtw
@@ -1278,7 +1279,7 @@ def norm_spike_counts(n_sp, N, is_norm):
 
 
 def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
-                pW0=0., pW=100., is_indiv=False, n_sp0=None):
+                pW0=0., pW=100., n_sp0=None):
     '''
 
     :param data:
@@ -1292,7 +1293,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     :return:
     '''
 
-    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, i_ex, is_shuffle, pW0, pW, is_indiv):
+    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, i_ex, is_shuffle, pW0, pW):
         '''
 
         :param r_obj:
@@ -1329,6 +1330,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
             return n_sp
 
         # memory allocation and initialisations
+        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
         n_t, n_grp, N = n_trial_max, 2 * r_obj.n_filt, 2 * r_obj.n_filt * n_trial_max
         pWS = 1 / r_obj.n_expt
 
@@ -1366,10 +1368,12 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
         lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
         p_mat, is_keep = np.zeros((N, n_grp), dtype=float), np.ones(N, dtype=bool)
 
-        # sets the
-        if is_indiv:
+        # sets the total number of iterations (based on trial setup type)
+        if is_OTO:
+            # case is "one-trial out" setup
             NN, xi_rmv = n_trial_max, np.arange(0, N, n_trial_max)
         else:
+            # case is "one-phase out" setup
             NN = len(i_grp)
 
         # fits the LDA model and calculates the prediction for each
@@ -1380,7 +1384,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / NN))
 
             # fits the one-out-trial lda model
-            if is_indiv:
+            if is_OTO:
                 is_keep[xi_rmv + i_trial] = False
             else:
                 is_keep[i_trial] = False
@@ -1396,7 +1400,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 return None, False
 
             # resets the acceptance array
-            if is_indiv:
+            if is_OTO:
                 # calculates the model prediction from the remaining trial and increments the confusion matrix
                 for i in (xi_rmv + i_trial):
                     lda_pred[i] = lda.predict(n_sp_calc[i, :].reshape(1, -1))
@@ -1482,7 +1486,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
     for i_ex in range(n_ex):
         exp_name[i_ex] = f_name0[i_ex]
         lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, n_sp0, i_cell[i_ex],
-                                                        i_ex, is_shuffle, pW0, pW, is_indiv)
+                                                        i_ex, is_shuffle, pW0, pW)
         if not ok:
             # if there was an error, then exit with a false flag
             return False
@@ -1581,6 +1585,7 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
         # memory allocation
         n_t, n_cell = np.shape(n_sp)
         c_mat, is_keep = np.zeros((2, 2), dtype=int), np.ones(n_t, dtype=bool)
+        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
 
         # calculates the predictions for the one-out-trial lda model
         for i_trial in range(n_t):
@@ -2947,7 +2952,7 @@ def get_glob_para(gp_type):
 
     # loads the default file
     with open(cf.default_dir_file, 'rb') as fp:
-        def_data = p.load(fp)
+        def_data = _p.load(fp)
 
     # sets the trial type value
     return def_data['g_para'][gp_type]
