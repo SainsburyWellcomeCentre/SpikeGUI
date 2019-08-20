@@ -4372,6 +4372,7 @@ class AnalysisGUI(QMainWindow):
             #################################################
 
             # parameters and other initialisations
+            pp = 1 / 9
             col_b = cf.get_plot_col(len(tt_auc_sig))
             xi_y = np.arange(len(tt_auc_sig)) + 0.5
 
@@ -4383,7 +4384,7 @@ class AnalysisGUI(QMainWindow):
             # sets the axis properties
             ax[0].set_xlabel('Percentage Significant')
             ax[0].set_xlim([-0.1, 100.1])
-            ax[0].set_ylim([0, len(tt_auc_sig) * (9 / 8)])
+            ax[0].set_ylim([0, len(tt_auc_sig) * (1 / pp) / (1 / pp - 1)])
             ax[0].set_yticks(xi_y)
             ax[0].set_yticklabels(tt_auc_sig)
             ax[0].legend(ncol=len(tt_auc_sig), loc='top left')
