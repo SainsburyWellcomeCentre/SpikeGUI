@@ -116,8 +116,7 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 dcopy = copy.deepcopy
 func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Rotation Analysis',
                        'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis', 'Depth-Based Analysis',
-                       'Rotation Discrimination Analysis', 'Kinematic Discrimination Analysis',
-                       'Single Experiment Analysis', 'Miscellaneous Functions'])
+                       'Direction LDA', 'Speed LDA', 'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
 _bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
@@ -3707,8 +3706,16 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the necessary plot values
         roc = [r_data.cond_roc[x][y] for x, y in zip(t_type, cell_ind)]
-        roc_xy = [r_data.cond_roc_xy[x][y] for x, y in zip(t_type, cell_ind)]
         roc_auc = [r_data.cond_roc_auc[x][y, 2] for x, y in zip(t_type, cell_ind)]
+        roc_xy = [r_data.cond_roc_xy[x][y] for x, y in zip(t_type, cell_ind)]
+
+        # if the black auROC value is <0.5, then calculate the complimentary auROC/coordinates
+        i_black = t_type.index('Black')
+        if roc_auc[i_black] < 0.5:
+            roc_auc = [1.0 - x for x in roc_auc]
+            roc_xy = [1.0 - x for x in roc_xy]
+
+        # sets the confidence interval values into a list
         y_err = [[r_data.cond_ci_lo[x][y, is_boot], r_data.cond_ci_hi[x][y, is_boot]] for x, y in zip(t_type, cell_ind)]
 
         ######################################
@@ -4103,7 +4110,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, mark_type,
-                                   show_grp_markers, plot_trend, plot_grid, plot_scope):
+                                   show_grp_markers, plot_trend, plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4133,9 +4140,11 @@ class AnalysisGUI(QMainWindow):
         x_trend, is_cong = np.arange(0, 10, 0.02), False
         n_filt, r_data = r_obj.n_filt, self.data.rotation
         A = np.empty(n_filt, dtype=object)
-        c0 = ['Color1', 'Color2', 'Color3', 'Color4'] # ENTER COLOURS HERE
 
-        #
+        # COLOURS TO BE ENTERED BY SEPI HERE
+        c0 = ['C0', 'C1', 'C2', 'C3']           #### MUST HAVE EXACTLY 4 COLOURS
+
+        # sets the group type values/label strings
         if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
             st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
             grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
@@ -4144,10 +4153,8 @@ class AnalysisGUI(QMainWindow):
         elif mark_type == 'Congruency':
             grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
 
-        if c0[0] == 'Color1':
-            c = cf.get_plot_col(len(grp_type))
-        else:
-            c = np.array(c0)[:len(grp_type)]
+        # sets the final colours array
+        c = np.array(c0)[:len(grp_type)]
 
         # if use_resp_grp_type:
         #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
@@ -4174,102 +4181,131 @@ class AnalysisGUI(QMainWindow):
         m, m_size, c = ['o', 'x', '^', 's', 'D', 'H', '*'], 50, cf.get_plot_col(len(grp_type))
         sig_col = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
 
-        ####################################
-        ####    SCATTERPLOT CREATION    ####
-        ####################################
+        if plot_type == 'auROC Scatterplot':
+            ####################################
+            ####    SCATTERPLOT CREATION    ####
+            ####################################
 
-        # legend properties initialisations
-        h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
-        if not show_grp_markers:
-            lg_str = ['Not Sig.'] + lg_str
+            # legend properties initialisations
+            h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
+            if not show_grp_markers:
+                lg_str = ['Not Sig.'] + lg_str
 
-        # initialises the plot axes
-        self.init_plot_axes(n_plot=1)
+            # initialises the plot axes
+            self.init_plot_axes(n_plot=1)
 
-        # initialises the plot axes region
-        self.plot_fig.ax[0].plot([0, 1], [0, 1], 'k--', linewidth=2)
-        self.plot_fig.ax[0].grid(plot_grid)
+            # initialises the plot axes region
+            self.plot_fig.ax[0].plot([0, 1], [0, 1], 'k--', linewidth=2)
+            self.plot_fig.ax[0].grid(plot_grid)
 
-        #
-        for i, im in enumerate(ind_match):
-            # sets the black/comparison trial condition cell group type values (for the current match)
-            if len(i_cell_b[im[1]]):
-                # if there is a mis-match in cell count, then find the matching cells between conditions
-                if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
-                    i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
+            #
+            for i, im in enumerate(ind_match):
+                # sets the black/comparison trial condition cell group type values (for the current match)
+                if len(i_cell_b[im[1]]):
+                    # if there is a mis-match in cell count, then find the matching cells between conditions
+                    if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
+                        i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
 
-                # retrieves the auc values and cell grouping indices for the current filter combination
-                g_type_m = g_type[i_cell_b[im[0]]]
-                x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
-                y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
+                    # retrieves the auc values and cell grouping indices for the current filter combination
+                    g_type_m = g_type[i_cell_b[im[0]]]
+                    x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
+                    y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
 
-                # removes any cells where the group type was not calculated
-                is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
-                if not np.all(is_ok):
-                    g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
-                    i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
+                    # removes any cells where the group type was not calculated
+                    is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
+                    if not np.all(is_ok):
+                        g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
+                        i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
 
-                # calculates the compliment of any auc values < 0.5
-                ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
-                x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
+                    # calculates the compliment of any auc values < 0.5
+                    ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
+                    x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
 
-                # sets the x/y significance points
-                x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
-                y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
-                xy_sig = x_sig + 2 * y_sig
+                    # sets the x/y significance points
+                    x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
+                    y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
+                    xy_sig = x_sig + 2 * y_sig
 
-                # sets the final significance plot colours
-                if show_grp_markers:
-                    mlt = 3
-                    sig_col_plt, mlt = np.array([sig_col[x] if x > 0 else None for x in xy_sig]), 3
-                    if is_cong:
-                        jj = np.ones(len(xy_sig), dtype=bool)
-                        sig_col_plt = np.array([sig_col[x] for x in xy_sig])
-                    else:
-                        jj = xy_sig > 0
-                        sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
-                else:
-                    sig_col_plt = np.array([sig_col[x] for x in xy_sig])
-                    jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
-
-                # creates the significance markers
-                self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], c=sig_col_plt[jj], marker=m[i], s=mlt*m_size)
-
-                # creates the significance legend plot markers
-                if i == 0:
+                    # sets the final significance plot colours
                     if show_grp_markers:
-                        lg_ind = np.unique(xy_sig[xy_sig > 0])
+                        mlt = 3
+                        sig_col_plt, mlt = np.array([sig_col[x] if x > 0 else None for x in xy_sig]), 3
+                        if is_cong:
+                            jj = np.ones(len(xy_sig), dtype=bool)
+                            sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                        else:
+                            jj = xy_sig > 0
+                            sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
                     else:
-                        lg_ind = np.unique(xy_sig)
+                        sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                        jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
 
-                    for j in lg_ind:
-                        h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
+                    # creates the significance markers
+                    self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], c=sig_col_plt[jj], marker=m[i], s=mlt*m_size)
 
-                # creates the markers for each of the phases
-                for igt, gt in enumerate(grp_type):
-                    ii = g_type_m == igt
-                    if np.any(ii):
+                    # creates the significance legend plot markers
+                    if i == 0:
                         if show_grp_markers:
-                            self.plot_fig.ax[0].scatter(x_auc[ii], y_auc[ii], c=c[igt], marker=m[i], s=m_size, alpha=1)
+                            lg_ind = np.unique(xy_sig[xy_sig > 0])
+                        else:
+                            lg_ind = np.unique(xy_sig)
 
-                            # h_plt[i, igt] = self.plot_fig.ax[0].plot(-1, -1, c=c[igt], marker=m[igt])
-                            h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=c[igt], marker=m[i]))
-                            if len(ind_match) > 1:
-                                lg_str.append('{0} ({1})'.format(gt, r_obj.lg_str[im[0]].replace('Black\n', '')))
-                            else:
-                                lg_str.append(gt)
+                        for j in lg_ind:
+                            h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
 
-                        # adds the trend-line (if selected)
-                        if plot_trend:
-                            auc_trend, _ = curve_fit(cf.lin_func, x_auc[ii] - 0.5, y_auc[ii] - 0.5)
-                            self.plot_fig.ax[0].plot(x_trend + 0.5, auc_trend * x_trend + 0.5, '-{0}'.format(m[i]),
-                                                     color=c[igt], markersize=8, linewidth=2, linestyle='dashed')
+                    # creates the markers for each of the phases
+                    for igt, gt in enumerate(grp_type):
+                        ii = g_type_m == igt
+                        if np.any(ii):
+                            if show_grp_markers:
+                                self.plot_fig.ax[0].scatter(x_auc[ii], y_auc[ii], c=c[igt],
+                                                            marker=m[i], s=m_size, alpha=1)
 
-        # updates the axis limits
-        cf.set_axis_limits(self.plot_fig.ax[0], [0.5, 1], [0.5, 1])
-        self.plot_fig.ax[0].set_xlabel('Black auROC Scores')
-        self.plot_fig.ax[0].set_ylabel('{0} auROC Scores'.format(plot_cond))
-        self.plot_fig.ax[0].legend(h_plt, lg_str, loc=0, ncol=1+len(ind_match))
+                                # h_plt[i, igt] = self.plot_fig.ax[0].plot(-1, -1, c=c[igt], marker=m[igt])
+                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=c[igt], marker=m[i]))
+                                if len(ind_match) > 1:
+                                    lg_str.append('{0} ({1})'.format(gt, r_obj.lg_str[im[0]].replace('Black\n', '')))
+                                else:
+                                    lg_str.append(gt)
+
+                            # adds the trend-line (if selected)
+                            if plot_trend:
+                                auc_trend, _ = curve_fit(cf.lin_func, x_auc[ii] - 0.5, y_auc[ii] - 0.5)
+                                self.plot_fig.ax[0].plot(x_trend + 0.5, auc_trend * x_trend + 0.5, '-{0}'.format(m[i]),
+                                                         color=c[igt], markersize=8, linewidth=2, linestyle='dashed')
+
+            # updates the axis limits
+            cf.set_axis_limits(self.plot_fig.ax[0], [0.5, 1], [0.5, 1])
+            self.plot_fig.ax[0].set_xlabel('Black auROC Scores')
+            self.plot_fig.ax[0].set_ylabel('{0} auROC Scores'.format(plot_cond))
+            self.plot_fig.ax[0].legend(h_plt, lg_str, loc=0, ncol=1+len(ind_match))
+
+        else:
+            ############################################
+            ####    AUROC BAR/HISTOGRAM CREATION    ####
+            ############################################
+
+            # sets up the axes dimensions
+            nR, nC, nCM = 2, 7, 5
+            top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.2, 0.2
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            self.plot_fig.ax = np.empty(3, dtype=object)
+            self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :nCM])
+            self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :nCM])
+            self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, nCM:])
+
+            # turns off the subplot intended for the stats
+            self.plot_fig.ax[2].axis('off')
+
+            # FINISH ME!
+            cf.show_error('Finish Me!', 'Finish Me!')
+
 
     def plot_roc_cond_comparison(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, plot_grid, plot_scope):
         '''
@@ -6112,7 +6148,7 @@ class AnalysisGUI(QMainWindow):
             ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
             create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
 
-    def plot_partial_lda(self, err_type, y_upper, x_max, use_x_max, plot_grid):
+    def plot_partial_lda(self, err_type, y_upper, x_max, use_x_max, use_stagger, plot_grid):
         '''
 
         :param plot_grid:
@@ -6159,7 +6195,7 @@ class AnalysisGUI(QMainWindow):
         # bar graph dimensioning
         plt_lbls = ['Cond'] + ['Dir ({0})'.format(cf.cond_abb(tt)) for tt in ttype]
         col, ax, c_sz, p_x = cf.get_plot_col(len(plt_lbls)), self.plot_fig.ax[0], 10, 0.25
-        xi_del, h_plt = p_x * (np.arange(len(col)) - (len(col) - 1) / 2), []
+        xi_del, h_plt = use_stagger * p_x * (np.arange(len(col)) - (len(col) - 1) / 2), []
 
         #
         for i_plt in range(len(col)):
@@ -6180,8 +6216,8 @@ class AnalysisGUI(QMainWindow):
                     cf.create_error_area_patch(ax, xi_nw, y_acc_mu[i_plt, :], y_acc_sem[i_plt, :], col[i_plt])
                 else:
                     # case is plotting the SEM errorbars
-                    cf.create_error_area_patch(ax, xi_nw, None, y_acc_lq[i_plt, :], col[i_plt],
-                                               y_err2=y_acc_uq[i_plt, :])
+                    cf.create_error_area_patch(ax, xi_nw, None, y_acc_min[i_plt, :], col[i_plt],
+                                               y_err2=y_acc_max[i_plt, :])
 
         # sets the upper x-axis limits
         if use_x_max:
@@ -6592,7 +6628,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         self.create_kinematic_lda_plots(self.data.discrim.spdacc, marker_type, plot_grid, plot_chance=False)
 
-    def plot_speed_comp_lda(self, show_cell_sz, show_fit, plot_type, sep_resp, plot_grid):
+    def plot_speed_comp_lda(self, show_cell_sz, show_fit, sep_resp, plot_type, plot_grid):
         '''
 
         :return:
@@ -6640,12 +6676,10 @@ class AnalysisGUI(QMainWindow):
             for i_cond in range(n_cond):
                 # sets the plot x locations and error bar values
                 x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
-                yerr = np.vstack((y_acc_md[:, i_cond] - y_acc_lq[:, i_cond],
-                                  y_acc_uq[:, i_cond] - y_acc_md[:, i_cond]))
 
                 # creates the plot/errorbar
                 h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
-                ax.errorbar(x_nw, y_acc_md[:, i_cond], yerr=yerr, ecolor=col[i_cond], fmt='.', capsize=10.0 / n_cond)
+                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
 
             # creates the legend
             ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
@@ -6872,7 +6906,8 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, use_stagger, show_stats, plot_chance=True)
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, use_stagger,
+                                        show_stats, plot_chance=True)
 
     def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, use_stagger=False, show_stats=False, plot_chance=False):
         '''
@@ -6932,7 +6967,7 @@ class AnalysisGUI(QMainWindow):
                     ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
                                edgecolors=col[i_cond], s=n_cell[i_ex])
 
-            elif marker_type == 'Experiment SEM Area':
+            elif marker_type == 'Experiment IQR Area':
                 # case is the experiment SEM Area
                 cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
 
@@ -8345,8 +8380,8 @@ class AnalysisGUI(QMainWindow):
         plot_scope_chk = ['ROC Analysis',
                           'Combined Analysis',
                           'Depth-Based Analysis',
-                          'Rotation Discrimination Analysis',
-                          'Kinematic Discrimination Analysis',
+                          'Direction LDA',
+                          'Speed LDA',
                           'Miscellaneous Functions']
 
         # mandatory update function list
@@ -9455,6 +9490,7 @@ class AnalysisFunctions(object):
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
         cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
+        ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
 
         # velocity/speed ranges
         vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
@@ -9866,6 +9902,11 @@ class AnalysisFunctions(object):
             #     'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
             # },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+            'plot_type': {
+                'type': 'L', 'text': 'Analysis Plot Type', 'list': ms_scat_type, 'def_val': ms_scat_type[0],
+                'link_para': [['mark_type', ms_scat_type[1]], ['show_grp_markers', ms_scat_type[1]],
+                              ['plot_trend', ms_scat_type[1]]]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -10173,7 +10214,7 @@ class AnalysisFunctions(object):
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Rotation Direction LDA',
                       func='plot_rotation_dir_lda',
                       para=para)
@@ -10206,7 +10247,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
             },
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Temporal Duration/Offset LDA',
                       func='plot_temporal_lda',
                       para=para)
@@ -10256,7 +10297,7 @@ class AnalysisFunctions(object):
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Individual LDA',
                       func='plot_individual_lda',
                       para=para)
@@ -10307,7 +10348,7 @@ class AnalysisFunctions(object):
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Shuffled LDA',
                       func='plot_shuffled_lda',
                       para=para)
@@ -10350,11 +10391,12 @@ class AnalysisFunctions(object):
             'y_upper': {'text': 'Upper Accuracy Threshold Location', 'def_val': 95, 'min_val': 50, 'max_val': 100},
             'x_max': {'text': 'X-Axis Upper Limit', 'def_val': 100},
             'use_x_max': {
-                'type': 'B', 'text': 'Use X-Axis Upper Limit', 'def_val': False,
-                'link_para': ['x_max', False]},
+                'type': 'B', 'text': 'Use X-Axis Upper Limit', 'def_val': False, 'link_para': ['x_max', False]
+            },
+            'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Pooled Neuron LDA',
                       func='plot_partial_lda',
                       para=para)
@@ -10394,7 +10436,7 @@ class AnalysisFunctions(object):
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='Individual Cell Accuracy Filtered LDA',
                       func='plot_acc_filt_lda',
                       para=para)
@@ -10438,7 +10480,7 @@ class AnalysisFunctions(object):
                           'link_para': [['plot_cond', False], ['plot_layer', False]]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Rotation Discrimination Analysis',
+        self.add_func(type='Direction LDA',
                       name='LDA Group Weightings',
                       func='plot_lda_weights',
                       para=para)
@@ -10456,7 +10498,7 @@ class AnalysisFunctions(object):
         # combobox parameter lists
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_cond = spdcp_lda_para['comp_cond']
-        spr_type = ['Experiment SEM Area', 'Individual Experiment Markers', 'No Markers']
+        spr_type = ['Experiment IQR Area', 'Individual Experiment Markers', 'No Markers']
 
         # determines the cell count checklist values
         n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
@@ -10494,7 +10536,7 @@ class AnalysisFunctions(object):
             'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Kinematic Discrimination Analysis',
+        self.add_func(type='Speed LDA',
                       name='Speed LDA Accuracy',
                       func='plot_speed_accuracy_lda',
                       para=para)
@@ -10536,14 +10578,14 @@ class AnalysisFunctions(object):
             # plotting parameters
             'show_cell_sz': {'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': True},
             'show_fit': {'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True},
+            'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': False},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[0],
                 'link_para': [['show_fit', 'Inter-Quartile Ranges'], ['show_cell_sz', 'Inter-Quartile Ranges']]
             },
-            'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Kinematic Discrimination Analysis',
+        self.add_func(type='Speed LDA',
                       name='Speed LDA Comparison (Individual Experiments)',
                       func='plot_speed_comp_lda',
                       para=para)
@@ -10602,7 +10644,7 @@ class AnalysisFunctions(object):
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
-        self.add_func(type='Kinematic Discrimination Analysis',
+        self.add_func(type='Speed LDA',
                       name='Speed LDA Comparison (Pooled Experiments)',
                       func='plot_pooled_speed_comp_lda',
                       para=para)
@@ -10645,7 +10687,7 @@ class AnalysisFunctions(object):
             },
         }
 
-        self.add_func(type='Kinematic Discrimination Analysis',
+        self.add_func(type='Speed LDA',
                       name='Velocity Direction Discrimination LDA',
                       func='plot_speed_dir_lda',
                       para=para)
@@ -10690,7 +10732,7 @@ class AnalysisFunctions(object):
         sf_def_para = init_def_class_para(data, 'spikedf', SpikingFreqData())
         rot_filt_df = dcopy(cf.init_rotation_filter_data(False))
 
-        # ====> Encoding Spiking Frequency Dataframe
+        # ====> Velocity Multilinear Regression Dataframe Output
         para = {
             # calculation parameters
             'rot_filt': {
@@ -10718,7 +10760,7 @@ class AnalysisFunctions(object):
             },
         }
         self.add_func(type='Miscellaneous Functions',
-                      name='Encoding Spiking Frequency Dataframe',
+                      name='Velocity Multilinear Regression Dataframe Output',
                       func='output_spiking_freq_dataframe',
                       para=para)
 

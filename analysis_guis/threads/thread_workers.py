@@ -84,7 +84,7 @@ class WorkerThread(QThread):
         '''
 
         # initialisations
-        w_prog = self.work_progress
+        w_prog, w_err = self.work_progress, self.work_error
 
         # updates the running/forced quit flagsv
         self.is_running = True
@@ -413,13 +413,18 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
-                d_data = data.discrim.dir
+                try:
+                    d_data = data.discrim.dir
 
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+                    # checks to see if any parameters have been altered
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
 
-                # sets up the lda values
-                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data, w_prog)
+                    # sets up the lda values
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
+                                                                                 w_prog, w_err=w_err)
+                except:
+                    a = 1
+
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -427,11 +432,14 @@ class WorkerThread(QThread):
                     return
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
-                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                            d_data=d_data, w_prog=w_prog):
-                        self.is_ok = False
-                        self.work_finished.emit(thread_data)
-                        return
+                    try:
+                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                d_data=d_data, w_prog=w_prog):
+                            self.is_ok = False
+                            self.work_finished.emit(thread_data)
+                            return
+                    except:
+                        a = 1
 
             elif self.thread_job_secondary == 'Temporal Duration/Offset LDA':
                 # checks to see if any parameters have been altered
@@ -443,8 +451,8 @@ class WorkerThread(QThread):
                     self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para,
-                                                                                 data.discrim.dir, w_prog)
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
+                                                                                 w_prog, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -466,7 +474,7 @@ class WorkerThread(QThread):
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
-                                                                             w_prog, True)
+                                                                             w_prog, True, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -496,7 +504,7 @@ class WorkerThread(QThread):
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
-                                                                             w_prog, True)
+                                                                             w_prog, True, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -529,7 +537,7 @@ class WorkerThread(QThread):
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
-                                                                                 w_prog, True)
+                                                                                 w_prog, True, w_err=w_err)
                     if not calc_para['pool_expt']:
                         if status == 0:
                             # if there was an error in the calculations, then return an error flag
@@ -580,7 +588,7 @@ class WorkerThread(QThread):
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, _calc_para, data.discrim.dir,
-                                                                             w_prog, True)
+                                                                             w_prog, True, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -607,7 +615,7 @@ class WorkerThread(QThread):
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, _calc_para, data.discrim.filt,
-                                                                             w_prog, True)
+                                                                             w_prog, True, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -631,7 +639,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
 
                 # sets up the lda values
-                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data, w_prog)
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
+                                                                             w_prog, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -661,7 +670,7 @@ class WorkerThread(QThread):
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdacc,
-                                                                                 w_prog, True)
+                                                                                 w_prog, True, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -682,7 +691,7 @@ class WorkerThread(QThread):
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdc,
-                                                                                 w_prog, True)
+                                                                                 w_prog, True, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -704,7 +713,7 @@ class WorkerThread(QThread):
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spdcp,
-                                                                                 w_prog, True)
+                                                                                 w_prog, True, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -727,7 +736,7 @@ class WorkerThread(QThread):
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.spddir,
-                                                                                 w_prog, True)
+                                                                                 w_prog, True, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag
                         self.is_ok = False
@@ -744,7 +753,7 @@ class WorkerThread(QThread):
         ####    MISCELLANEOUS FUNCTIONS    ####
         #######################################
 
-            elif self.thread_job_secondary == 'Encoding Spiking Frequency Dataframe':
+            elif self.thread_job_secondary == 'Velocity Multilinear Regression Dataframe Output':
                 # checks to see if any base spiking frequency dataframe parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['spikedf'], other_para=data.spikedf)
 

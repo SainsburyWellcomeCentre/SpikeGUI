@@ -2847,7 +2847,7 @@ def reduce_cluster_data(data, i_expt):
     return data_tmp
 
 
-def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, r_data=None):
+def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, r_data=None, w_err=None):
     '''
 
     :param data:
@@ -2930,9 +2930,9 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
     lda_para, s_flag = calc_para['lda_para'], 2
     if len(lda_para['comp_cond']) < 2:
         # if less than 2 trial conditions are selected then output an error to screen
-        if w_prog is not None:
+        if w_err is not None:
             e_str = 'At least 2 trial conditions must be selected before running this function.'
-            w_prog.emit(e_str, 'Invalid LDA Analysis Parameters')
+            w_err.emit(e_str, 'Invalid LDA Analysis Parameters')
 
         # returns a false flag
         return None, None, None, None, 0
@@ -2971,9 +2971,9 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
     if len(i_expt) == 0:
         # if there are no valid experiments, then output an error message to screen
         if w_prog is not None:
-            e_str = 'The LDA function can''t be run using the currently loaded experiments/parameter configuration. ' \
-                    'Either load more experiments or alter the calculation parameters.'
-            w_prog.emit(e_str, 'Invalid LDA Experiments Loaded')
+            e_str = 'There are no experiments which meet the LDA solver parameters/criteria.' \
+                    'Either load more experiments or alter the solver/calculation parameters.'
+            w_err.emit(e_str, 'No Valid Experiments Found')
 
         # returns a false flag
         return None, None, None, None, 0
