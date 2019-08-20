@@ -4122,6 +4122,47 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im):
+            '''
+
+            :param r_data:
+            :param r_obj_tt:
+            :param g_type:
+            :param i_cell_b:
+            :param im:
+            :return:
+            '''
+
+            # if there is a mis-match in cell count, then find the matching cells between conditions
+            if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
+                i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
+
+            # retrieves the auc values and cell grouping indices for the current filter combination
+            g_type_m = g_type[i_cell_b[im[0]]]
+            x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
+            y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
+
+            # removes any cells where the group type was not calculated
+            is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
+            if not np.all(is_ok):
+                g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
+                i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
+
+            # calculates the compliment of any auc values < 0.5
+            ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
+            x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
+
+            # sets the x/y significance points
+            x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
+            y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
+            xy_sig = x_sig + 2 * y_sig
+
+            #
+            return x_auc, y_auc, g_type_m, xy_sig, i_cell_b
+
+        # initialisations
+        is_scatter = plot_type == 'auROC Scatterplot'
+
         # sets up the rotational filter (for the specified trial condition given in plot_cond)
         _rot_filt = dcopy(rot_filt)
         _rot_filt, e_str, et_str = cf.setup_trial_condition_filter(_rot_filt, plot_cond)
@@ -4139,22 +4180,22 @@ class AnalysisGUI(QMainWindow):
         # memory allocation and other initialisations
         x_trend, is_cong = np.arange(0, 10, 0.02), False
         n_filt, r_data = r_obj.n_filt, self.data.rotation
+        st_type_name = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         A = np.empty(n_filt, dtype=object)
 
-        # COLOURS TO BE ENTERED BY SEPI HERE
-        c0 = ['C0', 'C1', 'C2', 'C3']           #### MUST HAVE EXACTLY 4 COLOURS
-
         # sets the group type values/label strings
-        if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
-            st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
-            grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
-        elif mark_type == 'Rotation/Visual Response':
-            grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
-        elif mark_type == 'Congruency':
-            grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
+        if is_scatter:
+            if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
+                st_type = st_type_name.index(r_data.phase_grp_stats_type)
+                grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
+            elif mark_type == 'Rotation/Visual Response':
+                grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
+            elif mark_type == 'Congruency':
+                grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
 
-        # sets the final colours array
-        c = np.array(c0)[:len(grp_type)]
+        else:
+            st_type = st_type_name.index(r_data.phase_grp_stats_type)
+            g_type = r_data.phase_gtype[:, st_type]
 
         # if use_resp_grp_type:
         #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
@@ -4176,15 +4217,20 @@ class AnalysisGUI(QMainWindow):
             i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
 
         #
-        ind_black = np.where(['Black' in x['t_type'] for x in r_obj.rot_filt_tot])[0]
+        t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
+        ind_black = [t_type.index('Black')]
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_black]
-        m, m_size, c = ['o', 'x', '^', 's', 'D', 'H', '*'], 50, cf.get_plot_col(len(grp_type))
+        m, m_size = ['o', 'x', '^', 's', 'D', 'H', '*'], 50
         sig_col = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
 
-        if plot_type == 'auROC Scatterplot':
+        if is_scatter:
             ####################################
             ####    SCATTERPLOT CREATION    ####
             ####################################
+
+            # COLOURS TO BE ENTERED BY SEPI HERE
+            c0 = ['C0', 'C1', 'C2', 'C3']           #### MUST HAVE EXACTLY 4 COLOURS
+            c = np.array(c0)[:len(grp_type)]
 
             # legend properties initialisations
             h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
@@ -4202,29 +4248,8 @@ class AnalysisGUI(QMainWindow):
             for i, im in enumerate(ind_match):
                 # sets the black/comparison trial condition cell group type values (for the current match)
                 if len(i_cell_b[im[1]]):
-                    # if there is a mis-match in cell count, then find the matching cells between conditions
-                    if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
-                        i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
-
-                    # retrieves the auc values and cell grouping indices for the current filter combination
-                    g_type_m = g_type[i_cell_b[im[0]]]
-                    x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
-                    y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
-
-                    # removes any cells where the group type was not calculated
-                    is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
-                    if not np.all(is_ok):
-                        g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
-                        i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
-
-                    # calculates the compliment of any auc values < 0.5
-                    ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
-                    x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
-
-                    # sets the x/y significance points
-                    x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
-                    y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
-                    xy_sig = x_sig + 2 * y_sig
+                    # retrieves the auc, signal and statistical significance values
+                    x_auc, y_auc, g_type_m, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
 
                     # sets the final significance plot colours
                     if show_grp_markers:
@@ -4285,13 +4310,17 @@ class AnalysisGUI(QMainWindow):
             ####    AUROC BAR/HISTOGRAM CREATION    ####
             ############################################
 
+            #############################
+            ####    SUBPLOT SETUP    ####
+            #############################
+
             # sets up the axes dimensions
             nR, nC, nCM = 2, 7, 5
             top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.2, 0.2
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.1, right=0.98,
                                    bottom=bottom, top=top)
 
             # creates the subplots
@@ -4299,13 +4328,87 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :nCM])
             self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :nCM])
             self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, nCM:])
+            ax = self.plot_fig.ax
 
             # turns off the subplot intended for the stats
-            self.plot_fig.ax[2].axis('off')
+            ax[2].axis('off')
+            for _ax in ax[:2]:
+                _ax.grid(plot_grid)
 
-            # FINISH ME!
-            cf.show_error('Finish Me!', 'Finish Me!')
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
 
+            # memory allocation
+            B = np.empty(len(ind_match), dtype=object)
+            is_sig, auc = dcopy(B), dcopy(B)
+
+            #
+            for i, im in enumerate(ind_match):
+                # sets the black/comparison trial condition cell group type values (for the current match)
+                if len(i_cell_b[im[1]]):
+                    # retrieves the auc, signal and statistical significance values
+                    x_auc, y_auc, _, xy_sig, _ = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
+
+                    # calculates significant cells for each type
+                    is_sig[i], auc[i] = [xy_sig == (j + 1) for j in range(3)], np.empty(3, dtype=object)
+
+                    # stores the
+                    for j in range(3):
+                        if j == 0:
+                            auc[i][j] = x_auc[is_sig[i][0]]
+                        elif j == 1:
+                            auc[i][j] = y_auc[is_sig[i][1]]
+                        else:
+                            auc[i][j] = 0.5 * (x_auc[is_sig[i][2]] + y_auc[is_sig[i][2]])
+
+            # proportion of condition auROC values that are significant
+            tt_auc_sig = list(r_data.cond_gtype)
+            p_auc_sig = [100 * np.mean(r_data.cond_gtype[c][:, st_type] > 0) for c in tt_auc_sig]
+            p_auc_nsig = [100 - x for x in p_auc_sig]
+
+            #################################################
+            ####    SIGNIFICANCE HORIZONTAL BAR GRAPH    ####
+            #################################################
+
+            # parameters and other initialisations
+            col_b = cf.get_plot_col(len(tt_auc_sig))
+            xi_y = np.arange(len(tt_auc_sig)) + 0.5
+
+            # creates the bar graph
+            for i_tt, tt in enumerate(tt_auc_sig):
+                ax[0].barh(xi_y[i_tt], p_auc_sig[i_tt], height=0.9, color=col_b[i_tt], edgecolor=col_b[i_tt], label=tt)
+                ax[0].barh(xi_y[i_tt], p_auc_nsig[i_tt], left=p_auc_sig[i_tt], height=0.9, color='w', edgecolor=col_b[i_tt])
+
+            # sets the axis properties
+            ax[0].set_xlabel('Percentage Significant')
+            ax[0].set_xlim([-0.1, 100.1])
+            ax[0].set_ylim([0, len(tt_auc_sig) * (9 / 8)])
+            ax[0].set_yticks(xi_y)
+            ax[0].set_yticklabels(tt_auc_sig)
+            ax[0].legend(ncol=len(tt_auc_sig), loc='top left')
+
+            ######################################
+            ####    SIGNIFICANCE HISTOGRAM    ####
+            ######################################
+
+            # parameters and other initialisations
+            b_sz, h_plt = 0.05, []
+            xi = np.arange(0.5, 1.001, b_sz)
+            xi_h, auc_hist_type = 0.5 * (xi[1:] + xi[:-1]), ['Black', plot_cond, 'Both']
+            col_h = cf.get_plot_col(len(auc_hist_type))
+
+            for i in range(len(auc[0])):
+                # creates the accuracy histograms
+                auc_hist = np.histogram(auc[0][i], bins=xi)[0]
+                h_plt.append(ax[1].plot(xi_h, auc_hist / np.sum(auc_hist), c=col_h[i]))
+
+            # sets the axis properties
+            ax[1].set_xlabel('auROC')
+            ax[1].set_ylabel('Proportion')
+            ax[1].set_xlim([0.5, 1.0])
+            ax[1].set_ylim([0.0, 1.0])
+            ax[1].legend([x[0] for x in h_plt], auc_hist_type, loc='top left')
 
     def plot_roc_cond_comparison(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, plot_grid, plot_scope):
         '''

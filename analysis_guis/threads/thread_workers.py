@@ -213,7 +213,8 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
 
                 # calculates the phase roc-curves for each cell
-                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
+                if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.,
+                                                 force_black_calc=True):
                     self.is_ok = False
                     self.work_finished.emit(thread_data)
                     return
@@ -227,6 +228,7 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
+
 
         ###############################################
         ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
@@ -413,18 +415,14 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
-                try:
-                    d_data = data.discrim.dir
+                d_data = data.discrim.dir
 
-                    # checks to see if any parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
 
-                    # sets up the lda values
-                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
-                                                                                 w_prog, w_err=w_err)
-                except:
-                    a = 1
-
+                # sets up the lda values
+                r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
+                                                                             w_prog, w_err=w_err)
                 if status == 0:
                     # if there was an error in the calculations, then return an error flag
                     self.is_ok = False
@@ -432,14 +430,11 @@ class WorkerThread(QThread):
                     return
                 elif status == 2:
                     # if an update in the calculations is required, then run the rotation LDA analysis
-                    try:
-                        if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                d_data=d_data, w_prog=w_prog):
-                            self.is_ok = False
-                            self.work_finished.emit(thread_data)
-                            return
-                    except:
-                        a = 1
+                    if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                            d_data=d_data, w_prog=w_prog):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
 
             elif self.thread_job_secondary == 'Temporal Duration/Offset LDA':
                 # checks to see if any parameters have been altered
@@ -652,10 +647,6 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-
-        #######################################
-        ####    KINEMATIC LDA FUNCTIONS    ####
-        #######################################
 
         ###########################################################
         ####    KINEMATIC DISCRIMINATION ANALYSIS FUNCTIONS    ####
