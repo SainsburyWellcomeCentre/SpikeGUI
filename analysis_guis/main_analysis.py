@@ -4160,6 +4160,32 @@ class AnalysisGUI(QMainWindow):
             #
             return x_auc, y_auc, g_type_m, xy_sig, i_cell_b
 
+        def setup_sig_str(p_auc_sig):
+            '''
+
+            :param p_auc_sig:
+            :return:
+            '''
+
+            # memory allocation and parameters
+            p_value = 0.05
+            n_tt = len(p_auc_sig)
+            p_str = np.empty((n_tt, n_tt), dtype=object)
+
+            # sets up the significance strings
+            for i_tt in range(n_tt):
+                for j_tt in range(n_tt):
+                    if i_tt == j_tt:
+                        # case is the symmetrical case
+                        p_str[i_tt, i_tt] = 'N/A'
+                    else:
+                        # case is the asymetrical case
+                        p_val_nw = '??'
+                        p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = p_val_nw
+
+            # returns the array
+            return p_str
+
         # initialisations
         is_scatter = plot_type == 'auROC Scatterplot'
 
@@ -4316,7 +4342,8 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             nR, nC, nCM = 2, 7, 5
-            top, bottom, pH, wspace, hspace = 0.98, 0.06, 0.01, 0.2, 0.2
+            top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
+            i_expt = [r_obj.i_expt[0] == x for x in np.unique(r_obj.i_expt[0])]
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
@@ -4326,8 +4353,8 @@ class AnalysisGUI(QMainWindow):
             # creates the subplots
             self.plot_fig.ax = np.empty(3, dtype=object)
             self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :nCM])
-            self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :nCM])
-            self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[:, nCM:])
+            self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :])
+            self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, nCM:])
             ax = self.plot_fig.ax
 
             # turns off the subplot intended for the stats
@@ -4340,32 +4367,39 @@ class AnalysisGUI(QMainWindow):
             ###################################
 
             # memory allocation
+            im = ind_match[0]
             B = np.empty(len(ind_match), dtype=object)
             is_sig, auc = dcopy(B), dcopy(B)
 
-            #
-            for i, im in enumerate(ind_match):
-                # sets the black/comparison trial condition cell group type values (for the current match)
-                if len(i_cell_b[im[1]]):
-                    # retrieves the auc, signal and statistical significance values
-                    x_auc, y_auc, _, xy_sig, _ = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
+            # sets the black/comparison trial condition cell group type values (for the current match)
+            if len(i_cell_b[im[1]]):
+                # retrieves the auc, signal and statistical significance values
+                x_auc, y_auc, _, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
 
-                    # calculates significant cells for each type
-                    is_sig[i], auc[i] = [xy_sig == (j + 1) for j in range(3)], np.empty(3, dtype=object)
+                # calculates significant cells for each type
+                is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(3, dtype=object)
 
-                    # stores the
-                    for j in range(3):
-                        if j == 0:
-                            auc[i][j] = x_auc[is_sig[i][0]]
-                        elif j == 1:
-                            auc[i][j] = y_auc[is_sig[i][1]]
-                        else:
-                            auc[i][j] = 0.5 * (x_auc[is_sig[i][2]] + y_auc[is_sig[i][2]])
+                # stores the
+                for j in range(3):
+                    if j == 0:
+                        auc[j] = x_auc[is_sig[0]]
+                    elif j == 1:
+                        auc[j] = y_auc[is_sig[1]]
+                    else:
+                        auc[j] = 0.5 * (x_auc[is_sig[2]] + y_auc[is_sig[2]])
 
             # proportion of condition auROC values that are significant
             tt_auc_sig = list(r_data.cond_gtype)
-            p_auc_sig = [100 * np.mean(r_data.cond_gtype[c][:, st_type] > 0) for c in tt_auc_sig]
-            p_auc_nsig = [100 - x for x in p_auc_sig]
+            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_auc_sig]
+            n_expt = [len(x) for x in i_expt]
+
+            #
+            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] > 0) for j_ex in i_ex]
+                         for i_ex, c in zip(i_expt, tt_auc_sig)]
+
+            p_auc_sig_mn = [np.mean(x) for x in p_auc_sig]
+            p_auc_sig_sem = [np.std(x) / (n ** 0.5) for x, n in zip(p_auc_sig, n_expt)]
+            p_auc_nsig_mn = [100 - x for x in p_auc_sig_mn]
 
             #################################################
             ####    SIGNIFICANCE HORIZONTAL BAR GRAPH    ####
@@ -4378,8 +4412,10 @@ class AnalysisGUI(QMainWindow):
 
             # creates the bar graph
             for i_tt, tt in enumerate(tt_auc_sig):
-                ax[0].barh(xi_y[i_tt], p_auc_sig[i_tt], height=0.9, color=col_b[i_tt], edgecolor=col_b[i_tt], label=tt)
-                ax[0].barh(xi_y[i_tt], p_auc_nsig[i_tt], left=p_auc_sig[i_tt], height=0.9, color='w', edgecolor=col_b[i_tt])
+                ax[0].barh(xi_y[i_tt], p_auc_sig_mn[i_tt], height=0.9, color=col_b[i_tt],
+                           edgecolor=col_b[i_tt], label=tt)
+                ax[0].barh(xi_y[i_tt], p_auc_nsig_mn[i_tt], left=p_auc_sig_mn[i_tt],
+                           height=0.9, color='w', edgecolor=col_b[i_tt])
 
             # sets the axis properties
             ax[0].set_xlabel('Percentage Significant')
@@ -4389,19 +4425,22 @@ class AnalysisGUI(QMainWindow):
             ax[0].set_yticklabels(tt_auc_sig)
             ax[0].legend(ncol=len(tt_auc_sig), loc='top left')
 
+            # sets the overall title
+            self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
+
             ######################################
             ####    SIGNIFICANCE HISTOGRAM    ####
             ######################################
 
             # parameters and other initialisations
-            b_sz, h_plt = 0.05, []
+            b_sz, h_plt, n_tt = 0.05, [], len(tt_auc_sig)
             xi = np.arange(0.5, 1.001, b_sz)
             xi_h, auc_hist_type = 0.5 * (xi[1:] + xi[:-1]), ['Black', plot_cond, 'Both']
-            col_h = cf.get_plot_col(len(auc_hist_type))
+            col_h = cf.get_plot_col(n_tt)
 
-            for i in range(len(auc[0])):
+            for i in range(len(auc)):
                 # creates the accuracy histograms
-                auc_hist = np.histogram(auc[0][i], bins=xi)[0]
+                auc_hist = np.histogram(auc[i], bins=xi)[0]
                 h_plt.append(ax[1].plot(xi_h, auc_hist / np.sum(auc_hist), c=col_h[i]))
 
             # sets the axis properties
@@ -4410,6 +4449,22 @@ class AnalysisGUI(QMainWindow):
             ax[1].set_xlim([0.5, 1.0])
             ax[1].set_ylim([0.0, 1.0])
             ax[1].legend([x[0] for x in h_plt], auc_hist_type, loc='top left')
+
+            # sets the overall title
+            ax[1].set_title('Significant Cell auROC Histogram', fontsize=14, fontweight='bold')
+
+            ######################################
+            ####    SIGNIFICANCE HISTOGRAM    ####
+            ######################################
+
+            # sets the table headers/values
+            row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_auc_sig]
+            t_data = setup_sig_str(p_auc_sig)           # WHAT TEST TO USE?!
+
+            # sets up the n-value table
+            ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
+            cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h, col_h,
+                              'top', n_row=1, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
 
     def plot_roc_cond_comparison(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, plot_grid, plot_scope):
         '''
