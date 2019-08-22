@@ -43,8 +43,12 @@ class LoadExpt(QDialog):
         if len(loaded_data):
             # if there is previously loaded data,  then set the experiment file locations/names
             if data.multi.is_multi:
-                self.exp_name, self.exp_files = data.multi.names, data.multi.files
-                i_type = 1 + int('.mdata' in data.multi.files[0])
+                is_mdata = '.mdata' in data.multi.names[0]
+                i_type = 1 + is_mdata
+
+                f_name0 = cf.extract_file_name(data.multi.names[0])
+                self.exp_name = ['{0}.{1}'.format(f_name0, 'mdata' if is_mdata else 'mcomp')]
+                self.exp_files = data.multi.files
             else:
                 self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
                 self.exp_files = [x['expFile'] for x in loaded_data]
@@ -231,6 +235,7 @@ class LoadExpt(QDialog):
             # sets the button enabled properties
             self.push_add.setEnabled(self.is_multi or (len(self.exp_name) == 0))
             self.push_rmv.setEnabled(len(self.exp_name))
+            self.expt_type.setEnabled(len(self.exp_name) == 0)
             self.push_continue.setEnabled(len(self.exp_name))
 
             # re-enables the experiment type (if there are no experiments selected)

@@ -563,6 +563,7 @@ class AnalysisGUI(QMainWindow):
                             self.data._cluster.append(loaded_data)
                         else:
                             # case is a multi-file
+                            names, files = dcopy(self.data.multi.names), dcopy(self.data.multi.files)
                             self.data, init_data = loaded_data, False
 
                             # initialises the multi file data field (if not provided)
@@ -572,6 +573,7 @@ class AnalysisGUI(QMainWindow):
 
                             # adds in any missing
                             self.data.check_missing_fields()
+                            self.data.multi.is_multi, self.data.multi.files, self.data.multi.names = True, names, files
 
                     if init_data:
                         self.data.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
@@ -10532,16 +10534,12 @@ class AnalysisFunctions(object):
                 'def_val': cfcn.set_def_para(part_def_para, 'usefull', True),
                 'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
             },
-            'n_cell_min': {
-                'gtype': 'C', 'text': 'Min Experiment Cell Count',
-                'def_val': cfcn.set_def_para(part_def_para, 'cellminpart', 10)
-            },
             'n_shuffle': {
                 'gtype': 'C', 'text': 'Partial Cell Shuffle Count',
                 'def_val': cfcn.set_def_para(part_def_para, 'nshuffle', 10)
             },
             'pool_expt': {
-                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments', 'link_para': ['n_cell_min', True],
+                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments',
                 'def_val': cfcn.set_def_para(part_def_para, 'poolexpt', False),
             },
 
@@ -12453,7 +12451,6 @@ class SubDiscriminationData(object):
             elif type == 'Partial':
                 # case is the partial LDA analysis
                 self.nshuffle = -1
-                self.cellminpart = -1
                 self.poolexpt = False
                 self.xi = None
 
@@ -12499,10 +12496,10 @@ class SubDiscriminationData(object):
                 self.nshuffle = -1
 
 class MultiFileData(object):
-    def __init__(self):
+    def __init__(self, is_multi=False):
 
         # initialisation
-        self.is_multi = False
+        self.is_multi = is_multi
         self.names = None
         self.files = None
 

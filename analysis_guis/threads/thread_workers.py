@@ -522,7 +522,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Pooled Neuron LDA':
                 # resets the minimum cell count and checks if the pooled parameters have been altered
-                calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
+                # calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
                 self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.part)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
@@ -539,13 +539,13 @@ class WorkerThread(QThread):
                             self.is_ok = False
                             self.work_finished.emit(thread_data)
                             return
-                        elif status == 2:
-                            # if an update in the calculations is required, then run the rotation LDA analysis
-                            if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                    d_data=data.discrim.dir, w_prog=w_prog):
-                                self.is_ok = False
-                                self.work_finished.emit(thread_data)
-                                return
+                        # elif status == 2:
+                        #     # if an update in the calculations is required, then run the rotation LDA analysis
+                        #     if not cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                        #                             d_data=data.discrim.dir, w_prog=w_prog):
+                        #         self.is_ok = False
+                        #         self.work_finished.emit(thread_data)
+                        #         return
 
                     # runs the partial LDA
                     if not self.run_pooled_lda(pool, data, calc_para, r_filt, i_expt, i_cell, n_trial_max):
@@ -710,13 +710,14 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-                    elif status == 2:
-                        # if an update in the calculations is required, then run the rotation LDA analysis
-                        if not self.run_pooled_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
-                                                             w_prog):
-                            self.is_ok = False
-                            self.work_finished.emit(thread_data)
-                            return
+                    # elif status == 2:
+
+                    # if an update in the calculations is required, then run the rotation LDA analysis
+                    if not self.run_pooled_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
+                                                         w_prog):
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
 
             elif self.thread_job_secondary == 'Velocity Direction Discrimination LDA':
                 # checks to see if any base LDA calculation parameters have been altered
@@ -1742,13 +1743,21 @@ class WorkerThread(QThread):
                 n_sp = n_sp[:, np.random.permutation(np.size(n_sp, axis=1))[:n_cell]]
 
             else:
+                is_keep = np.ones(len(i_expt), dtype=bool)
+
                 for i_ex in range(len(i_expt)):
                     # determines the original valid cells for the current experiment
                     ii = np.where(i_cell[i_ex])[0]
+                    if len(ii) < n_cell:
+                        is_keep[i_ex] = False
+                        continue
 
                     # from these cells, set n_cell cells as being valid (for analysis purposes)
                     i_cell[i_ex][:] = False
                     i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+
+                # removes the experiments which did not have the min number of cells
+                i_expt, i_cell = i_expt[is_keep], i_cell[is_keep]
 
             # runs the LDA
             results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_sp0=n_sp)
@@ -1802,15 +1811,16 @@ class WorkerThread(QThread):
             # case is all experiments are pooled
 
             # initialisations
-            y_acc_d, n_expt = data.discrim.dir.y_acc, min([3, len(i_expt)])
+            # y_acc_d, n_expt = data.discrim.dir.y_acc, min([3, len(i_expt)])
+            y_acc_d, n_expt = data.discrim.dir.y_acc, len(i_expt)
 
-            # retrieves the top n_expt experiments based on the base decoding accuracy
-            ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
-            i_expt, i_cell = i_expt[ii], i_cell[ii]
+            # # retrieves the top n_expt experiments based on the base decoding accuracy
+            # ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
+            # i_expt, i_cell = i_expt[ii], i_cell[ii]
 
             # determines the cell count (based on the minimum cell count over all valid experiments)
-            n_cell_min = np.min([sum(x) for x in i_cell])
-            xi = [x for x in cfcn.n_cell_pool1 if x <= n_cell_min]
+            n_cell_max = np.max([sum(x) for x in i_cell])
+            xi = [x for x in cfcn.n_cell_pool1 if x <= n_cell_max]
 
         # memory allocation
         n_xi, n_sh, n_cond = len(xi), calc_para['n_shuffle'], len(r_filt['t_type'])
@@ -1874,7 +1884,6 @@ class WorkerThread(QThread):
 
         # sets the other parameters/arrays
         d_data.nshuffle = n_sh
-        d_data.cellminpart = calc_para['n_cell_min']
         d_data.poolexpt = calc_para['pool_expt']
         d_data.xi = xi
 
@@ -3497,7 +3506,6 @@ class WorkerThread(QThread):
 
                         is_equal += [
                             check_class_para_equal(d_data, 'nshuffle', calc_para['n_shuffle']),
-                            check_class_para_equal(d_data, 'cellminpart', calc_para['n_cell_min']),
                         ]
 
                 elif d_data.type in ['Temporal']:

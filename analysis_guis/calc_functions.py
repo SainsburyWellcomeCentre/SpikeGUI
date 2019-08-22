@@ -2757,7 +2757,7 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
 
     elif d_data.type in ['Partial']:
         # case is the partial LDA
-        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'cellminpart', 'poolexpt'])
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'poolexpt'])
 
     # sets the default parameters based on the type
     if d_data.type in ['IndivFilt']:
