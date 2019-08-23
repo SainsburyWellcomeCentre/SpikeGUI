@@ -10778,6 +10778,10 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'text': 'Pooled Experiment Shuffle Count',
                 'def_val': cfcn.set_def_para(spdcp_def_para, 'nshuffle', 5), 'min_val': 5
             },
+            'pool_expt': {
+                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments',
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'poolexpt', False),
+            },
 
             # invisible parameters
             'freq_type': {

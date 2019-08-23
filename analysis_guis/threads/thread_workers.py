@@ -35,6 +35,8 @@ from probez.spike_handling import spike_io
 dcopy = copy.deepcopy
 default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
 interp_arr = lambda xi, y: np.vstack([interp1d(np.linspace(0, 1, len(x)), x, kind='nearest')(xi) for x in y])
+cell_perm_ind = lambda n_cell_tot, n_cell: np.sort(np.random.permutation(n_cell_tot)[:n_cell])
+set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
 
 ########################################################################################################################
 ########################################################################################################################
@@ -2103,15 +2105,19 @@ class WorkerThread(QThread):
 
         # initialisations
         d_data = data.discrim.spdcp
-        tt = r_filt['t_type']
-        lda_para, n_shuff = calc_para['lda_para'], calc_para['n_shuffle']
+        tt, lda_para, n_shuff = r_filt['t_type'], calc_para['lda_para'], calc_para['n_shuffle']
+
+        ###########################################
+        ####    PRE-PROCESSING CALCULATIONS    ####
+        ###########################################
 
         # reduces down the cluster data array
         _data = cfcn.reduce_cluster_data(data, i_expt)
 
         # sets up the kinematic LDA spiking frequency array
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
-        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial, w_prog, is_pooled=True)
+        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial,
+                                                      w_prog, is_pooled=calc_para['pool_expt'])
 
         ##############################################
         ####    POOLED NEURON LDA CALCULATIONS    ####
@@ -2121,31 +2127,39 @@ class WorkerThread(QThread):
         r_data = getattr(_data, r_data_type)
 
         # determines the cell pool groupings
-        n_cell = cfcn.get_pool_cell_counts(data, lda_para)
-        n_cell_pool = n_cell[-1]
+        if calc_para['pool_expt']:
+            n_cell = cfcn.get_pool_cell_counts(data, lda_para)
+        else:
+            n_cell_ex = [sum(x) for x in i_cell]
+            n_cell = [x for x in cfcn.n_cell_pool1 if x <= np.max(n_cell_ex)]
 
         # memory allocation
+        n_cell_pool = n_cell[-1]
         nC, n_tt, n_xi = len(n_cell), len(tt), len(r_data.spd_xi)
         y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
 
         #
         for i_c, n_c in enumerate(n_cell):
-            n_shuff_nw = n_shuff if ((i_c + 1) < nC) else 1
+            n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
             for i_s in range(n_shuff_nw):
                 # updates the progressbar
                 w_str = 'Pooled Speed LDA (Shuffle {0}/{1}, Group {2}/{3})'.format(i_s + 1, n_shuff_nw, i_c + 1, nC)
                 w_prog.emit(w_str, 100. * (i_c + (i_s / n_shuff_nw)) / nC)
 
                 while 1:
-                    # sets the new shuffled spiking frequency array
-                    if n_shuff_nw == 1:
-                        spd_sf_sh = dcopy(spd_sf)
+                    # sets the new shuffled spiking frequency array (over all expt)
+                    if calc_para['pool_expt']:
+                        # case all cells are pooled over all experiments
+                        spd_sf_sh = set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)
+
                     else:
-                        ind_sh = np.sort(np.random.permutation(n_cell_pool)[:n_c])
-                        spd_sf_sh = [x[:, :, ind_sh] for x in dcopy(spd_sf)]
+                        # case all cells
+                        is_keep = np.array(n_cell_ex) >= n_c
+                        spd_sf_sh = [set_sf_cell_perm(x, n_ex, n_c) for x, n_ex, is_k in
+                                     zip(dcopy(spd_sf), n_cell_ex, is_keep) if is_k]
 
                     # runs the kinematic LDA on the new data
-                    results = cfcn.run_kinematic_lda(_data, [spd_sf_sh], calc_para, _r_filt, n_trial)
+                    results = cfcn.run_kinematic_lda(_data, spd_sf_sh, calc_para, _r_filt, n_trial)
                     if not isinstance(results, bool):
                         # if successful, then retrieve the accuracy values
                         for i_tt in range(n_tt):

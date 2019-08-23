@@ -2774,7 +2774,7 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
 
     elif d_data.type in ['SpdCompPool']:
         # case is the velocity comparison LDA
-        def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time', 'nshuffle'])
+        def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time', 'nshuffle', 'poolexpt'])
 
     # returns the lda solver/default parameter dictionaries
     return lda_para, def_para
