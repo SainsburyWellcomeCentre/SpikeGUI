@@ -7109,6 +7109,7 @@ class AnalysisGUI(QMainWindow):
         # sets the number of cells/expt
         n_cell = [sum(x) for x in d_data.i_cell]
 
+
         ##################################
         ####    DATA VISUALISATION    ####
         ##################################
