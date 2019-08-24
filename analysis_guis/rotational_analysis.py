@@ -359,7 +359,6 @@ def load_rot_analysis_data(A, exp_info, sp_io, w_prog=None, pW0=None, is_diagnos
     i_trig_loc, i_trig_start, i_trig_end = get_trial_time_points(tt_io, w_form, ind_trial, s_freq)
     t_spike_trial = get_trial_spike_times(trial_type, clust_id, sp_io, i_trig_start, i_trig_end)
 
-
     # updates the progess-bar (if provided)
     if w_prog is not None:
         w_prog.emit('Splitting Phase Spike Times...', 15.0)
@@ -569,7 +568,16 @@ def det_waveform_para(y_sig, s_freq, bonsai_io, idx, ind0):
 
         # calculates the base-line time
         dy = s_para['yDir'] * (y_sig - recreate_waveform(s_para))
-        s_para['tBLF'] = next(i for i in range(s_para['nPts']) if np.abs(dy[i]) > 1e-16) - 1
+
+        # calculates the time shift required so the baseline is the same length as the other phases
+        tBLF0 = next(i for i in range(s_para['nPts']) if np.abs(dy[i]) > 1e-16) - 1
+        dt = max(0, int(s_para['tPeriod'] / 2) - tBLF0)
+
+        # resets the baseline/stimuli phase start times and the stimuli start time
+        s_para['tBLF'] = tBLF0 + dt
+        s_para['tSS0'] += dt
+        s_para['ind0'] -= dt
+
     else:
         #
         t_freq = bonsai_io.data['TemporalFrequency'][idx]
