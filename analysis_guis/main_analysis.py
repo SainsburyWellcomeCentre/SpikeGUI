@@ -14,10 +14,11 @@ import xlsxwriter
 from random import sample
 from numpy.matlib import repmat
 
+f_scale = 1.2
 import seaborn as sns
 sns.set()
 sns.set_style('whitegrid')
-sns.set_context('paper', font_scale=1.2)
+sns.set_context('paper', font_scale=f_scale)
 # sns.set_context('talk', font_scale=1.2)
 
 import matplotlib.pyplot as plt
@@ -3483,6 +3484,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # memory allocation and parameters
+        p_lim = 0.05
         s_plt = np.empty(r_obj.n_filt, dtype=object)
         f_stats = np.zeros((r_obj.n_filt, 4), dtype=object)
 
@@ -3553,7 +3555,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets up the n-value table
         cf.add_plot_table(self.plot_fig, 1, table_font, f_stats, row_hdr, col_hdr, c, c_col,
-                          None, n_col=3, p_wid=1.5)
+                          None, n_col=3, p_wid=1.5 * f_scale)
 
     def plot_depth_direction_selectivity(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid):
         '''
@@ -4369,7 +4371,7 @@ class AnalysisGUI(QMainWindow):
             ###################################
 
             # memory allocation
-            im = ind_match[0]
+            im, n_grp = ind_match[0], 4
             B = np.empty(len(ind_match), dtype=object)
             is_sig, auc = dcopy(B), dcopy(B)
 
@@ -4379,16 +4381,18 @@ class AnalysisGUI(QMainWindow):
                 x_auc, y_auc, _, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
 
                 # calculates significant cells for each type
-                is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(3, dtype=object)
+                is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(n_grp, dtype=object)
 
                 # stores the
-                for j in range(3):
+                for j in range(n_grp):
                     if j == 0:
                         auc[j] = x_auc[is_sig[0]]
                     elif j == 1:
                         auc[j] = y_auc[is_sig[1]]
+                    elif j == 2:
+                        auc[j] = x_auc[is_sig[2]]
                     else:
-                        auc[j] = 0.5 * (x_auc[is_sig[2]] + y_auc[is_sig[2]])
+                        auc[j] = y_auc[is_sig[2]]
 
             # proportion of condition auROC values that are significant
             tt_auc_sig = list(r_data.cond_gtype)
@@ -4396,7 +4400,7 @@ class AnalysisGUI(QMainWindow):
             n_expt = [len(x) for x in i_expt]
 
             #
-            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] > 0) for j_ex in i_ex]
+            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] == 0) for j_ex in i_ex]
                          for i_ex, c in zip(i_expt, tt_auc_sig)]
 
             p_auc_sig_mn = [np.mean(x) for x in p_auc_sig]
@@ -4408,24 +4412,22 @@ class AnalysisGUI(QMainWindow):
             #################################################
 
             # parameters and other initialisations
-            pp = 1 / 9
             col_b = cf.get_plot_col(len(tt_auc_sig))
             xi_y = np.arange(len(tt_auc_sig)) + 0.5
 
             # creates the bar graph
             for i_tt, tt in enumerate(tt_auc_sig):
                 ax[0].barh(xi_y[i_tt], p_auc_sig_mn[i_tt], height=0.9, color=col_b[i_tt],
-                           edgecolor=col_b[i_tt], label=tt)
+                           edgecolor=col_b[i_tt], label=tt, xerr=p_auc_sig_sem[i_tt])
                 ax[0].barh(xi_y[i_tt], p_auc_nsig_mn[i_tt], left=p_auc_sig_mn[i_tt],
                            height=0.9, color='w', edgecolor=col_b[i_tt])
 
             # sets the axis properties
             ax[0].set_xlabel('Percentage Significant')
             ax[0].set_xlim([-0.1, 100.1])
-            ax[0].set_ylim([0, len(tt_auc_sig) * (1 / pp) / (1 / pp - 1)])
+            ax[0].set_ylim([0, len(tt_auc_sig)])
             ax[0].set_yticks(xi_y)
             ax[0].set_yticklabels(tt_auc_sig)
-            ax[0].legend(ncol=len(tt_auc_sig), loc='top left')
 
             # sets the overall title
             self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
@@ -4435,22 +4437,31 @@ class AnalysisGUI(QMainWindow):
             ######################################
 
             # parameters and other initialisations
-            b_sz, h_plt, n_tt = 0.05, [], len(tt_auc_sig)
+            h_plt, lg_str = [], []
+            b_sz, n_tt = 0.01, len(tt_auc_sig)
             xi = np.arange(0.5, 1.001, b_sz)
-            xi_h, auc_hist_type = 0.5 * (xi[1:] + xi[:-1]), ['Black', plot_cond, 'Both']
-            col_h = cf.get_plot_col(n_tt)
+            xi_h = 0.5 * (xi[1:] + xi[:-1])
+            col_h = cf.get_plot_col(max(n_grp, n_tt))
 
-            for i in range(len(auc)):
+            #
+            tt_abb = [cf.cond_abb(tt) for tt in ['Black', plot_cond]]
+            auc_hist_type = cf.flat_list(
+                [['{0}{1}{2}'.format(p_str, tt, ')' if len(p_str) else '') for tt in tt_abb] for p_str in
+                 ['', 'Both (']])
+
+            for i in range(n_grp):
                 # creates the accuracy histograms
-                auc_hist = np.histogram(auc[i], bins=xi)[0]
-                h_plt.append(ax[1].plot(xi_h, auc_hist / np.sum(auc_hist), c=col_h[i]))
+                if len(auc[i]):
+                    auc_hist = np.histogram(auc[i], bins=xi, normed=True)[0]
+                    h_plt.append(ax[1].plot(xi_h, 100. - np.cumsum(auc_hist), c=col_h[i]))
+                    lg_str.append(auc_hist_type[i])
 
             # sets the axis properties
             ax[1].set_xlabel('auROC')
             ax[1].set_ylabel('Proportion')
             ax[1].set_xlim([0.5, 1.0])
-            ax[1].set_ylim([0.0, 1.0])
-            ax[1].legend([x[0] for x in h_plt], auc_hist_type, loc='top left')
+            ax[1].set_ylim([0.0, 100.0])
+            ax[1].legend([x[0] for x in h_plt], lg_str, loc='top left')
 
             # sets the overall title
             ax[1].set_title('Significant Cell auROC Histogram', fontsize=14, fontweight='bold')
@@ -4465,8 +4476,9 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the n-value table
             ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
-            cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h, col_h,
+            cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h[:n_tt], col_h[:n_tt],
                               'top', n_row=1, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+
 
     def plot_roc_cond_comparison(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, plot_grid, plot_scope):
         '''
@@ -9658,6 +9670,10 @@ class AnalysisFunctions(object):
         vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
         sc_rng = ['{0} to {1}'.format(i * dv, (i + 1) * dv) for i in range(int(v_rng / dv))]
 
+        #
+        rot_filt_grp = cf.init_rotation_filter_data(False)
+        rot_filt_grp['t_type'] = ['Black'] + ['Uniform'] + ['MotorDrifting'] if has_md_expt else []
+
         # ====> Direction ROC Curves (Single Cell)
         para = {
             # calculation parameters
@@ -10045,14 +10061,14 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_all
+                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_grp
             },
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'plot_cond': {
-                'type': 'L', 'text': 'Comparison Condition', 'list': p_cond, 'def_val': 'Uniform',
+                'type': 'L', 'text': 'Comparison Condition', 'list': rot_filt_grp['t_type'], 'def_val': 'Uniform',
             },
             'mark_type': {
                 'type': 'L', 'text': 'Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
