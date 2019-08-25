@@ -85,8 +85,16 @@ class SpikeIo(object):
         manual sorting output (from e.g. phy) is stored as cluster_groups.csv
         :return dictionary manually_labelled_cluster_groups: a dictionary of group_ids for every cluster
         """
-        path = os.path.join(self.root, 'cluster_groups.csv')
-        if not os.path.isfile(path):
+
+        cgrp_file, path = ['cluster_group.tsv', 'cluster_groups.csv'], None
+
+        for cg_file in cgrp_file:
+            path_nw = os.path.join(self.root, cg_file)
+            if os.path.isfile(path_nw):
+                path = path_nw
+                break
+
+        if path is None:
             print('no cluster groups file')
             return None
         with open(path, 'rt') as f:

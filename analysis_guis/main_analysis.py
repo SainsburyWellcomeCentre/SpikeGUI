@@ -8019,17 +8019,20 @@ class AnalysisGUI(QMainWindow):
                         h_gram = np.histogram(t_sp_flat, bins=xi_h[0, :])
                         dt = np.diff(xi_h[0, :])
                     else:
-                        t_sp_flat = cf.flat_list(
-                            [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
+                        # t_sp_flat = cf.flat_list(
+                        #     [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
+
+                        is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
+                        t_sp_flat = np.hstack(t_spike[i_trial, is_ok, i_phase])
                         h_gram = np.histogram(t_sp_flat, bins=xi_h[i_trial, :])
                         dt = np.diff(xi_h[i_trial, :])
 
                     # normalises the histograms by the duration of the bins
                     I_hm[i_trial, :, i_phase] = h_gram[0] / dt
 
-            # sorts the clusters by depth (whole experiments only)
-            if not is_single_cell:
-                I_hm = I_hm[np.argsort(D), :, :]
+            # # sorts the clusters by depth (whole experiments only)
+            # if not is_single_cell:
+            #     I_hm = I_hm[np.argsort(D), :, :]
 
             # returns the final heatmap
             return I_hm
@@ -8432,7 +8435,7 @@ class AnalysisGUI(QMainWindow):
             col_hdr = ['None', 'Inh.', 'Exc.', 'Mixed', 'Total']
         else:
             n_DS_Full = cf.add_rowcol_sum(n_DS.T)
-            col_hdr = ['Sensitive', 'Insensitive', 'Total']
+            col_hdr = ['Insensitive', 'Sensitive', 'Total']
 
         # creates the colours (if not provided)
         # if c is None:

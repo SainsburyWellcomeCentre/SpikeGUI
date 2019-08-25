@@ -938,15 +938,23 @@ class WorkerThread(QThread):
         # sets the global parameters
         n_hist = int(g_para['n_hist'])
         n_spike = int(g_para['n_spike'])
+        cluster_ids = None
 
         # retrieves the spike I/O data and sets the cluster IDs based on the cluster type
         sp_io = spike_io.SpikeIo(exp_info['srcDir'], exp_info['traceFile'], int(exp_info['nChan']))
         if exp_info['clusterType'] == 'Good':
             # case is the good clusters
-            cluster_ids = sp_io.good_cluster_ids
+            if hasattr(sp_io, 'good_cluster_ids'):
+                cluster_ids = sp_io.good_cluster_ids
         elif exp_info['clusterType'] == 'MUA':
             # case is the multi-unit clusters
-            cluster_ids = sp_io.MUA_cluster_ids
+            if hasattr(sp_io, 'MUA_cluster_ids'):
+                cluster_ids = sp_io.MUA_cluster_ids
+
+        if cluster_ids is None:
+            e_str = 'Cluster group file is missing? Please re-run with cluster-group file in the source data directory'
+            cf.show_error(e_str, 'Cluster Group File Missing!')
+            return
 
         # retrieves the clusters spike data and channel depths
         self.work_progress.emit('Reshaping Cluster Data...', 0.0)
@@ -969,6 +977,7 @@ class WorkerThread(QThread):
         else:
             # otherwise, return N/A for the region/recording layers
             chRegion, chLayer = ['N/A'] * len(clusters), ['N/A'] * len(clusters)
+            depthLo, depthHi = None, None
 
         # sets the signal point-wise/ISI bin vectors
         xi_pts_H = np.linspace(-200, 100, n_hist + 1)
@@ -979,7 +988,8 @@ class WorkerThread(QThread):
                    'type': exp_info['expType'], 'sex': exp_info['expSex'], 'age': exp_info['expAge'],
                    'probe': exp_info['expProbe'], 'lesion': exp_info['lesionType'], 'channel_map': channel_map_data,
                    'cluster_type': exp_info['clusterType'], 'other_info': exp_info['otherInfo'],
-                   'record_state': exp_info['recordState'], 'record_coord': exp_info['recordCoord']}
+                   'record_state': exp_info['recordState'], 'record_coord': exp_info['recordCoord'],
+                   'depth_lo': depthLo, 'depth_hi': depthHi}
 
         # memory allocation
         pW0, pW1, nFeat = 20.0, 60.0, 5
