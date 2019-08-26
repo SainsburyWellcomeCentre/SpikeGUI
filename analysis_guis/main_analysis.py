@@ -237,17 +237,17 @@ class AnalysisGUI(QMainWindow):
                                            "Analysis Functions", "grp_func")
         self.grp_scope = cf.create_groupbox(self.grp_func, QRect(10, 30, grp_inner, 55), grp_font_sub,
                                            "Analysis Type", "grp_scope")
-        self.grp_funcsel = cf.create_groupbox(self.grp_func, QRect(10, 95, grp_inner, 191), grp_font_sub,
+        self.grp_funcsel = cf.create_groupbox(self.grp_func, QRect(10, 95, grp_inner, 171), grp_font_sub,
                                            "Function Select", "grp_funcsel")
-        self.grp_para = cf.create_groupbox(self.grp_func, QRect(10, 295, grp_inner, 351), grp_font_sub,
+        self.grp_para = cf.create_groupbox(self.grp_func, QRect(10, 275, grp_inner, 371), grp_font_sub,
                                            "Function Parameters", "grp_para")
 
-        # creates the combobox objects
+        # creates the combobox objectsF
         self.combo_scope = cf.create_combobox(self.grp_scope, txt_font, func_types, QRect(10, 25, grp_inner2, 20),
                                               "combo_scope", self.change_scope)
 
         # creates the listbox objects
-        self.list_funcsel = cf.create_listbox(self.grp_funcsel, QRect(10, 20, grp_inner2, 161), txt_font,
+        self.list_funcsel = cf.create_listbox(self.grp_funcsel, QRect(10, 20, grp_inner2, 141), txt_font,
                                               None, "list_funcsel", cb_fcn=self.func_select)
 
         # creates the pushbutton objects
@@ -2742,8 +2742,8 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
-    def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value,
-                                  stats_type, plot_scope, plot_trend, plot_grid, is_3d):
+    def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, show_prop,
+                                  stats_type, plot_scope, plot_trend, plot_grid):
         '''
 
         :param rot_filt:
@@ -2759,7 +2759,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, is_3d)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                 mean_type, plot_scope, dt):
@@ -3587,7 +3587,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
-    def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value,
+    def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, show_prop,
                                  stats_type, plot_scope, plot_trend, plot_grid):
         '''
 
@@ -3619,7 +3619,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ind_type=ind_type)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                     mean_type, plot_scope, dt):
@@ -7278,7 +7278,8 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
 
-    def plot_cluster_cross_ccgram(self, exp_name, i_ref, i_comp, plot_all, plot_type, window_size, p_lim, f_cutoff):
+    def plot_cluster_cross_ccgram(self, exp_name, i_ref, i_comp, plot_all, m_size, plot_type,
+                                  window_size, p_lim, f_cutoff):
         '''
 
         :param i_cluster:
@@ -7348,9 +7349,9 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].add_collection(pc)
 
             if plot_type == 'bar':
-                self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=1)
+                self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=1/2)
             else:
-                self.plot_fig.ax[i_plot].scatter(xi_hist, n_hist, marker='o', c='b')
+                self.plot_fig.ax[i_plot].scatter(xi_hist, n_hist, marker='o', c='b', s=m_size)
 
             # plots the auto-correlogram and confidence interval limits
             self.plot_fig.ax[i_plot].plot(xi_hist, ciN_lo[ind] / f_scale_ref, 'k--')
@@ -7559,7 +7560,8 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, is_3d=False, ind_type=None):
+    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop, ind_type=None,
+                               is_3d=False):
         '''
 
         :param r_obj:
@@ -7856,7 +7858,8 @@ class AnalysisGUI(QMainWindow):
 
             # creates the spiking frequency statstics table
             n_DS = self.setup_stats_nvalue_array(sf_type, sf_type_pr, i_grp, stats_type)
-            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type)
+            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type,
+                                               show_prop=show_prop)
 
         # for ax in self.plot_fig.ax:
         #     self.remove_scatterplot_spines(ax)
@@ -8073,7 +8076,7 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj)
-        hm_cmap = ListedColormap(sns.diverging_palette(220, 20, n=7))
+        hm_cmap = ListedColormap(sns.diverging_palette(220, 20, sep=35, l=45, n=11))
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
@@ -8473,7 +8476,8 @@ class AnalysisGUI(QMainWindow):
         # returns the N-value array
         return n_DS
 
-    def create_spike_freq_stats_table(self, ax, n_DS, n_filt, stats_type, c=None, c2=None, n_row=2, n_col=3, n_PD=None):
+    def create_spike_freq_stats_table(self, ax, n_DS, n_filt, stats_type,
+                                      c=None, c2=None, n_row=2, n_col=3, n_PD=None, show_prop=False):
         '''
 
         :param n_DS:
@@ -8491,20 +8495,27 @@ class AnalysisGUI(QMainWindow):
             n_DS_Full = cf.add_rowcol_sum(n_DS.T)
             col_hdr = ['Insensitive', 'Sensitive', 'Total']
 
+        if show_prop:
+            col_hdr, n_DS_Full = col_hdr[:-1], n_DS_Full[:-1, :][:, :-1]
+            n_DS_Full /= repmat(np.sum(n_DS_Full, axis=1), 1, len(col_hdr))
+            n_DS_Full = np.round(100. * n_DS_Full, 1)
+
         # creates the colours (if not provided)
         # if c is None:
+        d_ofs = int(not show_prop)
         n_row_d, n_col_d = np.shape(n_DS_Full)
-        c_row, c_col = cf.get_plot_col(n_row_d - 1), cf.get_plot_col(n_col_d - 1, n_row_d - 1)
+        c_row, c_col = cf.get_plot_col(n_row_d - d_ofs), cf.get_plot_col(n_col_d - d_ofs, n_row_d - d_ofs)
+        tot_col = [] if show_prop else [(0.75, 0.75, 0.75)]
 
         # creates the title text object
         t_str = '{0} N-Values'.format(stats_type)
         h_title = ax.text(0.5, 1, t_str, fontsize=15, horizontalalignment='center')
-        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + [] if show_prop else ['Total']
 
         # sets up the n-value table
         ax_pos_tbb = dcopy(ax.get_tightbbox(self.plot_fig.get_renderer()).bounds)
-        t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(int), row_hdr,
-                                      col_hdr, c_row + [(0.75, 0.75, 0.75)], c_col  + [(0.75, 0.75, 0.75)], None,
+        t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(str), row_hdr,
+                                      col_hdr, c_row + tot_col, c_col  + tot_col, None,
                                       n_row=n_row, n_col=n_col, h_title=h_title, ax_pos_tbb=ax_pos_tbb)
 
         # calculates the height between the title and the top of the table
@@ -9429,18 +9440,19 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+            'show_prop': {'type': 'B', 'text': 'Show Proportional Counts', 'def_val': True},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['i_cluster', 'Whole Experiment'],
                               ['plot_all_expt', 'Individual Cell'],
                               ['p_value', 'Individual Cell'],
+                              ['show_prop', 'Individual Cell'],
                               ['stats_type', 'Individual Cell']]
             },
 
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'is_3d': {'type': 'B', 'text': 'Plot 3D Scatterplot', 'def_val': False, 'link_para': ['plot_trend', True]},
         }
         self.add_func(type='Rotation Analysis',
                       name='Phase Spiking Rate Comparison',
@@ -9667,11 +9679,12 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+            'show_prop': {'type': 'B', 'text': 'Show Proportional Counts', 'def_val': True},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
+                              ['plot_all_expt', 'Individual Cell'], ['plot_all_expt', 'show_prop']]
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -11023,8 +11036,12 @@ class AnalysisFunctions(object):
             'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
             'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
             'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp',True]},
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp', True]},
+            'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot'],
+                'link_para': [['m_size', 'bar']]
+            },
             'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
             'p_lim': {'text': 'Confidence Interval (%)', 'def_val': 99.99, 'min_val': 90.0, 'max_val': 100.0 - 1e-6},
             'f_cutoff': {'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
@@ -11092,7 +11109,7 @@ class AnalysisFunctions(object):
         '''
 
         # initialisations
-        tab_name = ['Calculation Parameters', 'Plotting Parameters']
+        tab_name, tab_hght = ['Calculation Parameters', 'Plotting Parameters'], 311
 
         # sets the group width
         self.grp_wid = h_grp_para.geometry().width() - dX
@@ -11109,7 +11126,7 @@ class AnalysisFunctions(object):
         self.grp_para_plot.setLayout(QFormLayout())
 
         # creates the tab object
-        self.grp_para_tabs = cf.create_tab(h_grp_para, QRect(5, 55, self.grp_wid, 291), None,
+        self.grp_para_tabs = cf.create_tab(h_grp_para, QRect(5, 55, self.grp_wid, tab_hght), None,
                                            h_tabchild=[self.grp_para_calc, self.grp_para_plot], child_name=tab_name)
 
         # # hides the groupboxes
