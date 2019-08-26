@@ -7991,7 +7991,7 @@ class AnalysisGUI(QMainWindow):
             # returns the
             return depth
 
-        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, D):
+        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d):
             '''
 
             :param t_spike:
@@ -8032,7 +8032,7 @@ class AnalysisGUI(QMainWindow):
 
             # sorts the clusters by depth (whole experiments only)
             if not is_single_cell:
-                I_hm = I_hm[np.argsort(D), :, :]
+                I_hm = I_hm[isort_d, :, :]
 
             # returns the final heatmap
             return I_hm
@@ -8072,8 +8072,9 @@ class AnalysisGUI(QMainWindow):
                 xi_h0[i][-1] = t_stim[i]
 
             # calculates the spiking frequency histograms
-            xi_h = np.vstack(xi_h0)
-            I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, D[i_filt])
+            xi_h, sort_d = np.vstack(xi_h0), np.argsort(D[i_filt])
+            I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d)
+            D[i_filt] = list(np.array(D[i_filt])[sort_d])
 
         # sorts the clusters by depth
         if (not r_obj.is_single_cell) and (norm_hm):
