@@ -12,13 +12,6 @@ import seaborn as sns
 #sns.set_palette(sns.color_palette("Paired", 8))
 #colors = ["cobalt", "light orange", "teal", "dusty lavender", "sea blue", "maize", "dull teal", "purpley grey",
 #          "turquoise blue", "sandy", "dark seafoam", "dark lilac"]
-colors = ["dark slate blue", "dark peach", "dull teal", "purpley grey", "maize", "sea blue", "dark salmon", "teal",
-          "dusty lavender", "sandy", "turquoise blue", "terracota", "dark seafoam",
-          "dark lilac", "buff"]
-
-sns.set_palette(sns.xkcd_palette(colors))
-
-
 
 if __name__ == '__main__':
 

@@ -28,6 +28,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle, Polygon, Patch
+from matplotlib.colors import ListedColormap
 
 import matplotlib as mpl
 from matplotlib.pyplot import rc
@@ -133,6 +134,7 @@ class AnalysisGUI(QMainWindow):
 
         # data field initialisations
         self.data = AnalysisData()
+        cf.set_sns_colour_palette()
 
         # other initialisations
         self.is_multi = False
@@ -7889,9 +7891,6 @@ class AnalysisGUI(QMainWindow):
             else:
                 w_ratio = [1. / ax_dim[1]] * ax_dim[1]
 
-            # # sets up the plot palette
-            # sns.palplot(sns.diverging_palette(220, 20, n=7))
-
             # creates the plot axes
             wspace = 2 / 10 if (n_col_hm == 3) else 8 / 50
             gs = gridspec.GridSpec(ax_dim[0], ax_dim[1], width_ratios=w_ratio, height_ratios=h_ratio,
@@ -8074,6 +8073,7 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj)
+        hm_cmap = ListedColormap(sns.diverging_palette(220, 20, n=7))
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
@@ -8143,7 +8143,8 @@ class AnalysisGUI(QMainWindow):
 
                 # displays the heatmap
                 im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt][:, :, i_phase], aspect='auto',
-                                                              cmap=plt.cm.bwr, origin='lower')
+                                                              origin='lower', cmap=hm_cmap)
+                # im[i_phase] = sns.heatmap(I_hm[i_filt][:, :, i_phase], cmap=pp, ax=self.plot_fig.ax[i_plot])
 
                 # # IS THIS NECESSARY?!
                 # self.plot_fig.ax[i_plot].invert_yaxis()

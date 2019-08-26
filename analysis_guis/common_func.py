@@ -6,6 +6,7 @@ import copy
 import functools
 import math as m
 import numpy as np
+import seaborn as sns
 from numpy import ndarray
 from skimage import measure
 from numpy.matlib import repmat
@@ -2467,3 +2468,19 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
     # creates the polygon object and adds it to the axis
     poly = Polygon(err_vert, facecolor=col, alpha=f_alpha, edgecolor=col, linewidth=4)
     ax.add_patch(poly)
+
+
+def set_sns_colour_palette(type='Default'):
+    '''
+
+    :param type:
+    :return:
+    '''
+
+    if type == 'Default':
+        colors = sns.xkcd_palette(["dark slate blue", "dark peach", "dull teal", "purpley grey", "maize", "sea blue",
+                  "dark salmon", "teal", "dusty lavender", "sandy", "turquoise blue", "terracota", "dark seafoam",
+                  "dark lilac", "buff"])
+
+    # updates the colour palette
+    sns.set_palette(colors)
