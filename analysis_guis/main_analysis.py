@@ -8074,7 +8074,9 @@ class AnalysisGUI(QMainWindow):
             # calculates the spiking frequency histograms
             xi_h, sort_d = np.vstack(xi_h0), np.argsort(D[i_filt])
             I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d)
-            D[i_filt] = list(np.array(D[i_filt])[sort_d])
+
+            if not r_obj.is_single_cell:
+                D[i_filt] = list(np.array(D[i_filt])[sort_d])
 
         # sorts the clusters by depth
         if (not r_obj.is_single_cell) and (norm_hm):
