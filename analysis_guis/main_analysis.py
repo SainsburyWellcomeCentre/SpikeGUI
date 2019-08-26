@@ -2763,7 +2763,8 @@ class AnalysisGUI(QMainWindow):
         # creates the spike frequency plot/statistics tables
         self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, is_3d)
 
-    def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type, plot_scope, dt):
+    def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
+                                mean_type, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -2777,7 +2778,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, dt, norm_type)
+        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type)
 
     def plot_motion_direction_selectivity(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                           plot_cond, plot_trend, plot_even_axis, p_type, plot_grid):
@@ -3622,7 +3623,8 @@ class AnalysisGUI(QMainWindow):
         # applies the rotation filter to the dataset
         self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ind_type=ind_type)
 
-    def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type, plot_scope, dt):
+    def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
+                                    mean_type, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -3636,7 +3638,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_spike_heatmap(r_obj, dt, norm_type)
+        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type)
 
     ######################################
     ####    ROC ANALYSIS FUNCTIONS    ####
@@ -7849,7 +7851,7 @@ class AnalysisGUI(QMainWindow):
         # for ax in self.plot_fig.ax:
         #     self.remove_scatterplot_spines(ax)
 
-    def create_spike_heatmap(self, r_obj, dt, norm_type):
+    def create_spike_heatmap(self, r_obj, dt, norm_type, mean_type):
         '''
 
         :param plot_grid:
@@ -7991,7 +7993,7 @@ class AnalysisGUI(QMainWindow):
             # returns the
             return depth
 
-        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d):
+        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type):
             '''
 
             :param t_spike:
@@ -8016,19 +8018,24 @@ class AnalysisGUI(QMainWindow):
                     if is_single_cell:
                         t_sp_flat = cf.flat_list(
                             [list(x) if x is not None else [] for x in t_spike[:, i_trial, i_phase]])
-                        h_gram = np.histogram(t_sp_flat, bins=xi_h[0, :])
+                        h_gram = np.histogram(t_sp_flat, bins=xi_h[0, :])[0]
                         dt = np.diff(xi_h[0, :])
                     else:
                         # t_sp_flat = cf.flat_list(
                         #     [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
 
                         is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
-                        t_sp_flat = np.hstack(t_spike[i_trial, is_ok, i_phase])
-                        h_gram = np.histogram(t_sp_flat, bins=xi_h[i_trial, :]) / sum(is_ok)
+                        h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i, i_phase], bins=xi_h[i_trial, :])[0]
+                                                for i in np.where(is_ok)[0]])
+
                         dt = np.diff(xi_h[i_trial, :])
+                        if mean_type == 'Mean':
+                            h_gram = np.mean(h_gram_tot, axis=0)
+                        else:
+                            h_gram = np.median(h_gram_tot, axis=0)
 
                     # normalises the histograms by the duration of the bins
-                    I_hm[i_trial, :, i_phase] = h_gram[0] / dt
+                    I_hm[i_trial, :, i_phase] = h_gram / dt
 
             # sorts the clusters by depth (whole experiments only)
             if not is_single_cell:
@@ -8061,10 +8068,8 @@ class AnalysisGUI(QMainWindow):
         I_hm = np.empty(r_obj.n_filt, dtype=object)
         for i_filt in range(r_obj.n_filt):
             # determines the stimuli times (converts from indices to actual times)
-            wvm_p = r_obj.wvm_para[i_filt]
             _, ind = np.unique(r_obj.i_expt[i_filt], return_inverse=True)
-            t_stim = [wvm_p[i][0]['nPts'] / (2 * sf) if r_obj.is_ud else wvm_p[i][0]['tPeriod'] / (2 * sf)
-                      for i, sf in zip(ind, r_obj.s_freq[i_filt])]
+            t_stim = [r_obj.t_phase[i_filt][i] for i in ind]
 
             # sets up the histogram bins
             xi_h0 = [setup_heatmap_bins(x, dt) for x in t_stim]
@@ -8073,7 +8078,7 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the spiking frequency histograms
             xi_h, sort_d = np.vstack(xi_h0), np.argsort(D[i_filt])
-            I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d)
+            I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d, mean_type)
 
             if not r_obj.is_single_cell:
                 D[i_filt] = list(np.array(D[i_filt])[sort_d])
@@ -8084,11 +8089,12 @@ class AnalysisGUI(QMainWindow):
             # I_hm_norm = np.max(np.vstack([np.max(np.max(x, axis=1), axis=1) for x in I_hm]), axis=0)
             for i_filt in range(len(I_hm)):
                 # calculates the min/max values over all trials
+                I_hm_f = I_hm[i_filt].reshape(np.size(I_hm[i_filt], axis=0), -1)
                 if norm_type == 'Min/Max Normalisation':
-                    I_hm_f = I_hm[i_filt].reshape(np.size(I_hm[i_filt], axis=0), -1)
                     I_hm_max, I_hm_min = np.max(I_hm_f, axis=1), np.min(I_hm_f, axis=1)
                 else:
                     I_hm_med = np.median(I_hm[i_filt][:, :, 0], axis=1)
+                    # I_hm_med = np.mean(I_hm[i_filt][:, :, 0], axis=1)
 
                 for i_trial in range(np.size(I_hm[i_filt], axis=0)):
                     # if the denominator is >0, then normalise the heatmap values for the current trial
@@ -8098,7 +8104,12 @@ class AnalysisGUI(QMainWindow):
                         if d_hm > 0:
                             I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_min[i_trial]) / d_hm
                     else:
-                        I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_med[i_trial])
+                        I_hm[i_filt][i_trial, :, :] -= I_hm_med[i_trial]
+
+                        I_norm = np.max([np.max(I_hm[i_filt][i_trial, :, :]),
+                                         np.abs(np.min(I_hm[i_filt][i_trial, :, :]))])
+                        if I_norm > 0:
+                            I_hm[i_filt][i_trial, :, :] /= I_norm
 
         # creates the heatmaps for each filter/phase
         for i_filt in range(r_obj.n_filt):
@@ -8166,13 +8177,23 @@ class AnalysisGUI(QMainWindow):
 
             c_lim_mx = np.max([_im.get_clim()[1] for _im in im])
             for _im in im:
-                _im.set_clim(0, c_lim_mx)
+                if norm_type == 'Baseline Median Subtraction':
+                    _im.set_clim(-1, 1)
+                else:
+                    _im.set_clim(0, c_lim_mx)
 
             #
             if i_filt == 0:
                 self.plot_fig.figure.colorbar(im[0], cax=self.plot_fig.ax[-1], orientation='horizontal')
-                self.plot_fig.ax[-1].set_xlabel(
-                    '{0}Firing Rate'.format('' if r_obj.is_single_cell else 'Normalised '))
+
+                if r_obj.is_single_cell:
+                    x_lbl = 'Firing Rate (Hz)'
+                else:
+                    norm_type_str = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
+                    x_lbl_list = ['Normalised Relative', 'Normalised', '']
+                    x_lbl = '{0} Firing Rate (Hz)'.format(x_lbl_list[norm_type_str.index(norm_type)])
+
+                self.plot_fig.ax[-1].set_xlabel(x_lbl)
 
         # resets the figure layout (single cell only)
         if r_obj.is_single_cell:
@@ -9339,7 +9360,8 @@ class AnalysisFunctions(object):
         t_phase, t_ofs = 1.0, 0.2
 
         # type lists
-        norm_type = ['Median Subtraction', 'Min/Max Normalisation', 'None']
+        norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
+        mean_type = ['Mean', 'Median']
         comp_type = ['CW vs BL', 'CCW vs BL']
         scope_txt = ['Individual Cell', 'Whole Experiment']
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
@@ -9423,6 +9445,9 @@ class AnalysisFunctions(object):
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
                 'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
+            },
+            'mean_type': {
+                'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
@@ -9655,6 +9680,9 @@ class AnalysisFunctions(object):
             },
             'norm_type': {
                 'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
+            },
+            'mean_type': {
+                'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
