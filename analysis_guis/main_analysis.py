@@ -2763,7 +2763,7 @@ class AnalysisGUI(QMainWindow):
         # creates the spike frequency plot/statistics tables
         self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, is_3d)
 
-    def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, norm_hm, dt):
+    def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -2777,7 +2777,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, dt, norm_hm)
+        self.create_spike_heatmap(r_obj, dt, norm_type)
 
     def plot_motion_direction_selectivity(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                           plot_cond, plot_trend, plot_even_axis, p_type, plot_grid):
@@ -3622,7 +3622,7 @@ class AnalysisGUI(QMainWindow):
         # applies the rotation filter to the dataset
         self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ind_type=ind_type)
 
-    def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, norm_hm, dt):
+    def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -3636,7 +3636,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_spike_heatmap(r_obj, dt, norm_hm)
+        self.create_spike_heatmap(r_obj, dt, norm_type)
 
     ######################################
     ####    ROC ANALYSIS FUNCTIONS    ####
@@ -7849,7 +7849,7 @@ class AnalysisGUI(QMainWindow):
         # for ax in self.plot_fig.ax:
         #     self.remove_scatterplot_spines(ax)
 
-    def create_spike_heatmap(self, r_obj, dt, norm_hm):
+    def create_spike_heatmap(self, r_obj, dt, norm_type):
         '''
 
         :param plot_grid:
@@ -8079,20 +8079,26 @@ class AnalysisGUI(QMainWindow):
                 D[i_filt] = list(np.array(D[i_filt])[sort_d])
 
         # sorts the clusters by depth
-        if (not r_obj.is_single_cell) and (norm_hm):
+        if (not r_obj.is_single_cell) and (norm_type != 'None'):
             # normalises each trial across each phase/filter type
             # I_hm_norm = np.max(np.vstack([np.max(np.max(x, axis=1), axis=1) for x in I_hm]), axis=0)
             for i_filt in range(len(I_hm)):
                 # calculates the min/max values over all trials
-                I_hm_f = I_hm[i_filt].reshape(np.size(I_hm[i_filt], axis=0), -1)
-                I_hm_max, I_hm_min = np.max(I_hm_f, axis=1), np.min(I_hm_f, axis=1)
+                if norm_type == 'Min/Max Normalisation':
+                    I_hm_f = I_hm[i_filt].reshape(np.size(I_hm[i_filt], axis=0), -1)
+                    I_hm_max, I_hm_min = np.max(I_hm_f, axis=1), np.min(I_hm_f, axis=1)
+                else:
+                    I_hm_med = np.median(I_hm[i_filt][:, :, 0], axis=1)
 
-                for i_trial in range(len(I_hm_max)):
-                    # calculates the denominator of the normalisation
-                    d_hm = I_hm_max[i_trial] - I_hm_min[i_trial]
-                    if d_hm > 0:
-                        # if the denominator is >0, then normalise the heatmap values for the current trial
-                        I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_min[i_trial]) / d_hm
+                for i_trial in range(np.size(I_hm[i_filt], axis=0)):
+                    # if the denominator is >0, then normalise the heatmap values for the current trial
+                    if norm_type == 'Min/Max Normalisation':
+                        # calculates the denominator of the normalisation
+                        d_hm = I_hm_max[i_trial] - I_hm_min[i_trial]
+                        if d_hm > 0:
+                            I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_min[i_trial]) / d_hm
+                    else:
+                        I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_med[i_trial])
 
         # creates the heatmaps for each filter/phase
         for i_filt in range(r_obj.n_filt):
@@ -8138,12 +8144,6 @@ class AnalysisGUI(QMainWindow):
                     cbar = self.plot_fig.figure.colorbar(im_d, cax=self.plot_fig.ax[-2], orientation='horizontal')
                     self.plot_fig.ax[-2].set_xlabel('Depth ({0}m)'.format(cf._mu))
 
-                #
-                if i_plot == 0:
-                    self.plot_fig.figure.colorbar(im[i_phase], cax=self.plot_fig.ax[-1], orientation='horizontal')
-                    self.plot_fig.ax[-1].set_xlabel(
-                        '{0}Firing Rate'.format('' if r_obj.is_single_cell else 'Normalised '))
-
                 # sets the y-axis labels (based on phase index)
                 if i_phase == 0:
                     # if the first phase, then add the filter type as the y-axis string
@@ -8167,6 +8167,12 @@ class AnalysisGUI(QMainWindow):
             c_lim_mx = np.max([_im.get_clim()[1] for _im in im])
             for _im in im:
                 _im.set_clim(0, c_lim_mx)
+
+            #
+            if i_filt == 0:
+                self.plot_fig.figure.colorbar(im[0], cax=self.plot_fig.ax[-1], orientation='horizontal')
+                self.plot_fig.ax[-1].set_xlabel(
+                    '{0}Firing Rate'.format('' if r_obj.is_single_cell else 'Normalised '))
 
         # resets the figure layout (single cell only)
         if r_obj.is_single_cell:
@@ -9333,6 +9339,7 @@ class AnalysisFunctions(object):
         t_phase, t_ofs = 1.0, 0.2
 
         # type lists
+        norm_type = ['Median Subtraction', 'Min/Max Normalisation', 'None']
         comp_type = ['CW vs BL', 'CCW vs BL']
         scope_txt = ['Individual Cell', 'Whole Experiment']
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
@@ -9414,13 +9421,14 @@ class AnalysisFunctions(object):
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
+            'norm_type': {
+                'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
             },
-
-            'norm_hm': {'text': 'Normalise Heatmap Rows', 'type': 'B', 'def_val': True},
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                              ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
+            },
             'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
         }
         self.add_func(type='Rotation Analysis',
@@ -9645,13 +9653,14 @@ class AnalysisFunctions(object):
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
+            'norm_type': {
+                'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
             },
-
-            'norm_hm': {'text': 'Normalise Heatmap Rows', 'type': 'B', 'def_val': True},
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                              ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
+            },
             'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
         }
         self.add_func(type='UniformDrift Analysis',
