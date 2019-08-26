@@ -8024,7 +8024,7 @@ class AnalysisGUI(QMainWindow):
 
                         is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
                         t_sp_flat = np.hstack(t_spike[i_trial, is_ok, i_phase])
-                        h_gram = np.histogram(t_sp_flat, bins=xi_h[i_trial, :])
+                        h_gram = np.histogram(t_sp_flat, bins=xi_h[i_trial, :]) / sum(is_ok)
                         dt = np.diff(xi_h[i_trial, :])
 
                     # normalises the histograms by the duration of the bins
