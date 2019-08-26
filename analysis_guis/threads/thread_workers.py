@@ -1775,7 +1775,16 @@ class WorkerThread(QThread):
             results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_sp0=n_sp)
 
             # returns the decoding accuracy values
-            return results[1]
+            if calc_para['pool_expt']:
+                return results[1]
+            else:
+                # retrieves the results from the LDA
+                y_acc0 = results[1]
+
+                # sets the values into
+                y_acc = np.nan * np.ones((len(is_keep), np.size(y_acc0, axis=1)))
+                y_acc[is_keep, :] = y_acc0
+                return y_acc
 
         # initialisations
         d_data = data.discrim.part

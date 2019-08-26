@@ -2266,7 +2266,7 @@ class AnalysisGUI(QMainWindow):
     ######################################################
 
     def plot_classification_metrics(self, exp_name, all_expt, c_met1, c_met2, c_met3, use_3met,
-                                    class_type, use_pca=False, plot_grid=True):
+                                    class_type, m_size, plot_grid):
         '''
 
         :return:
@@ -2278,20 +2278,26 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         cluster = self.data.cluster
-        col = ['b', 'r', convert_rgb_col(_bright_cyan), convert_rgb_col(_bright_yellow)]
         t_lim, n_met, p_size = [-1e10, 1e10], 7, 2.5
         lg_str = ['Narrow Spikes', 'Wide Spikes']
+
+        # sets up the marker colours
+        # col = ['b', 'r', convert_rgb_col(_bright_cyan), convert_rgb_col(_bright_yellow)]
+        col = [convert_rgb_col([33, 71, 97])[0],           # narrow spikes
+               convert_rgb_col([163, 77, 72])[0],          # wide spikes
+               convert_rgb_col([252, 195, 150])[0],        # excitatory spikes
+               convert_rgb_col([104, 201, 210])[0]]        # inhibitory spikes
 
         # initialises the subplot axes
         self.clear_plot_axes()
         self.plot_fig.ax = np.empty(4, dtype=object)
 
         # sets up the classification scatterplot
-        if use_3met or use_pca:
-            m_size = 30
+        if use_3met:
+            m_size_s = m_size / 2
             self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(1, 2, 1, projection='3d')
         else:
-            m_size = 60
+            m_size_s = m_size
             self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(1, 2, 1)
 
         # sets up the signal subplots
@@ -2303,29 +2309,24 @@ class AnalysisGUI(QMainWindow):
                     'Peak Ratio'] #, '2nd Peak Half-Width (ms)', '2nd Peak Relaxation Time (ms)',
                     # 'Firing Rate (Hz)']
 
-        # determines if there the metric selections are valid (only if not using pca)
-        if use_pca:
-            # sets the metric indices to all
-            m_ind = np.array(range(len(c_metric)))
-        else:
-            # initialisations
-            e_str = None
-            if use_3met and ((c_met1 in [c_met2, c_met3]) or (c_met2 == c_met3)):
-                    e_str = 'Classification function can only be run with unique metrics.'
-            elif (c_met1 == c_met2):
+        # initialisations
+        e_str = None
+        if use_3met and ((c_met1 in [c_met2, c_met3]) or (c_met2 == c_met3)):
                 e_str = 'Classification function can only be run with unique metrics.'
+        elif (c_met1 == c_met2):
+            e_str = 'Classification function can only be run with unique metrics.'
 
-            # if there was an error then exit the function
-            if e_str is not None:
-                cf.show_error(e_str, 'Invalid Metric Selection')
-                self.calc_ok = False
-                return
+        # if there was an error then exit the function
+        if e_str is not None:
+            cf.show_error(e_str, 'Invalid Metric Selection')
+            self.calc_ok = False
+            return
+        else:
+            # otherwise set the metric indices
+            if use_3met:
+                m_ind = np.array([c_metric.index(c_met1), c_metric.index(c_met2), c_metric.index(c_met3)])
             else:
-                # otherwise set the metric indices
-                if use_3met:
-                    m_ind = np.array([c_metric.index(c_met1), c_metric.index(c_met2), c_metric.index(c_met3)])
-                else:
-                    m_ind = np.array([c_metric.index(c_met1), c_metric.index(c_met2)])
+                m_ind = np.array([c_metric.index(c_met1), c_metric.index(c_met2)])
 
         # sets up the data array
         if all_expt:
@@ -2388,10 +2389,10 @@ class AnalysisGUI(QMainWindow):
         # sets the plot data based on whether PCA is used
         # x_clust_scaled = scale(x_clust, with_std=False, with_mean=False)
         x_clust_scaled = scale(x_clust[:, m_ind], with_std=False)
-        if use_pca:
-            # transforms the data using PCA
-            pca = PCA(n_components=np.size(x_clust_scaled, axis=1))
-            x_clust_scaled = pca.fit_transform(x_clust_scaled)
+        # if use_pca:
+        #     # transforms the data using PCA
+        #     pca = PCA(n_components=np.size(x_clust_scaled, axis=1))
+        #     x_clust_scaled = pca.fit_transform(x_clust_scaled)
 
         # runs the k-mean clustering on the data
         if class_type == 'K-Means':
@@ -2491,14 +2492,7 @@ class AnalysisGUI(QMainWindow):
 
         #
         cm, x_clust_plt = np.array([col[0] if gs == 'Narrow' else col[1] for gs in grp_str]), x_clust[:, m_ind]
-
-        # sets the scatterplot labels
-        if use_pca:
-            # case is using PCA
-            x_label, y_label, z_label = 'PCA Coordinate #1', 'PCA Coordinate #2', 'PCA Coordinate #3'
-        else:
-            # case is using the metrics directly
-            x_label, y_label, z_label = c_met1, c_met2, c_met3
+        x_label, y_label, z_label = c_met1, c_met2, c_met3
 
         # sets the scatterplot tooltip strings
         lbl = ['Expt = {0}\n==========\nID# = {1}\nGroup = {2}\n=========='.format(
@@ -2507,7 +2501,7 @@ class AnalysisGUI(QMainWindow):
         lbl = ['{}\nX = {:5.3f}\nY = {:5.3f}'.format(x, y, z) for x, y, z in zip(lbl, x_clust[:, 0], x_clust[:, 1])]
 
         #
-        if use_3met or use_pca:
+        if use_3met:
             lbl = ['{}\nZ = {:5.3f}'.format(x, y) for x, y in zip(lbl, x_clust[:, 2])]
 
         #
@@ -2516,32 +2510,34 @@ class AnalysisGUI(QMainWindow):
             i1, i2 = act_type == 1, act_type == 2
 
         # creates the scatterplot
-        if use_3met or use_pca:
+        if use_3met:
             if self.data.classify.action_set:
                 self.plot_fig.ax[0].scatter(x_clust_plt[i1, 0], x_clust_plt[i1, 1], x_clust_plt[i1, 2],
-                                            marker='o', c=col[2], s=p_size*m_size)
+                                            marker='o', c=col[2], s=p_size*m_size_s)
                 self.plot_fig.ax[0].scatter(x_clust_plt[i2, 0], x_clust_plt[i2, 1], x_clust_plt[i2, 2],
-                                            marker='o', c=col[3], s=p_size*m_size)
+                                            marker='o', c=col[3], s=p_size*m_size_s)
 
             # case is a 3D plot
             h = self.plot_fig.ax[0].scatter(x_clust_plt[:, 0], x_clust_plt[:, 1], x_clust_plt[:, 2],
-                                            marker='o', c=cm, s=m_size)
+                                            marker='o', c=cm, s=m_size_s)
             self.remove_scatterplot_spines(self.plot_fig.ax[0])
             self.plot_fig.ax[0].view_init(20, -45)
         else:
             if self.data.classify.action_set:
-                self.plot_fig.ax[0].scatter(x_clust_plt[i1, 0], x_clust_plt[i1, 1], marker='o', c=col[2], s=p_size*m_size)
-                self.plot_fig.ax[0].scatter(x_clust_plt[i2, 0], x_clust_plt[i2, 1], marker='o', c=col[3], s=p_size*m_size)
+                self.plot_fig.ax[0].scatter(x_clust_plt[i1, 0], x_clust_plt[i1, 1],
+                                            marker='o', c=col[2], s=p_size*m_size_s)
+                self.plot_fig.ax[0].scatter(x_clust_plt[i2, 0], x_clust_plt[i2, 1],
+                                            marker='o', c=col[3], s=p_size*m_size_s)
 
             # case is a 2D plot
-            h = self.plot_fig.ax[0].scatter(x_clust_plt[:, 0], x_clust_plt[:, 1], marker='o', c=cm, s=m_size)
+            h = self.plot_fig.ax[0].scatter(x_clust_plt[:, 0], x_clust_plt[:, 1], marker='o', c=cm, s=m_size_s)
             self.plot_fig.ax[0].grid(plot_grid)
 
         # retrieves the axis limits
         x_lim = self.plot_fig.ax[0].get_xlim()
         y_lim = self.plot_fig.ax[0].get_ylim()
 
-        if use_3met or use_pca:
+        if use_3met:
             # creates the legend plots
             z_lim = self.plot_fig.ax[0].get_zlim()
             h1 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1, marker='o', c=col[0])
@@ -2573,7 +2569,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[0].set_xlabel('(X) {0}'.format(x_label))
         self.plot_fig.ax[0].set_ylabel('(Y) {0}'.format(y_label))
 
-        if use_3met or use_pca:
+        if use_3met:
             self.plot_fig.ax[0].set_zlim(z_lim)
             self.plot_fig.ax[0].set_zlabel('\n(Z) {0}'.format(z_label))
 
@@ -2600,13 +2596,13 @@ class AnalysisGUI(QMainWindow):
         for i in range(3):
             # case is the narrow spikes
             if i in [0, 2]:
-                self.plot_fig.ax[i+1].plot(T_plot, Vm_N, col[0])
+                self.plot_fig.ax[i+1].plot(T_plot, Vm_N, c=tuple(col[0]))
                 if (i == 0):
                     self.plot_fig.ax[i + 1].plot(T_plot, np.mean(Vm_N, axis=1), 'k', linewidth=3)
 
             # case is the wide spikes
             if i in [1, 2]:
-                self.plot_fig.ax[i+1].plot(T_plot, Vm_W, col[1])
+                self.plot_fig.ax[i+1].plot(T_plot, Vm_W, c=tuple(col[1]))
                 if (i == 1):
                     self.plot_fig.ax[i + 1].plot(T_plot, np.mean(Vm_W, axis=1), 'k', linewidth=3)
 
@@ -2614,10 +2610,10 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i + 1].plot([0, 0], self.plot_fig.ax[i+1].get_ylim(), 'k--')
 
             # sets the plot
-            self.plot_fig.ax[i+1].set_xlim(T_plot[0], T_plot[-1])
-            self.plot_fig.ax[i+1].set_title(t_str[i])
-            self.plot_fig.ax[i+1].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i+1].set_ylabel('Normalised Voltage')
+            self.plot_fig.ax[i + 1].set_xlim(T_plot[0], T_plot[-1])
+            self.plot_fig.ax[i + 1].set_title(t_str[i])
+            self.plot_fig.ax[i + 1].set_xlabel('Time (ms)')
+            self.plot_fig.ax[i + 1].set_ylabel('Normalised Voltage')
             self.plot_fig.ax[i + 1].grid(plot_grid)
 
     def plot_classification_ccgram(self, plot_exp_name, action_type, plot_type, i_plot, plot_all,
@@ -4115,7 +4111,7 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, mark_type,
+    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, mark_type,
                                    show_grp_markers, plot_trend, plot_type, plot_grid, plot_scope):
         '''
 
@@ -4252,8 +4248,14 @@ class AnalysisGUI(QMainWindow):
         t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
         ind_black = [t_type.index('Black')]
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_black]
-        m, m_size = ['o', 'x', '^', 's', 'D', 'H', '*'], 50
-        sig_col = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
+        m = ['o', 'x', '^', 's', 'D', 'H', '*']
+
+        #
+        # sig_col = [np.array(x) / 255 for x in [_light_gray, _bright_red, _bright_cyan, _bright_purple]]
+        sig_col = [convert_rgb_col([147, 149, 152])[0],         # non-significant markers
+                   convert_rgb_col([33, 71, 97])[0],            # black-only significant markers
+                   convert_rgb_col([212, 81, 58])[0],           # uniform-only significant markers
+                   convert_rgb_col([148, 126, 148])[0]]         # both condition significant spikes
 
         if is_scatter:
             ####################################
@@ -4286,19 +4288,24 @@ class AnalysisGUI(QMainWindow):
                     # sets the final significance plot colours
                     if show_grp_markers:
                         mlt = 3
-                        sig_col_plt, mlt = np.array([sig_col[x] if x > 0 else None for x in xy_sig]), 3
+                        jj = xy_sig > 0
+
                         if is_cong:
-                            jj = np.ones(len(xy_sig), dtype=bool)
-                            sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                            # jj = np.ones(len(xy_sig), dtype=bool)
+                            sig_col_plt = face_col_plt = np.array([sig_col[x] for x in xy_sig])
                         else:
-                            jj = xy_sig > 0
                             sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
+                            face_col_plt = np.array([sig_col[x] if x > 0 else 'None' for x in xy_sig], dtype=object)
                     else:
                         sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                        face_col_plt = np.array([s_col if x > 0 else 'None' for s_col, x in
+                                                 zip(sig_col_plt, xy_sig)], dtype=object)
                         jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
 
                     # creates the significance markers
-                    self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], c=sig_col_plt[jj], marker=m[i], s=mlt*m_size)
+                    # kk = np.array([x is None for x in face_col_plt])
+                    self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], marker=m[i],
+                                                s=mlt*m_size, facecolor=face_col_plt[jj], edgecolor=sig_col_plt[jj])
 
                     # creates the significance legend plot markers
                     if i == 0:
@@ -4308,7 +4315,8 @@ class AnalysisGUI(QMainWindow):
                             lg_ind = np.unique(xy_sig)
 
                         for j in lg_ind:
-                            h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]), marker=m[i]))
+                            h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]),
+                                                                     marker=m[i], s=mlt*m_size))
 
                     # creates the markers for each of the phases
                     for igt, gt in enumerate(grp_type):
@@ -6344,17 +6352,17 @@ class AnalysisGUI(QMainWindow):
         zz = np.zeros((np.size(y_acc, axis=0), 1))
 
         # calculates the mean, min/max and SEM decoding accuracy values over all shuffles
-        y_acc_mu = 100. * np.hstack((zz, np.mean(y_acc, axis=2)))
-        y_acc_md = 100. * np.hstack((zz, np.median(y_acc, axis=2)))
+        y_acc_mu = 100. * np.hstack((zz, np.nanmean(y_acc, axis=2)))
+        y_acc_md = 100. * np.hstack((zz, np.nanmedian(y_acc, axis=2)))
 
         # sets up the min/max and SEM values
-        y_acc_min = 100. * np.hstack((zz, np.min(y_acc, axis=2)))
-        y_acc_max = 100. * np.hstack((zz, np.max(y_acc, axis=2)))
-        y_acc_sem = 100. * np.hstack((zz, np.std(y_acc, axis=2) / (d_data_p.nshuffle ** 0.5)))
+        y_acc_min = 100. * np.hstack((zz, np.nanmin(y_acc, axis=2)))
+        y_acc_max = 100. * np.hstack((zz, np.nanmax(y_acc, axis=2)))
+        y_acc_sem = 100. * np.hstack((zz, np.nanstd(y_acc, axis=2) / (d_data_p.nshuffle ** 0.5)))
 
         # sets up the interquartile range values
-        y_acc_uq = 100. * np.hstack((zz, np.percentile(y_acc, 75, axis=2)))
-        y_acc_lq = 100. * np.hstack((zz, np.percentile(y_acc, 25, axis=2)))
+        y_acc_uq = 100. * np.hstack((zz, np.nanpercentile(y_acc, 75, axis=2)))
+        y_acc_lq = 100. * np.hstack((zz, np.nanpercentile(y_acc, 25, axis=2)))
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -7671,7 +7679,7 @@ class AnalysisGUI(QMainWindow):
                 # case is plotting data in 3 dimensions
 
                 # creates the plot and row label strings
-                h[0] = self.plot_fig.ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter)
+                h[0] = self.plot_fig.ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter, s=m_sz)
                 lbl[0] = set_stim_phase_str(r_obj, s_plt[0], sf_stats[i_sub], [0, 1, 2])
 
                 # creates the legend markers
@@ -7880,6 +7888,9 @@ class AnalysisGUI(QMainWindow):
                 w_ratio = [(1. - cb_wid) / ax_dim[1]] * (ax_dim[1] - 1) + [cb_wid]
             else:
                 w_ratio = [1. / ax_dim[1]] * ax_dim[1]
+
+            # # sets up the plot palette
+            # sns.palplot(sns.diverging_palette(220, 20, n=7))
 
             # creates the plot axes
             wspace = 2 / 10 if (n_col_hm == 3) else 8 / 50
@@ -8132,7 +8143,7 @@ class AnalysisGUI(QMainWindow):
 
                 # displays the heatmap
                 im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt][:, :, i_phase], aspect='auto',
-                                                              cmap='viridis', origin='lower')
+                                                              cmap=plt.cm.bwr, origin='lower')
 
                 # # IS THIS NECESSARY?!
                 # self.plot_fig.ax[i_plot].invert_yaxis()
@@ -8179,6 +8190,7 @@ class AnalysisGUI(QMainWindow):
             for _im in im:
                 if norm_type == 'Baseline Median Subtraction':
                     _im.set_clim(-1, 1)
+                    pass
                 else:
                     _im.set_clim(0, c_lim_mx)
 
@@ -9314,6 +9326,7 @@ class AnalysisFunctions(object):
             # 'use_pca': {'type': 'B', 'text': 'Use PCA For Classification', 'def_val': False,
             #             'link_para': [['c_met1', True], ['c_met2', True], ['c_met3', True], ['use_3met', True]]},
             'class_type': {'type': 'L', 'text': 'Classification Method', 'def_val': class_type[0], 'list': class_type},
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 60},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Classification',
@@ -10126,6 +10139,7 @@ class AnalysisFunctions(object):
             'plot_cond': {
                 'type': 'L', 'text': 'Comparison Condition', 'list': rot_filt_grp['t_type'], 'def_val': 'Uniform',
             },
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 50},
             'mark_type': {
                 'type': 'L', 'text': 'Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
             },
