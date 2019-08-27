@@ -2742,7 +2742,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
-    def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, show_prop,
+    def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
                                   stats_type, plot_scope, plot_trend, plot_grid):
         '''
 
@@ -2759,7 +2759,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                 mean_type, plot_scope, dt):
@@ -3587,7 +3587,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
-    def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, show_prop,
+    def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
                                  stats_type, plot_scope, plot_trend, plot_grid):
         '''
 
@@ -3619,7 +3619,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop, ind_type=ind_type)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                     mean_type, plot_scope, dt):
@@ -4113,8 +4113,8 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, mark_type,
-                                   show_grp_markers, plot_trend, plot_type, plot_grid, plot_scope):
+    def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, show_grp_markers,
+                                   show_sig_markers, mark_type, plot_trend, plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4192,6 +4192,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         is_scatter = plot_type == 'auROC Scatterplot'
+        _show_grp_markers, _show_sig_markers = dcopy(show_grp_markers), dcopy(show_sig_markers)
 
         # sets up the rotational filter (for the specified trial condition given in plot_cond)
         _rot_filt = dcopy(rot_filt)
@@ -4215,17 +4216,24 @@ class AnalysisGUI(QMainWindow):
 
         # sets the group type values/label strings
         if is_scatter:
-            if (not show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
+            if mark_type == 'Congruency':
+                _show_sig_markers, _show_grp_markers = False, True
+                grp_type, g_type, is_cong = ['None', 'Congruent', 'Incongruent'], r_data.pd_type + 1, True
+
+            elif (not _show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
                 st_type = st_type_name.index(r_data.phase_grp_stats_type)
                 grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
             elif mark_type == 'Rotation/Visual Response':
                 grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
-            elif mark_type == 'Congruency':
-                grp_type, g_type, is_cong = ['Congruent', 'Incongruent'], r_data.pd_type, True
 
         else:
             st_type = st_type_name.index(r_data.phase_grp_stats_type)
             g_type = r_data.phase_gtype[:, st_type]
+
+        if (not _show_grp_markers) and (not _show_sig_markers):
+            e_str = 'Warning! Neither the group or significance markers have been selected!\n' \
+                    'Re-run this with either marker type selected'
+            cf.show_error(e_str, 'No Markers Selected!')
 
         # if use_resp_grp_type:
         #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
@@ -4264,14 +4272,24 @@ class AnalysisGUI(QMainWindow):
             ####    SCATTERPLOT CREATION    ####
             ####################################
 
-            # COLOURS TO BE ENTERED BY SEPI HERE
-            c0 = ['C0', 'C1', 'C2', 'C3']           #### MUST HAVE EXACTLY 4 COLOURS
-            c = np.array(c0)[:len(grp_type)]
+            if mark_type == 'Congruency':
+                e_col = [convert_rgb_col(_light_gray), convert_rgb_col(_black), convert_rgb_col(_gray)]
+                f_col = ['None', convert_rgb_col(_black), convert_rgb_col(_gray)]
+            elif mark_type == 'Rotation/Visual Response':
+                e_col = f_col = cf.get_plot_col(len(g_type), len(sig_col))
+            elif mark_type == 'Motion Sensitivity/Direction Selectivity':
+                e_col = f_col = cf.get_plot_col(len(g_type), len(sig_col))
+
+            # c0 = ['C0', 'C1', 'C2', 'C3']           #### MUST HAVE EXACTLY 4 COLOURS
+            # c = np.array(c0)[:len(grp_type)]
 
             # legend properties initialisations
-            h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
-            if not show_grp_markers:
-                lg_str = ['Not Sig.'] + lg_str
+            if _show_sig_markers:
+                h_plt, lg_str = [], ['Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
+                if not _show_grp_markers:
+                    lg_str = ['Not Sig.'] + lg_str
+            else:
+                h_plt, lg_str = [], []
 
             # initialises the plot axes
             self.init_plot_axes(n_plot=1)
@@ -4288,48 +4306,49 @@ class AnalysisGUI(QMainWindow):
                     x_auc, y_auc, g_type_m, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
 
                     # sets the final significance plot colours
-                    if show_grp_markers:
-                        mlt = 3
-                        jj = xy_sig > 0
+                    if _show_sig_markers:
+                        if _show_grp_markers:
+                            mlt, jj = 3, xy_sig > 0
 
-                        if is_cong:
-                            # jj = np.ones(len(xy_sig), dtype=bool)
-                            sig_col_plt = face_col_plt = np.array([sig_col[x] for x in xy_sig])
+                            if is_cong:
+                                sig_col_plt = face_col_plt = np.array([sig_col[x] for x in xy_sig])
+                            else:
+                                sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
+                                face_col_plt = np.array([sig_col[x] if x > 0 else 'None' for x in xy_sig], dtype=object)
                         else:
-                            sig_col_plt = np.array([sig_col[x] if x > 0 else None for x in xy_sig])
-                            face_col_plt = np.array([sig_col[x] if x > 0 else 'None' for x in xy_sig], dtype=object)
-                    else:
-                        sig_col_plt = np.array([sig_col[x] for x in xy_sig])
-                        face_col_plt = np.array([s_col if x > 0 else 'None' for s_col, x in
-                                                 zip(sig_col_plt, xy_sig)], dtype=object)
-                        jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
+                            jj, mlt = np.ones(len(xy_sig), dtype=bool), 1
 
-                    # creates the significance markers
-                    # kk = np.array([x is None for x in face_col_plt])
-                    self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], marker=m[i],
-                                                s=mlt*m_size, facecolor=face_col_plt[jj], edgecolor=sig_col_plt[jj])
+                            sig_col_plt = np.array([sig_col[x] for x in xy_sig])
+                            face_col_plt = np.array([s_col if x > 0 else 'None' for s_col, x in
+                                                     zip(sig_col_plt, xy_sig)], dtype=object)
 
-                    # creates the significance legend plot markers
-                    if i == 0:
-                        if show_grp_markers:
-                            lg_ind = np.unique(xy_sig[xy_sig > 0])
-                        else:
-                            lg_ind = np.unique(xy_sig)
+                        # creates the significance markers
+                        self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], marker=m[i],
+                                                    s=mlt*m_size, facecolor=face_col_plt[jj], edgecolor=sig_col_plt[jj])
 
-                        for j in lg_ind:
-                            h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=to_rgba_array(sig_col[j]),
-                                                                     marker=m[i], s=mlt*m_size))
+                        # creates the significance legend plot markers
+                        if i == 0:
+                            if _show_grp_markers:
+                                lg_ind = np.unique(xy_sig[xy_sig > 0])
+                            else:
+                                lg_ind = np.unique(xy_sig)
+
+                            for j in lg_ind:
+                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, marker=m[i], s=mlt*m_size,
+                                                                         facecolor='None' if j == 0 else sig_col[j],
+                                                                         edgecolor=sig_col[j]))
 
                     # creates the markers for each of the phases
                     for igt, gt in enumerate(grp_type):
                         ii = g_type_m == igt
                         if np.any(ii):
-                            if show_grp_markers:
-                                self.plot_fig.ax[0].scatter(x_auc[ii], y_auc[ii], c=c[igt],
-                                                            marker=m[i], s=m_size, alpha=1)
+                            if _show_grp_markers:
+                                self.plot_fig.ax[0].scatter(x_auc[ii], y_auc[ii], marker=m[i], s=m_size, alpha=1,
+                                                            facecolor=f_col[igt], edgecolor=e_col[igt])
 
                                 # h_plt[i, igt] = self.plot_fig.ax[0].plot(-1, -1, c=c[igt], marker=m[igt])
-                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, c=c[igt], marker=m[i]))
+                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, marker=m[i],
+                                             facecolor=f_col[igt], edgecolor=e_col[igt]))
                                 if len(ind_match) > 1:
                                     lg_str.append('{0} ({1})'.format(gt, r_obj.lg_str[im[0]].replace('Black\n', '')))
                                 else:
@@ -7560,7 +7579,7 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, show_prop, ind_type=None,
+    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, ind_type=None,
                                is_3d=False):
         '''
 
@@ -7803,7 +7822,7 @@ class AnalysisGUI(QMainWindow):
 
         if (not is_3d) and (not r_obj.is_single_cell):
             # memory allocation
-            sf_type_pr = np.empty(n_sub - 1, dtype=object)
+            sf_type_pr, sf_type_plt = np.empty(n_sub - 1, dtype=object), np.empty(n_sub - 1, dtype=object)
             sf_score = cf.calc_ms_scores(s_plt, sf_stats, p_value=p_value)
             score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
 
@@ -7813,7 +7832,7 @@ class AnalysisGUI(QMainWindow):
             #   2 = Excited
             #   3 = Mixed
             sf_type = np.max(sf_score[:, :2], axis=1) + (np.sum(sf_score[:, :2], axis=1) == 3).astype(int)
-            sf_type_pr[0] = np.vstack([cf.calc_rel_prop(sf_type[x], 4) for x in i_grp[0]]).T
+            sf_type_pr[0] = sf_type_plt[0] = np.vstack([cf.calc_rel_prop(sf_type[x], 4) for x in i_grp[0]]).T
 
             # determines all motion sensitive cells (sf_type > 0)
             is_mot_sens = sf_type > 0
@@ -7828,11 +7847,17 @@ class AnalysisGUI(QMainWindow):
             # determines which cells are direction selective (removes non-motion sensitive cells)
             is_dir_sel = np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
             i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
-            sf_type_pr[1] = np.vstack([cf.calc_rel_prop(is_dir_sel[x], 2) for x in i_grp[1]]).T
+            n_cell = None if ms_prop else len(one_dir_sig)
+            sf_type_pr[1] = np.vstack([cf.calc_rel_prop(is_dir_sel[x], 2, n_cell) for x in i_grp[1]]).T
+
+            sf_type_plt[1] = dcopy(sf_type_pr[1])
+            if not ms_prop:
+                sf_type_plt[1][0, :] = 100. - sf_type_plt[1][1, :]
+                sf_type_pr[1] /= np.sum(sf_type_pr[1]) / 100
 
             for i in range(2):
                 # creates the bar graph
-                h_bar = cf.create_stacked_bar(self.plot_fig.ax[i + n_sub], dcopy(sf_type_pr[i]), c2)
+                h_bar = cf.create_stacked_bar(self.plot_fig.ax[i + n_sub], dcopy(sf_type_plt[i]), c2)
                 if r_obj.is_ud and r_obj.n_filt == 2:
                     self.plot_fig.ax[i + n_sub].set_xticklabels(['All Cells'])
                 else:
@@ -7858,8 +7883,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the spiking frequency statstics table
             n_DS = self.setup_stats_nvalue_array(sf_type, sf_type_pr, i_grp, stats_type)
-            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type,
-                                               show_prop=show_prop)
+            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type)
 
         # for ax in self.plot_fig.ax:
         #     self.remove_scatterplot_spines(ax)
@@ -8488,6 +8512,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.tight_layout()
 
         # initialisations
+        n_type = int
         if stats_type == 'Motion Sensitivity':
             n_DS_Full = cf.add_rowcol_sum(n_DS)
             col_hdr = ['None', 'Inh.', 'Exc.', 'Mixed', 'Total']
@@ -8496,7 +8521,7 @@ class AnalysisGUI(QMainWindow):
             col_hdr = ['Insensitive', 'Sensitive', 'Total']
 
         if show_prop:
-            col_hdr, n_DS_Full = col_hdr[:-1], n_DS_Full[:-1, :][:, :-1]
+            col_hdr, n_DS_Full, n_type = col_hdr[:-1], n_DS_Full[:-1, :][:, :-1], str
             n_DS_Full /= repmat(np.sum(n_DS_Full, axis=1), 1, len(col_hdr))
             n_DS_Full = np.round(100. * n_DS_Full, 1)
 
@@ -8510,11 +8535,11 @@ class AnalysisGUI(QMainWindow):
         # creates the title text object
         t_str = '{0} N-Values'.format(stats_type)
         h_title = ax.text(0.5, 1, t_str, fontsize=15, horizontalalignment='center')
-        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + [] if show_prop else ['Total']
+        row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ([] if show_prop else ['Total'])
 
         # sets up the n-value table
         ax_pos_tbb = dcopy(ax.get_tightbbox(self.plot_fig.get_renderer()).bounds)
-        t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(str), row_hdr,
+        t_props = cf.add_plot_table(self.plot_fig, ax, table_font, n_DS_Full.astype(n_type), row_hdr,
                                       col_hdr, c_row + tot_col, c_col  + tot_col, None,
                                       n_row=n_row, n_col=n_col, h_title=h_title, ax_pos_tbb=ax_pos_tbb)
 
@@ -9440,14 +9465,14 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
-            'show_prop': {'type': 'B', 'text': 'Show Proportional Counts', 'def_val': True},
+            'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['i_cluster', 'Whole Experiment'],
                               ['plot_all_expt', 'Individual Cell'],
                               ['p_value', 'Individual Cell'],
-                              ['show_prop', 'Individual Cell'],
+                              ['ms_prop', 'Individual Cell'],
                               ['stats_type', 'Individual Cell']]
             },
 
@@ -9679,12 +9704,12 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
-            'show_prop': {'type': 'B', 'text': 'Show Proportional Counts', 'def_val': True},
+            'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell'], ['plot_all_expt', 'show_prop']]
+                              ['plot_all_expt', 'Individual Cell'], ['plot_all_expt', 'ms_prop']]
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -10154,16 +10179,20 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Comparison Condition', 'list': rot_filt_grp['t_type'], 'def_val': 'Uniform',
             },
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 50},
-            'mark_type': {
-                'type': 'L', 'text': 'Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
-            },
-            'show_grp_markers': {
-                'type': 'B', 'text': 'Show Grouping Type Markers', 'def_val': False, 'link_para': ['mark_type', False]
+            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+            'show_sig_markers': {
+                'type': 'B', 'text': 'Show Cell Significance', 'def_val': True
             },
             # 'use_resp_grp_type': {
             #     'type': 'B', 'text': 'Use Response Cell Grouping', 'def_val': False, 'is_enabled': has_vis_expt,
             # },
-            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+            'mark_type': {
+                'type': 'L', 'text': 'Grouping Type', 'list': resp_grp_type, 'def_val': resp_grp_type[0],
+                'link_para': ['show_sig_markers', 'Congruency']
+            },
+            'show_grp_markers': {
+                'type': 'B', 'text': 'Show Grouping Type Markers', 'def_val': False, 'link_para': ['mark_type', False]
+            },
             'plot_type': {
                 'type': 'L', 'text': 'Analysis Plot Type', 'list': ms_scat_type, 'def_val': ms_scat_type[0],
                 'link_para': [['mark_type', ms_scat_type[1]], ['show_grp_markers', ms_scat_type[1]],
