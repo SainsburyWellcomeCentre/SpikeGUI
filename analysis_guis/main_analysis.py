@@ -3752,7 +3752,7 @@ class AnalysisGUI(QMainWindow):
             cf.add_plot_table(self.plot_fig, 1, table_font, auc_stats, row_hdr, col_hdr, c, c,
                               'bottom', pfig_sz=0.955)
 
-    def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+    def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
                                         cell_grp_type, auc_plot_type, plot_grid, plot_grp_type, plot_scope):
         '''
 
@@ -3767,7 +3767,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
                                        plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, False)
 
     def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, bin_sz, phase_type,
@@ -4782,7 +4782,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('auROC')
         ax.grid(plot_grid)
 
-    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, lg_str, auc_plot_type):
+    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, violin_bw, lg_str, auc_plot_type):
         '''
 
         :param ax:
@@ -4807,8 +4807,8 @@ class AnalysisGUI(QMainWindow):
             y_plt, x_ofs = np.hstack(roc_auc), 1
 
             # sets the violin/swarmplot dictionaries
-            vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None)
-            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='white', edgecolor='gray')
+            vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None, bw=violin_bw, cut=1)
+            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='gray', edgecolor='gray')
 
             # creates the violin/swarmplot
             sns.violinplot(**vl_dict)
@@ -4816,10 +4816,10 @@ class AnalysisGUI(QMainWindow):
 
         # resets the axis limits
         ax.plot([-1, xi[-1]+1], [0.5, 0.5], 'k--')
-        cf.set_axis_limits(ax, [xi[0] - 0.5, xi[-1] + 0.5], [0, 1])
+        cf.set_axis_limits(ax, np.array([xi[0] - 0.5, xi[-1] + 0.5]) - x_ofs, [0, 1])
 
         # sets the other axis properties
-        ax.set_xticks(xi)
+        ax.set_xticks(xi - x_ofs)
         ax.set_xticklabels(lg_str)
         ax.set_xlabel('Filter Groupings')
         ax.grid(plot_grid)
@@ -5167,7 +5167,7 @@ class AnalysisGUI(QMainWindow):
             # h_title_pd.set_position(tuple(t_pos))
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                           plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
+                                           violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -5182,7 +5182,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
                                        plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, True)
 
     ##############################################
@@ -8297,7 +8297,7 @@ class AnalysisGUI(QMainWindow):
         # FINISH ME
         a = 1
 
-    def create_dir_roc_curve_plot(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+    def create_dir_roc_curve_plot(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
                                   plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, is_comb):
 
         # initialises the rotation filter (if not set)
@@ -8437,7 +8437,8 @@ class AnalysisGUI(QMainWindow):
             self.create_roc_curves(self.plot_fig.ax[0], roc_xy, lg_str, plot_grid)
 
         # creates the multi-cell auc plot
-        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, lg_str0, auc_plot_type)
+        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, violin_bw,
+                                   lg_str0, auc_plot_type)
 
         # sets the axis titles
         self.plot_fig.ax[0].set_title('ROC Curves ({0})'.format(g_type[ig_type]))
@@ -9810,7 +9811,7 @@ class AnalysisFunctions(object):
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
         resp_grp_type = ['Rotation/Visual Response', 'Motion Sensitivity/Direction Selectivity', 'Congruency']
-        auc_plt_type = ['Bubbleplot', 'Violinplot + Swarmplot']
+        auc_plt_type = ['Violinplot + Swarmplot', 'Bubbleplot']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -9898,11 +9899,13 @@ class AnalysisFunctions(object):
             },
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
+            'violin_bw': {'text': 'Violinplot Width Scale Factor', 'def_val': 1, 'min_val': 0},
             'cell_grp_type': {
                 'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
             },
             'auc_plot_type': {
-                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0]
+                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0],
+                'link_para': ['violin_bw', 'Bubbleplot']
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -10355,15 +10358,17 @@ class AnalysisFunctions(object):
             },
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
+            'violin_bw': {'text': 'Violinplot Width Scale Factor', 'def_val': 1, 'min_val': 0},
             'plot_grp_type': {
                 'type': 'L', 'text': 'Cell Discrimination Type', 'list': cell_desc_type[1:],
                 'def_val': cell_desc_type[1], 'para_reset': [['cell_grp_type', self.reset_grp_type]]
             },
             'cell_grp_type': {
-                'type': 'L', 'text': 'Cell Grouping Type', 'list': pd_grp_type, 'def_val': pd_grp_type[0],
+                'type': 'L', 'text': 'Cell Grouping Type', 'list': pd_grp_type, 'def_val': pd_grp_type[0]
             },
             'auc_plot_type': {
-                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0]
+                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0],
+                'link_para': ['violin_bw', 'Bubbleplot']
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
