@@ -3753,7 +3753,7 @@ class AnalysisGUI(QMainWindow):
                               'bottom', pfig_sz=0.955)
 
     def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                        cell_grp_type, plot_grid, plot_grp_type, plot_scope):
+                                        cell_grp_type, auc_plot_type, plot_grid, plot_grp_type, plot_scope):
         '''
 
         :param rot_filt:
@@ -3768,7 +3768,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                       plot_grp_type, cell_grp_type, plot_grid, plot_scope, False)
+                                       plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, False)
 
     def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, bin_sz, phase_type,
                                           show_sig_cells, plot_grid, plot_scope):
@@ -4201,7 +4201,7 @@ class AnalysisGUI(QMainWindow):
 
                         # retrieves the results and stores them in the results array
                         p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = \
-                                        '{:5.3f}'.format(p_val_nw, '*' if p_val_nw < p_value else '')
+                                        '{:5.3f}{}'.format(p_val_nw, '*' if p_val_nw < p_value else '')
 
             # returns the array
             return p_str
@@ -4278,9 +4278,9 @@ class AnalysisGUI(QMainWindow):
 
         #
         sig_col = [convert_rgb_col([147, 149, 152])[0],         # non-significant markers
-                   convert_rgb_col([33, 71, 97])[0],            # black-only significant markers
-                   convert_rgb_col([212, 81, 58])[0],           # uniform-only significant markers
-                   convert_rgb_col([148, 126, 148])[0]]         # both condition significant spikes
+                   convert_rgb_col([33, 72, 98])[0],            # black-only significant markers
+                   convert_rgb_col([222, 126, 93])[0],          # uniform-only significant markers
+                   convert_rgb_col([147, 126, 148])[0]]         # both condition significant spikes
 
         if is_scatter:
             ####################################
@@ -4394,7 +4394,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.105, right=0.99,
+                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.1, right=0.99,
                                    bottom=bottom, top=top)
 
             # creates the subplots
@@ -4511,7 +4511,7 @@ class AnalysisGUI(QMainWindow):
             ax[1].set_ylabel('Proportion')
             ax[1].set_xlim([0.5, 1.0])
             ax[1].set_ylim([0.0, 100.0])
-            ax[1].legend([x[0] for x in h_plt], lg_str, loc='top left')
+            ax[1].legend([x[0] for x in h_plt], lg_str, loc='lower left')
 
             # sets the overall title
             ax[1].set_title('Significant Cell auROC Histogram', fontsize=14, fontweight='bold')
@@ -4782,7 +4782,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('auROC')
         ax.grid(plot_grid)
 
-    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, lg_str):
+    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, lg_str, auc_plot_type):
         '''
 
         :param ax:
@@ -4793,14 +4793,26 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # sets the x-indices and title string
-        n_filt = len(roc_auc)
+        n_filt, x_ofs = len(roc_auc), 0
         xi = np.array(range(n_filt)) + 1
 
         # creates the bubble plot and the decision line
         if connect_lines:
             cf.create_connected_line_plot(ax, roc_auc)
-        else:
+        elif auc_plot_type == 'Bubbleplot':
             cf.create_bubble_boxplot(ax, roc_auc)
+        else:
+            #
+            x_plt = cf.flat_list([[i + 1] * len(x) for i, x in enumerate(roc_auc)])
+            y_plt, x_ofs = np.hstack(roc_auc), 1
+
+            # sets the violin/swarmplot dictionaries
+            vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None)
+            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='white', edgecolor='gray')
+
+            # creates the violin/swarmplot
+            sns.violinplot(**vl_dict)
+            sns.swarmplot(**sw_dict)
 
         # resets the axis limits
         ax.plot([-1, xi[-1]+1], [0.5, 0.5], 'k--')
@@ -5155,7 +5167,7 @@ class AnalysisGUI(QMainWindow):
             # h_title_pd.set_position(tuple(t_pos))
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                           plot_grp_type, cell_grp_type, plot_grid, plot_scope):
+                                           plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -5171,7 +5183,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                       plot_grp_type, cell_grp_type, plot_grid, plot_scope, True)
+                                       plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, True)
 
     ##############################################
     ####    DEPTH-BASED ANALYSIS FUNCTIONS    ####
@@ -8286,7 +8298,7 @@ class AnalysisGUI(QMainWindow):
         a = 1
 
     def create_dir_roc_curve_plot(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
-                                  plot_grp_type, cell_grp_type, plot_grid, plot_scope, is_comb):
+                                  plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, is_comb):
 
         # initialises the rotation filter (if not set)
         if rot_filt is None:
@@ -8381,14 +8393,14 @@ class AnalysisGUI(QMainWindow):
             pref_cw_dir[i_filt] = np.zeros(n_cell, dtype=bool)
             tt_filt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
 
-            # roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
-            # roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
             if is_comb:
+                # roc_xy[i_filt] = r_data.part_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+                # roc_auc[i_filt] = r_data.part_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
                 roc_xy[i_filt] = r_data.part_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
                 roc_auc[i_filt] = r_data.part_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
             else:
-                roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
-                roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
+                roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
+                roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
 
             # calculates the roc curves overall trials (for each cell)
             for i_cell in range(n_cell):
@@ -8425,7 +8437,7 @@ class AnalysisGUI(QMainWindow):
             self.create_roc_curves(self.plot_fig.ax[0], roc_xy, lg_str, plot_grid)
 
         # creates the multi-cell auc plot
-        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, lg_str0)
+        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, lg_str0, auc_plot_type)
 
         # sets the axis titles
         self.plot_fig.ax[0].set_title('ROC Curves ({0})'.format(g_type[ig_type]))
@@ -9798,6 +9810,7 @@ class AnalysisFunctions(object):
         exc_type = ['Use All Cells', 'Low Firing Cells', 'High Firing Cells', 'Band Pass']
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
         resp_grp_type = ['Rotation/Visual Response', 'Motion Sensitivity/Direction Selectivity', 'Congruency']
+        auc_plt_type = ['Bubbleplot', 'Violinplot + Swarmplot']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -9887,6 +9900,9 @@ class AnalysisFunctions(object):
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
             'cell_grp_type': {
                 'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
+            },
+            'auc_plot_type': {
+                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -10345,6 +10361,9 @@ class AnalysisFunctions(object):
             },
             'cell_grp_type': {
                 'type': 'L', 'text': 'Cell Grouping Type', 'list': pd_grp_type, 'def_val': pd_grp_type[0],
+            },
+            'auc_plot_type': {
+                'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
