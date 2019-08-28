@@ -2778,7 +2778,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
-                                  stats_type, plot_scope, plot_trend, plot_grid):
+                                  stats_type, plot_scope, plot_trend, m_size, plot_grid):
         '''
 
         :param rot_filt:
@@ -2794,7 +2794,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, m_size)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                 mean_type, plot_scope, dt):
@@ -3623,7 +3623,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
-                                 stats_type, plot_scope, plot_trend, plot_grid):
+                                 stats_type, plot_scope, plot_trend, m_size, plot_grid):
         '''
 
         :param rot_filt:
@@ -3654,7 +3654,8 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, ind_type=ind_type)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop,
+                                    m_size, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                     mean_type, plot_scope, dt):
@@ -4679,61 +4680,6 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].plot([1, 10], [1, 10])
         self.plot_fig.ax[2].plot([1, 10], [1, 10])
 
-    def setup_pooled_neuron(r_obj, i_filt, pref_cw_dir, mtrial_type='Min Match', i_pool=None, p_sz=None):
-        '''
-
-        :param r_obj:
-        :param pref_cw_dir:
-        :param p_sz:
-        :return:
-        '''
-
-        # memory allocation and initialisations
-        n_cell, n_trial, _ = np.shape(r_obj.t_spike[i_filt])
-        n_spike_pool = np.zeros((n_trial, 2), dtype=int)
-
-        # create a random sample from all the cells of size p_sz (if pooling indices not provided)
-        if i_pool is None:
-            i_pool = np.sort(sample(range(n_cell), p_sz))
-
-        # index array of the cells to be pooled
-        t_spike = r_obj.t_spike[i_filt][i_pool, :, :]
-        valid_trial = np.ones(n_trial, dtype=bool)
-
-        # retrieves the spike times ensuring they are in the preferred direction
-        for ip_sz in range(len(i_pool)):
-            # determines the valid (non-None) trials
-            if mtrial_type == 'Min Match':
-                # if min match then only consider the
-                valid_trial = np.logical_and(valid_trial, np.array([x is not None for x in t_spike[ip_sz, :, 0]]))
-            else:
-                valid_trial = np.array([x is not None for x in t_spike[ip_sz, :, 0]])
-
-            # calculates the preferred/non-preferred
-            if pref_cw_dir[i_pool[ip_sz]]:
-                # case is cw is preferred
-                n_spike_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 1])
-                n_spike_non_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 2])
-            else:
-                # case is ccw is preferred
-                n_spike_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 2])
-                n_spike_non_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 1])
-
-            # adds the preferred/non-preferred direction spike counts to the final arrays
-            n_spike_pool[valid_trial, 0] += n_spike_non_pref
-            n_spike_pool[valid_trial, 1] += n_spike_pref
-
-            # adds in any missing trial values (if selected)
-            if np.any(~valid_trial) and (mtrial_type == 'Add Missing'):
-                a = 1
-
-        # removes any missing trials (if using minimum trial matches)
-        if np.any(~valid_trial) and (mtrial_type == 'Min Match'):
-            n_spike_pool = n_spike_pool[valid_trial, :]
-
-        # returns the pooled neuron spike counts
-        return n_spike_pool
-
     #############################################
     ####    COMMON ROC ANALYSIS FUNCTIONS    ####
     #############################################
@@ -4843,7 +4789,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the violin/swarmplot dictionaries
             vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None, bw=violin_bw, cut=1)
-            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='gray', edgecolor='gray', size=m_size)
+            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='white', edgecolor='gray', size=m_size)
 
             # creates the violin/swarmplot
             sns.violinplot(**vl_dict)
@@ -5360,8 +5306,8 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, plot_exp_name, plot_all_expt, acc_type, add_accuracy_trend,
-                              output_stats, plot_grid):
+    def plot_rotation_dir_lda(self, plot_transform, s_factor, plot_exp_name, plot_all_expt, acc_type,
+                              add_accuracy_trend, output_stats, plot_grid):
         '''
 
         :param plot_transform:
@@ -5630,7 +5576,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the final plot based on the selected type
             cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar,
-                                     col=['k'] * len(y_acc_l), s=2 * n_cell)
+                                     col=['k'] * len(y_acc_l), s=s_factor * n_cell)
 
             # sets the bar plot axis properties
             self.plot_fig.ax[3].set_xticks(x_bar)
@@ -5910,7 +5856,7 @@ class AnalysisGUI(QMainWindow):
                 _ax.set_xlabel(_x_lbl)
                 _ax.grid(plot_grid)
 
-    def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, plot_grid):
+    def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, m_size, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -5919,7 +5865,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_swarmplot(ax, y_acc, y_acc_pop, decode_type, exp_name, plot_grid):
+        def create_sv_plot(ax, y_acc, y_acc_pop, decode_type, exp_name, plot_grid):
             '''
 
             :param ax:
@@ -6000,7 +5946,7 @@ class AnalysisGUI(QMainWindow):
         n_h = 4 * d_data_i.ntrial
 
         # parameters
-        dx_p, m_sz, col = 0.1, 60, cf.get_plot_col(2)
+        dx_p, col = 0.1, cf.get_plot_col(2)
         x_p = np.arange(0., 1.001, dx_p)
 
         # determines the indices of the direction trial types
@@ -6074,7 +6020,7 @@ class AnalysisGUI(QMainWindow):
         #################################
 
         # creates the individual cell accuracy swarmplot
-        create_swarmplot(self.plot_fig.ax[0], y_acc_sw, d_data_d.y_acc[:, id_type], decode_type, exp_name, plot_grid)
+        create_sv_plot(self.plot_fig.ax[0], y_acc_sw, d_data_d.y_acc[:, id_type], decode_type, exp_name, plot_grid)
 
         # creates the scatterplot
         i_plt = np.where(im_h > 0)
@@ -6088,7 +6034,7 @@ class AnalysisGUI(QMainWindow):
         ]
 
         # creates the scatterplot
-        h = self.plot_fig.ax[1].scatter(x_plt, y_plt, edgecolors='k', s=m_sz * (z_plt / max(z_plt)))
+        h = self.plot_fig.ax[1].scatter(x_plt, y_plt, edgecolors='k', s=m_size * (z_plt / max(z_plt)))
         datacursor(h, formatter=formatter, point_labels=lbl, hover=True)
 
         # plots the region demarkation lines
@@ -6110,7 +6056,8 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_title('Direction Decoding Accuracy')
         self.plot_fig.ax[1].grid(plot_grid)
 
-    def plot_shuffled_lda(self, i_cell_1, i_cell_2, plot_exp_name, plot_corr, dir_type_1, dir_type_2, plot_grid):
+    def plot_shuffled_lda(self, i_cell_1, i_cell_2, plot_exp_name, plot_corr, dir_type_1, dir_type_2,
+                          m_size, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -6138,7 +6085,7 @@ class AnalysisGUI(QMainWindow):
             # returns the final combined array
             return np.vstack(pw_corr)
 
-        def create_correl_subfig(ax, d_data_s, d_data_ns, ttype, plot_grid):
+        def create_correl_subfig(ax, d_data_s, d_data_ns, ttype, m_size, plot_grid):
             '''
 
             :param ax:
@@ -6156,8 +6103,8 @@ class AnalysisGUI(QMainWindow):
             lg_str = ['Synchronous', 'Non-Synchronous']
 
             # creates the
-            h_plt.append(ax[0].plot(d_data_s[:, 0], d_data_s[:, 1], '.', color=col[0], zorder=1))
-            h_plt.append(ax[0].plot(d_data_ns[:, 0], d_data_ns[:, 1], '.', color=col[1], zorder=2))
+            h_plt.append(ax[0].plot(d_data_s[:, 0], d_data_s[:, 1], '.', color=col[0], zorder=1, markersize=m_size/10))
+            h_plt.append(ax[0].plot(d_data_ns[:, 0], d_data_ns[:, 1], '.', color=col[1], zorder=2, markersize=m_size/10))
             ax[0].legend([x[0] for x in h_plt], lg_str, loc=0)
 
             # creates the histograms for each of the data types
@@ -6304,7 +6251,7 @@ class AnalysisGUI(QMainWindow):
             # creates the plots for each type
             for i_ax, ax in enumerate(self.plot_fig.ax):
                 # creates the scatter-plot
-                ax.scatter(z_corr[i_ax][:, 0], z_corr[i_ax][:, 1], marker='.', c='k', s=50)
+                ax.scatter(z_corr[i_ax][:, 0], z_corr[i_ax][:, 1], marker='.', c='k', s=m_size)
                 ax.plot(xL, xL, 'k', linewidth=2)
 
                 # sets the axis labels/titles
@@ -6429,9 +6376,9 @@ class AnalysisGUI(QMainWindow):
 
             # creates the correlation sub-figure plots
             ttype, p_col = [dir_type_1, dir_type_2], np.array([ind_d1, ind_d2])
-            create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, plot_grid)
+            create_correl_subfig(self.plot_fig.ax[1:], pw_s[:, p_col], pw_n[:, p_col], ttype, m_size, plot_grid)
 
-    def plot_partial_lda(self, err_type, y_upper, x_max, use_x_max, use_stagger, plot_grid):
+    def plot_partial_lda(self, err_type, y_upper, x_max, use_x_max, use_stagger, m_size, plot_grid):
         '''
 
         :param plot_grid:
@@ -6486,10 +6433,10 @@ class AnalysisGUI(QMainWindow):
             xi_nw = [0] + list(np.array(xi[1:]) + xi_del[i_plt])
             if err_type == 'IQR':
                 #
-                h_plt.append(ax.plot(xi_nw, y_acc_md[i_plt, :], 'o-', c=col[i_plt]))
+                h_plt.append(ax.plot(xi_nw, y_acc_md[i_plt, :], 'o-', c=col[i_plt], markersize=m_size))
                 cf.create_error_area_patch(ax, xi_nw, None, y_acc_lq[i_plt, :], col[i_plt], y_err2=y_acc_uq[i_plt, :])
             else:
-                h_plt.append(ax.plot(xi_nw, y_acc_mu[i_plt, :], 'o-', c=col[i_plt]))
+                h_plt.append(ax.plot(xi_nw, y_acc_mu[i_plt, :], 'o-', c=col[i_plt], markersize=m_size))
 
                 # plots the errorbars
                 if err_type == 'None':
@@ -6526,7 +6473,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylim([0, 105])
         ax.grid(plot_grid)
 
-    def plot_acc_filt_lda(self, acc_type, plot_grid):
+    def plot_acc_filt_lda(self, s_factor, acc_type, plot_grid):
         '''
 
         :param acc_type:
@@ -6592,7 +6539,7 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the final plot based on the selected type
                 cf.create_bubble_boxplot(ax, y_acc_l, plot_median=False, X0=x_bar_nw,
-                                         col=['k'] * len(y_acc_l), s=4 * n_cell[i_c], wid=0.40)
+                                         col=['k'] * len(y_acc_l), s=s_factor * n_cell[i_c], wid=0.40)
 
             # sets the bar plot axis properties
             ax.set_xticks(x_bar + 0.5)
@@ -6901,7 +6848,7 @@ class AnalysisGUI(QMainWindow):
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
 
-    def plot_speed_accuracy_lda(self, marker_type, plot_grid):
+    def plot_speed_accuracy_lda(self, s_factor, marker_type, plot_grid):
         '''
 
         :param plot_grid:
@@ -6909,11 +6856,17 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spdacc, marker_type, plot_grid, plot_chance=False)
+        self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_grid, plot_chance=False)
 
-    def plot_speed_comp_lda(self, show_cell_sz, show_fit, sep_resp, plot_type, plot_grid):
+    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, plot_grid):
         '''
 
+        :param m_size:
+        :param show_cell_sz:
+        :param show_fit:
+        :param sep_resp:
+        :param plot_type:
+        :param plot_grid:
         :return:
         '''
 
@@ -6974,12 +6927,13 @@ class AnalysisGUI(QMainWindow):
             ###################################
 
             # array dimensioning
-            m_sz = 240
             n_ex = np.size(d_data.y_acc, axis=0)
 
             # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-            n_cell = [sum(x) if show_cell_sz else m_sz / 8 for x in d_data.i_cell]
-            y_acc_mn, n_cell_mx = 100. * np.mean(d_data.y_acc, axis=0), np.max(n_cell)
+            n_cell_ex = [sum(x) for x in d_data.i_cell]
+            n_cell_mx = np.max(n_cell_ex)
+            sz_cell = [m_size * (x / n_cell_mx) if show_cell_sz else m_size for x in n_cell_ex]
+            y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
 
             ################################
             ####    SUBPLOT CREATION    ####
@@ -6991,12 +6945,12 @@ class AnalysisGUI(QMainWindow):
                 x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
 
                 # plots the mean marker points
-                h_plt.append(ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_sz))
+                h_plt.append(ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_size))
 
                 # plots the individual points
                 for i_ex in range(n_ex):
                     ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
-                                   edgecolors=col[i_cond], s=n_cell[i_ex])
+                                   edgecolors=col[i_cond], s=sz_cell[i_ex])
 
                 # plots the psychometric fit (if required)
                 if show_fit:
@@ -7021,7 +6975,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
 
-    def plot_pooled_speed_comp_lda(self, plot_markers, plot_cond, plot_cell, plot_para, plot_grid):
+    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_para, plot_grid):
         '''
 
         :param show_fit:
@@ -7114,8 +7068,7 @@ class AnalysisGUI(QMainWindow):
             ##################################
 
             # parameters and initialisations
-            ax = self.plot_fig.ax[0]
-            m_sz, h_plt_cond = 240, []
+            ax, h_plt_cond = self.plot_fig.ax[0], []
             l_col, l_style = cf.get_plot_col(len(n_cell)), ['-', '--', '-.', ':']
             y_acc_fit = d_data.y_acc_fit
 
@@ -7144,11 +7097,11 @@ class AnalysisGUI(QMainWindow):
                     if str(n_c) in plot_cell:
                         # plots the mean marker points
                         if plot_markers:
-                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_sz)
+                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_size)
                             if i == 0:
                                 h_plt_cell.append(h_plt_cell_nw)
                         elif i == 0:
-                            h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_sz))
+                            h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_size))
 
                         # plots the psychometric fit (if required)
                         ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
@@ -7181,7 +7134,7 @@ class AnalysisGUI(QMainWindow):
             _ax.set_xlim(xL)
             _ax.grid(plot_grid)
 
-    def plot_speed_dir_lda(self, use_stagger, marker_type, plot_grid, show_stats):
+    def plot_speed_dir_lda(self, use_stagger, s_factor, marker_type, plot_grid, show_stats):
         '''
 
         :param plot_grid:
@@ -7189,91 +7142,8 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spddir, marker_type, plot_grid, use_stagger,
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, s_factor, marker_type, plot_grid, use_stagger,
                                         show_stats, plot_chance=True)
-
-    def create_kinematic_lda_plots(self, d_data, marker_type, plot_grid, use_stagger=False, show_stats=False, plot_chance=False):
-        '''
-
-        :param d_data:
-        :param plot_err:
-        :param plot_grid:
-        :return:
-        '''
-
-        # initialisations
-        m_sz = 240
-        n_cond, n_ex = len(d_data.ttype), np.size(d_data.y_acc, axis=0)
-        col = cf.get_plot_col(n_cond)
-
-        # sets the x-tick labels
-        spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
-        x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
-
-        #######################################
-        ####    SUBPLOT INITIALISATIONS    ####
-        #######################################
-
-        # sets up the plot axis
-        self.plot_fig.setup_plot_axis()
-        ax = self.plot_fig.ax[0]
-
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
-
-        # sets the plotting data values
-        y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
-        y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
-        y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
-
-        # sets the number of cells/expt
-        n_cell = [sum(x) for x in d_data.i_cell]
-
-
-        ##################################
-        ####    DATA VISUALISATION    ####
-        ##################################
-
-        # plots the data for all points
-        for i_cond in range(n_cond):
-            # sets the plot x locations and error bar values
-            x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
-
-            # plots the mean marker points
-            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
-
-            # plots the individual points
-            if marker_type == 'Individual Experiment Markers':
-                # case is the individual experiment
-                for i_ex in range(n_ex):
-                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
-                               edgecolors=col[i_cond], s=n_cell[i_ex])
-
-            elif marker_type == 'Experiment IQR Area':
-                # case is the experiment SEM Area
-                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
-
-        # creates the legend
-        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
-
-        # creates the vertical marker lines
-        for xx in np.arange(xL[0] + 1, xL[1]):
-            ax.plot(xx * np.ones(2), yL, 'k--')
-
-        # plots the chance line
-        if plot_chance:
-            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-
-        # sets the axis properties
-        ax.set_xlim(xL)
-        ax.set_ylim(yL)
-        ax.set_xticks(x + 0.5)
-        ax.set_xticklabels(spd_str)
-        ax.set_xlabel('Speed Bin (deg/s)')
-        ax.set_ylabel('Decoding Accuracy (%)')
-        ax.grid(plot_grid)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -7485,6 +7355,61 @@ class AnalysisGUI(QMainWindow):
     ####    COMMON ANALYSIS FUNCTIONS    ####
     #########################################
 
+    def setup_pooled_neuron(r_obj, i_filt, pref_cw_dir, mtrial_type='Min Match', i_pool=None, p_sz=None):
+        '''
+
+        :param r_obj:
+        :param pref_cw_dir:
+        :param p_sz:
+        :return:
+        '''
+
+        # memory allocation and initialisations
+        n_cell, n_trial, _ = np.shape(r_obj.t_spike[i_filt])
+        n_spike_pool = np.zeros((n_trial, 2), dtype=int)
+
+        # create a random sample from all the cells of size p_sz (if pooling indices not provided)
+        if i_pool is None:
+            i_pool = np.sort(sample(range(n_cell), p_sz))
+
+        # index array of the cells to be pooled
+        t_spike = r_obj.t_spike[i_filt][i_pool, :, :]
+        valid_trial = np.ones(n_trial, dtype=bool)
+
+        # retrieves the spike times ensuring they are in the preferred direction
+        for ip_sz in range(len(i_pool)):
+            # determines the valid (non-None) trials
+            if mtrial_type == 'Min Match':
+                # if min match then only consider the
+                valid_trial = np.logical_and(valid_trial, np.array([x is not None for x in t_spike[ip_sz, :, 0]]))
+            else:
+                valid_trial = np.array([x is not None for x in t_spike[ip_sz, :, 0]])
+
+            # calculates the preferred/non-preferred
+            if pref_cw_dir[i_pool[ip_sz]]:
+                # case is cw is preferred
+                n_spike_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 1])
+                n_spike_non_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 2])
+            else:
+                # case is ccw is preferred
+                n_spike_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 2])
+                n_spike_non_pref = cf.spike_count_fcn(t_spike[ip_sz, valid_trial, 1])
+
+            # adds the preferred/non-preferred direction spike counts to the final arrays
+            n_spike_pool[valid_trial, 0] += n_spike_non_pref
+            n_spike_pool[valid_trial, 1] += n_spike_pref
+
+            # adds in any missing trial values (if selected)
+            if np.any(~valid_trial) and (mtrial_type == 'Add Missing'):
+                a = 1
+
+        # removes any missing trials (if using minimum trial matches)
+        if np.any(~valid_trial) and (mtrial_type == 'Min Match'):
+            n_spike_pool = n_spike_pool[valid_trial, :]
+
+        # returns the pooled neuron spike counts
+        return n_spike_pool
+
     def create_raster_hist(self, r_obj, n_bin, show_pref_dir, plot_grid, rmv_median=False):
         '''
 
@@ -7658,8 +7583,8 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, ind_type=None,
-                               is_3d=False):
+    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, m_size,
+                               ind_type=None, is_3d=False):
         '''
 
         :param r_obj:
@@ -7739,7 +7664,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # initialisations
-        p_alpha, m_sz = 0.8, 30
+        p_alpha = 0.8
         n_filt = int(r_obj.n_filt / 2) if r_obj.is_ud else r_obj.n_filt
         c = cf.get_plot_col(n_filt)
         c2 = cf.get_plot_col(4, n_filt)
@@ -7753,6 +7678,40 @@ class AnalysisGUI(QMainWindow):
         sp_f0, sp_f = cf.calc_phase_spike_freq(r_obj)
         s_plt, sf_trend, sf_stats, i_grp[0] = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub,
                                                                               plot_trend=plot_trend, is_3d=is_3d)
+
+        # memory allocation
+        r_obj_tt = np.empty(r_obj.n_filt, dtype=object)
+        is_keep = [np.ones(len(x), dtype=bool) for x in i_grp[0]]
+
+        #
+        for i_filt in range(n_filt):
+            # sets up a base filter with only the
+            r_filt_base = cf.init_rotation_filter_data(False)
+            r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
+            r_obj_tt[i_filt] = RotationFilteredData(self.data, r_filt_base, None, None,
+                                                    True, 'Whole Experiment', False)
+
+        for i_filt in range(n_filt):
+            # sets the indices for the base trial condition type
+            ind_i = set(np.arange(len(i_grp[0][i_filt])))
+
+            for j_filt in range(i_filt+1, n_filt):
+                # determines the cell matches between the two trial conditions
+                j_match, i_match = cf.det_cell_match_indices(r_obj_tt[j_filt], 0, r_obj)
+
+                # determines the indices of the cells that do not match between expts
+                ind_j = set(np.arange(len(i_grp[0][j_filt])))
+                i_rmv, j_rmv = np.array(list(ind_i - set(i_match))), np.array(list(ind_j - set(j_match)))
+
+                #
+                if len(j_rmv):
+                    is_keep[j_filt][j_rmv] = False
+
+                if len(i_rmv):
+                    is_keep[i_filt][i_rmv] = False
+
+        # resets the grouping
+        i_grp[0] = [ig[x] for ig, x in zip(i_grp[0], is_keep)]
 
         #########################################
         ####    SCATTERPLOT SUBPLOT SETUP    ####
@@ -7781,7 +7740,7 @@ class AnalysisGUI(QMainWindow):
                 # case is plotting data in 3 dimensions
 
                 # creates the plot and row label strings
-                h[0] = self.plot_fig.ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter, s=m_sz)
+                h[0] = self.plot_fig.ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter, s=m_size)
                 lbl[0] = set_stim_phase_str(r_obj, s_plt[0], sf_stats[i_sub], [0, 1, 2])
 
                 # creates the legend markers
@@ -7806,7 +7765,7 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the plot and row label strings
                 i1, i2 = 1 * (i_sub > 1), 1 + (i_sub > 0)
-                h[i_sub] = self.plot_fig.ax[i_sub].scatter(sp[0], sp[1], marker='o', c=c_scatter, s=m_sz)
+                h[i_sub] = self.plot_fig.ax[i_sub].scatter(sp[0], sp[1], marker='o', c=c_scatter, s=m_size)
                 lbl[i_sub] = set_stim_phase_str(r_obj, sp, sf_stats[i_sub], [0, 1], [i1, i2], p_value=p_value)
 
                 # creates the legend markers (first subplot only)
@@ -8557,6 +8516,89 @@ class AnalysisGUI(QMainWindow):
         # calculates the table dimensions
         cf.add_plot_table(self.plot_fig, 1, table_font, n_sig_grp, row_hdr,
                           col_hdr, row_cols, [cc[0]] * len(col_hdr), t_loc='bottom')
+
+    def create_kinematic_lda_plots(self, d_data, s_factor, marker_type, plot_grid, use_stagger=False,
+                                   show_stats=False, plot_chance=False):
+        '''
+
+        :param d_data:
+        :param plot_err:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        n_cond, n_ex = len(d_data.ttype), np.size(d_data.y_acc, axis=0)
+        col = cf.get_plot_col(n_cond)
+
+        # sets the x-tick labels
+        spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
+        x = np.arange(np.size(d_data.spd_xi, axis=0))
+        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+
+        #######################################
+        ####    SUBPLOT INITIALISATIONS    ####
+        #######################################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # sets the plotting data values
+        y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
+        y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
+        y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
+
+        # sets the number of cells/expt
+        n_cell = [sum(x) for x in d_data.i_cell]
+
+
+        ##################################
+        ####    DATA VISUALISATION    ####
+        ##################################
+
+        # plots the data for all points
+        for i_cond in range(n_cond):
+            # sets the plot x locations and error bar values
+            x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
+
+            # plots the mean marker points
+            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+
+            # plots the individual points
+            if marker_type == 'Individual Experiment Markers':
+                # case is the individual experiment
+                for i_ex in range(n_ex):
+                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+                               edgecolors=col[i_cond], s=s_factor * n_cell[i_ex])
+
+            elif marker_type == 'Experiment IQR Area':
+                # case is the experiment SEM Area
+                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
+
+        # creates the legend
+        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
+
+        # creates the vertical marker lines
+        for xx in np.arange(xL[0] + 1, xL[1]):
+            ax.plot(xx * np.ones(2), yL, 'k--')
+
+        # plots the chance line
+        if plot_chance:
+            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+
+        # sets the axis properties
+        ax.set_xlim(xL)
+        ax.set_ylim(yL)
+        ax.set_xticks(x + 0.5)
+        ax.set_xticklabels(spd_str)
+        ax.set_xlabel('Speed Bin (deg/s)')
+        ax.set_ylabel('Decoding Accuracy (%)')
+        ax.grid(plot_grid)
 
     ####################################################
     ####    SPIKING FREQUENCY ANALYSIS FUNCTIONS    ####
@@ -9557,6 +9599,7 @@ class AnalysisFunctions(object):
             },
 
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Analysis',
@@ -9792,6 +9835,7 @@ class AnalysisFunctions(object):
                               ['plot_all_expt', 'Individual Cell'], ['plot_all_expt', 'ms_prop']]
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='UniformDrift Analysis',
@@ -10578,6 +10622,7 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
+            's_factor': {'text': 'Cell Marker Size Scale Factor', 'def_val': 2, 'min_val': 1},
             'plot_exp_name': {
                 'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
                 'is_enabled': has_multi_expt
@@ -10587,7 +10632,8 @@ class AnalysisFunctions(object):
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
             'acc_type': {
-                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0]
+                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0],
+                'link_para': ['s_factor', 'Violinplot + Swarmplot']
             },
             'add_accuracy_trend': {
                 'type': 'B', 'text': 'Add Accuracy Trendlines', 'def_val': has_multi_expt, 'is_enabled': has_multi_expt,
@@ -10679,6 +10725,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': '2nd Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
                 'def_val': indiv_lda_para['comp_cond'][1]
             },
+            'm_size': {'text': 'Maximum Scatterplot Marker Size', 'def_val': 60},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Direction LDA',
@@ -10730,6 +10777,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': '2nd Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
                 'def_val': indiv_lda_para['comp_cond'][1]
             },
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 60},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Direction LDA',
@@ -10774,6 +10822,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Use X-Axis Upper Limit', 'def_val': False, 'link_para': ['x_max', False]
             },
             'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
+            'm_size': {'text': 'Plot Marker Size', 'def_val': 6},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Direction LDA',
@@ -10811,8 +10860,10 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
+            's_factor': {'text': 'Marker Size Scale Factor', 'def_val': 3},
             'acc_type': {
-                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0]
+                'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0],
+                'link_para': ['s_factor', 'Violinplot + Swarmplot']
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -10913,7 +10964,11 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
+            's_factor': {'text': 'Cell Marker Size Scale Factor', 'def_val': 1, 'min_val': 0},
+            'marker_type': {
+                'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0],
+                'link_para': [['s_factor', ['Experiment IQR Area', 'No Markers']]]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
@@ -10930,7 +10985,7 @@ class AnalysisFunctions(object):
             },
 
             'spd_x_rng': {
-                'gtype': 'C', 'type': 'L', 'text': 'Dependent Speed Range', 'list': sc_rng, 
+                'gtype': 'C', 'type': 'L', 'text': 'Dependent Speed Range', 'list': sc_rng,
                 'def_val': cfcn.set_def_para(spdc_def_para, 'spd_xrng', '0 to 5')
             },
             'vel_bin': {
@@ -10939,11 +10994,11 @@ class AnalysisFunctions(object):
                 'para_reset': [['spd_x_rng', self.reset_spd_rng]]
             },
             'n_sample': {
-                'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
                 'def_val': cfcn.set_def_para(spdc_def_para, 'n_sample', 100)
             },
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins',
                 'def_val': cfcn.set_def_para(spdc_def_para, 'equal_time', False),
                 'link_para': ['n_sample', False]
             },
@@ -10956,12 +11011,17 @@ class AnalysisFunctions(object):
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
-            'show_cell_sz': {'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': True},
+            'm_size': {'text': 'Maximum Cell Marker Size', 'def_val': 60},
+            'show_cell_sz': {
+                'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': False,
+            },
             'show_fit': {'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True},
             'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': False},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[0],
-                'link_para': [['show_fit', 'Inter-Quartile Ranges'], ['show_cell_sz', 'Inter-Quartile Ranges']]
+                'link_para': [['show_fit', 'Inter-Quartile Ranges'],
+                              ['show_cell_sz', 'Inter-Quartile Ranges'],
+                              ['m_size', 'Inter-Quartile Ranges']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -11014,7 +11074,10 @@ class AnalysisFunctions(object):
             'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
-            'plot_markers': {'type': 'B', 'text': 'Plot Mean Value Markers', 'def_val': True},
+            'm_size': {'text': 'Mean Value Marker Size', 'def_val': 240},
+            'plot_markers': {
+                'type': 'B', 'text': 'Plot Mean Value Markers', 'def_val': True, 'link_para': ['m_size', False]
+            },
             'plot_cond': {
                 'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_cond,
                 'def_val': np.ones(len(lda_plot_cond), dtype=bool),
@@ -11064,13 +11127,16 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
-            'marker_type': {'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0]},
+            's_factor': {'text': 'Cell Marker Size Scale Factor', 'def_val': 1, 'min_val': 0},
+            'marker_type': {
+                'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0],
+                'link_para': [['s_factor', ['Experiment IQR Area', 'No Markers']]]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
             },
         }
-
         self.add_func(type='Speed LDA',
                       name='Velocity Direction Discrimination LDA',
                       func='plot_speed_dir_lda',

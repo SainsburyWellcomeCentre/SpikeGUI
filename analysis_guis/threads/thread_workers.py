@@ -2169,8 +2169,8 @@ class WorkerThread(QThread):
                     # sets the new shuffled spiking frequency array (over all expt)
                     if calc_para['pool_expt']:
                         # case all cells are pooled over all experiments
-                        spd_sf_sh = set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)
-
+                        spd_sf_sh = [set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)]
+                        # set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
                     else:
                         # case all cells
                         is_keep = np.array(n_cell_ex) >= n_c
