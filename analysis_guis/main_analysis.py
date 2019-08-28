@@ -88,6 +88,7 @@ dY_obj = 25
 grp_Y0 = 10
 n_plot_max = 25
 table_fsize = 12
+fig_hght = 891
 
 # font objects
 txt_font = cf.create_font_obj()
@@ -102,6 +103,7 @@ grp_font_main = cf.create_font_obj(size=12, is_bold=True, font_weight=QFont.Bold
 grp_wid = 401
 grp_inner = grp_wid - 2 * dX
 grp_inner2 = grp_inner - 2 * dX
+plot_left = grp_wid + 2 * dX
 
 # lambda function declarations
 lin_func = lambda x, a: a * x
@@ -182,7 +184,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # sets the main window properties
-        self.resize(1681, 931)
+        self.resize(1677, 931)
         self.setObjectName("AnalysisMain")
         self.setWindowTitle("EPhys Analysis GUI")
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -312,11 +314,40 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # creates the groupbox objects
-        plot_left = grp_wid + 2 * dX
-        self.grp_plot = cf.create_groupbox(self.centralwidget, QRect(plot_left,10,1251,891), None, "", "frm_plot")
+        plot_frm_pos = cfcn.get_plot_canvas_pos(plot_left, dY, fig_hght)
+        self.grp_plot = cf.create_groupbox(self.centralwidget, plot_frm_pos, None, "", "frm_plot")
+        self.reshape_plot_group_dim(reset_plot_frm=False, reset_plot_canvas=False)
 
         # creates the plot figure object
         self.plot_fig = None
+
+    def reshape_plot_group_dim(self, reset_plot_frm=True, reset_plot_canvas=True):
+        '''
+
+        :return:
+        '''
+
+        # creates the groupbox objects
+        plot_frm_pos, fig_pos = cfcn.get_plot_canvas_pos(plot_left, dY, fig_hght), self.geometry()
+
+        #
+        fig_pos.setWidth(plot_frm_pos.left() + plot_frm_pos.width() + dX)
+        self.setMinimumSize(0, 0)
+        self.setGeometry(fig_pos)
+        self.setFixedSize(fig_pos.width(), fig_pos.height())
+
+        # resets the plot frame (if required)
+        if reset_plot_frm:
+            self.grp_plot.setGeometry(plot_frm_pos)
+
+        #
+        try:
+            if reset_plot_canvas:
+                plot_canvas_pos = self.plot_fig.geometry()
+                plot_canvas_pos.setWidth(plot_frm_pos.width() - 2 * dX)
+                self.plot_fig.setGeometry(plot_canvas_pos)
+        except:
+            pass
 
     def init_menu_items(self):
         '''
@@ -454,7 +485,7 @@ class AnalysisGUI(QMainWindow):
         g_para = {'n_hist': '100', 'n_spike': '1000', 'd_max': '2', 'r_max': '100.0',
                   'sig_corr_min': '0.95', 'sig_diff_max': '0.30', 'isi_corr_min': '0.65', 'sig_feat_min': '0.50',
                   'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'roc_clvl': '0.99',
-                  'lda_trial_type': 'One-Trial Out'}
+                  'lda_trial_type': 'One-Trial Out', 'w_ratio': 1.4}
         def_dir = {'configDir': data_dir, 'inputDir': data_dir, 'dataDir': data_dir, 'figDir': data_dir}
 
         # sets the final default data dictionary
@@ -1349,6 +1380,7 @@ class AnalysisGUI(QMainWindow):
             ['ROC Conf. Interval Level', 'roc_clvl', 'Number', '', True, False, 5, _bright_red],
 
             ['LDA Trial Setup Type', 'lda_trial_type', 'List', lda_type, True, False, 6, _gray],
+            ['Plot Width/Height Ratio', 'w_ratio', 'Number', '', True, False, 6, _bright_yellow],
         ]
 
         # opens up the config dialog box and retrieves the final file information
@@ -1366,6 +1398,9 @@ class AnalysisGUI(QMainWindow):
             self.def_data['g_para'] = g_para_new
             with open(cf.default_dir_file, 'wb') as fw:
                 p.dump(self.def_data, fw)
+
+            # reshapes the plot groups
+            self.reshape_plot_group_dim()
 
     def show_info(self):
         '''
@@ -1596,7 +1631,7 @@ class AnalysisGUI(QMainWindow):
             self.fcn_data.prev_fcn = dcopy(current_fcn)
 
         # creates the new plot canvas
-        self.plot_fig = PlotCanvas(self.grp_plot, width=8, height=8)
+        self.plot_fig = PlotCanvas(self)
         self.plot_fig.move(10, 10)
         self.plot_fig.show()
 
@@ -2287,8 +2322,8 @@ class AnalysisGUI(QMainWindow):
         # col = ['b', 'r', convert_rgb_col(_bright_cyan), convert_rgb_col(_bright_yellow)]
         col = [convert_rgb_col([33, 71, 97])[0],           # narrow spikes
                convert_rgb_col([163, 77, 72])[0],          # wide spikes
-               convert_rgb_col([252, 195, 150])[0],        # excitatory spikes
-               convert_rgb_col([104, 201, 210])[0]]        # inhibitory spikes
+               convert_rgb_col([104, 201, 210])[0],        # excitatory spikes
+               convert_rgb_col([252, 195, 150])[0]]        # inhibitory spikes
 
         # initialises the subplot axes
         self.clear_plot_axes()
@@ -3753,7 +3788,7 @@ class AnalysisGUI(QMainWindow):
                               'bottom', pfig_sz=0.955)
 
     def plot_direction_roc_curves_whole(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
-                                        cell_grp_type, auc_plot_type, plot_grid, plot_grp_type, plot_scope):
+                                        m_size, cell_grp_type, auc_plot_type, plot_grid, plot_grp_type, plot_scope):
         '''
 
         :param rot_filt:
@@ -3767,7 +3802,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw, m_size,
                                        plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, False)
 
     def plot_direction_roc_auc_histograms(self, rot_filt, plot_exp_name, plot_all_expt, bin_sz, phase_type,
@@ -4782,7 +4817,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('auROC')
         ax.grid(plot_grid)
 
-    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, violin_bw, lg_str, auc_plot_type):
+    def create_multi_auc_plot(self, ax, roc_auc, plot_grid, connect_lines, violin_bw, m_size, lg_str, auc_plot_type):
         '''
 
         :param ax:
@@ -4808,7 +4843,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the violin/swarmplot dictionaries
             vl_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, inner=None, bw=violin_bw, cut=1)
-            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='gray', edgecolor='gray')
+            sw_dict = cf.setup_sns_plot_dict(ax=ax, x=x_plt, y=y_plt, color='gray', edgecolor='gray', size=m_size)
 
             # creates the violin/swarmplot
             sns.violinplot(**vl_dict)
@@ -5166,7 +5201,7 @@ class AnalysisGUI(QMainWindow):
             # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
             # h_title_pd.set_position(tuple(t_pos))
 
-    def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines,
+    def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, m_size,
                                            violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
         '''
 
@@ -5182,7 +5217,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
+        self.create_dir_roc_curve_plot(rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw, m_size,
                                        plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, True)
 
     ##############################################
@@ -8144,7 +8179,7 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj)
-        hm_cmap = ListedColormap(sns.diverging_palette(220, 20, sep=35, l=45, n=11))
+        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=35, l=45, n=11))
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
@@ -8298,7 +8333,7 @@ class AnalysisGUI(QMainWindow):
         a = 1
 
     def create_dir_roc_curve_plot(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, violin_bw,
-                                  plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, is_comb):
+                                  m_size, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope, is_comb):
 
         # initialises the rotation filter (if not set)
         if rot_filt is None:
@@ -8437,7 +8472,7 @@ class AnalysisGUI(QMainWindow):
             self.create_roc_curves(self.plot_fig.ax[0], roc_xy, lg_str, plot_grid)
 
         # creates the multi-cell auc plot
-        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, violin_bw,
+        self.create_multi_auc_plot(self.plot_fig.ax[1], roc_auc, plot_grid, connect_lines, violin_bw, m_size,
                                    lg_str0, auc_plot_type)
 
         # sets the axis titles
@@ -9900,12 +9935,13 @@ class AnalysisFunctions(object):
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
             'violin_bw': {'text': 'Violinplot Width Scale Factor', 'def_val': 1, 'min_val': 0},
+            'm_size': {'text': 'Swarmplot Marker Size', 'def_val': 3, 'min_val': 1},
             'cell_grp_type': {
                 'type': 'L', 'text': 'Cell Grouping Type', 'list': md_grp_type, 'def_val': md_grp_type[-1],
             },
             'auc_plot_type': {
                 'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0],
-                'link_para': ['violin_bw', 'Bubbleplot']
+                'link_para': [['violin_bw', 'Bubbleplot'], ['m_size', 'Bubbleplot']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -10359,6 +10395,7 @@ class AnalysisFunctions(object):
             'use_avg': {'type': 'B', 'text': 'Plot Cell Grouping Average', 'def_val': True},
             'connect_lines': {'type': 'B', 'text': 'Connect AUC Values', 'def_val': False},
             'violin_bw': {'text': 'Violinplot Width Scale Factor', 'def_val': 1, 'min_val': 0},
+            'm_size': {'text': 'Swarmplot Marker Size', 'def_val': 3, 'min_val': 1},
             'plot_grp_type': {
                 'type': 'L', 'text': 'Cell Discrimination Type', 'list': cell_desc_type[1:],
                 'def_val': cell_desc_type[1], 'para_reset': [['cell_grp_type', self.reset_grp_type]]
@@ -10368,7 +10405,7 @@ class AnalysisFunctions(object):
             },
             'auc_plot_type': {
                 'type': 'L', 'text': 'auROC Plot Type', 'list': auc_plt_type, 'def_val': auc_plt_type[0],
-                'link_para': ['violin_bw', 'Bubbleplot']
+                'link_para': [['violin_bw', 'Bubbleplot'], ['m_size', 'Bubbleplot']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -12350,7 +12387,7 @@ class ComparisonData(object):
         self.signal_feat = -np.ones((n_fix, 4), dtype=float)
         self.total_metrics = -np.ones((n_fix,3), dtype=float)
         self.total_metrics_mean = -np.ones(n_fix, dtype=float)
-
+0
 class ClassifyData(object):
     def __init__(self):
         # initialisation
@@ -12735,16 +12772,16 @@ class OutputData(object):
 
 
 class PlotCanvas(FigureCanvas):
-    def __init__(self, parent=None, width=5, height=5, dpi=100):
+    def __init__(self, main_obj, dpi=100):
 
         # creates the figure object
-        grp_sz = parent.geometry()
-        fig = Figure(figsize=((grp_sz.width()-(2*dX+1))/dpi,(grp_sz.height()-(2*dX+1))/dpi), dpi=dpi,
-                     tight_layout=True)
+        grp_sz = main_obj.grp_plot.geometry()
+        fig = Figure(figsize=((grp_sz.width() - (2*dX + 1)) / dpi,(grp_sz.height() - (2*dX + 1)) / dpi),
+                     dpi=dpi, tight_layout=True)
 
         # creates the figure class
         FigureCanvas.__init__(self, fig)
-        self.setParent(parent)
+        self.setParent(main_obj.grp_plot)
         self.ax = None
         self.fig = fig
 

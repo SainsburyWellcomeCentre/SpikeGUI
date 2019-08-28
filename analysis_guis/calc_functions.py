@@ -29,9 +29,8 @@ import matplotlib.pyplot as plt
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.metrics import mutual_info_score
 
-# elephant module imports
-from elephant.conversion import BinnedSpikeTrain
-from elephant.spike_train_correlation import corrcoef
+# PyQt5 module imports
+from PyQt5.QtCore import QRect
 
 # custom module imports
 import analysis_guis.common_func as cf
@@ -3100,6 +3099,21 @@ def get_channel_depths_tt(cluster, tt_type):
 
     # returns the final array
     return ch_depth, ch_region, ch_layer
+
+def get_plot_canvas_pos(plot_left, dY, fig_hght):
+    '''
+
+    :param fig_hght:
+    :param plot_left:
+    :param dY:
+    :return:
+    '''
+
+    # calculates the figure width
+    fig_wid = int(fig_hght * float(get_glob_para('w_ratio')))
+
+    # returns the figure canvas position
+    return QRect(plot_left, dY, fig_wid, fig_hght)
 
 # def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
 #     '''
