@@ -1,19 +1,21 @@
 # module import
+import os
+import re
+import time
 import copy
+import warnings
 import datetime
 import functools
 import math as m
-import os
+import xlsxwriter
 import pickle as p
-import re
-import time
-import warnings
 import numpy as np
 import pandas as pd
-import xlsxwriter
 from random import sample
 from numpy.matlib import repmat
+from mpldatacursor import datacursor, HighlightingDataCursor
 
+# seaborn module import/initialisation
 f_scale = 1.2
 import seaborn as sns
 sns.set()
@@ -21,6 +23,7 @@ sns.set_style('whitegrid')
 sns.set_context('paper', font_scale=f_scale)
 # sns.set_context('talk', font_scale=1.2)
 
+# matplotlib module imports
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.colors import to_rgba_array
@@ -29,18 +32,14 @@ from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle, Polygon, Patch
 from matplotlib.colors import ListedColormap
-
+import matplotlib.style
 import matplotlib as mpl
 from matplotlib.pyplot import rc
-import matplotlib.style
 
-#
-import mplcursors
-from mpldatacursor import datacursor, HighlightingDataCursor
-
+# rpy2 module imports
 import rpy2.robjects as ro
 import rpy2.robjects.numpy2ri
-from rpy2.robjects import FloatVector
+from rpy2.robjects import FloatVector, FactorVector
 from rpy2.robjects.packages import importr
 rpy2.robjects.numpy2ri.activate()
 r_pair = importr("pairwise")
@@ -52,6 +51,7 @@ r_pROC = importr("pROC")
 # except:
 #     pass
 
+# scipy module imports
 from scipy.signal import medfilt
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
@@ -59,12 +59,13 @@ from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
 from scipy.stats import linregress, bartlett, ks_2samp
 
+# sklearn module imports
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale
 from sklearn.mixture import BayesianGaussianMixture as GMM
 
-# pyqt5 module import
+# pyqt5 module imports
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QRect, Qt
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QGroupBox, QLineEdit, QComboBox,
@@ -77,7 +78,7 @@ import analysis_guis.rotational_analysis as rot
 from analysis_guis.dialogs.file_dialog import FileDialogModal
 from analysis_guis.dialogs import load_expt, config_dialog, expt_compare
 from analysis_guis.dialogs.rotation_filter import RotationFilter, RotationFilteredData
-from analysis_guis.dialogs.info_dialog import InfoDialog
+from analysis_guis.dialogs.info_dialog import InfoDialog, ParaFieldDialog
 from analysis_guis.dialogs.lda_para import LDASolverPara
 from analysis_guis.threads import thread_workers
 
@@ -113,7 +114,6 @@ formatter = lambda **kwargs: ', '.join(kwargs['point_label'])
 formatter_lbl = lambda **kwargs: kwargs['label']
 setup_heatmap_bins = lambda t_stim, dt: np.arange(t_stim + dt / 1000, step=dt / 1000.0)
 sig_str_fcn = lambda x, p_value: '*' if x < p_value else ''
-convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
 txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 
 # other initialisations
@@ -427,16 +427,20 @@ class AnalysisGUI(QMainWindow):
         # creates the menu items
         self.menu_show_info = cf.create_menuitem(self, 'Show Dataset Information', 'show_info', self.show_info,
                                                  s_cut='Ctrl+I')
+        self.menu_alt_fields = cf.create_menuitem(self, 'Alter Parameter Fields', 'alt_fields', self.alt_fields,
+                                                 s_cut='Ctrl+A')
         self.menu_init_filt = cf.create_menu(self, "Set Exclusion Filter Fields", "init_rotdata")
 
         # adds the menu items to the file menu
         self.menu_data.addAction(self.menu_show_info)
+        self.menu_data.addAction(self.menu_alt_fields)
         self.menu_data.addSeparator()
         self.menu_data.addAction(self.menu_init_filt.menuAction())
 
         # disables the output data menu item
         self.menu_data.setEnabled(False)
         self.menu_show_info.setEnabled(False)
+        self.menu_alt_fields.setEnabled(False)
 
         ##########################################
         ###    ROTATIONAL FILTER MENU ITEMS    ###
@@ -614,6 +618,7 @@ class AnalysisGUI(QMainWindow):
                         self.data.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
                 # sets up the analysis functions and resets the current parameter fields
+                self.check_data_fields()
                 self.fcn_data.init_all_func()
 
                 # sets the analysis function groupbox properties
@@ -642,6 +647,7 @@ class AnalysisGUI(QMainWindow):
                 # enables the menu item
                 self.menu_data.setEnabled(True)
                 self.menu_show_info.setEnabled(True)
+                self.menu_alt_fields.setEnabled(True)
 
                 # determines what type of file(s) have been loaded
                 if self.is_multi:
@@ -798,6 +804,58 @@ class AnalysisGUI(QMainWindow):
         '''
 
         cf.show_error(e_str, title)
+
+    def det_data_field_vals(self, chk_flds):
+        '''
+
+        :return:
+        '''
+
+        # memory allocation
+        n_expt, n_flds = len(self.data._cluster), len(chk_flds)
+        fld_vals = np.empty((n_expt, n_flds), dtype=object)
+
+        #
+        for i_c, c in enumerate(self.data._cluster):
+            for i_cfld, cfld in enumerate(chk_flds):
+                if cfld in c['expInfo']:
+                    if c['expInfo'][cfld] is not None:
+                        fld_vals[i_c, i_cfld] = c['expInfo'][cfld]
+
+        # returns the field values
+        return fld_vals
+
+    def check_data_fields(self, check_missing_only=True):
+        '''
+
+        :return:
+        '''
+
+        # initialisations
+        chk_flds = ['probe_depth']
+        fld_vals = self.det_data_field_vals(chk_flds)
+        f_name = np.array([cf.extract_file_name(c['expFile']) for c in self.data._cluster])
+
+        # determines which fields are missing values
+        if check_missing_only:
+            is_missing = np.where(np.any(fld_vals == None, axis=1))[0]
+            if len(is_missing):
+                # if there are missing parameters, then reduce down to the experiments that are missing values
+                fld_vals, f_name, t_str = fld_vals[is_missing, :], f_name[is_missing], 'Missing Parameters'
+
+            else:
+                # otherwise, exit the function
+                return
+        else:
+            is_missing, t_str = None, 'Alter Parameters'
+
+        # opens up the config dialog box and retrieves the final file information
+        ParaFieldDialog(self,
+                        title=t_str,
+                        chk_flds=chk_flds,
+                        fld_vals=dcopy(fld_vals),
+                        f_name=f_name,
+                        cl_ind=is_missing)
 
     def plot_values(self, Y):
         '''
@@ -1258,44 +1316,6 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def save_multi_comp_file(self, out_info):
-            '''
-
-            :return:
-            '''
-
-            # sets the output file name
-            out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
-            if not cf.check_existing_file(self, out_file):
-                # if the file does exists and the user doesn't want to overwrite then exit
-                return
-
-            # creates the multi-experiment data file based on the type
-            data_out = {'data': None, 'comp_data': self.data.comp}
-            data_out['data'] = [[] for _ in range(2)]
-            data_out['data'][0], data_out['data'][1] = self.get_comp_datasets()
-
-            # outputs the data to file
-            with open(out_file, 'wb') as fw:
-                p.dump(data_out, fw)
-
-        def save_multi_data_file(self, out_info):
-            '''
-
-            :return:
-            '''
-
-            # determines if the file exists
-            out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
-            if not cf.check_existing_file(self, out_file):
-                # if the file does exists and the user doesn't want to overwrite then exit
-                return
-
-            # starts the worker thread
-            iw = self.det_avail_thread_worker()
-            self.worker[iw].set_worker_func_type('save_data_files', thread_job_para=[self.data, out_info])
-            self.worker[iw].start()
-
         # determines which flags have been set
         is_comp = self.data.comp.is_set
         s_str = 'Combined Cluster Matching' if is_comp else 'Combined Multi-Experiment'
@@ -1320,9 +1340,9 @@ class AnalysisGUI(QMainWindow):
         out_info = cfig_dlg.get_info()
         if out_info is not None:
             if is_comp:
-                save_multi_comp_file(self, out_info)
+                cf.save_multi_comp_file(self, out_info)
             else:
-                save_multi_data_file(self, out_info)
+                cf.save_multi_data_file(self, out_info)
 
     def set_default(self):
         '''
@@ -1380,7 +1400,7 @@ class AnalysisGUI(QMainWindow):
             ['ROC Conf. Interval Level', 'roc_clvl', 'Number', '', True, False, 5, _bright_red],
 
             ['LDA Trial Setup Type', 'lda_trial_type', 'List', lda_type, True, False, 6, _gray],
-            ['Plot Width/Height Ratio', 'w_ratio', 'Number', '', True, False, 6, _bright_yellow],
+            ['Plot Width/Height Ratio', 'w_ratio', 'Number', '', True, False, 6, _bright_purple],
         ]
 
         # opens up the config dialog box and retrieves the final file information
@@ -1410,6 +1430,15 @@ class AnalysisGUI(QMainWindow):
 
         # opens the data file information dialog
         InfoDialog(self)
+
+    def alt_fields(self):
+        '''
+
+        :return:
+        '''
+
+        # runs the parameter field dialog
+        self.check_data_fields(False)
 
     def init_genfilt(self):
         '''
@@ -2320,10 +2349,10 @@ class AnalysisGUI(QMainWindow):
 
         # sets up the marker colours
         # col = ['b', 'r', convert_rgb_col(_bright_cyan), convert_rgb_col(_bright_yellow)]
-        col = [convert_rgb_col([33, 71, 97])[0],           # narrow spikes
-               convert_rgb_col([163, 77, 72])[0],          # wide spikes
-               convert_rgb_col([104, 201, 210])[0],        # excitatory spikes
-               convert_rgb_col([252, 195, 150])[0]]        # inhibitory spikes
+        col = [cf.convert_rgb_col([33, 71, 97])[0],           # narrow spikes
+               cf.convert_rgb_col([163, 77, 72])[0],          # wide spikes
+               cf.convert_rgb_col([104, 201, 210])[0],        # excitatory spikes
+               cf.convert_rgb_col([252, 195, 150])[0]]        # inhibitory spikes
 
         # initialises the subplot axes
         self.clear_plot_axes()
@@ -4313,10 +4342,10 @@ class AnalysisGUI(QMainWindow):
         m = ['o', 'x', '^', 's', 'D', 'H', '*']
 
         #
-        sig_col = [convert_rgb_col([147, 149, 152])[0],         # non-significant markers
-                   convert_rgb_col([33, 72, 98])[0],            # black-only significant markers
-                   convert_rgb_col([222, 126, 93])[0],          # uniform-only significant markers
-                   convert_rgb_col([147, 126, 148])[0]]         # both condition significant spikes
+        sig_col = [cf.convert_rgb_col([147, 149, 152])[0],         # non-significant markers
+                   cf.convert_rgb_col([33, 72, 98])[0],            # black-only significant markers
+                   cf.convert_rgb_col([222, 126, 93])[0],          # uniform-only significant markers
+                   cf.convert_rgb_col([147, 126, 148])[0]]         # both condition significant spikes
 
         if is_scatter:
             ####################################
@@ -4324,12 +4353,12 @@ class AnalysisGUI(QMainWindow):
             ####################################
 
             if mark_type == 'Congruency':
-                e_col = [convert_rgb_col(_light_gray), convert_rgb_col(_black), sig_col[2]]
-                f_col = ['None', convert_rgb_col(_black), sig_col[2]]
+                e_col = [cf.convert_rgb_col(_light_gray), cf.convert_rgb_col(_black), sig_col[2]]
+                f_col = ['None', cf.convert_rgb_col(_black), sig_col[2]]
             elif mark_type == 'Rotation/Visual Response':
-                e_col = f_col = cf.get_plot_col(len(g_type), len(sig_col))
+                e_col = f_col = cf.get_plot_col(len(grp_type), len(sig_col))
             elif mark_type == 'Motion Sensitivity/Direction Selectivity':
-                e_col = f_col = cf.get_plot_col(len(g_type), len(sig_col))
+                e_col = f_col = cf.get_plot_col(len(grp_type), len(sig_col))
 
             # legend properties initialisations
             if _show_sig_markers:
@@ -5760,43 +5789,29 @@ class AnalysisGUI(QMainWindow):
             ax.set_xticklabels(xi)
             ax.set_ylabel('Decoding Accuracy (%)')
 
-        def setup_bin_stats(y_acc):
+        def setup_bin_stats_values(xi, ttype, y_acc):
             '''
 
+            :param xi:
+            :param ttype:
             :param y_acc:
-            :param ttype_abb:
             :return:
             '''
 
             # memory allocation
-            n_expt, n_cond, n_xi = np.shape(y_acc)
-            p_str = np.empty((int(n_cond * (n_cond - 1) / 2), n_xi), dtype=object)
+            n_ex, n_tt = np.size(y_acc_phs, axis=0), len(ttype)
+            _ttype = np.array(ttype).reshape(-1, 1)
 
-            # sets up the p-value strings for each bin
-            for i_xi in range(n_xi):
-                # sets the stats grouping values
-                x_grp = dcopy(y_acc[:, :, i_xi]).flatten()
-                if i_xi == 0:
-                    i_grp = repmat(np.arange(n_cond), n_expt, 1).flatten()
+            # converts the xi/condition type values into a FactorVector
+            ttype_st = FactorVector(np.tile(_ttype, [n_ex, 1, np.size(y_acc, axis=2)]).flatten())
+            xi_st = FactorVector(np.tile(xi, [n_ex, n_tt, 1]).flatten())
 
-                # runs the pair-wise wilcoxon test and retrieves the non-NaN p-values
-                results = r_stats.pairwise_wilcox_test(FloatVector(x_grp), FloatVector(i_grp),
-                                                       p_adjust_method='bonf', paired=True)
-                p_vals = np.array(results[list(results.names).index('p.value')]).flatten('F')
-                p_vals = p_vals[np.logical_not(np.isnan(p_vals))]
-
-                # sets the p-value strings for each comparison
-                for i_row in range(len(p_vals)):
-                    p_str[i_row, i_xi] = '{:5.3f}{}'.format(p_vals[i_row], '*' if p_vals[i_row] < 0.05 else '')
-
-            # returns the p-values/row header string arrays
-            return p_str
+            # returns the values for analysis
+            return ttype_st, xi_st, y_acc[:, 1:, :].flatten()
 
         # initialisations
         d_data = self.data.discrim.temp
         ttype = d_data.ttype
-        n_c, h_plt = len(ttype), []
-        c = cf.get_plot_col(n_c)
 
         # retrieves the important fields
         y_acc_phs, y_acc_ofs = 100. * np.dstack(d_data.y_acc[0]), 100. * np.dstack(d_data.y_acc[1])
@@ -5822,21 +5837,17 @@ class AnalysisGUI(QMainWindow):
             ttype_abb, n_cond = [cf.cond_abb(x) for x in ttype], np.size(y_acc_phs, axis=1) - 1
             col = cf.get_plot_col(n_cond)
 
-            # sets up the row header string arrays
-            rw_hdr = []
-            for i_row in range(n_cond):
-                for i_col in range(i_row + 1, n_cond):
-                    rw_hdr.append('{0}/{1}'.format(ttype_abb[i_row], ttype_abb[i_col]))
+            # creates the stats table for the differing phase duration
+            tt_phs, xi_phs, y_phs = setup_bin_stats_values(d_data.xi_phs, ttype, y_acc_phs)
+            c_grp_phs, p_str_phs = cfcn.calc_art_stats(tt_phs, xi_phs, y_phs, 'X1')
+            cf.add_plot_table(self.plot_fig, 0, table_font, p_str_phs, c_grp_phs, c_grp_phs,
+                              col, col, 'top', p_wid=1.5, n_col=1)
 
-            # sets up the data for the stats table for the differing phase duration
-            t_data_phs, xi_phs = setup_bin_stats(y_acc_phs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
-            cf.add_plot_table(self.plot_fig, 0, table_font, t_data_phs, rw_hdr, xi_phs,
-                              ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_phs), 'top', p_wid=1.5, n_col=1)
-
-            # sets up the data for the stats table for the differing phase offset
-            t_data_ofs, xi_ofs = setup_bin_stats(y_acc_ofs[:, 1:, :]), ['{:4.2f}'.format(x) for x in d_data.xi_phs]
-            cf.add_plot_table(self.plot_fig, 1, table_font, t_data_ofs, rw_hdr, xi_ofs,
-                              ['gray'] * len(rw_hdr), ['gray'] * len(d_data.xi_ofs), 'top', p_wid=1.5, n_col=1)
+            # creates the stats table for the differing phase offset
+            tt_ofs, xi_ofs, y_ofs = setup_bin_stats_values(d_data.xi_ofs, ttype, y_acc_ofs)
+            c_grp_ofs, p_str_ofs = cfcn.calc_art_stats(tt_ofs, xi_ofs, y_ofs, 'X1')
+            cf.add_plot_table(self.plot_fig, 1, table_font, p_str_ofs, c_grp_ofs, c_grp_ofs,
+                              col, col, 'top', p_wid=1.5, n_col=1)
 
         else:
             #################################
@@ -6395,7 +6406,7 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the mean of the decoding accuracy value across all experiments
         n_expt = np.size(d_data_p.y_acc, axis=0)
-        y_acc, xi = np.mean(d_data_p.y_acc, axis=0), [0] + d_data_p.xi
+        y_acc, xi = np.nanmean(d_data_p.y_acc, axis=0), [0] + d_data_p.xi
         zz = np.zeros((np.size(y_acc, axis=0), 1))
 
         # calculates the mean, min/max and SEM decoding accuracy values over all shuffles
@@ -7069,7 +7080,7 @@ class AnalysisGUI(QMainWindow):
 
             # parameters and initialisations
             ax, h_plt_cond = self.plot_fig.ax[0], []
-            l_col, l_style = cf.get_plot_col(len(n_cell)), ['-', '--', '-.', ':']
+            l_col, l_style = cf.get_plot_col(len(plot_cell)), ['-', '--', '-.', ':']
             y_acc_fit = d_data.y_acc_fit
 
             # sets the x-tick labels and axis limits
@@ -7084,7 +7095,7 @@ class AnalysisGUI(QMainWindow):
             # plots the data for all points
             for i, i_cond in enumerate(np.where(is_plot)[0]):
                 # sets the plot x locations and error bar values
-                x_nw = x + ((i + 1) / (n_cond + 1))
+                x_nw, k = x + ((i + 1) / (n_cond + 1)), 0
                 _y_acc_fit = y_acc_fit[:, :, i_cond]
 
                 # plots the dummy condition marker lines
@@ -7097,14 +7108,17 @@ class AnalysisGUI(QMainWindow):
                     if str(n_c) in plot_cell:
                         # plots the mean marker points
                         if plot_markers:
-                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[j], s=m_size)
+                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[k], s=m_size)
                             if i == 0:
                                 h_plt_cell.append(h_plt_cell_nw)
                         elif i == 0:
-                            h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[j], s=m_size))
+                            h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[k], s=m_size))
 
                         # plots the psychometric fit (if required)
-                        ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[j], linewidth=2)
+                        ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[k], linewidth=2)
+
+                        # increments the colour counter
+                        k += 1
 
                 # creates the legend
                 if i == 0:
@@ -12321,6 +12335,7 @@ class AnalysisData(object):
         # other flags
         self.req_update = True
         self.force_calc = True
+        self.files = None
 
     def check_missing_fields(self):
         '''

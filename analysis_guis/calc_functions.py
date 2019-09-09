@@ -21,13 +21,18 @@ from scipy.stats import pearsonr as pr
 from scipy.spatial.distance import *
 from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
-from scipy.special import erf
 from scipy.stats.distributions import t
-import matplotlib.pyplot as plt
+
+# rpy2 module imports
+import rpy2.robjects as robjects
+from rpy2.robjects.methods import RS4
+from rpy2.robjects.packages import importr
+from rpy2.robjects import pandas2ri
+pandas2ri.activate()
+r_art = importr("ARTool")
 
 # sklearn module imports
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
-from sklearn.metrics import mutual_info_score
 
 # PyQt5 module imports
 from PyQt5.QtCore import QRect
@@ -526,6 +531,113 @@ def calc_wasserstein(hist_1, hist_2):
     '''
 
     return stats.wasserstein_distance(hist_1, hist_2)
+
+###############################################
+####    ART STATS CALCULATION FUNCTIONS    ####
+###############################################
+
+def calc_art_stats(x1, x2, y, c_type='X1'):
+    '''
+
+    :param ttype:
+    :param x:
+    :param y:
+    :return:
+    '''
+
+    def get_art_test_values(s_data):
+        '''
+
+        :param s_data:
+        :return:
+        '''
+
+        # parameters
+        p_tol = 0.05
+
+        # REMOVE ME LATER
+        p_str, c_grp = None, None
+
+        # runs the stats based on the type
+        if isinstance(s_data, RS4):
+            # retrieves the summary dataframe
+            summ_df = pandas2ri.ri2py(robjects.r['summary'](s_data))
+
+            # retrieves the category/p-values based on the test type
+            if 'x1_pairwise' in summ_df.columns:
+                # case is the interaction analysis
+                pass
+
+            else:
+                # retrieves the category/p-value values
+                c_str, p_value = summ_df['contrast'], summ_df['p.value']
+
+                # determines the unique category groupings
+                c_str_sp = np.vstack([x.split(' - ') for x in c_str])
+                c_str_uniq = list(np.unique(c_str_sp))
+
+                # retrieves the group indices and sorted category groups
+                i_grp, n_grp = [[c_str_uniq.index(y) for y in x] for x in c_str_sp], len(c_str_uniq)
+                c_grp = [c_str_sp[0, 0]] + list(c_str_sp[:(n_grp - 1), 1])
+
+                # sets the p-value strings for each groups
+                p_str, k = np.empty((n_grp, n_grp), dtype=object), 0
+                for i in range(n_grp):
+                    for j in range(i, n_grp):
+                        if i == j:
+                            # case is the symmetric case
+                            p_str[i, j] = 'N/A'
+                        else:
+                            # case is the non-symmetric case
+                            if p_value[k] < 1e-20:
+                                # case is the p-value is <1e-10. so use a fixed value instead
+                                p_str_nw = '{:5.3e}*'.format(1e-20)
+                            elif p_value[k] < 1e-3:
+                                # case is very small p-values, so use compact form
+                                p_str_nw = '{:5.3e}*'.format(p_value[k])
+                            else:
+                                # otherwise, use normal form
+                                p_str_nw = '{:5.3f}{}'.format(p_value[k], '*' if p_value[k] < p_tol else '')
+
+                            # sets the final string and increments the counter
+                            p_str[i_grp[k][0], i_grp[k][1]] = p_str[i_grp[k][1], i_grp[k][0]] = p_str_nw
+                            k += 1
+
+        else:
+            # case is the ANOVA analysis
+            pass
+
+        # returns the comparison group/statistics string
+        return c_grp, p_str
+
+    # calculates the ART anova
+    calc_art_anova = robjects.r(
+        """
+            function(x1, x2, y, s_type){
+                library("ARTool")
+                library(emmeans)
+                library(phia)
+
+                df <- data.frame(x1, x2, y)
+                m <- art(y ~ x1 * x2, data = df)
+                m_anova <- anova(m)
+
+                if (s_type == 0) {
+                out <- contrast(emmeans(artlm(m, "x1"), ~ x1), method="pairwise")                
+                } else if (s_type == 1) {
+                out <- contrast(emmeans(artlm(m, "x2"), ~ x2), method="pairwise")                
+                } else if (s_type == 2) {
+                out <- contrast(emmeans(artlm(m, "x1:x2"), ~ x1:x2), method="pairwise", interaction=TRUE)
+                } else {
+                out <- m_anova
+                }
+            }
+        """
+    )
+
+    # returns the stats category groupings/p-values (for the desired stats type)
+    ind = ['X1', 'X2', 'X1_X2', 'ANOVA'].index(c_type)
+    return get_art_test_values(calc_art_anova(x1, x2, y, ind))
 
 ###################################################
 ####    NORMALISATION CALCULATION FUNCTIONS    ####
@@ -3035,6 +3147,21 @@ def get_glob_para(gp_type):
     # sets the trial type value
     return def_data['g_para'][gp_type]
 
+
+def get_dir_para(dir_type):
+    '''
+
+    :param trial_type:
+    :return:
+    '''
+
+    # loads the default file
+    with open(cf.default_dir_file, 'rb') as fp:
+        def_data = _p.load(fp)
+
+    # sets the trial type value
+    return def_data['dir'][dir_type]
+
 ########################################################################################################################
 ####                                      MISCELLANEOUS CALCULATION FUNCTIONS                                       ####
 ########################################################################################################################
@@ -3115,6 +3242,35 @@ def get_plot_canvas_pos(plot_left, dY, fig_hght):
     # returns the figure canvas position
     return QRect(plot_left, dY, fig_wid, fig_hght)
 
+
+def det_missing_data_fields(fld_vals, f_name, chk_flds):
+    '''
+
+    :param fld_vals:
+    :param is_missing:
+    :return:
+    '''
+
+    for i_cf, cfld in enumerate(chk_flds):
+        if cfld == 'probe_depth':
+            # retrieves all the configuration file names
+            f_cfg, cfg_dir = [], get_dir_para('configDir')
+            for f in os.listdir(cfg_dir):
+                if f.endswith('.cfig'):
+                    f_cfg.append(f.replace('.cfig', ''))
+
+            for i_c in np.where(fld_vals[:, i_cf] == None)[0]:
+                f_match, f_score = cf.det_closest_file_match(f_cfg, f_name[i_c])
+                if f_score > 95:
+                    # retrieves the depth marker values from the config file (if the match is good enough)
+                    cfig_new = os.path.join(cfg_dir, '{0}.cfig'.format(f_match))
+                    f_str = cf.get_cfig_line(cfig_new, 'depthHi')
+                    fld_vals[i_c, i_cf] = np.array(eval(f_str[1:-1]), dtype=int)[-1]
+
+    # returns the final values array
+    return fld_vals
+
+
 # def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
 #     '''
 #
@@ -3137,3 +3293,4 @@ def get_plot_canvas_pos(plot_left, dY, fig_hght):
 #
 #     # returns the normalised array
 #     return spd_sf_calc
+

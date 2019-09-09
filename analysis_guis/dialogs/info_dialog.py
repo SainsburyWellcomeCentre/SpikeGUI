@@ -1,10 +1,15 @@
 # module import
+import os
+import copy
+import time
+import pickle as p
 import numpy as np
 
 # pyqt5 module imports
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QHBoxLayout, QDialog, QFormLayout, QPushButton, QGridLayout, QGroupBox)
+from PyQt5.QtWidgets import (QHBoxLayout, QDialog, QFormLayout, QPushButton, QGridLayout, QGroupBox,
+                             QHeaderView, QMessageBox)
 
 # custom module import
 import analysis_guis.common_func as cf
@@ -37,6 +42,8 @@ QGroupBox
 #     background-color: white;
 # }
 """
+
+dcopy = copy.deepcopy
 
 ########################################################################################################################
 ########################################################################################################################
@@ -109,9 +116,9 @@ class InfoDialog(QDialog):
             self.create_expt_group(i_expt)
 
         # creates the tab object
-        self.h_grpbx[0]= cf.create_tab(None, QRect(10, 10, self.grp_wid_main, self.grp_hght_main), None,
-                                       h_tabchild=[x for x in self.h_expt],
-                                       child_name=['Expt #{0}'.format(i_expt+1) for i_expt in range(self.n_expt)])
+        self.h_grpbx[0] = cf.create_tab(None, QRect(10, 10, self.grp_wid_main, self.grp_hght_main), None,
+                                        h_tabchild=[x for x in self.h_expt],
+                                        child_name=['Expt #{0}'.format(i_expt+1) for i_expt in range(self.n_expt)])
         cf.set_obj_fixed_size(self.h_grpbx[0], width=self.grp_wid_main, height=self.grp_hght_main)
 
         # sets the main widget into the GUI
@@ -388,3 +395,304 @@ class InfoDialog(QDialog):
             super(InfoDialog, self).closeEvent(evnt)
         else:
             evnt.ignore()
+
+
+########################################################################################################################
+########################################################################################################################
+
+class ParaFieldDialog(QDialog):
+    def __init__(self, main_obj, parent=None, title=None, chk_flds=None, fld_vals=None, f_name=None, cl_ind=None):
+        # creates the gui object
+        super(ParaFieldDialog, self).__init__(parent)
+
+        # field initialisations
+        self.is_ok = True
+        self.is_init = False
+        self.is_updating = True
+        self.can_close = False
+
+        # sets the object fields
+        self.main_obj = main_obj
+        self.chk_flds = chk_flds
+        self.fld_vals0 = dcopy(fld_vals)
+        self.fld_vals = cfcn.det_missing_data_fields(fld_vals, f_name, chk_flds)
+        self.f_name = f_name
+
+        # sets the cluster indices (depending if they have been provided or not)
+        if cl_ind is None:
+            self.cl_ind = np.arange(len(f_name))
+        else:
+            self.cl_ind = cl_ind
+
+        # creates the GUI objects
+        self.init_data_table()
+        self.create_control_buttons()
+        self.setLayout(self.mainLayout)
+
+        # sets the final window properties
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        self.is_init = True
+
+        # shows and executes the dialog box
+        self.show()
+        self.exec()
+
+    def init_data_table(self):
+        '''
+
+        :return:
+        '''
+
+        # sets the widgets into the box layout
+        self.mainLayout = QGridLayout()
+
+        # group box object
+        self.p_table = QGroupBox("")
+        layout = QHBoxLayout()
+
+        # parameters and initialisations
+        n_exp, n_fld = np.shape(self.fld_vals)
+        t_data = np.empty((n_exp, n_fld + 2), dtype=object)
+        fld_key = {
+            'probe_depth': 'Probe Depth (um)'
+        }
+
+        # sets the column names
+        col_hdr = ['Expt #', 'Expt Name'] + [fld_key[c_flds] for c_flds in self.chk_flds]
+
+        # sets the table data into a single array
+        t_data[:, 2:] = self.fld_vals
+        for i_exp in range(n_exp):
+            t_data[i_exp, 0], t_data[i_exp, 1] = str(i_exp + 1), self.f_name[i_exp]
+
+            for i_fld in range(n_fld):
+                if self.fld_vals[i_exp, i_fld] is None:
+                    t_data[i_exp, i_fld + 2] = ''
+                else:
+                    t_data[i_exp, i_fld + 2] = str(self.fld_vals[i_exp, i_fld])
+
+        # creates the label objects
+        self.h_table = cf.create_table(None, txt_font, data=t_data, col_hdr=col_hdr, n_row=n_exp,
+                                       max_disprows=min(10, n_exp + 1), cb_fcn=self.edit_table_cell)
+        self.h_table.verticalHeader().setVisible(False)
+
+        h_hdr = self.h_table.horizontalHeader()
+        h_hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        h_hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+
+        # sets the column widths
+        for i_main in range(2):
+            for i_exp in range(n_exp):
+                c_item = self.h_table.item(i_exp, i_main)
+                c_item.setFlags(Qt.ItemIsEnabled)
+
+        for i_fld in range(n_fld):
+            h_hdr.setSectionResizeMode(i_fld + 2, QHeaderView.ResizeToContents)
+
+        # resizes the tables height
+        h_dim = self.h_table.geometry()
+        cf.set_obj_fixed_size(self.h_table, height=h_dim.height() + (3 - n_exp))
+
+        # adds the widgets to the layout
+        layout.addWidget(self.h_table)
+        self.p_table.setLayout(layout)
+        self.mainLayout.addWidget(self.p_table, 0, 0)
+
+    def create_control_buttons(self):
+        '''
+
+        :return:
+        '''
+
+        # initialisations
+        b_txt = ['Close Window']
+        cb_fcn = [self.user_continue]
+        b_name = ['user_continue']
+
+        # group box object
+        self.p_but = QGroupBox("")
+        layout = QHBoxLayout()
+
+        # creates the load config file object
+        for i in range(len(b_txt)):
+            # creates the button object
+            hButton = QPushButton(b_txt[i])
+            hButton.clicked.connect(cb_fcn[i])
+            hButton.setObjectName(b_name[i])
+            hButton.setAutoDefault(False)
+            cf.update_obj_font(hButton, pointSize=9)
+
+            # adds the objects to the layout
+            layout.addWidget(hButton)
+
+        # sets the box layout
+        self.p_but.setLayout(layout)
+        self.mainLayout.addWidget(self.p_but, 1, 0)
+
+        # sets the button enabled properties
+        self.set_button_enabled_props()
+
+    def set_button_enabled_props(self):
+        '''
+
+        :return:
+        '''
+
+        # disables the continue button if not all values are valid
+        any_missing = np.any(np.any(self.fld_vals == None, axis=1))
+        self.p_but.findChild(QPushButton, 'user_continue').setEnabled(not any_missing)
+
+    def edit_table_cell(self, i_row, i_col):
+        '''
+
+        :return:
+        '''
+
+        if not self.is_init:
+            # if initialising, then exit the function
+            return
+
+        # retrieves the current cell and its contents
+        h_cell = self.h_table.item(i_row, i_col)
+        nw_str = h_cell.text()
+
+        if len(nw_str):
+            # if the user enetered the string, determine if it is valid
+            nw_val, e_str = cf.check_edit_num(nw_str, True, min_val=0)
+            if e_str is None:
+                # if so, then update the
+                self.fld_vals[i_row, i_col - 2] = nw_val
+            else:
+                # otherwise, set the cell back to its previous value
+                if self.fld_vals[i_row, i_col - 2] is None:
+                    # there was no valid number, so keep the cell empty
+                    h_cell.setText('')
+                else:
+                    # otherwise, use the previous valid value
+                    h_cell.setText(str(self.fld_vals[i_row, i_col - 2]))
+        else:
+            # if the user entered nothing, then clear the field value
+            self.fld_vals[i_row, i_col - 2] = None
+
+        # resets the button enabled properties
+        self.set_button_enabled_props()
+    def user_continue(self):
+        '''
+
+        :return:
+        '''
+
+        # resets the close flag and closes the GUI
+        self.can_close = True
+        self.close()
+
+        # determines which values have been altered from their original values
+        is_change = self.fld_vals != self.fld_vals0
+        if np.any(is_change[:]):
+            # if so, then prompt the user if they really want to update the files
+            u_choice = QMessageBox.question(self, 'Update Experiment Parameters?',
+                                            "Are you sure you want to update the experimental file parameters?",
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if u_choice == QMessageBox.Yes:
+                # if the user chose yes, then update the experiment files
+                self.update_expt_files(is_change)
+            else:
+                # otherwise, flag that the
+                self.is_ok = False
+
+    def update_expt_files(self, is_change):
+        '''
+
+        :param is_change:
+        :return:
+        '''
+
+        # determines if any change has occured for any experiment (over all parameters)
+        is_multi = self.main_obj.is_multi
+        any_change = np.where(np.any(is_change, axis=1))[0]
+        n_exp = len(any_change)
+
+        # sets the cluster indices, and the change/field values
+        cl_ind, f_name = self.cl_ind[any_change], self.f_name[any_change]
+        is_change, fld_vals = is_change[any_change, :], dcopy(self.fld_vals)[any_change, :]
+
+        #
+        for i, i_cl in enumerate(cl_ind):
+            # retrieves the clusters (original and data - if available)
+            _c = self.main_obj.data._cluster[i_cl]
+            c = self.main_obj.data.cluster[i] if (self.main_obj.data.cluster is not None) else None
+
+            # loops through each of the parameter fields updating values where necessary
+            for i_cfld, c_fld in enumerate(self.chk_flds):
+                # only update the parameters if a change has occurred
+                if is_change[i, i_cfld]:
+                    if c_fld == 'probe_depth':
+                        # case is the probe depth
+
+                        # updates the cluster field values
+                        _c['expInfo'][c_fld] = fld_vals[i, i_cfld]
+                        if c is not None:
+                            c['expInfo'][c_fld] = fld_vals[i, i_cfld]
+
+            # re-saves the cluster file with the new parameter values
+            if os.path.exists(_c['expFile']):
+                # updates the progressbar
+                p_str = 'Updating File Parameters (File #{0} of {1})'.format(i + 1, n_exp)
+                self.main_obj.update_thread_job(p_str, 100. * (i + 1) / n_exp)
+                time.sleep(0.5)
+
+                # outputs the new data to file
+                cf.save_single_file(_c['expFile'], _c)
+
+        #
+        if is_multi:
+            # sets the file path/name strings
+            path, filename = os.path.split(self.main_obj.data.multi.names[0])
+
+            # outputs the data to file based on the type
+            if '.mdata' in self.main_obj.data.multi.names[0]:
+                # case is a multi-experiment data file
+                out_info = {'inputDir': path, 'dataName': filename.replace('.mdata', '')}
+                cf.save_multi_data_file(self.main_obj, out_info, True)
+            else:
+                # case is a multi-experiment comparison data file
+                out_info = {'inputDir': path, 'dataName': filename.replace('.mcomp', '')}
+                cf.save_multi_data_file(self.main_obj, out_info, True)
+        else:
+            # otherwise, reset the main GUI progressbar
+            self.main_obj.update_thread_job('Waiting For Process...', 0)
+
+    def closeEvent(self, evnt):
+
+        if self.can_close:
+            super(ParaFieldDialog, self).closeEvent(evnt)
+        else:
+            evnt.ignore()
+
+    def user_cancel(self):
+        '''
+
+        :return:
+        '''
+
+        # resets the close flag and closes the GUI
+        self.is_ok = False
+        self.can_close = True
+        self.close()
+
+    def get_info(self):
+        '''
+
+        :return:
+        '''
+
+        if not self.is_ok:
+            # user cancelled
+            return None, None
+        else:
+            # determines which values have been altered from their original values
+            is_change = np.any(self.fld_vals != self.fld_vals0, axis=1)
+
+            # returns the field values and the indices of the groups that changed
+            return self.fld_vals, np.where(is_change)[0]

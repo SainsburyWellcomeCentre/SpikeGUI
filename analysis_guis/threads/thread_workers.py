@@ -126,17 +126,17 @@ class WorkerThread(QThread):
             calc_para, plot_para = self.thread_job_para[0], self.thread_job_para[1]
             data, pool, g_para = self.thread_job_para[2], self.thread_job_para[3], self.thread_job_para[4]
 
-        ################################################
-        ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
-        ################################################
+    ################################################
+    ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
+    ################################################
 
             if self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-        ######################################
-        ####    ROC ANALYSIS FUNCTIONS    ####
-        ######################################
+    ######################################
+    ####    ROC ANALYSIS FUNCTIONS    ####
+    ######################################
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
@@ -301,9 +301,9 @@ class WorkerThread(QThread):
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, False)
 
 
-        ##########################################################
-        ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
-        ##########################################################
+    ##########################################################
+    ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+    ##########################################################
 
             elif self.thread_job_secondary == 'Depth Spiking Rate Comparison':
                 # make a copy of the plotting/calculation parameters
@@ -411,9 +411,9 @@ class WorkerThread(QThread):
                 r_data.plt_rms, r_data.stats_rms, r_data.ind_rms = s_plt, sf_stats, ind
                 r_data.r_filt_rms = dcopy(r_filt)
 
-        ##########################################################
-        ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
-        ##########################################################
+    ##########################################################
+    ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+    ##########################################################
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -650,9 +650,9 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-        ###########################################################
-        ####    KINEMATIC DISCRIMINATION ANALYSIS FUNCTIONS    ####
-        ###########################################################
+    #######################################################
+    ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS    ####
+    #######################################################
 
             elif self.thread_job_secondary == 'Speed LDA Accuracy':
                 # checks to see if any base LDA calculation parameters have been altered
@@ -755,9 +755,9 @@ class WorkerThread(QThread):
                 if not data.spikedf.is_set:
                     self.setup_spiking_freq_dataframe(data, calc_para)
 
-        ###############################
-        ####    OTHER FUNCTIONS    ####
-        ###############################
+    ###############################
+    ####    OTHER FUNCTIONS    ####
+    ###############################
 
             elif self.thread_job_secondary == 'Shuffled Cluster Distances':
                 # case is the shuffled cluster distances
@@ -811,54 +811,58 @@ class WorkerThread(QThread):
 
                 # re-calculates the signal features (single experiment only)
                 if not is_multi:
-                    # memory allocation for the signal features
-                    xi = np.array(range(data_nw['nPts']))
-                    sFeat = np.zeros((data_nw['nC'], 2))
+                    if np.shape(data_nw['sigFeat'])[1] == 5:
+                        # memory allocation for the signal features
+                        xi = np.array(range(data_nw['nPts']))
+                        sFeat = np.zeros((data_nw['nC'], 2))
 
-                    for i in range(data_nw['nC']):
-                        # creates the piecewise-polynomial of the mean signal
-                        pp, t_max = pchip(xi, data_nw['vMu'][:, i]), data_nw['sigFeat'][i, 2]
-                        t_min = np.argmin(data_nw['vMu'][int(t_max):, i]) + t_max
-                        v_max_2 = data_nw['vMu'][int(t_max), i] / 2.0
-                        v_min = np.min(data_nw['vMu'][int(t_max):, i])
-                        v_half = data_nw['vMu'][int(data_nw['sigFeat'][i, 1]), i] / 2.0
+                        for i in range(data_nw['nC']):
+                            # creates the piecewise-polynomial of the mean signal
+                            pp, t_max = pchip(xi, data_nw['vMu'][:, i]), data_nw['sigFeat'][i, 2]
+                            t_min = np.argmin(data_nw['vMu'][int(t_max):, i]) + t_max
+                            v_max_2 = data_nw['vMu'][int(t_max), i] / 2.0
+                            v_min = np.min(data_nw['vMu'][int(t_max):, i])
+                            v_half = data_nw['vMu'][int(data_nw['sigFeat'][i, 1]), i] / 2.0
 
-                        ##################################################
-                        ####    POST-STIMULI SPIKE HALF-WIDTH TIME    ####
-                        ##################################################
+                            ##################################################
+                            ####    POST-STIMULI SPIKE HALF-WIDTH TIME    ####
+                            ##################################################
 
-                        # determines the point/voltage of the pmaximum proceding the minimum
-                        bnd_1 = [(data_nw['sigFeat'][i, 0], data_nw['sigFeat'][i, 1])]
-                        bnd_2 = [(data_nw['sigFeat'][i, 1], data_nw['sigFeat'][i, 2])]
-                        bnd_3 = [(data_nw['sigFeat'][i, 2], t_min)]
+                            # determines the point/voltage of the pmaximum proceding the minimum
+                            bnd_1 = [(data_nw['sigFeat'][i, 0], data_nw['sigFeat'][i, 1])]
+                            bnd_2 = [(data_nw['sigFeat'][i, 1], data_nw['sigFeat'][i, 2])]
+                            bnd_3 = [(data_nw['sigFeat'][i, 2], t_min)]
 
-                        # determines the location of the half-width points
-                        t_hw1_lo = cfcn.opt_time_to_y0((pp, v_half), bnd_1)
-                        t_hw1_hi = cfcn.opt_time_to_y0((pp, v_half), bnd_2)
-                        t_hw2_lo = cfcn.opt_time_to_y0((pp, v_max_2), bnd_2)
-                        t_hw2_hi = cfcn.opt_time_to_y0((pp, v_max_2), bnd_3)
-                        t_rlx = cfcn.opt_time_to_y0((pp, v_min + p_rlx * (v_max_2 - v_min)), bnd_3)
+                            # determines the location of the half-width points
+                            t_hw1_lo = cfcn.opt_time_to_y0((pp, v_half), bnd_1)
+                            t_hw1_hi = cfcn.opt_time_to_y0((pp, v_half), bnd_2)
+                            t_hw2_lo = cfcn.opt_time_to_y0((pp, v_max_2), bnd_2)
+                            t_hw2_hi = cfcn.opt_time_to_y0((pp, v_max_2), bnd_3)
+                            t_rlx = cfcn.opt_time_to_y0((pp, v_min + p_rlx * (v_max_2 - v_min)), bnd_3)
 
-                        # determine if it is feasible to find the 2nd peak half-width point
-                        if (t_hw2_hi is None) or (t_rlx is None):
-                            # if not, then linearly extrapolate past the end point of the signal
-                            xi2 = np.array(range(2*xi[-1]))
-                            ppL = IUS(xi, data_nw['vMu'][:, i], k=1)
+                            # determine if it is feasible to find the 2nd peak half-width point
+                            if (t_hw2_hi is None) or (t_rlx is None):
+                                # if not, then linearly extrapolate past the end point of the signal
+                                xi2 = np.array(range(2*xi[-1]))
+                                ppL = IUS(xi, data_nw['vMu'][:, i], k=1)
 
-                            # determines the half-width/relaxtion time from the extrapolated signal
-                            bnd_4 = [(data_nw['sigFeat'][i, 2], xi2[-1])]
-                            t_hw2_hi = cfcn.opt_time_to_y0((ppL, v_max_2), bnd_4)
-                            t_rlx = cfcn.opt_time_to_y0((ppL, v_min + p_rlx * (v_max_2 - v_min)), bnd_4)
+                                # determines the half-width/relaxtion time from the extrapolated signal
+                                bnd_4 = [(data_nw['sigFeat'][i, 2], xi2[-1])]
+                                t_hw2_hi = cfcn.opt_time_to_y0((ppL, v_max_2), bnd_4)
+                                t_rlx = cfcn.opt_time_to_y0((ppL, v_min + p_rlx * (v_max_2 - v_min)), bnd_4)
 
-                        # calculates the new signal features
-                        data_nw['sigFeat'][i, 3] = t_hw1_lo
-                        data_nw['sigFeat'][i, 4] = t_hw1_hi
-                        sFeat[i, 0] = t_hw2_hi - t_hw2_lo
-                        sFeat[i, 1] = t_rlx - t_max
+                            # calculates the new signal features
+                            data_nw['sigFeat'][i, 3] = t_hw1_lo
+                            data_nw['sigFeat'][i, 4] = t_hw1_hi
+                            sFeat[i, 0] = t_hw2_hi - t_hw2_lo
+                            sFeat[i, 1] = t_rlx - t_max
 
-                    # concatenates the new signal feature date
-                    data_nw['sigFeat'] = np.concatenate((data_nw['sigFeat'], sFeat), axis=1)
-                    data_nw['expInfo']['clInclude'] = np.ones(data_nw['nC'], dtype=bool)
+                        # concatenates the new signal feature date
+                        data_nw['sigFeat'] = np.concatenate((data_nw['sigFeat'], sFeat), axis=1)
+
+                    # sets the cell cluster include indices (if not already set)
+                    if 'clInclude' not in data_nw['expInfo']:
+                        data_nw['expInfo']['clInclude'] = np.ones(data_nw['nC'], dtype=bool)
 
                 # appends the new data dictionary to the overall data list
                 data.append(data_nw)
@@ -1123,8 +1127,10 @@ class WorkerThread(QThread):
 
         # dumps the cluster data to file
         self.work_progress.emit('Outputting Data To File...', 99.0)
-        with open(out_name, 'wb') as fw:
-            p.dump(A, fw)
+        cf.save_single_file(out_name, A)
+
+        # with open(out_name, 'wb') as fw:
+        #     p.dump(A, fw)
 
     def det_cluster_matches(self):
         '''
@@ -1547,10 +1553,12 @@ class WorkerThread(QThread):
         lda_para = calc_para['lda_para']
 
         # sets the solver parameters
+        d_data.lda = 1
         d_data.exp_name = result[2]
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the other calculation parameters
         d_data.dt_phs = calc_para['dt_phase']
@@ -2010,6 +2018,7 @@ class WorkerThread(QThread):
         d_data.i_expt = i_expt
         d_data.i_cell = i_cell
         cfcn.set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
         # sets the phase offset/duration parametrs
         d_data.tofs = t_ofs

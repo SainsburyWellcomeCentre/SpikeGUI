@@ -412,7 +412,6 @@ class ConfigDialog(QDialog):
         if not isinstance(self.fInfo[self.dlg_info[i_grp][1]], list):
             self.fInfo[self.dlg_info[i_grp][1]] = list(self.fInfo[self.dlg_info[i_grp][1]])
 
-
         #
         i_sel = index.row()
         if h_obj.model().item(i_sel).checkState() == Qt.Checked:

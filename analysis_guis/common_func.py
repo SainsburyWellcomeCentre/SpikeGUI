@@ -6,11 +6,13 @@ import copy
 import functools
 import math as m
 import numpy as np
+import pickle as p
 import seaborn as sns
 from numpy import ndarray
 from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
+from fuzzywuzzy import fuzz, process
 from matplotlib.patches import Polygon
 
 # pyqt5 module import
@@ -22,6 +24,7 @@ from PyQt5.QtWidgets import (QGroupBox, QPushButton, QListWidget, QComboBox, QMe
 
 #
 from scipy.optimize import curve_fit
+from matplotlib.colors import to_rgba_array
 
 import rpy2.robjects as ro
 import rpy2.robjects.numpy2ri
@@ -46,6 +49,7 @@ spike_count_fcn = lambda t_sp: np.array([len(x) for x in t_sp])
 swap_array = lambda x1, x2, is_swap: np.array([x if is_sw else y for x, y, is_sw in zip(x1, x2, is_swap)])
 # combine_spike_freq = lambda sp_freq, i_dim: flat_list([list(sp_freq[i_filt][:, i_dim]) for i_filt in range(len(sp_freq))])
 calc_rel_count = lambda x, n: np.array([sum(x == i) for i in range(n)])
+convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
 
 # vectorisation function declarations
 sp_freq = lambda x, t_phase: len(x) / t_phase if x is not None else 0
@@ -61,6 +65,14 @@ t_wid_f = 0.99
 dcopy = copy.deepcopy
 is_linux = sys.platform == 'linux'
 default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
+
+_red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
+_blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
+_bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
+_bright_yellow = (249, 221, 2)
+
+custom_col = [_bright_yellow, _bright_red, _bright_cyan, _bright_purple, _red,
+              _black, _green, _blue, _gray, _light_gray, _orange]
 
 def flat_list(l):
     '''
@@ -649,7 +661,7 @@ def create_table(parent, font, data=None, col_hdr=None, row_hdr=None, n_row=None
     #
     n_col = len(col_hdr)
     if n_row is None:
-        n_row = 3
+        n_row = max_disprows
 
     # creates a default font object (if not provided)
     if font is None:
@@ -1277,8 +1289,7 @@ def get_plot_col(n_plot=1, i_ofs=0):
         if index < 10:
             return 'C{0}'.format(index)
         else:
-            # FINISH ME!
-            print('Finish Me!!')
+            return convert_rgb_col(custom_col[index-10])
 
     c = []
     for i_plot in range(n_plot):
@@ -2466,6 +2477,14 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
     :return:
     '''
 
+    # removes the non-NaN values
+    is_ok = ~np.isnan(y_err)
+    y_err, x = dcopy(y_err)[is_ok], np.array(dcopy(x))[is_ok]
+
+    #
+    if y_mn is not None:
+        y_mn = dcopy(y_mn)[is_ok]
+
     # sets up the error patch vertices
     if y_err2 is None:
         if y_mn is None:
@@ -2473,6 +2492,9 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
         else:
             err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err[::-1])]
     else:
+        # removes the non-NaN values
+        y_err2 = dcopy(y_err2)[is_ok]
+
         if y_mn is None:
             err_vert = [*zip(x, y_err), *zip(x[::-1], y_err2[::-1])]
         else:
@@ -2497,3 +2519,88 @@ def set_sns_colour_palette(type='Default'):
 
     # updates the colour palette
     sns.set_palette(colors)
+
+
+def det_closest_file_match(f_grp, f_new):
+    '''
+
+    :param f_grp:
+    :param f_new:
+    :return:
+    '''
+
+    # determines the best match and returns the matching file name/score
+    f_score = np.array([fuzz.partial_ratio(x, f_new) for x in f_grp])
+
+    # sorts the scores/file names by descending score
+    i_sort = np.argsort(-f_score)
+    f_score, f_grp = f_score[i_sort], np.array(f_grp)[i_sort]
+
+    #
+    if sum(f_score == 100) > 1:
+        a = 1
+    else:
+        return f_grp[0], f_score[0]
+
+def get_cfig_line(cfig_file, fld_name):
+    '''
+
+    :param cfg_file:
+    :param fld_name:
+    :return:
+    '''
+
+    return next(c.rstrip('\n').split('|')[1] for c in open(cfig_file) if fld_name in c)
+
+
+def save_single_file(f_name, data):
+    '''
+
+    :param f_name:
+    :param data:
+    :return:
+    '''
+
+    with open(f_name, 'wb') as fw:
+        p.dump(data, fw)
+
+
+def save_multi_comp_file(main_obj, out_info, force_update=False):
+    '''
+
+    :return:
+    '''
+
+    # sets the output file name
+    out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
+    if not force_update:
+        if not check_existing_file(main_obj, out_file):
+            # if the file does exists and the user doesn't want to overwrite then exit
+            return
+
+    # creates the multi-experiment data file based on the type
+    data_out = {'data': None, 'comp_data': main_obj.data.comp}
+    data_out['data'] = [[] for _ in range(2)]
+    data_out['data'][0], data_out['data'][1] = main_obj.get_comp_datasets()
+
+    # outputs the data to file
+    with open(out_file, 'wb') as fw:
+        p.dump(data_out, fw)
+
+def save_multi_data_file(main_obj, out_info, force_update=False):
+    '''
+
+    :return:
+    '''
+
+    # determines if the file exists
+    out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
+    if not force_update:
+        if not check_existing_file(main_obj, out_file):
+            # if the file does exists and the user doesn't want to overwrite then exit
+            return
+
+    # starts the worker thread
+    iw = main_obj.det_avail_thread_worker()
+    main_obj.worker[iw].set_worker_func_type('save_data_files', thread_job_para=[main_obj.data, out_info])
+    main_obj.worker[iw].start()
