@@ -429,6 +429,10 @@ class ParaFieldDialog(QDialog):
         self.create_control_buttons()
         self.setLayout(self.mainLayout)
 
+        # resizes the sub-gui width
+        n_fld = np.size(fld_vals, axis=1)
+        cf.set_obj_fixed_size(self, width=350 + 100 * n_fld)
+
         # sets the final window properties
         self.setWindowTitle(title)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -490,10 +494,6 @@ class ParaFieldDialog(QDialog):
         for i_fld in range(n_fld):
             h_hdr.setSectionResizeMode(i_fld + 2, QHeaderView.ResizeToContents)
 
-        # resizes the tables height
-        h_dim = self.h_table.geometry()
-        cf.set_obj_fixed_size(self.h_table, height=h_dim.height() + (3 - n_exp))
-
         # adds the widgets to the layout
         layout.addWidget(self.h_table)
         self.p_table.setLayout(layout)
@@ -506,9 +506,9 @@ class ParaFieldDialog(QDialog):
         '''
 
         # initialisations
-        b_txt = ['Close Window']
-        cb_fcn = [self.user_continue]
-        b_name = ['user_continue']
+        b_txt = ['Update Changes', 'Cancel']
+        cb_fcn = [self.user_continue, self.user_cancel]
+        b_name = ['user_continue', 'user_cancel']
 
         # group box object
         self.p_but = QGroupBox("")
@@ -577,6 +577,17 @@ class ParaFieldDialog(QDialog):
 
         # resets the button enabled properties
         self.set_button_enabled_props()
+
+    def user_cancel(self):
+        '''
+
+        :return:
+        '''
+
+        # resets the close flag and closes the GUI
+        self.can_close = True
+        self.close()
+
     def user_continue(self):
         '''
 

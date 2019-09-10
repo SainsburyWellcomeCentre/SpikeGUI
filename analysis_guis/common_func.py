@@ -1289,7 +1289,7 @@ def get_plot_col(n_plot=1, i_ofs=0):
         if index < 10:
             return 'C{0}'.format(index)
         else:
-            return convert_rgb_col(custom_col[index-10])
+            return convert_rgb_col(custom_col[index-10])[0]
 
     c = []
     for i_plot in range(n_plot):
