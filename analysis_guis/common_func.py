@@ -89,7 +89,7 @@ def flat_list(l):
     else:
         return l
 
-def calc_rel_prop(x, n, N=None):
+def calc_rel_prop(x, n, N=None, return_counts=False):
     '''
 
     :param x:
@@ -98,10 +98,12 @@ def calc_rel_prop(x, n, N=None):
     :return:
     '''
 
-    if N is None:
+    if return_counts:
+        return np.array([sum(x == i) for i in range(n)])
+    elif N is None:
         return 100 * np.array([sum(x == i) for i in range(n)]) / len(x)
     else:
-        return 100 * np.array([sum(x == i) for i in range(n)]) / N
+        return 0 if (N == 0) else 100 * np.array([sum(x == i) for i in range(n)]) / N
 
 class CheckableComboBox(QComboBox):
     def __init__(self, parent=None, has_all=False, first_line=None):

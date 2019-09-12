@@ -3016,19 +3016,20 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
         #
         if hasattr(r_data, 'phase_roc_auc'):
-            if r_data.phase_roc_auc is not None:
-                # sets the indices
-                ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
-                ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
+            if (r_data.phase_roc_auc is not None):
+                if len(r_data.phase_roc_auc):
+                    # sets the indices
+                    ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
+                    ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
 
-                # retrieves the black phase roc auc values (ensures the compliment is calculated)
-                auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
-                ii = auc_ex < 0.5
-                auc_ex[ii] = 1 - auc_ex[ii]
+                    # retrieves the black phase roc auc values (ensures the compliment is calculated)
+                    auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
+                    ii = auc_ex < 0.5
+                    auc_ex[ii] = 1 - auc_ex[ii]
 
-                # determines which values meet the criteria
-                is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
-                is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
+                    # determines which values meet the criteria
+                    is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
+                    is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
 
         # if the number of valid cells is less than the reqd count, then set all cells to being invalid
         if np.sum(is_valid) < lda_para['n_cell_min']:
@@ -3177,7 +3178,7 @@ def get_rsp_reduced_clusters(data):
     _data = dcopy(data)
 
     # reduces the data for each cluster
-    for c in data._cluster:
+    for c in _data._cluster:
         # determines the cells that are in the valid regions (RSPg and RSPd)
         i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
 
@@ -3190,6 +3191,22 @@ def get_rsp_reduced_clusters(data):
         # removes the non-valid cell from the time spikes
         for tt in c['rotInfo']['trial_type']:
             c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
+
+        # reduces the data for each cluster
+        if _data.cluster is not None:
+            for c in _data.cluster:
+                # determines the cells that are in the valid regions (RSPg and RSPd)
+                i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
+
+                # removes the non-valid cells from the depth, region and layer arrays
+                c['clustID'] = list(np.array(c['clustID'])[i_cell])
+                c['chDepth'] = c['chDepth'][i_cell]
+                c['chRegion'] = c['chRegion'][i_cell]
+                c['chLayer'] = c['chLayer'][i_cell]
+
+                # removes the non-valid cell from the time spikes
+                for tt in c['rotInfo']['trial_type']:
+                    c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
 
     # returns the valid cells array
     return _data
@@ -3214,7 +3231,7 @@ def get_channel_depths_tt(cluster, tt_type):
         for c in cluster:
             if tt in c['rotInfo']['trial_type']:
                 # calculates the depth of the cell in the current experiment
-                chMap, depth_max = c['expInfo']['channel_map'], c['expInfo']['channel_map'][-1, -1]
+                chMap, depth_max = c['expInfo']['channel_map'], c['expInfo']['probe_depth']
                 depth_nw.append(depth_max - chMap[c['chDepth'].astype(int), 3])
                 region_nw.append(list(c['chRegion']))
                 layer_nw.append(list(c['chLayer']))
@@ -3270,6 +3287,20 @@ def det_missing_data_fields(fld_vals, f_name, chk_flds):
     # returns the final values array
     return fld_vals
 
+
+def det_matching_ttype_expt(r_obj, cluster):
+    '''
+
+    :param r_obj:
+    :param cluster:
+    :return:
+    '''
+
+    # returns the unique trial types from the rotation object
+    t_type = set(np.unique(cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])))
+
+    # returns the indices of the experiments which don't have the correct trial type counts
+    return np.where([len(t_type.intersection(set(c['rotInfo']['trial_type']))) != len(t_type) for c in cluster])[0]
 
 # def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
 #     '''

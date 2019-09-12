@@ -5199,7 +5199,7 @@ class AnalysisGUI(QMainWindow):
     ####    DEPTH-BASED ANALYSIS FUNCTIONS    ####
     ##############################################
 
-    def plot_depth_spiking(self, rot_filt, depth_type, plot_grid, plot_all_expt,  plot_scope):
+    def plot_depth_spiking(self, rot_filt, plot_ratio, depth_type, plot_grid, plot_all_expt,  plot_scope):
         '''
 
         :param rot_filt:
@@ -5223,18 +5223,30 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         if depth_type == 'Preferred/Baseline FR Difference':
+            # determines the preferred direction (direction with the greatest absolute deviation from baseline)
+            dCW, dCCW = np.diff(plt[0], axis=0), np.diff(plt[1], axis=0)
+            imx = np.argmax(np.vstack((dCW, dCCW)).T, axis=1)
+            is_ok = [np.ones(len(x)) for x in ind]
+
             # sets up the significance
-            imx = np.argmax(np.array(plt[2]), axis=0)
             p_sig = np.array([stats[_imx][i] for i, _imx in enumerate(imx)])
             is_sig = [p_sig[_ind] < p_value for _ind in ind]
 
-            # sets up the plot values
-            dsf_Pref_BL = np.max(np.array(plt[2]), axis=0) - np.array(plt[0])[0, :]
-            x_plt = [dsf_Pref_BL[_ind] for _ind in ind]
+            #
+            if plot_ratio:
+                dsf_Pref_BL = np.divide([plt[_imx][1][i] for i, _imx in enumerate(imx)], np.array(plt[0])[0, :])
+                x_plt = [np.log10(dsf_Pref_BL[_ind]) for _ind in ind]
+                x_lbl = 'log10[FR(Pref)/FR(BL)]'
+            else:
+                dsf_Pref_BL = np.array([plt[_imx][1][i] for i, _imx in enumerate(imx)]) -  np.array(plt[0])[0, :]
+                x_plt = [dsf_Pref_BL[_ind] for _ind in ind]
+                x_lbl = 'FR(Pref) - FR(BL) (spike/s)'
 
             # sets the x-axis limits/label
-            xL = np.ceil(max(max([np.max(x) for x in x_plt]), np.abs(min([np.min(x) for x in x_plt]))))
-            x_lim, x_lbl, x_mid = [-xL, xL], 'FR(Pref) - FR(BL) (spike/s)', 0
+            is_ok = [np.logical_not(np.isinf(x)) for x in x_plt]
+            xL = np.ceil(max(max([np.max(x[i_ok]) for x, i_ok in zip(x_plt, is_ok)]),
+                             np.abs(min([np.min(x[i_ok]) for x, i_ok in zip(x_plt, is_ok)]))))
+            x_lim, x_mid = [-xL, xL], 0
 
         elif depth_type == 'CW/CCW auROC Difference':
             # sets the x-axis limits/label
@@ -5271,21 +5283,23 @@ class AnalysisGUI(QMainWindow):
             ax = self.plot_fig.ax[i_tt]
 
             # retrieves the indices of the
-            is_rspg, y_depth, y_layer = (ch_region[tt] == 'RSPg'), ch_depth[tt], ch_layer[tt]
+            is_rspg = (ch_region[tt][is_ok[i_tt]] == 'RSPg')
+            y_depth, y_layer = ch_depth[tt][is_ok[i_tt]], ch_layer[tt][is_ok[i_tt]]
+            is_sig_tt = is_sig[i_tt][is_ok[i_tt]]
 
             #
             i_grp = [
-                np.logical_and(is_rspg, is_sig[i_tt]),
-                np.logical_and(is_rspg, np.logical_not(is_sig[i_tt])),
-                np.logical_and(np.logical_not(is_rspg), is_sig[i_tt]),
-                np.logical_and(np.logical_not(is_rspg), np.logical_not(is_sig[i_tt])),
+                np.logical_and(is_rspg, is_sig_tt),
+                np.logical_and(is_rspg, np.logical_not(is_sig_tt)),
+                np.logical_and(np.logical_not(is_rspg), is_sig_tt),
+                np.logical_and(np.logical_not(is_rspg), np.logical_not(is_sig_tt)),
             ]
 
             #
             for i in range(2):
                 for j in range(2):
                     k = 2 * i + j
-                    x0, is_sig_nw = x_plt[i_tt][i_grp[k]], is_sig[i_tt][i_grp[k]]
+                    x0, is_sig_nw = x_plt[i_tt][is_ok[i_tt]][i_grp[k]], is_sig_tt[i_grp[k]]
                     e_col = [col[is_pos] for is_pos in (x0 < x_mid)]
 
                     for kk in range(len(x0)):
@@ -5297,19 +5311,23 @@ class AnalysisGUI(QMainWindow):
             ax.plot([0, 0], yL, 'k--')
             ax.set_ylim(yL)
 
-            #
+            # creates the legend (first trial type only)
             if i_tt == 0:
-                h_lg = []
-                lg_str = ['{0}{1})'.format(_lg_str, x_mid) for _lg_str in ['RSPg (<', 'RSPg (>', 'RSPd (<', 'RSPd (>']]
+                # sets the legend strings
+                lg_str = ['{0}{1})'.format(_lg_str, x_mid) for _lg_str in ['RSPg (>', 'RSPg (<', 'RSPd (>', 'RSPd (<']]
 
+                # creates the legend plot objects
+                h_lg = []
                 for i in range(2):
                     for j in range(2):
                         h_lg.append(ax.scatter(0, 10000., marker=m[i], facecolor=col[j], edgecolor=col[j]))
 
+                # creates the legend object
                 ax.legend(h_lg, lg_str, loc=0)
 
             # sets the plot axis
             ax.set_title(tt)
+            ax.invert_yaxis()
             ax.set_xlim(x_lim)
             ax.set_xlabel(x_lbl)
             ax.grid(plot_grid)
@@ -5318,7 +5336,7 @@ class AnalysisGUI(QMainWindow):
             if i_tt == 0:
                 ax.set_ylabel('Depth from Electrode Tip (um)')
 
-    def plot_depth_spiking_multi(self, rot_filt, depth_type, plot_grid, plot_all_expt, plot_scope):
+    def plot_depth_spiking_multi(self, rot_filt, plot_ratio, depth_type, plot_grid, plot_all_expt, plot_scope):
         '''
 
         :param rot_filt:
@@ -7693,39 +7711,19 @@ class AnalysisGUI(QMainWindow):
         s_plt, sf_trend, sf_stats, i_grp[0] = cf.setup_spike_freq_plot_arrays(r_obj, sp_f0, sp_f, ind_type, n_sub,
                                                                               plot_trend=plot_trend, is_3d=is_3d)
 
-        # memory allocation
-        r_obj_tt = np.empty(r_obj.n_filt, dtype=object)
-        is_keep = [np.ones(len(x), dtype=bool) for x in i_grp[0]]
+        # determines the indices of the experiments that need to be removed
+        i_expt_rmv = cfcn.det_matching_ttype_expt(r_obj, self.data.cluster)
+        if len(i_expt_rmv):
+            # memory allocation
+            is_keep = [np.ones(len(x), dtype=bool) for x in i_grp[0]]
 
-        #
-        for i_filt in range(n_filt):
-            # sets up a base filter with only the
-            r_filt_base = cf.init_rotation_filter_data(False)
-            r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
-            r_obj_tt[i_filt] = RotationFilteredData(self.data, r_filt_base, None, None,
-                                                    True, 'Whole Experiment', False)
+            # ensures that only the cells that have all selected trial conditions are used for the analysis
+            for i_filt in range(n_filt):
+                for i_rmv in i_expt_rmv:
+                    is_keep[i_filt][r_obj.i_expt[i_filt] == i_rmv] = False
 
-        for i_filt in range(n_filt):
-            # sets the indices for the base trial condition type
-            ind_i = set(np.arange(len(i_grp[0][i_filt])))
-
-            for j_filt in range(i_filt+1, n_filt):
-                # determines the cell matches between the two trial conditions
-                j_match, i_match = cf.det_cell_match_indices(r_obj_tt[j_filt], 0, r_obj)
-
-                # determines the indices of the cells that do not match between expts
-                ind_j = set(np.arange(len(i_grp[0][j_filt])))
-                i_rmv, j_rmv = np.array(list(ind_i - set(i_match))), np.array(list(ind_j - set(j_match)))
-
-                #
-                if len(j_rmv):
-                    is_keep[j_filt][j_rmv] = False
-
-                if len(i_rmv):
-                    is_keep[i_filt][i_rmv] = False
-
-        # resets the grouping
-        i_grp[0] = [ig[x] for ig, x in zip(i_grp[0], is_keep)]
+            # resets the grouping
+            i_grp[0] = [ig[x] for ig, x in zip(i_grp[0], is_keep)]
 
         #########################################
         ####    SCATTERPLOT SUBPLOT SETUP    ####
@@ -7805,7 +7803,7 @@ class AnalysisGUI(QMainWindow):
             if r_obj.is_ud and r_obj.n_filt == 2:
                 lg_str = ['All Cells']
             else:
-                lg_str = ['({0}) - {1}'.format(i + 1, x) for i, x in enumerate(r_obj.lg_str)]
+                lg_str = ['(#{0}) - {1}'.format(i + 1, x) for i, x in enumerate(r_obj.lg_str)]
 
             self.plot_fig.ax[0].legend(h_plt, lg_str, loc=0)
 
@@ -7899,13 +7897,17 @@ class AnalysisGUI(QMainWindow):
             # determines which cells are direction selective (removes non-motion sensitive cells)
             is_dir_sel = np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
             i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
-            n_cell = None if ms_prop else len(one_dir_sig)
-            sf_type_pr[1] = np.vstack([cf.calc_rel_prop(is_dir_sel[x], 2, n_cell) for x in i_grp[1]]).T
+            sf_type_pr[1] = np.vstack([cf.calc_rel_prop(is_dir_sel[x], 2, return_counts=True)
+                                       for i, x in enumerate(i_grp[1])]).T
+            x_lbl = ['#{0}'.format(i + 1) for i in np.arange(len(i_grp[0]))]
 
-            sf_type_plt[1] = dcopy(sf_type_pr[1])
+            # if not
             if not ms_prop:
-                sf_type_plt[1][0, :] = 100. - sf_type_plt[1][1, :]
-                sf_type_pr[1] /= np.sum(sf_type_pr[1]) / 100
+                n_cell = np.array([len(x) for x in i_grp[0]])
+                sf_type_pr[1][0, :] += n_cell - np.sum(sf_type_pr[1], axis=0)
+
+            # sets the direction
+            sf_type_plt[1] = 100. * dcopy(sf_type_pr[1]) / repmat(np.sum(sf_type_pr[1], axis=0),2,1)
 
             for i in range(2):
                 # creates the bar graph
@@ -7913,7 +7915,7 @@ class AnalysisGUI(QMainWindow):
                 if r_obj.is_ud and r_obj.n_filt == 2:
                     self.plot_fig.ax[i + n_sub].set_xticklabels(['All Cells'])
                 else:
-                    self.plot_fig.ax[i + n_sub].set_xticklabels(r_obj.lg_str)
+                    self.plot_fig.ax[i + n_sub].set_xticklabels(x_lbl)
                 self.plot_fig.ax[i + n_sub].grid(plot_grid)
 
                 # sets the legend strings based on the type
@@ -8072,15 +8074,17 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # memory allocation
-            depth = []
+            probe_depth, cell_depth = np.array([c['expInfo']['probe_depth'] for c in cluster]), []
+            if np.any(probe_depth == None):
+                return None
 
             # retrieves the depths from each experiment
-            for c in cluster:
+            for c, pd in zip(cluster, probe_depth):
                 chMap = c['expInfo']['channel_map']
-                depth.append([chMap[chMap[:, 1] == x, 3][0] for x in c['chDepth']])
+                cell_depth.append([pd - chMap[chMap[:, 1] == x, 3][0] for x in c['chDepth']])
 
             # returns the
-            return depth
+            return np.array(cell_depth)
 
         def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type):
             '''
@@ -8142,7 +8146,16 @@ class AnalysisGUI(QMainWindow):
         if not r_obj.is_single_cell:
             # case is the whole experiments
             data = self.get_data().cluster
-            ch_depth = np.array(get_channel_depths(data))
+            ch_depth = get_channel_depths(data)
+            if ch_depth is None:
+                # if not all channel depths are set, then output an error to screen
+                e_str = 'At least one experimental file does not have the probe depth set. \n' \
+                        'Pleast make sure all probe depths are set before running this function.'
+                cf.show_error(e_str, 'Missing Probe Depths')
+
+                # exits the function flagging the error
+                self.calc_ok = False
+                return
 
             D = [[ch_depth[x][y] for x, y in zip(i_ex, cf.flat_list([list(x) for x in cl_id]))] for i_ex, cl_id in
                  zip(r_obj.i_expt, r_obj.clust_ind)]
@@ -8167,7 +8180,7 @@ class AnalysisGUI(QMainWindow):
                 xi_h0[i][-1] = t_stim[i]
 
             # calculates the spiking frequency histograms
-            xi_h, sort_d = np.vstack(xi_h0), np.argsort(D[i_filt])
+            xi_h, sort_d = np.vstack(xi_h0), np.argsort(-np.array(D[i_filt]))
             I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d, mean_type)
 
             if not r_obj.is_single_cell:
@@ -8225,9 +8238,6 @@ class AnalysisGUI(QMainWindow):
                                                               origin='lower', cmap=hm_cmap)
                 # im[i_phase] = sns.heatmap(I_hm[i_filt][:, :, i_phase], cmap=pp, ax=self.plot_fig.ax[i_plot])
 
-                # # IS THIS NECESSARY?!
-                # self.plot_fig.ax[i_plot].invert_yaxis()
-
                 # sets the subplot title (first row only)
                 if i_filt == 0:
                     self.plot_fig.ax[i_plot].set_title(r_obj.phase_lbl[i_phase])
@@ -8238,8 +8248,8 @@ class AnalysisGUI(QMainWindow):
 
                 #
                 if ((i_phase + 1) == r_obj.n_phase) and (not r_obj.is_single_cell):
-                    im_d = self.plot_fig.ax[i_plot + 1].imshow(np.sort(D[i_filt]).reshape(-1, 1), aspect='auto',
-                                                               cmap='Reds', origin='lower')
+                    D_hm = np.array(D[i_filt]).reshape(-1, 1)
+                    im_d = self.plot_fig.ax[i_plot + 1].imshow(D_hm, aspect='auto', cmap='Reds', origin='lower')
                     self.plot_fig.ax[i_plot + 1].grid(False)
                     self.plot_fig.ax[i_plot + 1].get_xaxis().set_visible(False)
                     self.plot_fig.ax[i_plot + 1].get_yaxis().set_visible(False)
@@ -8631,7 +8641,7 @@ class AnalysisGUI(QMainWindow):
         if stats_type == 'Motion Sensitivity':
             n_DS = np.vstack([len(y) * x  / 100 for x, y in zip(sf_type_pr[0].T, i_grp[0])]).astype(int)
         else:
-            n_DS = (np.vstack([[sum(sf_type[x] > 0) for x in i_grp[1]]] * 2) * sf_type_pr[1] / 100)
+            n_DS = sf_type_pr[1]
 
         # returns the N-value array
         return n_DS
@@ -9601,7 +9611,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
-            'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
+            'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': False},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
@@ -10522,6 +10532,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': dcopy(r_filt_depth),
                 'para_gui_var': {'rmv_fields': ['region_name']}
             },
+            'plot_ratio': {'type': 'B', 'text': 'Plot Ratio Values', 'def_val': True},
             'depth_type': {
                 'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
             },
@@ -10577,6 +10588,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': dcopy(r_filt_depth),
                 'para_gui_var': {'rmv_fields': ['region_name']}
             },
+            'plot_ratio': {'type': 'B', 'text': 'Plot Ratio Values', 'def_val': True},
             'depth_type': {
                 'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
             },

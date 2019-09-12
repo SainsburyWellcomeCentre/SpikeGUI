@@ -216,6 +216,7 @@ class InfoDialog(QDialog):
             ['Cluster Types', 'cluster_type', True],
             ['Recording State', 'record_state', True],
             ['Recording Coordinate', 'record_coord', True],
+            ['Probe Depth (um)', 'probe_depth', True],
             ['Cluster Count', 'nC', False],
             ['Experiment Duration (s)', 'tExp', False],
             ['Sampling Frequency (Hz)', 'sFreq', False],
@@ -225,9 +226,13 @@ class InfoDialog(QDialog):
         for tt in expt_info:
             # sets the label value
             if tt[2]:
-                lbl_str = '{0}'.format(eval('c_data["expInfo"]["{0}"]'.format(tt[1])))
+                nw_val = eval('c_data["expInfo"]["{0}"]'.format(tt[1]))
+                if nw_val is None:
+                    lbl_str = 'N/A'
+                else:
+                    lbl_str = '{0}'.format(nw_val)
             else:
-                lbl_str = '{0}'.format(eval('c_data["{0}"]'.format(tt[1])))
+                lbl_str = '{0}'.format(int(eval('c_data["{0}"]'.format(tt[1]))))
 
             # creates the label objects
             h_lbl = cf.create_label(None, txt_font_bold, '{0}: '.format(tt[0]), align='right')
@@ -415,14 +420,17 @@ class ParaFieldDialog(QDialog):
         self.main_obj = main_obj
         self.chk_flds = chk_flds
         self.fld_vals0 = dcopy(fld_vals)
-        self.fld_vals = cfcn.det_missing_data_fields(fld_vals, f_name, chk_flds)
         self.f_name = f_name
 
-        # sets the cluster indices (depending if they have been provided or not)
+        # sets the cluster indices/field values (depending on whether parameters are missing or being altered)
         if cl_ind is None:
+            # case is the parameters are being altered
             self.cl_ind = np.arange(len(f_name))
+            self.fld_vals = dcopy(fld_vals)
         else:
+            # case is the parameters are missing
             self.cl_ind = cl_ind
+            self.fld_vals = cfcn.det_missing_data_fields(fld_vals, f_name, chk_flds)
 
         # creates the GUI objects
         self.init_data_table()

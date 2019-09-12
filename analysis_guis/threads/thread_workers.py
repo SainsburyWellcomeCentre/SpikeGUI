@@ -380,7 +380,7 @@ class WorkerThread(QThread):
                     r_filt_v['t_type'], r_filt_v['is_ud'], r_filt_v['t_cycle'] = ['UniformDrifting'], [True], ['15']
 
                     # retrieves the visual filter object
-                    r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_v, None, None, True,
+                    r_obj_vis, ind_type = cf.split_unidrift_phases(_data, r_filt_v, None, None, True,
                                                                    'Whole Experiment', 2., t_phase, t_ofs)
 
                     # calculates the full uniform-drifting curves
