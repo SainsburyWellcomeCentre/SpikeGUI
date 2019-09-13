@@ -5199,7 +5199,7 @@ class AnalysisGUI(QMainWindow):
     ####    DEPTH-BASED ANALYSIS FUNCTIONS    ####
     ##############################################
 
-    def plot_depth_spiking(self, rot_filt, plot_ratio, depth_type, plot_grid, plot_all_expt,  plot_scope):
+    def plot_depth_spiking(self, rot_filt, plot_ratio, plot_layer, depth_type, plot_grid, plot_all_expt,  plot_scope):
         '''
 
         :param rot_filt:
@@ -5267,8 +5267,24 @@ class AnalysisGUI(QMainWindow):
         ####    SUBPLOT SETUP    ####
         #############################
 
-        # initialises the plot axis
-        self.plot_fig.setup_plot_axis(n_row=1, n_col=n_tt)
+        # sets up the axes dimensions
+        if plot_layer:
+            # initialises the plot axes
+            self.plot_fig.setup_plot_axis(n_row=n_tt, n_col=1)
+
+        else:
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.01, 0.15
+            w_ratio, h_ratio = [0.85, 0.15], [1 / n_tt] * n_tt
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_tt, 2, width_ratios=w_ratio, height_ratios=h_ratio, wspace=wspace, hspace=hspace,
+                                   left=0.075, right=0.98, bottom=bottom, top=top, figure=self.plot_fig.fig)
+
+            # creates the subplots
+            self.plot_fig.ax = np.empty(2 * n_tt, dtype=object)
+            for i_tt in range(n_tt):
+                self.plot_fig.ax[2 * i_tt] = self.plot_fig.figure.add_subplot(gs[i_tt, 0])
+                self.plot_fig.ax[2 * i_tt + 1] = self.plot_fig.figure.add_subplot(gs[i_tt, 1])
 
         ################################
         ####    SUBPLOT CREATION    ####
@@ -5280,7 +5296,7 @@ class AnalysisGUI(QMainWindow):
         #
         for i_tt, tt in enumerate(t_type):
             # initialisations
-            ax = self.plot_fig.ax[i_tt]
+            ax = self.plot_fig.ax[2 * i_tt]
 
             # retrieves the indices of the
             is_rspg = (ch_region[tt][is_ok[i_tt]] == 'RSPg')
@@ -5295,6 +5311,20 @@ class AnalysisGUI(QMainWindow):
                 np.logical_and(np.logical_not(is_rspg), np.logical_not(is_sig_tt)),
             ]
 
+            if plot_layer:
+                rl_str = np.array(['{0}\n({1})'.format(x, y) for x, y in zip(ch_region[tt][is_ok[i_tt]], y_layer)])
+                rl_str_uniq = np.unique(rl_str)
+
+                y_depth_rl = [np.mean(y_depth[rl_str == x]) for x in rl_str_uniq]
+                i_sort = np.argsort([np.mean(y_depth[rl_str == x]) for x in rl_str_uniq])
+                rl_str_uniq = list(rl_str_uniq[i_sort])
+
+                y_depth = np.array([(rl_str_uniq.index(x) + 1) for x in rl_str])
+
+            ##########################################
+            ####    DEPTH/ACCURACY SCATTERPLOT    ####
+            ##########################################
+
             #
             for i in range(2):
                 for j in range(2):
@@ -5303,8 +5333,8 @@ class AnalysisGUI(QMainWindow):
                     e_col = [col[is_pos] for is_pos in (x0 < x_mid)]
 
                     for kk in range(len(x0)):
-                        h_nw = ax.scatter(x0[kk], y_depth[i_grp[k]][kk], marker=m[i],
-                                          facecolor=e_col[kk] if j==0 else 'w', edgecolors=e_col[kk], s=120)
+                        ax.scatter(x0[kk], y_depth[i_grp[k]][kk], marker=m[i],
+                                   facecolor=e_col[kk] if j==0 else 'w', edgecolors=e_col[kk], s=120)
 
             # plots the midline
             yL = ax.get_ylim()
@@ -5329,14 +5359,60 @@ class AnalysisGUI(QMainWindow):
             ax.set_title(tt)
             ax.invert_yaxis()
             ax.set_xlim(x_lim)
-            ax.set_xlabel(x_lbl)
             ax.grid(plot_grid)
 
-            # sets the y-axis label
-            if i_tt == 0:
-                ax.set_ylabel('Depth from Electrode Tip (um)')
+            if plot_layer:
+                ax.set_yticks(1. + np.arange(len(rl_str_uniq)))
+                ax.set_yticklabels(rl_str_uniq)
+            else:
+                ax.set_ylabel('Depth beneath Surface ({0}m)'.format(cf._mu))
 
-    def plot_depth_spiking_multi(self, rot_filt, plot_ratio, depth_type, plot_grid, plot_all_expt, plot_scope):
+            # sets the y-axis label
+            if (i_tt + 1) == n_tt:
+                ax.set_xlabel(x_lbl)
+
+            # continue if plotting the layers
+            if plot_layer:
+                continue
+
+            ###################################
+            ####    CELL LAYER LINEPLOT    ####
+            ###################################
+
+            # # sorts the values by depth
+            # i_sort_d = np.argsort(y_depth)
+            # y_depth, y_layer = y_depth[i_sort_d], y_layer[i_sort_d]
+
+            # retrieves the depth/layer axes
+            ax_l = self.plot_fig.ax[2 * i_tt + 1]
+
+            # sets the depths of each layer
+            y_layer_uniq = np.unique(y_layer)
+            y_depth_layer = np.array([y_depth[y_layer == y_l] for y_l in y_layer_uniq])
+
+            # sorts the layers by depth
+            i_sort_dl = np.argsort([np.mean(x) for x in y_depth_layer])
+            y_layer_uniq, y_depth_layer = y_layer_uniq[i_sort_dl], y_depth_layer[i_sort_dl]
+
+            # plots the markers
+            n_layer, l_col = len(y_layer_uniq), cf.get_plot_col(len(y_layer_uniq))
+            for i_yl in range(n_layer):
+                # plots the markers
+                y_dl, x = y_depth_layer[i_yl], (i_yl + 1)
+                ax_l.plot(x * np.ones(len(y_dl)), y_dl, 'o', color=l_col[i_yl], linewidth=2)
+
+                # adds the text markers to the lines
+                ax_l.text(x + 0.15, np.min(y_dl), y_layer_uniq[i_yl], rotation=-90,
+                          rotation_mode='anchor', fontweight='bold')
+
+            # sets the axis properties
+            ax_l.set_xlim([0.5, n_layer + 0.5])
+            ax_l.set_ylim(ax.get_ylim())
+            ax_l.set_xticks([])
+            ax_l.set_yticks([])
+            ax_l.grid(plot_grid)
+
+    def plot_depth_spiking_multi(self, rot_filt, plot_ratio, plot_layer, depth_type, plot_grid, plot_all_expt, plot_scope):
         '''
 
         :param rot_filt:
@@ -10533,6 +10609,7 @@ class AnalysisFunctions(object):
                 'para_gui_var': {'rmv_fields': ['region_name']}
             },
             'plot_ratio': {'type': 'B', 'text': 'Plot Ratio Values', 'def_val': True},
+            'plot_layer': {'type': 'B', 'text': 'Group Cells By Layer', 'def_val': True},
             'depth_type': {
                 'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
             },
@@ -10589,6 +10666,7 @@ class AnalysisFunctions(object):
                 'para_gui_var': {'rmv_fields': ['region_name']}
             },
             'plot_ratio': {'type': 'B', 'text': 'Plot Ratio Values', 'def_val': True},
+            'plot_layer': {'type': 'B', 'text': 'Group Cells By Layer', 'def_val': True},
             'depth_type': {
                 'type': 'L', 'text': 'Analysis Type', 'list': depth_type, 'def_val': depth_type[0],
             },
