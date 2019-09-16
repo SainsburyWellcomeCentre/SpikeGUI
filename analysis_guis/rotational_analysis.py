@@ -1226,7 +1226,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
 
                 # memory allocation
                 n_pbin, n_vbin = np.size(xi_bin[0], axis=0), np.size(xi_bin[1], axis=0)
-                sd_pos, sd_vel = np.sign(np.diff(xi_bin0[0])), np.sign(np.diff(xi_bin0[1]))
+                sd_pos, sd_vel = np.sign(np.diff(xi_bin0[0])), np.sign(np.diff(np.abs(xi_bin0[1])))
 
                 # calculates the position/velocity time bin durations
                 pos_dt = reorder_array(np.diff(t_bin[0]), i_grp[0], sd_pos, dtype=float)[0, :]

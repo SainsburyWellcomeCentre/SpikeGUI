@@ -231,10 +231,9 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-
-        ###############################################
-        ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
-        ###############################################
+    ###############################################
+    ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
+    ###############################################
 
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
                 # calculates the phase roc curve/significance values
@@ -297,8 +296,11 @@ class WorkerThread(QThread):
                 self.calc_partial_roc_curves(data, calc_para, plot_para, 66.)
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
+            #     # checks to see if any parameters have been altered
+            #     self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+            #
             #     # calculates the binned kinematic spike frequencies
-            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, False)
+            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
 
 
     ##########################################################
@@ -317,7 +319,8 @@ class WorkerThread(QThread):
                 _data = cfcn.get_rsp_reduced_clusters(data)
 
                 # calculates the phase roc-curves for each cell
-                if not self.calc_cond_roc_curves(_data, pool, _calc_para, _plot_para, g_para, False, 33., r_data=r_data):
+                if not self.calc_cond_roc_curves(_data, pool, _calc_para, _plot_para, g_para, True,
+                                                 33., r_data=r_data, force_black_calc=True):
                     self.is_ok = False
                     self.work_finished.emit(thread_data)
                     return

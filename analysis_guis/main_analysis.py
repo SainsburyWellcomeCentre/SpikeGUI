@@ -2795,7 +2795,7 @@ class AnalysisGUI(QMainWindow):
     #############################################
 
     def plot_rotation_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
-                                   n_bin, plot_grid):
+                                   n_bin, show_err, plot_grid):
         '''
 
         :param plot_scope:
@@ -2804,7 +2804,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
+        self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
                                   stats_type, plot_scope, plot_trend, m_size, plot_grid):
@@ -3317,7 +3317,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].plot([0, 0], [0, yL_1[1]], 'r--')
         self.plot_fig.ax[1].set_ylim([0, yL_1[1]])
 
-    def plot_spike_freq_kinematics(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
+    def plot_spike_freq_kinematics(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, spread_type, plot_scope,
                                    pos_bin, vel_bin, n_smooth, is_smooth, plot_grid):
         '''
 
@@ -3358,17 +3358,17 @@ class AnalysisGUI(QMainWindow):
                 # sets the temporary spiking frequency arrays
                 if i_plot == 0:
                     # case is decreasing position
-                    k_sf_tmp = k_sf[:, :, 0]
+                    k_sf_raw = k_sf[:, :, 0]
                 elif i_plot == 1:
                     # case is increasing position
-                    k_sf_tmp = k_sf[:, :, 1]
+                    k_sf_raw = k_sf[:, :, 1]
                 else:
                     # case is pooled position
-                    k_sf_tmp = np.mean(k_sf, axis=2)
+                    k_sf_raw = np.mean(k_sf, axis=2)
 
                 # calculates the mean spiking frequency over all cells
-                n_cell = np.size(k_sf_tmp, axis=0)
-                return np.mean(k_sf_tmp, axis=0), np.std(k_sf_tmp, axis=0) / (n_cell ** 0.5)
+                n_cell = np.size(k_sf_raw, axis=0)
+                return k_sf_raw, np.mean(k_sf_raw, axis=0), np.std(k_sf_raw, axis=0) / (n_cell ** 0.5)
 
             def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz, is_single_cell):
                 '''
@@ -3393,7 +3393,7 @@ class AnalysisGUI(QMainWindow):
 
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the mean plot values
-                        k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
+                        _, k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # creates the polar plot
                         d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
@@ -3423,7 +3423,7 @@ class AnalysisGUI(QMainWindow):
                     _ax.set_thetamin(0)
                     _ax.set_thetamax(180)
 
-            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth, is_single_cell):
+            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth, is_single_cell, plot_indiv):
                 '''
 
                 :param ax:
@@ -3439,6 +3439,7 @@ class AnalysisGUI(QMainWindow):
                 # initialisations
                 n_plot, c, mlt, yL = len(ax), cf.get_plot_col(r_obj.n_filt), 1, [1e6, -1e6]
                 t_str = ['Velocity ({0})'.format(x) for x in ['Decreasing', 'Increasing', 'Averaged']]
+                sf_min, sf_max = 1e6, -1e6
 
                 # sets the bin values
                 xi_mid = np.mean(xi_bin, axis=1)
@@ -3452,7 +3453,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the plots for each of the
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the plot values
-                        k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
+                        k_sf_raw, k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # smooths the signal (if required)
                         if is_smooth:
@@ -3460,10 +3461,29 @@ class AnalysisGUI(QMainWindow):
 
                         # creates the line plot
                         h_plt.append(ax[i_plot].plot(xi_mid, k_sf_mn, 'o-', color=c[i_filt]))
-                        cf.create_error_area_patch(ax[i_plot], xi_mid, k_sf_mn, k_sf_sem, c[i_filt])
+                        if is_single_cell and plot_indiv:
+                            #
+                            for i_trial in range(np.shape(k_sf_raw)[0]):
+                                # outputs the trace
+                                k_sf_raw_nw = k_sf_raw[i_trial, :]
+                                if is_smooth:
+                                    k_sf_raw_nw = medfilt(k_sf_raw_nw, n_smooth)
 
-                        # determines the overall min/max axis values
-                        yL = [min(0.95 * min(k_sf_mn - k_sf_sem), yL[0]), max(1.05 * max(k_sf_mn + k_sf_sem), yL[1])]
+                                # creates the new raw trace
+                                sf_min, sf_max = min([sf_min, np.min(k_sf_raw_nw)]), max([sf_max, np.max(k_sf_raw_nw)])
+                                ax[i_plot].plot(xi_mid, k_sf_raw_nw, c[i_filt], linewidth=1, alpha=0.25)
+
+                            # plots the mean spiking frequency values
+                            ax[i_plot].plot(xi_mid, k_sf_mn, c[i_filt], linewidth=2)
+
+                            # sets the axis limits
+                            if (i_plot + 1) == n_plot:
+                                yL = [sf_min - 0.05 * (sf_max - sf_min), sf_max + 0.05 * (sf_max - sf_min)]
+                        else:
+                            cf.create_error_area_patch(ax[i_plot], xi_mid, k_sf_mn, k_sf_sem, c[i_filt])
+
+                            # determines the overall min/max axis values
+                            yL = [min(0.95 * min(k_sf_mn - k_sf_sem), yL[0]), max(1.05 * max(k_sf_mn + k_sf_sem), yL[1])]
 
                         # sets the plot axis title/x-axis properties
                         if i_filt == 0:
@@ -3474,6 +3494,7 @@ class AnalysisGUI(QMainWindow):
                 # resets the axis limits over all axes
                 for _ax in ax:
                     _ax.set_ylim(yL)
+                    _ax.grid(plot_grid)
 
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             if not r_obj.is_ok:
@@ -3481,6 +3502,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # initialisations
+            plot_indiv = spread_type == 'Individual Trial Traces'
             c, k_rng = cf.get_plot_col(r_obj.n_filt), [90, 80]
             proj_type = ['polar', 'polar', 'polar', None, None, None]
 
@@ -3492,7 +3514,8 @@ class AnalysisGUI(QMainWindow):
 
             # creates the position polar/velocity line plots
             create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0], is_single_cell)
-            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth, is_single_cell)
+            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth,
+                                  is_single_cell, plot_indiv)
 
             # resets the subplot layout
             self.plot_fig.fig.set_tight_layout(False)
@@ -3639,7 +3662,7 @@ class AnalysisGUI(QMainWindow):
     ################################################
 
     def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
-                                   n_bin, plot_grid, rmv_median, show_pref_dir):
+                                   n_bin, show_err, plot_grid, rmv_median, show_pref_dir):
         '''
 
         :param rot_filter:
@@ -3649,7 +3672,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_raster_hist(r_obj, n_bin, show_pref_dir, plot_grid)
+        self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
                                  stats_type, plot_scope, plot_trend, m_size, plot_grid):
@@ -5214,7 +5237,7 @@ class AnalysisGUI(QMainWindow):
         plt, stats, ind, t_type = r_data.plt, r_data.stats, r_data.ind, r_data.r_filt['t_type']
         n_tt, ch_depth, ch_region, ch_layer = len(t_type), r_data.ch_depth, r_data.ch_region, r_data.ch_layer
 
-        #
+        # other initialisations and parameters
         auc = r_data.cond_roc_auc
         col, n_phase, p_value = ['r', 'b'], 3, 0.05
 
@@ -5226,42 +5249,59 @@ class AnalysisGUI(QMainWindow):
             # determines the preferred direction (direction with the greatest absolute deviation from baseline)
             dCW, dCCW = np.diff(plt[0], axis=0), np.diff(plt[1], axis=0)
             imx = np.argmax(np.vstack((dCW, dCCW)).T, axis=1)
-            is_ok = [np.ones(len(x)) for x in ind]
 
-            # sets up the significance
+            # retrieves the significant cells
             p_sig = np.array([stats[_imx][i] for i, _imx in enumerate(imx)])
             is_sig = [p_sig[_ind] < p_value for _ind in ind]
 
-            #
+            # sets the plot values (based on type)
             if plot_ratio:
+                # case is the firing rate ratio
                 dsf_Pref_BL = np.divide([plt[_imx][1][i] for i, _imx in enumerate(imx)], np.array(plt[0])[0, :])
                 x_plt = [np.log10(dsf_Pref_BL[_ind]) for _ind in ind]
                 x_lbl = 'log10[FR(Pref)/FR(BL)]'
             else:
+                # case is the firing rate difference
                 dsf_Pref_BL = np.array([plt[_imx][1][i] for i, _imx in enumerate(imx)]) -  np.array(plt[0])[0, :]
                 x_plt = [dsf_Pref_BL[_ind] for _ind in ind]
                 x_lbl = 'FR(Pref) - FR(BL) (spike/s)'
 
-            # sets the x-axis limits/label
+        elif depth_type == 'CW/CCW auROC Difference':
+            # retrieves the significant cells
+            is_sig = [r_data.cond_auc_sig[tt][:, -1] for tt in t_type]
+
+            # sets the plot values (based on type)
+            if plot_ratio:
+                # case is the CCW/CW auROC ratio
+                x_lbl = 'log10(auROC(CCW)/auROC(CW))'
+                x_plt = [np.log10(auc[tt][:, 2] / auc[tt][:, 1]) for tt in t_type]
+            else:
+                # case is the CCW/CW auROC difference
+                x_lbl = 'auROC(CCW) - auROC(CW) (a.u.)'
+                x_plt = [np.diff(auc[tt][:, 1:], axis=1) for tt in t_type]
+
+        elif depth_type == 'CW/CCW FR Difference':
+            # retrieves the significant cells
+            is_sig = [stats[2][_ind] < p_value for _ind in ind]
+
+            # sets the plot values (based on type)
+            if plot_ratio:
+                # case is the firing rate ratio
+                x_lbl = 'log10(FR(CCW)/FR(CW))'
+                x_plt = [np.log10(np.divide(plt[2][1], plt[2][0])[_ind]) for _ind in ind]
+            else:
+                # case is the firing rate difference
+                x_lbl = 'FR(CCW) - FR(CW) (a.u.)'
+                x_plt = [np.diff(np.array(plt[2])[:, _ind], axis=0) for _ind in ind]
+
+        if plot_ratio:
             is_ok = [np.logical_not(np.isinf(x)) for x in x_plt]
             xL = np.ceil(max(max([np.max(x[i_ok]) for x, i_ok in zip(x_plt, is_ok)]),
                              np.abs(min([np.min(x[i_ok]) for x, i_ok in zip(x_plt, is_ok)]))))
-            x_lim, x_mid = [-xL, xL], 0
-
-        elif depth_type == 'CW/CCW auROC Difference':
-            # sets the x-axis limits/label
-            x_lim, x_lbl, x_mid = [-1, 1], 'auROC(CCW) - auROC(CW) (a.u.)', 0
-
-            # sets up the plot values
-            x_plt = [np.diff(auc[tt][:, 1:], axis=1) for tt in t_type]
-
-        elif depth_type == 'CW/CCW FR Difference':
-            # sets up the plot values
-            x_plt = [np.diff(np.array(plt[2])[:, _ind], axis=0) for _ind in ind]
-
-            # sets the x-axis limits/label
-            xL = np.ceil(max(max([np.max(x) for x in x_plt]), np.abs(min([np.min(x) for x in x_plt]))))
-            x_lim, x_lbl, x_mid = [-xL, xL], 'FR(CCW) - FR(CW) (spike/s)', 0
+            x_lim = [-xL, xL]
+        else:
+            is_ok = [np.ones(len(x)) for x in ind]
+            x_lim = [-1, 1]
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -5291,19 +5331,19 @@ class AnalysisGUI(QMainWindow):
         ################################
 
         # plotting parameters
-        col, m = ['b', 'r'], ['s', '^'],
+        col, m, yL, y_ofs = ['b', 'r'], ['s', '^'], None, 0.75
 
         #
         for i_tt, tt in enumerate(t_type):
             # initialisations
-            ax = self.plot_fig.ax[2 * i_tt]
+            ax = self.plot_fig.ax[(1 + (not plot_layer)) * i_tt]
 
             # retrieves the indices of the
             is_rspg = (ch_region[tt][is_ok[i_tt]] == 'RSPg')
             y_depth, y_layer = ch_depth[tt][is_ok[i_tt]], ch_layer[tt][is_ok[i_tt]]
             is_sig_tt = is_sig[i_tt][is_ok[i_tt]]
 
-            #
+            # sets the grouping indices (for the significant/non-significant RSPd/RSPg groups)
             i_grp = [
                 np.logical_and(is_rspg, is_sig_tt),
                 np.logical_and(is_rspg, np.logical_not(is_sig_tt)),
@@ -5315,36 +5355,48 @@ class AnalysisGUI(QMainWindow):
                 rl_str = np.array(['{0}\n({1})'.format(x, y) for x, y in zip(ch_region[tt][is_ok[i_tt]], y_layer)])
                 rl_str_uniq = np.unique(rl_str)
 
-                y_depth_rl = [np.mean(y_depth[rl_str == x]) for x in rl_str_uniq]
+                # sorts the region/layer strings by average group cell depth
                 i_sort = np.argsort([np.mean(y_depth[rl_str == x]) for x in rl_str_uniq])
                 rl_str_uniq = list(rl_str_uniq[i_sort])
+                yL = [0.5, (len(rl_str_uniq) + 0.5)]
 
-                y_depth = np.array([(rl_str_uniq.index(x) + 1) for x in rl_str])
+                # retrieves the depths for each of the
+                y_depth = np.array([(rl_str_uniq.index(x) + 1) for x in rl_str]).astype(float)
+                y_depth += (1 - 2 * np.random.rand(len(y_depth))) * (y_ofs / 2)
+
+                # plots the group separation markers
+                for i in range(1, len(rl_str_uniq)):
+                    ax.plot(x_lim, (i + 0.5) * np.ones(2), 'k--')
 
             ##########################################
             ####    DEPTH/ACCURACY SCATTERPLOT    ####
             ##########################################
 
-            #
+            # creates the scatter
             for i in range(2):
                 for j in range(2):
+                    # sets the plot values/indices
                     k = 2 * i + j
                     x0, is_sig_nw = x_plt[i_tt][is_ok[i_tt]][i_grp[k]], is_sig_tt[i_grp[k]]
-                    e_col = [col[is_pos] for is_pos in (x0 < x_mid)]
+                    e_col = [col[is_pos] for is_pos in (x0 < 0)]
 
+                    # creates a scatterplot marker for each member of the group
                     for kk in range(len(x0)):
                         ax.scatter(x0[kk], y_depth[i_grp[k]][kk], marker=m[i],
                                    facecolor=e_col[kk] if j==0 else 'w', edgecolors=e_col[kk], s=120)
 
             # plots the midline
-            yL = ax.get_ylim()
+            if yL is None:
+                yL = ax.get_ylim()
+
+            # plots the midline
             ax.plot([0, 0], yL, 'k--')
             ax.set_ylim(yL)
 
             # creates the legend (first trial type only)
             if i_tt == 0:
                 # sets the legend strings
-                lg_str = ['{0}{1})'.format(_lg_str, x_mid) for _lg_str in ['RSPg (>', 'RSPg (<', 'RSPd (>', 'RSPd (<']]
+                lg_str = ['{0}{1})'.format(_lg_str, 0) for _lg_str in ['RSPg (>', 'RSPg (<', 'RSPd (>', 'RSPd (<']]
 
                 # creates the legend plot objects
                 h_lg = []
@@ -7518,7 +7570,7 @@ class AnalysisGUI(QMainWindow):
         # returns the pooled neuron spike counts
         return n_spike_pool
 
-    def create_raster_hist(self, r_obj, n_bin, show_pref_dir, plot_grid, rmv_median=False):
+    def create_raster_hist(self, r_obj, n_bin, show_pref_dir, show_err, plot_grid, rmv_median=False):
         '''
 
         :param t_spike:
@@ -7630,8 +7682,15 @@ class AnalysisGUI(QMainWindow):
                 # determines the overall minimum histogram value
                 n_hist_min = min(n_hist_min, np.min(n_hist_mn))
 
+                # creates the error area patch (if required)
+                ax_plot = self.plot_fig.ax[r_obj.n_phase + i_phase]
+                if show_err:
+                    # creates the histogram SEM shaded area patch
+                    n_hist_sem = np.std(n_hist, axis=0) / (np.shape(n_hist)[0] ** 0.5)
+                    cf.create_step_area_patch(ax_plot, xi_hist, n_hist_mn, n_hist_sem, c[i_filt])
+
                 # creates the new plot object
-                h_plot.append(self.plot_fig.ax[r_obj.n_phase + i_phase].step(xi_hist, n_hist_mn, color=c[i_filt]))
+                h_plot.append(ax_plot.step(xi_hist, n_hist_mn, color=c[i_filt], where='mid'))
                 if i_filt == 0:
                     self.plot_fig.ax[i_phase].set_xlim(0, t_phase)
                     self.plot_fig.ax[i_phase + r_obj.n_phase].set_xlim(0, t_phase)
@@ -9639,6 +9698,7 @@ class AnalysisFunctions(object):
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
+        spread_type = ['Individual Trial Traces', 'SEM Error Patches']
 
         # sets the LDA comparison types
         comp_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in data._cluster]))
@@ -9668,6 +9728,7 @@ class AnalysisFunctions(object):
             'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
 
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 20, 'min_val': 10},
+            'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Rotation Analysis',
@@ -9815,10 +9876,13 @@ class AnalysisFunctions(object):
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
+            'spread_type': {
+                'type': 'L', 'text': 'Individual Trial Spread Type', 'list': spread_type, 'def_val': spread_type[0],
+            },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
+                              ['plot_all_expt', 'Individual Cell'], ['spread_type', 'Whole Experiment']]
             },
 
             'pos_bin': {'type': 'L', 'text': 'Position Bin Size (deg)', 'list': pos_bin, 'def_val': '10'},
@@ -9896,6 +9960,7 @@ class AnalysisFunctions(object):
             },
 
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 100, 'min_val': 10},
+            'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             'rmv_median': {'type': 'B', 'text': 'Remove Baseline Median', 'def_val': True, 'is_visible': False},

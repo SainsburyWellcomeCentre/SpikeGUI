@@ -2507,6 +2507,36 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
     ax.add_patch(poly)
 
 
+def create_step_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2):
+    '''
+
+    :param ax:
+    :param x:
+    :param y_mn:
+    :param y_err:
+    :param col:
+    :param f_alpha:
+    :return:
+    '''
+
+    # determines the new x-axis interpolation points
+    d_xi = x[1] - x[0]
+    x_interp = np.arange(x[0] - d_xi / 2, x[-1] + (0.001 + d_xi / 2), d_xi)
+
+    # sets the x-locations for each of the steps
+    ii = np.arange(len(x)).astype(int)
+    x_step = x_interp[np.vstack((ii, ii+1)).T].flatten()
+
+    # sets the lower/upper bound step values
+    jj = repmat(ii, 2, 1).T
+    y_lo, y_hi = (y_mn[jj] - y_err[jj]).flatten(), (y_mn[jj] + y_err[jj]).flatten()
+
+    # creates the polygon object and adds it to the axis
+    step_vert = [*zip(x_step, y_lo), *zip(x_step[::-1], y_hi[::-1])]
+    poly = Polygon(step_vert, facecolor=col, alpha=f_alpha, edgecolor=col, linewidth=4)
+    ax.add_patch(poly)
+
+
 def set_sns_colour_palette(type='Default'):
     '''
 
