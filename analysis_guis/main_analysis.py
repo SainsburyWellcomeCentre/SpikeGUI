@@ -10764,9 +10764,9 @@ class AnalysisFunctions(object):
         err_type = ['IQR', 'SEM', 'Min/Max', 'None']
         decode_type = ['Condition'] + ['Dir ({0})'.format(x) for x in indiv_lda_para['comp_cond']]
         wght_plot_cond = wght_lda_para['comp_cond']
-        wght_plot_layer = cfcn.det_uniq_channel_layers(data, wght_lda_para)
         wght_plot_err = ['IQR', 'SEM']
         acc_type = ['Bar + Bubbleplot', 'Violinplot + Swarmplot']
+        wght_plot_layer = cfcn.det_uniq_channel_layers(data, wght_lda_para)
 
         # ====> Rotation Direction LDA
         para = {
@@ -11042,48 +11042,51 @@ class AnalysisFunctions(object):
                       para=para)
 
         # ====> LDA Group Weightings
-        para = {
-            # calculation parameters
-            'lda_para': {
-                'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': wght_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl],
-                                                         ['plot_layer', self.reset_plot_layer]],
-            },
-            't_phase_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
-                'def_val': cfcn.set_def_para(wght_def_para, 'tphase', t_phase)
-            },
-            't_ofs_rot': {
-                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
-                'def_val': cfcn.set_def_para(wght_def_para, 'tofs', t_ofs)
-            },
-            'use_full_rot': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
-                'def_val': cfcn.set_def_para(wght_def_para, 'usefull', True),
-                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
-            },
+        if wght_plot_layer is not None:
+            para = {
+                # calculation parameters
+                'lda_para': {
+                    'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
+                    'def_val': wght_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl],
+                                                             ['plot_layer', self.reset_plot_layer]],
+                },
+                't_phase_rot': {
+                    'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'min_val': 0.1,
+                    'def_val': cfcn.set_def_para(wght_def_para, 'tphase', t_phase)
+                },
+                't_ofs_rot': {
+                    'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'min_val': 0.00,
+                    'def_val': cfcn.set_def_para(wght_def_para, 'tofs', t_ofs)
+                },
+                'use_full_rot': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase',
+                    'def_val': cfcn.set_def_para(wght_def_para, 'usefull', True),
+                    'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+                },
 
-            # plotting parameters
-            'error_type': {
-                'type': 'L', 'text': 'Signal Error Type', 'list': wght_plot_err, 'def_val': wght_plot_err[0]
-            },
-            'wght_thresh': {'text': 'Coefficient Weight Threshold', 'def_val': 0.05, 'min_val': 0.0, 'max_val': 1.0},
-            'plot_cond': {
-                'type': 'CL', 'text': 'Plot Conditions', 'list': wght_plot_cond,
-                'def_val': np.ones(len(wght_plot_cond), dtype=bool),
-            },
-            'plot_layer': {
-                'type': 'CL', 'text': 'Plot Channel Layers', 'list': wght_plot_layer,
-                'def_val': np.ones(len(wght_plot_layer), dtype=bool), 'other_para': '--- Select Layer Types ---'
-            },
-            'plot_comp': {'type': 'B', 'text': 'Show Coefficient/Depth Comparison', 'def_val': False,
-                          'link_para': [['plot_cond', False], ['plot_layer', False]]},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-        }
-        self.add_func(type='Direction LDA',
-                      name='LDA Group Weightings',
-                      func='plot_lda_weights',
-                      para=para)
+                # plotting parameters
+                'error_type': {
+                    'type': 'L', 'text': 'Signal Error Type', 'list': wght_plot_err, 'def_val': wght_plot_err[0]
+                },
+                'wght_thresh': {
+                    'text': 'Coefficient Weight Threshold', 'def_val': 0.05, 'min_val': 0.0, 'max_val': 1.0
+                },
+                'plot_cond': {
+                    'type': 'CL', 'text': 'Plot Conditions', 'list': wght_plot_cond,
+                    'def_val': np.ones(len(wght_plot_cond), dtype=bool),
+                },
+                'plot_layer': {
+                    'type': 'CL', 'text': 'Plot Channel Layers', 'list': wght_plot_layer,
+                    'def_val': np.ones(len(wght_plot_layer), dtype=bool), 'other_para': '--- Select Layer Types ---'
+                },
+                'plot_comp': {'type': 'B', 'text': 'Show Coefficient/Depth Comparison', 'def_val': False,
+                              'link_para': [['plot_cond', False], ['plot_layer', False]]},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Direction LDA',
+                          name='LDA Group Weightings',
+                          func='plot_lda_weights',
+                          para=para)
 
         ######################################
         ####    KINEMATIC LDA FUNCTIONS   ####

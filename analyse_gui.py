@@ -14,7 +14,7 @@ import seaborn as sns
 #          "turquoise blue", "sandy", "dark seafoam", "dark lilac"]
 
 if __name__ == '__main__':
-
+    # sets the windows style (if on Subiculum)
     if sys.platform == 'linux':
         QApplication.setStyle('windows')
 

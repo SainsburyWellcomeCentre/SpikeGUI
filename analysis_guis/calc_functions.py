@@ -3128,10 +3128,13 @@ def det_uniq_channel_layers(data, lda_para):
 
     # retrieves the valid experiment/cell and reduces down the cluster data array
     _, i_expt, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para})
-    _data = reduce_cluster_data(data, i_expt)
 
     # returns the unique layer types
-    return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
+    if i_expt is None:
+        return None
+    else:
+        _data = reduce_cluster_data(data, i_expt)
+        return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
 
 
 def get_glob_para(gp_type):
