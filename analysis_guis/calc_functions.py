@@ -29,7 +29,11 @@ from rpy2.robjects.methods import RS4
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 pandas2ri.activate()
-r_art = importr("ARTool")
+
+# try:
+#     r_art = importr("ARTool")
+# except:
+#     pass
 
 # sklearn module imports
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA

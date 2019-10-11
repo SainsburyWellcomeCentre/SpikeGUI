@@ -570,8 +570,10 @@ class RotationFilteredData(object):
         # applies the filter and sets up the other plotting field values
         self.apply_rotation_filter(data)
         self.set_spike_arrays(data, i_cluster)
-        self.set_legend_str()
-        self.set_final_data_arrays()
+
+        if self.is_ok:
+            self.set_legend_str()
+            self.set_final_data_arrays()
 
     #####################################
     ####    MAIN FILTER FUNCTIONS    ####
@@ -619,7 +621,7 @@ class RotationFilteredData(object):
             e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
                     'different index or rotation analysis filter.'
 
-        if self.is_single_cell:
+        elif self.is_single_cell:
             if i_cluster not in (clust_ind[0][0] + 1):
                 # if the cluster index is not valid, then output an error to screen
                 e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \

@@ -2182,7 +2182,7 @@ class WorkerThread(QThread):
                     if calc_para['pool_expt']:
                         # case all cells are pooled over all experiments
                         spd_sf_sh = [set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)]
-                        # set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
+
                     else:
                         # case all cells
                         is_keep = np.array(n_cell_ex) >= n_c
@@ -2566,7 +2566,7 @@ class WorkerThread(QThread):
             if calc_para['grp_stype'] == 'Wilcoxon Paired Test':
                 if np.all(r_data.cond_gtype[tt][:, 0] >= 0):
                     # if all the values have been calculated, then exit the function
-                    return True
+                    continue
 
                 # sets the rotation object for the current condition
                 r_obj_sig = RotationFilteredData(data, r_obj.rot_filt_tot[i_rr], None, plot_para['plot_exp_name'],

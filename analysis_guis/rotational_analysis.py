@@ -734,8 +734,11 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
 
         # removes any of the non-feasible entries
         t_spike, wvm_para, trial_ind = t_spike[is_ok], wvm_para[is_ok], trial_ind[is_ok]
-        clust_ind, i_expt, f_perm = clust_ind[is_ok], i_expt[is_ok], f_perm[is_ok, :]
+        clust_ind, i_expt = clust_ind[is_ok], i_expt[is_ok]
         rot_filt_p = [x for x, y in zip(rot_filt_p, is_ok) if y]
+
+        if f_perm is not None:
+            f_perm = f_perm[is_ok, :]
 
     # returns the spike time/waveform parameter/filter parameter arrays
     return t_spike, wvm_para, trial_ind, clust_ind, i_expt, f_perm, f_key, rot_filt_p
@@ -826,8 +829,11 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     for i_expt in range(n_expt):
         if is_ok[i_expt]:
             # sets the indices of the values that are to be kept
-            ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
             ind_tr = np.ones(np.size(t_spike[i_expt], axis=1), dtype=bool)
+            ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
+            if len(ind_cl) == 0:
+                is_ok[i_expt] = False
+                continue
 
             # goes through the filter fields removing entries that don't meet the criteria
             for iccf, ccf in enumerate(cc_filt_str):

@@ -5234,12 +5234,34 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         r_data = self.data.depth
-        plt, stats, ind, t_type = r_data.plt, r_data.stats, r_data.ind, r_data.r_filt['t_type']
-        n_tt, ch_depth, ch_region, ch_layer = len(t_type), r_data.ch_depth, r_data.ch_region, r_data.ch_layer
+        plt, stats, ind, t_type = r_data.plt, r_data.stats, dcopy(r_data.ind), r_data.r_filt['t_type']
+        n_tt, ch_depth0 = len(t_type), dcopy(r_data.ch_depth)
+        ch_region0, ch_layer0 = dcopy(r_data.ch_region), dcopy(r_data.ch_layer)
 
         # other initialisations and parameters
-        auc = r_data.cond_roc_auc
+        auc0 = dcopy(r_data.cond_roc_auc)
         col, n_phase, p_value = ['r', 'b'], 3, 0.05
+
+        # creates the rotation filter object
+        r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+
+        # memory allocation
+        n_filt, a = r_obj.n_filt, np.empty(r_obj.n_filt, dtype=object)
+        ch_depth, ch_region, ch_layer, auc, ind = dcopy(a), dcopy(a), dcopy(a), dcopy(a), dcopy(a)
+
+
+        for i_filt in range(n_filt):
+            # retrieves the trial type for the current filter
+            tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
+
+            # determines of the indices that match the rotational filter
+            ind_tmp = [np.where(r_data.cond_i_expt[tt] == x)[0] for x in range(max(r_data.cond_i_expt[tt]) + 1)]
+            ind_tmp = [x for x in ind_tmp if len(x)]
+
+            # sets the indices of the values that will be kept for analysis
+            ind[i_filt] = np.array(cf.flat_list([_ind[x] for _ind, x in zip(ind_tmp, r_obj.clust_ind[i_filt])]))
+            ch_depth[i_filt], ch_region[i_filt] = ch_depth0[tt][ind[i_filt]], ch_region0[tt][ind[i_filt]]
+            ch_layer[i_filt], auc[i_filt]  = ch_layer0[tt][ind[i_filt]], auc0[tt][ind[i_filt]]
 
         ###################################
         ####    DATA PRE-PROCESSING    ####
@@ -5310,21 +5332,21 @@ class AnalysisGUI(QMainWindow):
         # sets up the axes dimensions
         if plot_layer:
             # initialises the plot axes
-            self.plot_fig.setup_plot_axis(n_row=n_tt, n_col=1)
+            self.plot_fig.setup_plot_axis(n_row=1, n_col=n_filt)
 
         else:
             top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.01, 0.15
-            w_ratio, h_ratio = [0.85, 0.15], [1 / n_tt] * n_tt
+            w_ratio, h_ratio = [0.85, 0.15], [1 / n_filt] * n_filt
 
             # creates the gridspec object
-            gs = gridspec.GridSpec(n_tt, 2, width_ratios=w_ratio, height_ratios=h_ratio, wspace=wspace, hspace=hspace,
+            gs = gridspec.GridSpec(n_filt, 2, width_ratios=w_ratio, height_ratios=h_ratio, wspace=wspace, hspace=hspace,
                                    left=0.075, right=0.98, bottom=bottom, top=top, figure=self.plot_fig.fig)
 
             # creates the subplots
-            self.plot_fig.ax = np.empty(2 * n_tt, dtype=object)
-            for i_tt in range(n_tt):
-                self.plot_fig.ax[2 * i_tt] = self.plot_fig.figure.add_subplot(gs[i_tt, 0])
-                self.plot_fig.ax[2 * i_tt + 1] = self.plot_fig.figure.add_subplot(gs[i_tt, 1])
+            self.plot_fig.ax = np.empty(2 * n_filt, dtype=object)
+            for i_filt in range(n_filt):
+                self.plot_fig.ax[2 * i_filt] = self.plot_fig.figure.add_subplot(gs[i_filt, 0])
+                self.plot_fig.ax[2 * i_filt + 1] = self.plot_fig.figure.add_subplot(gs[i_filt, 1])
 
         ################################
         ####    SUBPLOT CREATION    ####
@@ -5333,15 +5355,17 @@ class AnalysisGUI(QMainWindow):
         # plotting parameters
         col, m, yL, y_ofs = ['b', 'r'], ['s', '^'], None, 0.75
 
+
         #
-        for i_tt, tt in enumerate(t_type):
+        for i_filt in range(n_filt):
             # initialisations
-            ax = self.plot_fig.ax[(1 + (not plot_layer)) * i_tt]
+            tt = r_obj.rot_filt_tot[i_filt]['t_type']
+            ax = self.plot_fig.ax[(1 + (not plot_layer)) * i_filt]
 
             # retrieves the indices of the
-            is_rspg = (ch_region[tt][is_ok[i_tt]] == 'RSPg')
-            y_depth, y_layer = ch_depth[tt][is_ok[i_tt]], ch_layer[tt][is_ok[i_tt]]
-            is_sig_tt = is_sig[i_tt][is_ok[i_tt]]
+            is_rspg = (ch_region[i_filt][is_ok[i_filt]] == 'RSPg')
+            y_depth, y_layer = ch_depth[i_filt][is_ok[i_filt]], ch_layer[i_filt][is_ok[i_filt]]
+            is_sig_tt = is_sig[i_filt][is_ok[i_filt]]
 
             # sets the grouping indices (for the significant/non-significant RSPd/RSPg groups)
             i_grp = [
@@ -5352,7 +5376,7 @@ class AnalysisGUI(QMainWindow):
             ]
 
             if plot_layer:
-                rl_str = np.array(['{0}\n({1})'.format(x, y) for x, y in zip(ch_region[tt][is_ok[i_tt]], y_layer)])
+                rl_str = np.array(['{0}\n({1})'.format(x, y) for x, y in zip(ch_region[i_filt][is_ok[i_filt]], y_layer)])
                 rl_str_uniq = np.unique(rl_str)
 
                 # sorts the region/layer strings by average group cell depth
@@ -5377,7 +5401,7 @@ class AnalysisGUI(QMainWindow):
                 for j in range(2):
                     # sets the plot values/indices
                     k = 2 * i + j
-                    x0, is_sig_nw = x_plt[i_tt][is_ok[i_tt]][i_grp[k]], is_sig_tt[i_grp[k]]
+                    x0, is_sig_nw = x_plt[i_filt][is_ok[i_filt]][i_grp[k]], is_sig_tt[i_grp[k]]
                     e_col = [col[is_pos] for is_pos in (x0 < 0)]
 
                     # creates a scatterplot marker for each member of the group
@@ -5394,7 +5418,7 @@ class AnalysisGUI(QMainWindow):
             ax.set_ylim(yL)
 
             # creates the legend (first trial type only)
-            if i_tt == 0:
+            if i_filt == 0:
                 # sets the legend strings
                 lg_str = ['{0}{1})'.format(_lg_str, 0) for _lg_str in ['RSPg (>', 'RSPg (<', 'RSPd (>', 'RSPd (<']]
 
@@ -5408,20 +5432,25 @@ class AnalysisGUI(QMainWindow):
                 ax.legend(h_lg, lg_str, loc=0)
 
             # sets the plot axis
-            ax.set_title(tt)
+            ax.set_title(', '.join(r_obj.lg_str[i_filt].split('\n')))
             ax.invert_yaxis()
             ax.set_xlim(x_lim)
             ax.grid(plot_grid)
 
             if plot_layer:
-                ax.set_yticks(1. + np.arange(len(rl_str_uniq)))
-                ax.set_yticklabels(rl_str_uniq)
+                if i_filt == 0:
+                    ax.set_yticks(1. + np.arange(len(rl_str_uniq)))
+                    ax.set_yticklabels(rl_str_uniq)
+                else:
+                    ax.set_yticklabels([])
+
+                ax.set_xlabel(x_lbl)
             else:
                 ax.set_ylabel('Depth beneath Surface ({0}m)'.format(cf._mu))
 
-            # sets the y-axis label
-            if (i_tt + 1) == n_tt:
-                ax.set_xlabel(x_lbl)
+                # sets the y-axis label
+                if (i_filt + 1) == n_filt:
+                    ax.set_xlabel(x_lbl)
 
             # continue if plotting the layers
             if plot_layer:
@@ -5431,12 +5460,8 @@ class AnalysisGUI(QMainWindow):
             ####    CELL LAYER LINEPLOT    ####
             ###################################
 
-            # # sorts the values by depth
-            # i_sort_d = np.argsort(y_depth)
-            # y_depth, y_layer = y_depth[i_sort_d], y_layer[i_sort_d]
-
             # retrieves the depth/layer axes
-            ax_l = self.plot_fig.ax[2 * i_tt + 1]
+            ax_l = self.plot_fig.ax[2 * i_filt + 1]
 
             # sets the depths of each layer
             y_layer_uniq = np.unique(y_layer)
@@ -7233,7 +7258,7 @@ class AnalysisGUI(QMainWindow):
             x = np.arange(np.size(d_data.spd_xi, axis=0))
             spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
             x_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
-            xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+            xL, yL, h_plt, k = [x[0], x[-1] + 1.], [0., 100.], [], 0
 
             # sets cell count for each of the experiments (sets to 1 if not showing cell size)
             y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in y_acc]
@@ -8300,7 +8325,7 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj)
-        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=35, l=45, n=11))
+        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=33, l=47, n=11))
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
