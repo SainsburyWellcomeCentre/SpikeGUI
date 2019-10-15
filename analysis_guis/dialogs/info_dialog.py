@@ -226,11 +226,14 @@ class InfoDialog(QDialog):
         for tt in expt_info:
             # sets the label value
             if tt[2]:
-                nw_val = eval('c_data["expInfo"]["{0}"]'.format(tt[1]))
-                if nw_val is None:
+                if tt[1] not in c_data['expInfo']:
                     lbl_str = 'N/A'
                 else:
-                    lbl_str = '{0}'.format(nw_val)
+                    nw_val = eval('c_data["expInfo"]["{0}"]'.format(tt[1]))
+                    if nw_val is None:
+                        lbl_str = 'N/A'
+                    else:
+                        lbl_str = '{0}'.format(nw_val)
             else:
                 lbl_str = '{0}'.format(int(eval('c_data["{0}"]'.format(tt[1]))))
 

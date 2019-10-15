@@ -17,7 +17,7 @@ from rotation_analysis.analysis.probe.probe_io.probe_io import TriggerTraceIo, B
 
 
 #
-import analysis_guis.testing.diagnostic_plots as diag_plot
+# import analysis_guis.testing.diagnostic_plots as diag_plot
 import _pickle as cp
 
 # pyqt5 module import

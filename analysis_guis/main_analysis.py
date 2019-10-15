@@ -5243,11 +5243,12 @@ class AnalysisGUI(QMainWindow):
         col, n_phase, p_value = ['r', 'b'], 3, 0.05
 
         # creates the rotation filter object
-        r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        _data = cfcn.get_rsp_reduced_clusters(dcopy(self.data))
+        r_obj = RotationFilteredData(_data, rot_filt, None, None, True, 'Whole Experiment', False)
 
         # memory allocation
         n_filt, a = r_obj.n_filt, np.empty(r_obj.n_filt, dtype=object)
-        ch_depth, ch_region, ch_layer, auc, ind = dcopy(a), dcopy(a), dcopy(a), dcopy(a), dcopy(a)
+        ch_depth, ch_region, ch_layer, auc, ind_g = dcopy(a), dcopy(a), dcopy(a), dcopy(a), dcopy(a)
 
 
         for i_filt in range(n_filt):
@@ -5259,9 +5260,9 @@ class AnalysisGUI(QMainWindow):
             ind_tmp = [x for x in ind_tmp if len(x)]
 
             # sets the indices of the values that will be kept for analysis
-            ind[i_filt] = np.array(cf.flat_list([_ind[x] for _ind, x in zip(ind_tmp, r_obj.clust_ind[i_filt])]))
-            ch_depth[i_filt], ch_region[i_filt] = ch_depth0[tt][ind[i_filt]], ch_region0[tt][ind[i_filt]]
-            ch_layer[i_filt], auc[i_filt]  = ch_layer0[tt][ind[i_filt]], auc0[tt][ind[i_filt]]
+            ind_g[i_filt] = np.array(cf.flat_list([_ind[x] for _ind, x in zip(ind_tmp, r_obj.clust_ind[i_filt])]))
+            ch_depth[i_filt], ch_region[i_filt] = ch_depth0[tt][ind_g[i_filt]], ch_region0[tt][ind_g[i_filt]]
+            ch_layer[i_filt], auc[i_filt]  = ch_layer0[tt][ind_g[i_filt]], auc0[tt][ind_g[i_filt]]
 
         ###################################
         ####    DATA PRE-PROCESSING    ####
