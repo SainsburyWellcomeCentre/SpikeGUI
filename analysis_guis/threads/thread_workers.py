@@ -448,10 +448,10 @@ class WorkerThread(QThread):
                 # if the temporal data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.temp.lda is None:
                     # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.temp)
 
                     # sets up the important arrays for the LDA
-                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
+                    r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.temp,
                                                                                  w_prog, w_err=w_err)
                     if status == 0:
                         # if there was an error in the calculations, then return an error flag

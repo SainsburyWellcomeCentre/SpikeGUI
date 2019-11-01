@@ -5679,6 +5679,7 @@ class AnalysisGUI(QMainWindow):
             # c_mat_ch = np.reshape(d_data.lda[i_expt]['c_mat_chance'] / d_data.ntrial, sz_nw)
 
         # sets the chance values
+        y_acc = y_acc.reshape(1, -1) if n_expt == 1 else y_acc
         y_acc_ch = 0.5 * np.ones((1, 1 + n_cond))
         n_cell, is_multi = np.array([x['n_cell'] for x in d_data.lda]), len(d_data.lda)  > 1
 
@@ -5766,14 +5767,18 @@ class AnalysisGUI(QMainWindow):
 
         # other parameters
         yL = [0., 102.]
+        n_col = np.size(y_acc, axis=1)
+        is_single_cond = n_cond == 1
 
         if acc_type == 'Bar + Bubbleplot':
             # sets the plot colours and values
-            y_acc_l = [100 * y_acc[:, i] for i in range(np.size(y_acc, axis=1))]
-            col, b_col = cf.get_plot_col(len(x_bar)), to_rgba_array(np.array(_light_gray) / 255, 1)
+            y_acc_l = [100 * y_acc[:, i] for i in range(is_single_cond, n_col)]
+            y_acc_lmn = np.array([np.mean(x) for x in y_acc_l])
+            x_bar = [(x - is_single_cond) for x in range(is_single_cond, n_col)]
+            col, b_col = cf.get_plot_col(len(x_bar),is_single_cond), to_rgba_array(np.array(_light_gray) / 255, 1)
 
             # plots the mean accuracy values
-            self.plot_fig.ax[3].bar(x_bar, 100. * np.mean(y_acc, axis=0), width=w_bar, color=col, zorder=1)
+            self.plot_fig.ax[3].bar(x_bar, y_acc_lmn, width=w_bar, color=col, zorder=1)
 
             # creates the final plot based on the selected type
             cf.create_bubble_boxplot(self.plot_fig.ax[3], y_acc_l, plot_median=False, X0=x_bar,
@@ -5781,7 +5786,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the bar plot axis properties
             self.plot_fig.ax[3].set_xticks(x_bar)
-            self.plot_fig.ax[3].set_xticklabels(bar_lbls)
+            self.plot_fig.ax[3].set_xticklabels(np.array(bar_lbls)[is_single_cond:])
         else:
             # sets the x/y plot values
             x_plt = cf.flat_list([['{0}'.format(x)] * np.size(y_acc, axis=0) for x in bar_lbls])
@@ -5797,7 +5802,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the mean accuracy lines
             h_plt_mn, lbl_plt_mn, n_expt = [], [], np.size(y_acc, axis=0)
-            for i_plt in range(np.size(y_acc, axis=1)):
+            for i_plt in range(is_single_cond, np.size(y_acc, axis=1)):
                 # creates the avg. marker line
                 y_mn = 100. * np.mean(y_acc[:, i_plt])
                 l_nw, h_nw = create_marker_line(self.plot_fig.ax[3], y_mn, lg_str[i_plt], i_plt, n_expt, 0.8, 'k')
@@ -5810,7 +5815,7 @@ class AnalysisGUI(QMainWindow):
             datacursor(h_plt_mn, formatter=formatter_lbl, point_labels=lbl_plt_mn, hover=True)
 
         # creates the separation marker lines
-        for i_plt in range(np.size(y_acc, axis=1) - 1):
+        for i_plt in range(n_col - (1 + is_single_cond)):
             self.plot_fig.ax[3].plot((i_plt + 0.5) * np.ones(2), yL, 'k--')
 
         # creates the line markers
@@ -5825,7 +5830,7 @@ class AnalysisGUI(QMainWindow):
 
         # only output the stats/trends if there is multiple experiments
         if is_multi:
-            if output_stats:
+            if output_stats and (not is_single_cond):
                 # case is the statistics output
 
                 # sets up the values for the calculations

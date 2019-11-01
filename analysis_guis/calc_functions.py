@@ -2991,7 +2991,10 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
         # determines the cells that are in the valid regions (RSPg and RSPd)
         exc_filt = data.exc_rot_filt
         cluster = data._cluster[ind] if data.cluster is None else data.cluster[ind]
-        is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd')
+
+        # sets the boolean flags for the valid cells
+        # is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd') #### COMMENT ME OUT FOR RETROSPLANIAL ONLY CELLS
+        is_valid = np.ones(len(cluster['chRegion']),dtype=bool)
 
         # removes any values that correspond to the fields in the exclusion filter
         for ex_key in ['region_name', 'record_layer']:
@@ -3044,10 +3047,10 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
     # initialisations
     lda_para, s_flag = calc_para['lda_para'], 2
-    if len(lda_para['comp_cond']) < 2:
-        # if less than 2 trial conditions are selected then output an error to screen
+    if len(lda_para['comp_cond']) < 1:
+        # if no trial conditions are selected then output an error to screen
         if w_err is not None:
-            e_str = 'At least 2 trial conditions must be selected before running this function.'
+            e_str = 'At least 1 trial condition must be selected before running this function.'
             w_err.emit(e_str, 'Invalid LDA Analysis Parameters')
 
         # returns a false flag
@@ -3188,6 +3191,7 @@ def get_rsp_reduced_clusters(data):
     for c in _data._cluster:
         # determines the cells that are in the valid regions (RSPg and RSPd)
         i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
+        # i_cell = np.ones(len(c['chRegion']),dtype=bool)
 
         # removes the non-valid cells from the depth, region and layer arrays
         c['clustID'] = list(np.array(c['clustID'])[i_cell])
