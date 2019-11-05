@@ -4291,7 +4291,7 @@ class AnalysisGUI(QMainWindow):
                 ax.errorbar(xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], capsize=100 / len(xi_bin), color=c[i_filt])
 
         # sets the axis properties
-        cf.set_axis_limits(ax, [-80 * use_vel, 80])
+        ax.set_xlim([-80 * use_vel, 80])
         ax.grid(plot_grid)
         ax.set_ylabel('auROC')
         ax.legend([x[0] for x in h_plt], r_obj.lg_str)
