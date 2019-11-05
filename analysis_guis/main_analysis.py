@@ -4201,7 +4201,7 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_velocity_significance(self, rot_filt, plot_exp_name, plot_all_expt, use_vel, plot_err, pool_expt,
+    def plot_velocity_significance(self, rot_filt, plot_err, plot_exp_name, plot_all_expt, use_vel, pool_expt,
                                    plot_grid, plot_scope):
         '''
 
@@ -4286,19 +4286,17 @@ class AnalysisGUI(QMainWindow):
         for i_filt in range(n_filt):
             # plots the auc values
             h_plt.append(ax.plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
-
             if plot_err and (roc_sig_sem is not None):
-                ax.errorbar(xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], capsize=100 / len(xi_bin), color=c[i_filt])
+                cf.create_error_area_patch(ax, xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], c[i_filt])
 
         # sets the axis properties
-        ax.set_xlim([-80 * use_vel, 80])
         ax.grid(plot_grid)
         ax.set_ylabel('auROC')
         ax.legend([x[0] for x in h_plt], r_obj.lg_str)
+        cf.set_axis_limits(ax, [-80 * use_vel, 80], [0, ax.get_ylim()[1]])
 
         #
         if use_vel:
-            ax.plot([0, 1], [0., 1.], 'k--', linewidth=2)
             ax.set_xlabel('Velocity (deg/s)')
         else:
             ax.set_xlabel('Speed (deg/s)')
@@ -10546,15 +10544,16 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
+            'plot_err': {'type': 'B', 'text': 'Plot Error Patch', 'def_val': True},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
+                'link_para': [['plot_exp_name', True], ['plot_err', True]]
             },
             'use_vel': {'type': 'B', 'text': 'Plot Velocity ROC Values', 'def_val': True},
-            'plot_err': {'type': 'B', 'text': 'Plot Errorbars', 'def_val': True},
             'pool_expt': {
                 'type': 'B', 'text': 'Pool All Experiments', 'def_val': False,
-                'link_para': [['plot_exp_name', True], ['plot_all_expt', True]]
+                'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['plot_err', True]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 

@@ -3352,7 +3352,7 @@ def calc_expt_roc_sig(roc_sig, i_expt_robj, cl_ind, i_expt, calc_mean=False):
     # retrieves the roc significance values for each of the rotation filter types
     for i_filt in range(n_filt):
         # retrieves the roc significance values belonging to the current experiment
-        roc_sig_expt[i_filt] = roc_sig[i_filt][i_expt_robj[i_filt] == i_expt, :][cl_ind[i_filt][i_expt], :]
+        roc_sig_expt[i_filt] = roc_sig[i_filt][cl_ind[i_filt][i_expt], :][i_expt_robj[i_filt] == i_expt, :]
 
         # calculates the mean (if required)
         if calc_mean:
