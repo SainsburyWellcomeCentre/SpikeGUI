@@ -126,17 +126,17 @@ class WorkerThread(QThread):
             calc_para, plot_para = self.thread_job_para[0], self.thread_job_para[1]
             data, pool, g_para = self.thread_job_para[2], self.thread_job_para[3], self.thread_job_para[4]
 
-    ################################################
-    ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
-    ################################################
+            ################################################
+            ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
+            ################################################
 
             if self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-    ######################################
-    ####    ROC ANALYSIS FUNCTIONS    ####
-    ######################################
+            ######################################
+            ####    ROC ANALYSIS FUNCTIONS    ####
+            ######################################
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
@@ -196,6 +196,17 @@ class WorkerThread(QThread):
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
                 self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
 
+            elif self.thread_job_secondary == 'Velocity ROC Significance':
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+
+                # calculates the binned kinematic spike frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
+
+                # calculates the kinematic roc curves and their significance
+                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
+                self.calc_kinematic_roc_significance(data, calc_para, g_para)
+
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['phase'])
@@ -231,9 +242,9 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-    ###############################################
-    ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
-    ###############################################
+            ###############################################
+            ####    COMBINED ANALYSIS LDA FUNCTIONS    ####
+            ###############################################
 
             elif self.thread_job_secondary == 'Rotation/Visual Stimuli Response Statistics':
                 # calculates the phase roc curve/significance values
@@ -302,10 +313,9 @@ class WorkerThread(QThread):
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
 
-
-    ##########################################################
-    ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
-    ##########################################################
+            ##########################################################
+            ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+            ##########################################################
 
             elif self.thread_job_secondary == 'Depth Spiking Rate Comparison':
                 # make a copy of the plotting/calculation parameters
@@ -414,9 +424,9 @@ class WorkerThread(QThread):
                 r_data.plt_rms, r_data.stats_rms, r_data.ind_rms = s_plt, sf_stats, ind
                 r_data.r_filt_rms = dcopy(r_filt)
 
-    ##########################################################
-    ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
-    ##########################################################
+            ##########################################################
+            ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
+            ##########################################################
 
             elif self.thread_job_secondary == 'Rotation Direction LDA':
                 # if the solver parameter have not been set, then initalise them
@@ -653,9 +663,9 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
-    #######################################################
-    ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS    ####
-    #######################################################
+            #######################################################
+            ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS    ####
+            #######################################################
 
             elif self.thread_job_secondary == 'Speed LDA Accuracy':
                 # checks to see if any base LDA calculation parameters have been altered
@@ -746,9 +756,9 @@ class WorkerThread(QThread):
                             self.work_finished.emit(thread_data)
                             return
 
-        #######################################
-        ####    MISCELLANEOUS FUNCTIONS    ####
-        #######################################
+            #######################################
+            ####    MISCELLANEOUS FUNCTIONS    ####
+            #######################################
 
             elif self.thread_job_secondary == 'Velocity Multilinear Regression Dataframe Output':
                 # checks to see if any base spiking frequency dataframe parameters have been altered
@@ -3029,6 +3039,7 @@ class WorkerThread(QThread):
             r_data.vel_roc, r_data.vel_roc_xy, r_data.vel_roc_auc = {}, {}, {}
             r_data.spd_roc, r_data.spd_roc_xy, r_data.spd_roc_auc = {}, {}, {}
             r_data.vel_ci_lo, r_data.vel_ci_hi, r_data.spd_ci_lo, r_data.spd_ci_hi = {}, {}, {}, {}
+            r_data.vel_roc_sig, r_data.spd_roc_sig = None, None
 
         for i_rr, rr in enumerate(r_data.r_obj_kine.rot_filt_tot):
             tt, _pW1 = rr['t_type'][0], pW1 * (i_rr / r_data.r_obj_kine.n_filt)
@@ -3198,6 +3209,55 @@ class WorkerThread(QThread):
 
         # returns the rotation data class object
         return np.array(pool.map(cf.calc_roc_conf_intervals, p_data))
+
+    def calc_kinematic_roc_significance(self, data, calc_para, g_para):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param g_para:
+        :return:
+        '''
+
+        # initialisations and other array indexing
+        r_data = data.rotation
+        is_boot, r_obj = int(r_data.kine_auc_stats_type == 'Bootstrapping'), r_data.r_obj_kine
+        n_filt = r_obj.n_filt
+
+        # sets the comparison bin for the velocity/speed arrays
+        for use_vel in range(2):
+            #
+            if use_vel:
+                i_bin, is_sig = np.array([r_data.i_bin_vel]), r_data.vel_roc_sig
+                roc_auc, ci_lo, ci_hi = dcopy(r_data.vel_roc_auc), dcopy(r_data.vel_ci_lo), dcopy(r_data.vel_ci_hi)
+
+            else:
+                i_bin, is_sig = np.array([r_data.i_bin_spd]), r_data.spd_roc_sig
+                roc_auc, ci_lo, ci_hi = dcopy(r_data.spd_roc_auc), dcopy(r_data.spd_ci_lo), dcopy(r_data.spd_ci_hi)
+
+            #
+            if is_sig is None:
+                is_sig = np.empty((n_filt,2), dtype=object)
+
+            # determines the indices of the cell in the overall array
+            t_type_base = list(r_data.spd_sf_rs.keys()) if r_data.is_equal_time else list(r_data.spd_sf.keys())
+            for i_filt in range(n_filt):
+                # determines the match condition with the currently calculated roc values
+                tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
+                i_match = t_type_base.index(tt)
+                tt_nw = t_type_base[i_match]
+
+                # determines which errorbars are significant
+                ci_lo_tmp, ci_hi_tmp = ci_lo[tt][:, :, is_boot], ci_hi[tt][:, :, is_boot]
+                is_sig[i_filt, is_boot] = np.logical_or((roc_auc[tt_nw] - ci_lo_tmp) > 0.5,
+                                                        (roc_auc[tt_nw] + ci_hi_tmp) < 0.5)
+                is_sig[i_filt, is_boot][:, i_bin] = False
+
+            # updates the significance arrays (based on whether calculating for speed or velocity)
+            if use_vel:
+                r_data.vel_roc_sig = is_sig
+            else:
+                r_data.spd_roc_sig = is_sig
 
     ###################################################
     ####    MISCELLANEOUS FUNCTION CALCULATIONS    ####

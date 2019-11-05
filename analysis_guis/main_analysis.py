@@ -4046,7 +4046,7 @@ class AnalysisGUI(QMainWindow):
         B = np.zeros(len(xi_bin))
         t_type_base = list(r_data.spd_sf_rs.keys()) if r_data.is_equal_time else list(r_data.spd_sf.keys())
         for i_filt in range(n_filt):
-            # determins the match condition with the currently calculated roc values
+            # determines the match condition with the currently calculated roc values
             tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
             i_match = t_type_base.index(tt)
 
@@ -4200,6 +4200,108 @@ class AnalysisGUI(QMainWindow):
         # plots the whole experiment kinematic roc curves
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
+
+    def plot_velocity_significance(self, rot_filt, plot_exp_name, plot_all_expt, use_vel, plot_err, pool_expt,
+                                   plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param use_vel:
+        :param use_comp:
+        :param plot_err:
+        :param pool_expt:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, True, 'Whole Experiment', False)
+        if not r_obj.is_ok:
+            self.calc_ok = False
+            return
+
+        # initialisations and other array indexing
+        n_filt, r_data = r_obj.n_filt, self.data.rotation
+        lg_str, c = r_obj.lg_str, cf.get_plot_col(n_filt)
+        is_boot = int(r_data.kine_auc_stats_type == 'Bootstrapping')
+        xi_bin = np.mean(r_data.vel_xi, axis=1) if use_vel else np.mean(r_data.spd_xi, axis=1)
+
+        roc_sig_sem = None
+
+        ################################
+        ####    PRE-CALCULATIONS    ####
+        ################################
+
+        # retrieves the roc significance values based on type and statistical calculation type
+        is_cond = [x in rot_filt['t_type'] for x in r_data.vel_roc_auc.keys()]
+        roc_sig = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
+        roc_sig = roc_sig[is_cond]
+
+        #
+        if plot_all_expt:
+            # retrieves the experiment significance values for each experiment/filter
+            roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(roc_sig, r_obj.i_expt, r_obj.clust_ind, i_ex)
+                                                                                for i_ex in range(r_obj.n_expt)])
+
+            # case is using all the experiment
+            if pool_expt:
+                # pools all experiment data into a single group for mean calculations
+                roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+            else:
+                # calculates the mean significance over each experiment
+                roc_sig_expt_mn = np.empty((np.shape(roc_sig_expt)), dtype=object)
+                for i_ex in range(r_obj.n_expt):
+                    for i_filt in range(n_filt):
+                        roc_sig_expt_mn[i_ex, i_filt] = np.mean(roc_sig_expt[i_ex, i_filt], axis=0)
+
+                # calculates the final mean/SEM values over each filter
+                N = np.sqrt(r_obj.n_expt)
+                roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+                roc_sig_sem = [100. * np.std(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) / N for i_filt in range(n_filt)]
+
+        else:
+            # case is using an individual experiment
+            i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
+            roc_sig_mn = cfcn.calc_expt_roc_sig(roc_sig, r_obj.i_expt, r_obj.clust_ind, i_expt, calc_mean=True)
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        #
+        c, h_plt = cf.get_plot_col(n_filt), []
+
+        # initialises the plot axes
+        self.init_plot_axes()
+        ax = self.plot_fig.ax[0]
+
+        # plots the full auROC curves for each filter type
+        for i_filt in range(n_filt):
+            # plots the auc values
+            h_plt.append(ax.plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
+
+            if plot_err and (roc_sig_sem is not None):
+                ax.errorbar(xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], capsize=100 / len(xi_bin), color=c[i_filt])
+
+        # sets the axis properties
+        cf.set_axis_limits(ax, [-80 * use_vel, 80])
+        ax.grid(plot_grid)
+        ax.set_ylabel('auROC')
+        ax.legend([x[0] for x in h_plt], r_obj.lg_str)
+
+        #
+        if use_vel:
+            ax.plot([0, 1], [0., 1.], 'k--', linewidth=2)
+            ax.set_xlabel('Velocity (deg/s)')
+        else:
+            ax.set_xlabel('Speed (deg/s)')
 
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, show_grp_markers,
                                    show_sig_markers, mark_type, plot_trend, plot_type, plot_grid, plot_scope):
@@ -9279,7 +9381,6 @@ class AnalysisGUI(QMainWindow):
                                   edgecolor=fig_info['eColour'][0].lower(),
                                   orientation=fig_info['figOrient'].lower())
 
-
     #########################################
     ####     MISCELLANEOUS FUNCTIONS     ####
     #########################################
@@ -10410,6 +10511,61 @@ class AnalysisFunctions(object):
         self.add_func(type='ROC Analysis',
                       name='Velocity ROC Curves (Pos/Neg Comparison)',
                       func='plot_velocity_roc_pos_neg',
+                      para=para)
+
+        # ====> Velocity ROC Significance
+        para = {
+            # calculation parameters
+            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'auc_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
+                'link_para': ['n_boot', 'Delong']
+            },
+            'spd_x_rng': {
+                'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng, 'def_val': '0 to 10',
+                'is_visible': False
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/sec)', 'list': roc_vel_bin,
+                'def_val': str(dv), 'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+
+            # invisible calculation parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'], 'def_val': 'All',
+                'is_visible': False
+            },
+            'pn_calc': {'gtype': 'C', 'text': 'Use Pos/Neg', 'def_val': False, 'is_visible': False},
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+            },
+            'use_vel': {'type': 'B', 'text': 'Plot Velocity ROC Values', 'def_val': True},
+            'plot_err': {'type': 'B', 'text': 'Plot Errorbars', 'def_val': True},
+            'pool_expt': {
+                'type': 'B', 'text': 'Pool All Experiments', 'def_val': False,
+                'link_para': [['plot_exp_name', True], ['plot_all_expt', True]]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible plotting parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='ROC Analysis',
+                      name='Velocity ROC Significance',
+                      func='plot_velocity_significance',
                       para=para)
 
         # ====> Condition ROC Curve Comparison
@@ -12861,6 +13017,7 @@ class RotationData(object):
         self.vel_roc_auc = None                 # velocity roc curve integrals
         self.vel_ci_lo = None                   # velocity roc lower confidence interval
         self.vel_ci_hi = None                   # velocity roc upper confidence interval
+        self.vel_roc_sig = None
 
         # speed roc calculations
         self.spd_dt = None                      # speed bin durations
@@ -12872,6 +13029,7 @@ class RotationData(object):
         self.spd_roc_auc = None                 # speed roc curve integrals
         self.spd_ci_lo = None                   # speed roc lower confidence interval
         self.spd_ci_hi = None                   # speed roc upper confidence interval
+        self.spd_roc_sig = None
 
         # sets the depth class specific fields
         if self.type == 'depth':
