@@ -204,7 +204,7 @@ class WorkerThread(QThread):
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
 
                 # calculates the kinematic roc curves and their significance
-                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
+                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 0.)
                 self.calc_kinematic_roc_significance(data, calc_para, g_para)
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':

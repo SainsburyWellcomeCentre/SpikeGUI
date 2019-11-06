@@ -4239,15 +4239,19 @@ class AnalysisGUI(QMainWindow):
         ####    PRE-CALCULATIONS    ####
         ################################
 
+        #
+        tt_calc = list(r_data.vel_roc_auc.keys())
+        tt_robj = [x['t_type'][0] for x in r_obj.rot_filt_tot]
+
         # retrieves the roc significance values based on type and statistical calculation type
-        is_cond = [x in rot_filt['t_type'] for x in r_data.vel_roc_auc.keys()]
-        roc_sig = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
-        roc_sig = roc_sig[is_cond]
+        roc_sig0 = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
+        roc_sig = [roc_sig0[tt_calc.index(tt)] for tt in tt_robj]
+        c_ofs = [0] + [x['nC'] for x in self.data.cluster[:-1]]
 
         #
         if plot_all_expt:
             # retrieves the experiment significance values for each experiment/filter
-            roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(roc_sig, r_obj.i_expt, r_obj.clust_ind, i_ex)
+            roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_ex, c_ofs[i_ex])
                                                                                 for i_ex in range(r_obj.n_expt)])
 
             # case is using all the experiment
@@ -4269,7 +4273,7 @@ class AnalysisGUI(QMainWindow):
         else:
             # case is using an individual experiment
             i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-            roc_sig_mn = cfcn.calc_expt_roc_sig(roc_sig, r_obj.i_expt, r_obj.clust_ind, i_expt, calc_mean=True)
+            roc_sig_mn = cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs[i_expt], calc_mean=True)
 
         ################################
         ####    SUBPLOT CREATION    ####
@@ -4291,7 +4295,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the axis properties
         ax.grid(plot_grid)
-        ax.set_ylabel('auROC')
+        ax.set_ylabel('%age Significant Cells')
         ax.legend([x[0] for x in h_plt], r_obj.lg_str)
         cf.set_axis_limits(ax, [-80 * use_vel, 80], [0, ax.get_ylim()[1]])
 
