@@ -323,14 +323,16 @@ class InfoDialog(QDialog):
                 elif tt[0] == 'Spike\nClassification':
                     if self.data.classify.class_set:
                         nw_data = np.array(['N/A'] * nC)
-                        nw_data[cl_inc] = self.data.classify.grp_str[i_expt][cl_inc]
+                        if self.data.classify.grp_str[i_expt] is not None:
+                            nw_data[cl_inc] = self.data.classify.grp_str[i_expt][cl_inc]
                     else:
                         nw_data = np.array(['---'] * nC)
 
                 elif tt[0] == 'Action\nType':
                     if self.data.classify.action_set:
                         nw_data, act_str = np.array(['N/A'] * nC), np.array(['---', 'Inhibitory', 'Excitatory'])
-                        nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt][cl_inc]]
+                        if self.data.classify.act_type[i_expt] is not None:
+                            nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt][cl_inc]]
                     else:
                         nw_data = np.array(['---'] * nC)
 

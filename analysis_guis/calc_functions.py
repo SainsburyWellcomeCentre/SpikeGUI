@@ -2990,11 +2990,21 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
         # determines the cells that are in the valid regions (RSPg and RSPd)
         exc_filt = data.exc_rot_filt
-        cluster = data._cluster[ind] if data.cluster is None else data.cluster[ind]
+        if data.cluster is None:
+            cluster = data._cluster[ind]
+            ind_m = np.aramge(cluster['clustID'])
+        else:
+            cluster = data.cluster[ind]
+            if len(cluster['clustID']):
+                ind_m = np.array([data._cluster[ind]['clustID'].index(x) for x in cluster['clustID']])
+            else:
+                return np.zeros(1, dtype=bool)
 
         # sets the boolean flags for the valid cells
         # is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd') #### COMMENT ME OUT FOR RETROSPLANIAL ONLY CELLS
         is_valid = np.ones(len(cluster['chRegion']),dtype=bool)
+        if len(is_valid) == 0:
+            return np.zeros(1, dtype=bool)
 
         # removes any values that correspond to the fields in the exclusion filter
         for ex_key in ['region_name', 'record_layer']:
@@ -3005,10 +3015,10 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
         # if the cell types have been set, then remove the cells that are not the selected type
         if lda_para['cell_types'] == 'Narrow Spike Cells':
             # case is narrow spikes have been selected
-            is_valid[data.classify.grp_str[ind] == 'Wid'] = False
+            is_valid[np.logical_not(data.classify.grp_str[ind][ind_m] == 'Nar')] = False
         elif lda_para['cell_types'] == 'Wide Spike Cells':
             # case is wide spikes have been selected
-            is_valid[data.classify.grp_str[ind] == 'Nar'] = False
+            is_valid[np.logical_not(data.classify.grp_str[ind][ind_m] == 'Wid')] = False
 
         # determines if the individual LDA has been calculated
         d_data_i = data.discrim.indiv
@@ -3070,7 +3080,18 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
     # removes any trials less than the minimum and from this determines the overall minimum trial count
     n_trial[n_trial < lda_para['n_trial_min']] = -1
-    n_trial_max = np.min(n_trial[n_trial > 0])
+    if np.all(n_trial < 0):
+        # if there are no valid experiments, then output an error message to screen
+        if w_prog is not None:
+            e_str = 'There are no experiments which meet the LDA solver parameters/criteria.' \
+                    'Either load more experiments or alter the solver/calculation parameters.'
+            w_err.emit(e_str, 'No Valid Experiments Found')
+
+        # returns a false flag
+        return None, None, None, None, 0
+    else:
+        # otherwise, reduce down the experiments to those which are feasible
+        n_trial_max = np.min(n_trial[n_trial > 0])
 
     # determines if the number of trials has changed (and if the lda calculation values have been set)
     if d_data is not None:
@@ -3191,7 +3212,6 @@ def get_rsp_reduced_clusters(data):
     for c in _data._cluster:
         # determines the cells that are in the valid regions (RSPg and RSPd)
         i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
-        # i_cell = np.ones(len(c['chRegion']),dtype=bool)
 
         # removes the non-valid cells from the depth, region and layer arrays
         c['clustID'] = list(np.array(c['clustID'])[i_cell])
