@@ -2992,7 +2992,7 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
         exc_filt = data.exc_rot_filt
         if data.cluster is None:
             cluster = data._cluster[ind]
-            ind_m = np.aramge(cluster['clustID'])
+            ind_m = np.arange(len(cluster['clustID']))
         else:
             cluster = data.cluster[ind]
             if len(cluster['clustID']):

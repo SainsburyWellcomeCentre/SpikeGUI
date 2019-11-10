@@ -3032,7 +3032,7 @@ class WorkerThread(QThread):
             r_data = data.rotation
 
         # initialisations
-        pW1, c_lvl = 50., float(g_para['roc_clvl'])
+        pW1, c_lvl = 100 - pW0, float(g_para['roc_clvl'])
 
         # memory allocation (if the conditions have not been set)
         if r_data.vel_roc is None:
@@ -3077,9 +3077,10 @@ class WorkerThread(QThread):
                     r_data.spd_ci_hi[tt] = -np.ones((n_cell, n_bin_spd, 2))
 
                 # calculates the roc curves/integrals for all cells over each phase
-                w_str = 'ROC Curve Calculations ({0})...'.format(tt)
+                w_str0 = 'ROC Calculations ({0} - '.format(tt)
                 for ic in range(n_cell):
                     # updates the progress bar string
+                    w_str = '{0}{1}/{2})'.format(w_str0, ic+1, n_cell)
                     self.work_progress.emit(w_str, pW0 + _pW1 + (pW1 / r_data.r_obj_kine.n_filt) * ( + (ic/ n_cell)))
 
                     # memory allocations
@@ -3228,16 +3229,15 @@ class WorkerThread(QThread):
         for use_vel in range(2):
             #
             if use_vel:
-                i_bin, is_sig = np.array([r_data.i_bin_vel]), r_data.vel_roc_sig
+                i_bin = np.array([r_data.i_bin_vel])
                 roc_auc, ci_lo, ci_hi = dcopy(r_data.vel_roc_auc), dcopy(r_data.vel_ci_lo), dcopy(r_data.vel_ci_hi)
 
             else:
-                i_bin, is_sig = np.array([r_data.i_bin_spd]), r_data.spd_roc_sig
+                i_bin = np.array([r_data.i_bin_spd])
                 roc_auc, ci_lo, ci_hi = dcopy(r_data.spd_roc_auc), dcopy(r_data.spd_ci_lo), dcopy(r_data.spd_ci_hi)
 
-            #
-            if is_sig is None:
-                is_sig = np.empty((n_filt,2), dtype=object)
+            # if the significance array is not set or the correct size, then reset the array dimensions
+            is_sig = np.empty((n_filt,2), dtype=object)
 
             # determines the indices of the cell in the overall array
             t_type_base = list(r_data.spd_sf_rs.keys()) if r_data.is_equal_time else list(r_data.spd_sf.keys())

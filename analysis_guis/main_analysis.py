@@ -4202,7 +4202,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
     def plot_velocity_significance(self, rot_filt, plot_err, plot_exp_name, plot_all_expt, use_vel, pool_expt,
-                                   plot_grid, plot_scope):
+                                   plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4216,6 +4216,27 @@ class AnalysisGUI(QMainWindow):
         :param plot_scope:
         :return:
         '''
+
+        def create_sig_plot_axes(plot_fig):
+            '''
+
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            nC, top, bottom, wspace, hspace = 4, 0.95, 0.06, 0.2, 0.25
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(1, nC, width_ratios=[1 / nC] * nC, figure=plot_fig.fig, wspace=wspace,
+                                   hspace=hspace, left=0.05, right=0.99, bottom=bottom, top=top)
+
+            # creates the subplots
+            ax = np.empty(2, dtype=object)
+            ax[0] = plot_fig.figure.add_subplot(gs[0, :(nC-1)])
+            ax[1] = plot_fig.figure.add_subplot(gs[0, -1])
+
+            # returns the axis array
+            return ax
 
         # initialises the rotation filter (if not set)
         if rot_filt is None:
@@ -4232,78 +4253,108 @@ class AnalysisGUI(QMainWindow):
         lg_str, c = r_obj.lg_str, cf.get_plot_col(n_filt)
         is_boot = int(r_data.kine_auc_stats_type == 'Bootstrapping')
         xi_bin = np.mean(r_data.vel_xi, axis=1) if use_vel else np.mean(r_data.spd_xi, axis=1)
-
         roc_sig_sem = None
 
-        ################################
-        ####    PRE-CALCULATIONS    ####
-        ################################
+        ###########################################
+        ####    AUC ROC SIGNIFICANCE CURVES    ####
+        ###########################################
 
-        #
-        tt_calc = list(r_data.vel_roc_auc.keys())
-        tt_robj = [x['t_type'][0] for x in r_obj.rot_filt_tot]
+        if plot_type == 'auROC Significance':
 
-        # retrieves the roc significance values based on type and statistical calculation type
-        roc_sig0 = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
-        roc_sig = [roc_sig0[tt_calc.index(tt)] for tt in tt_robj]
-        c_ofs = [0] + [x['nC'] for x in self.data.cluster[:-1]]
+            ################################
+            ####    PRE-CALCULATIONS    ####
+            ################################
 
-        #
-        if plot_all_expt:
-            # retrieves the experiment significance values for each experiment/filter
-            roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_ex, c_ofs[i_ex])
-                                                                                for i_ex in range(r_obj.n_expt)])
+            # retrieves the trial type
+            tt_calc = list(r_data.vel_roc_auc.keys())
+            tt_robj = [x['t_type'][0] for x in r_obj.rot_filt_tot]
 
-            # case is using all the experiment
-            if pool_expt:
-                # pools all experiment data into a single group for mean calculations
-                roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+            # retrieves the roc significance values based on type and statistical calculation type
+            roc_sig0 = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
+            roc_sig = [roc_sig0[tt_calc.index(tt)] for tt in tt_robj]
+            c_ofs = [0] + [x['nC'] for x in self.data.cluster[:-1]]
+
+            #
+            if plot_all_expt:
+                # retrieves the experiment significance values for each experiment/filter
+                roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_ex, c_ofs[i_ex])
+                                                                                    for i_ex in range(r_obj.n_expt)])
+
+                # case is using all the experiment
+                if pool_expt:
+                    # pools all experiment data into a single group for mean calculations
+                    roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+                else:
+                    # calculates the mean significance over each experiment
+                    roc_sig_expt_mn = np.empty((np.shape(roc_sig_expt)), dtype=object)
+                    for i_ex in range(r_obj.n_expt):
+                        for i_filt in range(n_filt):
+                            roc_sig_expt_mn[i_ex, i_filt] = np.mean(roc_sig_expt[i_ex, i_filt], axis=0)
+
+                    # calculates the final mean/SEM values over each filter
+                    N = np.sqrt(r_obj.n_expt)
+                    roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+                    roc_sig_sem = [100. * np.std(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) / N for i_filt in range(n_filt)]
+
             else:
-                # calculates the mean significance over each experiment
-                roc_sig_expt_mn = np.empty((np.shape(roc_sig_expt)), dtype=object)
-                for i_ex in range(r_obj.n_expt):
-                    for i_filt in range(n_filt):
-                        roc_sig_expt_mn[i_ex, i_filt] = np.mean(roc_sig_expt[i_ex, i_filt], axis=0)
+                # case is using an individual experiment
+                i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
+                roc_sig_mn = cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs[i_expt], calc_mean=True)
 
-                # calculates the final mean/SEM values over each filter
-                N = np.sqrt(r_obj.n_expt)
-                roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) for i_filt in range(n_filt)]
-                roc_sig_sem = [100. * np.std(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) / N for i_filt in range(n_filt)]
+            ################################
+            ####    SUBPLOT CREATION    ####
+            ################################
 
-        else:
-            # case is using an individual experiment
-            i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-            roc_sig_mn = cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs[i_expt], calc_mean=True)
+            # initialisations
+            w_bar = 0.9
+            c, h_plt = cf.get_plot_col(n_filt), []
 
-        ################################
-        ####    SUBPLOT CREATION    ####
-        ################################
+            # initialises the plot axes
+            self.plot_fig.ax = create_sig_plot_axes(self.plot_fig)
+            ax = self.plot_fig.ax
 
-        #
-        c, h_plt = cf.get_plot_col(n_filt), []
+            # plots the full auROC curves for each filter type
+            for i_filt in range(n_filt):
+                # plots the auc values
+                h_plt.append(ax[0].plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
+                if plot_err and (roc_sig_sem is not None):
+                    cf.create_error_area_patch(ax[0], xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], c[i_filt])
 
-        # initialises the plot axes
-        self.init_plot_axes()
-        ax = self.plot_fig.ax[0]
+            # sets the axis properties
+            ax[0].grid(plot_grid)
+            ax[0].set_ylabel('%age Significant Cells')
+            ax[0].legend([x[0] for x in h_plt], r_obj.lg_str, loc=0)
+            cf.set_axis_limits(ax[0], [-80 * use_vel, 80], [0, ax[0].get_ylim()[1]])
 
-        # plots the full auROC curves for each filter type
-        for i_filt in range(n_filt):
-            # plots the auc values
-            h_plt.append(ax.plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
-            if plot_err and (roc_sig_sem is not None):
-                cf.create_error_area_patch(ax, xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], c[i_filt])
+            # sets the x-label depending on the speed type
+            if use_vel:
+                ax[0].set_xlabel('Velocity (deg/s)')
+            else:
+                ax[0].set_xlabel('Speed (deg/s)')
 
-        # sets the axis properties
-        ax.grid(plot_grid)
-        ax.set_ylabel('%age Significant Cells')
-        ax.legend([x[0] for x in h_plt], r_obj.lg_str)
-        cf.set_axis_limits(ax, [-80 * use_vel, 80], [0, ax.get_ylim()[1]])
+            # plots the mean accuracy values
+            x_bar = np.arange(n_filt)
+            r_mu = [np.mean(x) for x in roc_sig_mn]
+            r_sem = [np.std(x) / np.sqrt(len(x)) for x in roc_sig_mn]
 
-        #
-        if use_vel:
-            ax.set_xlabel('Velocity (deg/s)')
-        else:
-            ax.set_xlabel('Speed (deg/s)')
+            # creates the bargraph + SEM errorbar
+            ax[1].bar(x_bar, r_mu, width=w_bar, color=c, zorder=1)
+            for i in range(n_filt):
+                ax[1].errorbar(x_bar[i], r_mu[i], yerr=r_sem[i], capsize=40 / n_filt, color='k')
+
+            # sets the axis properties
+            ax[1].grid(plot_grid)
+            ax[1].set_xticks(x_bar)
+            ax[1].set_ylim(ax[0].get_ylim())
+            ax[1].set_xticklabels([])
+
+        #########################################
+        ####    AUC CDF/STATISTICS GRAPHS    ####
+        #########################################
+
+        elif plot_type == 'auROC CDF/Statistics':
+            # REMOVE ME LATER
+            pass
 
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, show_grp_markers,
                                    show_sig_markers, mark_type, plot_trend, plot_type, plot_grid, plot_scope):
@@ -10196,6 +10247,7 @@ class AnalysisFunctions(object):
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
         cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
+        vel_sig_type = ['auROC Significance', 'auROC CDF/Statistics']
         ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
 
         # velocity/speed ranges
@@ -10524,8 +10576,8 @@ class AnalysisFunctions(object):
                 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
-                'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng, 'def_val': '0 to 10',
-                'is_visible': False
+                'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng, 
+                'def_val': '0 to {0}'.format(dv)
             },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/sec)', 'list': roc_vel_bin,
@@ -10559,6 +10611,11 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Pool All Experiments', 'def_val': False,
                 'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['plot_err', True]]
             },
+
+            'plot_type': {
+                'type': 'L', 'text': 'Analysis Plot Type', 'list': vel_sig_type, 'def_val': vel_sig_type[0]
+            },
+
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible plotting parameters
