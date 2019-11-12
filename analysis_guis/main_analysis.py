@@ -4201,17 +4201,19 @@ class AnalysisGUI(QMainWindow):
         freq_lim = [lo_freq_lim, hi_freq_lim]
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
-    def plot_velocity_significance(self, rot_filt, plot_err, plot_exp_name, plot_all_expt, use_vel, pool_expt,
-                                   plot_type, plot_grid, plot_scope):
+    def plot_velocity_significance(self, rot_filt, plot_err, plot_exp_name, plot_all_expt, pool_expt, plot_cond, i_bin,
+                                   use_vel, plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
+        :param plot_err:
         :param plot_exp_name:
         :param plot_all_expt:
-        :param use_vel:
-        :param use_comp:
-        :param plot_err:
         :param pool_expt:
+        :param plot_cond:
+        :param i_bin:
+        :param use_vel:
+        :param plot_type:
         :param plot_grid:
         :param plot_scope:
         :return:
@@ -4327,15 +4329,18 @@ class AnalysisGUI(QMainWindow):
             cf.set_axis_limits(ax[0], [-80 * use_vel, 80], [0, ax[0].get_ylim()[1]])
 
             # sets the x-label depending on the speed type
+            i_mu = np.ones(len(xi_bin), dtype=bool)
             if use_vel:
+                i_mu[r_data.i_bin_vel] = False
                 ax[0].set_xlabel('Velocity (deg/s)')
             else:
+                i_mu[r_data.i_bin_spd] = False
                 ax[0].set_xlabel('Speed (deg/s)')
 
             # plots the mean accuracy values
             x_bar = np.arange(n_filt)
-            r_mu = [np.mean(x) for x in roc_sig_mn]
-            r_sem = [np.std(x) / np.sqrt(len(x)) for x in roc_sig_mn]
+            r_mu = [np.mean(x[i_mu]) for x in roc_sig_mn]
+            r_sem = [np.std(x[i_mu]) / np.sqrt(sum(i_mu)) for x in roc_sig_mn]
 
             # creates the bargraph + SEM errorbar
             ax[1].bar(x_bar, r_mu, width=w_bar, color=c, zorder=1)
@@ -4353,8 +4358,25 @@ class AnalysisGUI(QMainWindow):
         #########################################
 
         elif plot_type == 'auROC CDF/Statistics':
-            # REMOVE ME LATER
-            pass
+
+            # determines the index of the bin to be plotted (based on whether speed or velocity is analysed)
+            if i_bin == 'All Bins':
+                # case is plotting all bins
+                i_bin_plt = dcopy(i_bin)
+            else:
+                # case is plotting an individual velocity bin
+                i_bin_sp = np.array(i_bin.split(' '))[np.array([0, 2])].astype(int)
+                if use_vel:
+                    # case is velocity is being analysed
+                    i_bin_plt = next(
+                        i for i in range(np.shape(r_data.vel_xi)[0]) if np.all(r_data.vel_xi[i, :] == i_bin_sp))
+                else:
+                    # case is speed is being analysed
+                    i_bin_plt = next(
+                        i for i in range(np.shape(r_data.spd_xi)[0]) if np.all(r_data.spd_xi[i, :] == i_bin_sp))
+
+            # creates the auc stats figure
+            self.create_auc_stats_figure(r_obj, rot_filt, plot_cond, plot_grid, i_bin=i_bin_plt, use_vel=use_vel)
 
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, show_grp_markers,
                                    show_sig_markers, mark_type, plot_trend, plot_type, plot_grid, plot_scope):
@@ -4368,86 +4390,6 @@ class AnalysisGUI(QMainWindow):
         :param plot_scope:
         :return:
         '''
-
-        def get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im):
-            '''
-
-            :param r_data:
-            :param r_obj_tt:
-            :param g_type:
-            :param i_cell_b:
-            :param im:
-            :return:
-            '''
-
-            # if there is a mis-match in cell count, then find the matching cells between conditions
-            if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
-                i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
-
-            # retrieves the auc values and cell grouping indices for the current filter combination
-            g_type_m = g_type[i_cell_b[im[0]]]
-            x_auc = r_data.cond_roc_auc['Black'][i_cell_b[im[0]], 2]
-            y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
-
-            # removes any cells where the group type was not calculated
-            is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
-            if not np.all(is_ok):
-                g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
-                i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
-
-            # calculates the compliment of any auc values < 0.5
-            ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
-            x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
-
-            # sets the x/y significance points
-            x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
-            y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
-            xy_sig = x_sig + 2 * y_sig
-
-            #
-            return x_auc, y_auc, g_type_m, xy_sig, i_cell_b
-
-        def setup_sig_str(y, is_auc_sig):
-            '''
-
-            :param p_auc_sig:
-            :return:
-            '''
-
-            # memory allocation and parameters
-            n_tt = len(y)
-            p_value, n_ex = 0.05, None
-            p_str = np.empty((n_tt, n_tt), dtype=object)
-
-            # sets up the significance strings
-            for i_tt in range(n_tt):
-                for j_tt in range(n_tt):
-                    if i_tt == j_tt:
-                        # case is the diagonal case
-                        p_str[i_tt, i_tt] = 'N/A'
-                    else:
-                        if is_auc_sig:
-                            if n_ex is None:
-                                n_ex = [len(x) for x in y]
-
-                            # runs the pair-wise wilcoxon test
-                            i_grp, y_grp = [0] * n_ex[i_tt] + [1] * n_ex[j_tt], y[i_tt] + y[j_tt]
-                            results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
-                                                                   p_adjust_method='bonf', paired=False)
-                            p_val_nw = results[results.names.index('p.value')][0]
-                        else:
-                            if (y[i_tt] is None) or (y[j_tt] is None):
-                                p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = 'NaN'
-                                continue
-                            else:
-                                _, p_val_nw = ks_2samp(y[i_tt], y[j_tt])
-
-                        # retrieves the results and stores them in the results array
-                        p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = \
-                                        '{:5.3f}{}'.format(p_val_nw, '*' if p_val_nw < p_value else '')
-
-            # returns the array
-            return p_str
 
         # initialisations
         is_scatter = plot_type == 'auROC Scatterplot'
@@ -4473,53 +4415,18 @@ class AnalysisGUI(QMainWindow):
         st_type_name = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         A = np.empty(n_filt, dtype=object)
 
-        # sets the group type values/label strings
-        if is_scatter:
-            if mark_type == 'Congruency':
-                _show_sig_markers, _show_grp_markers = False, True
-                grp_type, g_type, is_cong = ['None', 'Congruent', 'Incongruent'], r_data.pd_type + 1, True
-
-            elif (not _show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
-                st_type = st_type_name.index(r_data.phase_grp_stats_type)
-                grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
-            elif mark_type == 'Rotation/Visual Response':
-                grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
-
-        else:
-            st_type = st_type_name.index(r_data.phase_grp_stats_type)
-            g_type = r_data.phase_gtype[:, st_type]
-
         if (not _show_grp_markers) and (not _show_sig_markers):
             e_str = 'Warning! Neither the group or significance markers have been selected!\n' \
                     'Re-run this with either marker type selected'
             cf.show_error(e_str, 'No Markers Selected!')
 
-        # if use_resp_grp_type:
-        #     grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
-        # else:
-        #     st_type = ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping'].index(r_data.phase_grp_stats_type)
-        #     grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
-
-        # determine the matching cell indices between the current and black filter
-        i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
-        for i_filt in range(n_filt):
-            # sets up a base filter with only the
-            r_filt_base = cf.init_rotation_filter_data(False)
-            r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
-            r_obj_tt[i_filt] = RotationFilteredData(self.data, r_filt_base, None, plot_exp_name,
-                                            True, 'Whole Experiment', False)
-
-            # finds the corresponding cell types between the overall and user-specified filters
-            # r_obj_tt = r_data.r_obj_cond[r_obj.rot_filt_tot[i_filt]['t_type'][0]]
-            i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
-
-        #
+        # initialisations
         t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
         ind_black = [t_type.index('Black')]
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_black]
         m = ['o', 'x', '^', 's', 'D', 'H', '*']
 
-        #
+        # significance colours
         sig_col = [cf.convert_rgb_col([147, 149, 152])[0],         # non-significant markers
                    cf.convert_rgb_col([33, 72, 98])[0],            # black-only significant markers
                    cf.convert_rgb_col([222, 126, 93])[0],          # uniform-only significant markers
@@ -4529,6 +4436,19 @@ class AnalysisGUI(QMainWindow):
             ####################################
             ####    SCATTERPLOT CREATION    ####
             ####################################
+
+            # retrieves the condition filtered rotation data
+            i_cell_b, r_obj_tt = self.get_cond_filt_data(r_obj)
+
+            if mark_type == 'Congruency':
+                _show_sig_markers, _show_grp_markers = False, True
+                grp_type, g_type, is_cong = ['None', 'Congruent', 'Incongruent'], r_data.pd_type + 1, True
+
+            elif (not _show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
+                st_type = st_type_name.index(r_data.phase_grp_stats_type)
+                grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
+            elif mark_type == 'Rotation/Visual Response':
+                grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
 
             if mark_type == 'Congruency':
                 e_col = [cf.convert_rgb_col(_light_gray), cf.convert_rgb_col(_black), sig_col[2]]
@@ -4558,7 +4478,8 @@ class AnalysisGUI(QMainWindow):
                 # sets the black/comparison trial condition cell group type values (for the current match)
                 if len(i_cell_b[im[1]]):
                     # retrieves the auc, signal and statistical significance values
-                    x_auc, y_auc, g_type_m, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
+                    x_auc, y_auc, g_type_m, xy_sig, i_cell_b = self.get_plot_vals(r_data, r_obj_tt, g_type,
+                                                                                  i_cell_b, im, plot_cond, is_cong)
 
                     # sets the final significance plot colours
                     if _show_sig_markers:
@@ -4626,165 +4547,7 @@ class AnalysisGUI(QMainWindow):
             ####    AUROC BAR/HISTOGRAM CREATION    ####
             ############################################
 
-            #############################
-            ####    SUBPLOT SETUP    ####
-            #############################
-
-            # sets up the axes dimensions
-            nR, nC, nCM = 2, 10, 6
-            top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
-            i_expt = [r_obj.i_expt[0] == x for x in np.unique(r_obj.i_expt[0])]
-
-            # creates the gridspec object
-            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.1, right=0.99,
-                                   bottom=bottom, top=top)
-
-            # creates the subplots
-            self.plot_fig.ax = np.empty(4, dtype=object)
-            self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :nCM])
-            self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :nCM])
-            self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, nCM:])
-            self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[1, nCM:])
-            ax = self.plot_fig.ax
-
-            # turns off the subplot intended for the stats
-            for _ax in ax[:2]:
-                _ax.grid(plot_grid)
-            for _ax in ax[2:]:
-                _ax.axis('off')
-
-            ###################################
-            ####    DATA PRE-PROCESSING    ####
-            ###################################
-
-            # memory allocation
-            im, n_grp = ind_match[0], 4
-            B = np.empty(len(ind_match), dtype=object)
-            is_sig, auc = dcopy(B), dcopy(B)
-
-            # sets the black/comparison trial condition cell group type values (for the current match)
-            if len(i_cell_b[im[1]]):
-                # retrieves the auc, signal and statistical significance values
-                x_auc, y_auc, _, xy_sig, i_cell_b = get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im)
-
-                # calculates significant cells for each type
-                is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(n_grp, dtype=object)
-
-                # stores the
-                for j in range(n_grp):
-                    if j == 0:
-                        auc[j] = x_auc[is_sig[0]]
-                    elif j == 1:
-                        auc[j] = y_auc[is_sig[1]]
-                    elif j == 2:
-                        auc[j] = x_auc[is_sig[2]]
-                    else:
-                        auc[j] = y_auc[is_sig[2]]
-
-            # proportion of condition auROC values that are significant
-            tt_auc_sig = rot_filt['t_type']
-            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_auc_sig]
-            n_expt = [len(x) for x in i_expt]
-
-            #
-            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] == 0) for j_ex in i_ex]
-                         for i_ex, c in zip(i_expt, tt_auc_sig)]
-
-            p_auc_sig_mn = [np.mean(x) for x in p_auc_sig]
-            p_auc_sig_sem = [np.std(x) / (n ** 0.5) for x, n in zip(p_auc_sig, n_expt)]
-            p_auc_nsig_mn = [100 - x for x in p_auc_sig_mn]
-
-            #################################################
-            ####    SIGNIFICANCE HORIZONTAL BAR GRAPH    ####
-            #################################################
-
-            # parameters and other initialisations
-            col_b = cf.get_plot_col(len(tt_auc_sig))
-            xi_y = np.arange(len(tt_auc_sig)) + 0.5
-
-            # creates the bar graph
-            for i_tt, tt in enumerate(tt_auc_sig):
-                ax[0].barh(xi_y[i_tt], p_auc_sig_mn[i_tt], height=0.9, color=col_b[i_tt],
-                           edgecolor=col_b[i_tt], label=tt, xerr=p_auc_sig_sem[i_tt])
-                ax[0].barh(xi_y[i_tt], p_auc_nsig_mn[i_tt], left=p_auc_sig_mn[i_tt],
-                           height=0.9, color='w', edgecolor=col_b[i_tt])
-
-            # sets the axis properties
-            ax[0].set_xlabel('Percentage Significant')
-            ax[0].set_xlim([-0.1, 100.1])
-            ax[0].set_ylim([0, len(tt_auc_sig)])
-            ax[0].set_yticks(xi_y)
-            ax[0].set_yticklabels(tt_auc_sig)
-
-            # sets the overall title
-            self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
-
-            ######################################
-            ####    SIGNIFICANCE HISTOGRAM    ####
-            ######################################
-
-            # parameters and other initialisations
-            h_plt, lg_str = [], []
-            b_sz, n_tt = 0.01, len(tt_auc_sig)
-            xi = np.arange(0.5, 1.001, b_sz)
-            xi_h = 0.5 * (xi[1:] + xi[:-1])
-            col_h = cf.get_plot_col(max(n_grp, n_tt))
-
-            #
-            tt_abb = [cf.cond_abb(tt) for tt in ['Black', plot_cond]]
-            auc_hist_type = cf.flat_list(
-                [['{0}{1}{2}'.format(p_str, tt, ')' if len(p_str) else '') for tt in tt_abb] for p_str in
-                 ['', 'Both (']])
-
-            auc_cdf = np.empty(n_grp, dtype=object)
-            for i in range(n_grp):
-                # creates the accuracy histograms
-                if len(auc[i]):
-                    auc_hist = np.histogram(auc[i], bins=xi, normed=True)[0]
-                    auc_cdf[i] = 100. - np.cumsum(auc_hist)
-
-                    h_plt.append(ax[1].plot(xi_h, auc_cdf[i], c=col_h[i]))
-                    lg_str.append(auc_hist_type[i])
-                else:
-                    auc_cdf[i] = None
-
-            # sets the axis properties
-            ax[1].set_xlabel('auROC')
-            ax[1].set_ylabel('Proportion')
-            ax[1].set_xlim([0.5, 1.0])
-            ax[1].set_ylim([0.0, 100.0])
-            ax[1].legend([x[0] for x in h_plt], lg_str, loc='lower left')
-
-            # sets the overall title
-            ax[1].set_title('Significant Cell auROC Histogram', fontsize=14, fontweight='bold')
-
-            ############################################
-            ####    AUC SIGNIFICANCE STATS TABLE    ####
-            ############################################
-
-            # sets the table headers/values
-            row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_auc_sig]
-            t_data = setup_sig_str(p_auc_sig, True)
-
-            # sets up the n-value table
-            ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
-            cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h[:n_tt], col_h[:n_tt],
-                              'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
-
-            ###################################################
-            ####    AUC SURVIVABILITY CURVE STATS TABLE    ####
-            ###################################################
-
-            # sets the table headers/values
-            col_t = cf.get_plot_col(4)
-            row_hdr = col_hdr = dcopy(auc_hist_type)
-            t_data = setup_sig_str(auc_cdf, False)
-
-            # sets up the n-value table
-            ax_pos_tbb = dcopy(ax[3].get_tightbbox(self.plot_fig.get_renderer()).bounds)
-            cf.add_plot_table(self.plot_fig, ax[3], table_font, t_data, row_hdr, col_hdr, col_t, col_t,
-                              'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+            self.create_auc_stats_figure(r_obj, rot_filt, plot_cond, plot_grid, is_cong=is_cong)
 
     def plot_roc_cond_comparison(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, plot_grid, plot_scope):
         '''
@@ -5242,6 +5005,289 @@ class AnalysisGUI(QMainWindow):
                 c_col = [np.array(_light_gray) / 255] * len(col_hdr)
                 cf.add_plot_table(self.plot_fig, ax, table_font_small, p_stats, row_hdr, col_hdr, c[1:],
                                   c_col, 'bottom', n_row=1, n_col=1, p_wid=p_wid)
+
+    def create_auc_stats_figure(self, r_obj, rot_filt, plot_cond, plot_grid, is_cong=False,
+                                i_bin=None, plot_cond2='Black', use_vel=False):
+
+        def setup_sig_str(y, is_auc_sig):
+            '''
+
+            :param p_auc_sig:
+            :return:
+            '''
+
+            # memory allocation and parameters
+            n_tt = len(y)
+            p_value, n_ex = 0.05, None
+            p_str = np.empty((n_tt, n_tt), dtype=object)
+
+            # sets up the significance strings
+            for i_tt in range(n_tt):
+                for j_tt in range(n_tt):
+                    if i_tt == j_tt:
+                        # case is the diagonal case
+                        p_str[i_tt, i_tt] = 'N/A'
+                    else:
+                        if is_auc_sig:
+                            if n_ex is None:
+                                n_ex = [len(x) for x in y]
+
+                            # runs the pair-wise wilcoxon test
+                            i_grp, y_grp = [0] * n_ex[i_tt] + [1] * n_ex[j_tt], y[i_tt] + y[j_tt]
+                            results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
+                                                                   p_adjust_method='bonf', paired=False)
+                            p_val_nw = results[results.names.index('p.value')][0]
+                        else:
+                            if (y[i_tt] is None) or (y[j_tt] is None):
+                                p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = 'NaN'
+                                continue
+                            else:
+                                _, p_val_nw = ks_2samp(y[i_tt], y[j_tt])
+
+                        # retrieves the results and stores them in the results array
+                        p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = \
+                            '{:5.3f}{}'.format(p_val_nw, '*' if p_val_nw < p_value else '')
+
+            # returns the array
+            return p_str
+
+        # initialisations
+        e_str = None
+        is_dir, st_type_name = i_bin is None, ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
+
+        # retrieves the black/matching filter index values
+        t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
+        if plot_cond2 not in t_type:
+            e_str = 'To run this function, you must ensure "{0}" is selected for the ' \
+                    'Trial Type in the Filter Parameters GUI.'.format(plot_cond2)
+        elif plot_cond not in t_type:
+            e_str = 'To run this function, you must ensure "{0}" is selected for the ' \
+                    'Trial Type in the Filter Parameters GUI.'.format(plot_cond)
+
+        # there is an error, then output the message to screen and exit with an error
+        if e_str is not None:
+            cf.show_error(e_str, 'Invalid Filter')
+            self.calc_ok = False
+            return
+
+        # determines the indices of the
+        ind_base = [t_type.index(plot_cond2)]
+        ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_base]
+
+        # retrieves the condition filtered rotation data
+        i_cell_b, r_obj_tt = self.get_cond_filt_data(r_obj)
+
+        #
+        r_data = self.data.rotation
+        if is_dir:
+            st_type = st_type_name.index(r_data.phase_grp_stats_type)
+            g_type = r_data.phase_gtype[:, st_type]
+        else:
+            e_str = None
+            if use_vel and (i_bin in r_data.i_bin_vel):
+                e_str = 'Not possible to plot the auROC stats as the dependent/plotting velocity bins are the same.'
+            elif (not use_vel) and (i_bin == r_data.i_bin_spd):
+                e_str = 'Not possible to plot the auROC stats as the dependent/plotting speed bins are the same.'
+
+            if e_str is None:
+                st_type = st_type_name.index(r_data.kine_auc_stats_type) - 1
+                g_type = None
+            else:
+                cf.show_error(e_str, 'Invalid Bin Index')
+                self.calc_ok = False
+                return
+
+
+        #############################
+        ####    SUBPLOT SETUP    ####
+        #############################
+
+        # sets up the axes dimensions
+        nR, nC, nCM = 2, 10, 6
+        top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
+        # i_expt = [r_obj.i_expt[0] == x for x in np.unique(r_obj.i_expt[0])]
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+                               figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.1, right=0.99,
+                               bottom=bottom, top=top)
+
+        # creates the subplots
+        self.plot_fig.ax = np.empty(4, dtype=object)
+        self.plot_fig.ax[0] = self.plot_fig.figure.add_subplot(gs[0, :nCM])
+        self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[1, :nCM])
+        self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[0, nCM:])
+        self.plot_fig.ax[3] = self.plot_fig.figure.add_subplot(gs[1, nCM:])
+        ax = self.plot_fig.ax
+
+        # turns off the subplot intended for the stats
+        for _ax in ax[:2]:
+            _ax.grid(plot_grid)
+        for _ax in ax[2:]:
+            _ax.axis('off')
+
+        # turns off the axis if analysing all bins
+        if i_bin == 'All Bins':
+            ax[1].axis('off')
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # memory allocation
+        im, n_grp = ind_match[0], 4
+        B = np.empty(len(ind_match), dtype=object)
+        is_sig, auc = dcopy(B), dcopy(B)
+
+        # sets the black/comparison trial condition cell group type values (for the current match)
+        if len(i_cell_b[im[1]]):
+            # retrieves the auc, signal and statistical significance values
+            x_auc, y_auc, _, xy_sig, i_cell_b = self.get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im, plot_cond,
+                                                                   is_cong=is_cong, i_bin=i_bin, use_vel=use_vel)
+            if i_bin != 'All Bins':
+                # calculates significant cells for each type
+                is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(n_grp, dtype=object)
+
+                # stores the
+                for j in range(n_grp):
+                    if j == 0:
+                        auc[j] = x_auc[is_sig[0]].flatten()
+                    elif j == 1:
+                        auc[j] = y_auc[is_sig[1]].flatten()
+                    elif j == 2:
+                        auc[j] = x_auc[is_sig[2]].flatten()
+                    else:
+                        auc[j] = y_auc[is_sig[2]].flatten()
+
+        # proportion of condition auROC values that are significant
+        tt_auc_sig = rot_filt['t_type']
+        if is_dir:
+            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_auc_sig]
+            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] == 0) for j_ex in i_ex]
+                         for i_ex, c in zip(i_expt, tt_auc_sig)]
+        else:
+            i_expt = [[r_obj.i_expt[0] == x for x in range(r_obj.n_expt)] for r_obj, i_c in zip(r_obj_tt,i_cell_b)]
+            if i_bin == 'All Bins':
+                # retrieves the valid bin indices
+                i_col = self.setup_valid_bin_indices(r_data, use_vel)
+                if use_vel:
+                    p_auc_sig = [[100. * np.mean(np.mean(v_roc[j_ex, :][:, i_col], axis=1)) for j_ex in i_ex]
+                                                     for i_ex, v_roc in zip(i_expt, r_data.vel_roc_sig[:, st_type])]
+                else:
+                    p_auc_sig = [[100. * np.mean(np.mean(s_roc[j_ex, :][:, i_col], axis=1)) for j_ex in i_ex]
+                                                     for i_ex, s_roc in zip(i_expt, r_data.spd_roc_sig[:, st_type])]
+            else:
+                if use_vel:
+                    p_auc_sig = [[100. * np.mean(v_roc[j_ex, i_bin]) for j_ex in i_ex] for i_ex, v_roc in
+                                 zip(i_expt, r_data.vel_roc_sig[:, st_type])]
+                else:
+                    p_auc_sig = [[100. * np.mean(s_roc[j_ex, i_bin]) for j_ex in i_ex] for i_ex, s_roc in
+                                 zip(i_expt, r_data.spd_roc_sig[:, st_type])]
+
+        #
+        n_expt = [len(x) for x in i_expt]
+        p_auc_sig_mn = [np.mean(x) for x in p_auc_sig]
+        p_auc_sig_sem = [np.std(x) / (n ** 0.5) for x, n in zip(p_auc_sig, n_expt)]
+        p_auc_nsig_mn = [100 - x for x in p_auc_sig_mn]
+
+        #################################################
+        ####    SIGNIFICANCE HORIZONTAL BAR GRAPH    ####
+        #################################################
+
+        # parameters and other initialisations
+        col_b = cf.get_plot_col(len(tt_auc_sig))
+        xi_y = np.arange(len(tt_auc_sig)) + 0.5
+
+        # creates the bar graph
+        for i_tt, tt in enumerate(tt_auc_sig):
+            ax[0].barh(xi_y[i_tt], p_auc_sig_mn[i_tt], height=0.9, color=col_b[i_tt],
+                       edgecolor=col_b[i_tt], label=tt, xerr=p_auc_sig_sem[i_tt])
+            ax[0].barh(xi_y[i_tt], p_auc_nsig_mn[i_tt], left=p_auc_sig_mn[i_tt],
+                       height=0.9, color='w', edgecolor=col_b[i_tt])
+
+        # sets the axis properties
+        ax[0].set_xlabel('Percentage Significant')
+        ax[0].set_xlim([-0.1, 100.1])
+        ax[0].set_ylim([0, len(tt_auc_sig)])
+        ax[0].set_yticks(xi_y)
+        ax[0].set_yticklabels(tt_auc_sig)
+
+        # sets the overall title
+        self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
+
+        ############################################
+        ####    AUC SIGNIFICANCE STATS TABLE    ####
+        ############################################
+
+        #
+        n_tt = len(tt_auc_sig)
+        col_h = cf.get_plot_col(max(n_grp, n_tt))
+
+        # sets the table headers/values
+        row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_auc_sig]
+        t_data = setup_sig_str(p_auc_sig, True)
+
+        # sets up the n-value table
+        ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
+        cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h[:n_tt],
+                          col_h[:n_tt],
+                          'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+
+        #
+        if i_bin == 'All Bins':
+            ax[1].axis('off')
+            return
+
+        ######################################
+        ####    SIGNIFICANCE HISTOGRAM    ####
+        ######################################
+
+        # parameters and other initialisations
+        h_plt, lg_str, b_sz = [], [], 0.01
+        xi = np.arange(0.5, 1.001, b_sz)
+        xi_h = 0.5 * (xi[1:] + xi[:-1])
+
+        #
+        tt_abb = [cf.cond_abb(tt) for tt in ['Black', plot_cond]]
+        auc_hist_type = cf.flat_list(
+            [['{0}{1}{2}'.format(p_str, tt, ')' if len(p_str) else '') for tt in tt_abb] for p_str in
+             ['', 'Both (']])
+
+        auc_cdf = np.empty(n_grp, dtype=object)
+        for i in range(n_grp):
+            # creates the accuracy histograms
+            if len(auc[i]):
+                auc_hist = np.histogram(auc[i], bins=xi, normed=True)[0]
+                auc_cdf[i] = 100. - np.cumsum(auc_hist)
+
+                h_plt.append(ax[1].plot(xi_h, auc_cdf[i], c=col_h[i]))
+                lg_str.append(auc_hist_type[i])
+            else:
+                auc_cdf[i] = None
+
+        # sets the axis properties
+        ax[1].set_xlabel('auROC')
+        ax[1].set_ylabel('Proportion')
+        ax[1].set_xlim([0.5, 1.0])
+        ax[1].set_ylim([0.0, 100.0])
+        ax[1].legend([x[0] for x in h_plt], lg_str, loc='lower left')
+
+        # sets the overall title
+        ax[1].set_title('Significant Cell auROC Histogram', fontsize=14, fontweight='bold')
+
+        ###################################################
+        ####    AUC SURVIVABILITY CURVE STATS TABLE    ####
+        ###################################################
+
+        # sets the table headers/values
+        col_t = cf.get_plot_col(4)
+        row_hdr = col_hdr = dcopy(auc_hist_type)
+        t_data = setup_sig_str(auc_cdf, False)
+
+        # sets up the n-value table
+        ax_pos_tbb = dcopy(ax[3].get_tightbbox(self.plot_fig.get_renderer()).bounds)
+        cf.add_plot_table(self.plot_fig, ax[3], table_font, t_data, row_hdr, col_hdr, col_t, col_t,
+                          'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
 
     ###########################################
     ####    COMBINED ANALYSIS FUNCTIONS    ####
@@ -9181,6 +9227,125 @@ class AnalysisGUI(QMainWindow):
         #
         return [y if (t_key[x] is None) else t_key[x][y] for x, y in zip(f_key, f_perm)]
 
+    def get_cond_filt_data(self, r_obj):
+        '''
+
+        :param r_obj:
+        :param plot_exp_name:
+        :return:
+        '''
+
+        # memory allocation
+        A = np.empty(r_obj.n_filt, dtype=object)
+        i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
+
+        # determine the matching cell indices between the current and black filter
+        for i_filt in range(r_obj.n_filt):
+            # sets up a base filter with each of the filter types
+            r_filt_base = cf.init_rotation_filter_data(False)
+            r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
+            r_obj_tt[i_filt] = RotationFilteredData(self.data, r_filt_base, None, None, True, 'Whole Experiment', False)
+
+            # finds the corresponding cell types between the overall and user-specified filters
+            i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
+
+        # returns the array
+        return i_cell_b, r_obj_tt
+
+    def get_plot_vals(self, r_data, r_obj_tt, g_type, i_cell_b, im, plot_cond, is_cong=False, i_bin=None,
+                      use_vel=False, plot_cond2='Black'):
+        '''
+
+        :param r_data:
+        :param r_obj_tt:
+        :param g_type:
+        :param i_cell_b:
+        :param im:
+        :return:
+        '''
+
+        # initialisations
+        is_dir = i_bin == None
+
+        # if there is a mis-match in cell count, then find the matching cells between conditions
+        if len(i_cell_b[im[0]]) != len(i_cell_b[im[1]]):
+            i_cell_b[im[0]], _ = cf.det_cell_match_indices(r_obj_tt[im[0]], [0, 0], r_obj_tt[im[1]])
+
+        # retrieves the auc values and cell grouping indices for the current filter combination
+        if is_dir:
+            g_type_m = g_type[i_cell_b[im[0]]]
+            x_auc = r_data.cond_roc_auc[plot_cond2][i_cell_b[im[0]], 2]
+            y_auc = r_data.cond_roc_auc[plot_cond][i_cell_b[im[1]], 2]
+
+            # removes any cells where the group type was not calculated
+            is_ok = g_type_m >= 0 if not is_cong else np.ones(len(g_type_m), dtype=bool)
+            if not np.all(is_ok):
+                g_type_m, x_auc, y_auc = g_type_m[is_ok], x_auc[is_ok], y_auc[is_ok]
+                i_cell_b[im[0]], i_cell_b[im[1]] = i_cell_b[im[0]][is_ok], i_cell_b[im[1]][is_ok]
+        else:
+            # case is the kinematic ROC analysis
+            g_type_m = None
+            if i_bin == 'All Bins':
+                # retrieves the valid bin indices
+                i_col = self.setup_valid_bin_indices(r_data, use_vel)
+                if use_vel:
+                    # sets the dependent/independent velocity ROC values
+                    x_roc, y_roc = r_data.vel_roc_auc[plot_cond2], r_data.vel_roc_auc[plot_cond]
+
+                else:
+                    # sets the dependent/independent speed ROC values
+                    x_roc, y_roc = r_data.spd_roc_auc[plot_cond2], r_data.spd_roc_auc[plot_cond]
+
+                # sets the independent/dependent auROC values
+                x_auc, y_auc = x_roc[i_cell_b[im[0]], :][:, i_col], y_roc[i_cell_b[im[1]], :][:, i_col]
+
+            else:
+                # case is the kinematic ROC analysis
+                i_bin_f = np.abs(dcopy(i_bin))
+                if use_vel:
+                    # case is analysing velocity
+                    x_auc = r_data.vel_roc_auc[plot_cond2][i_cell_b[im[0]], i_bin_f]
+                    y_auc = r_data.vel_roc_auc[plot_cond][i_cell_b[im[1]], i_bin_f]
+                else:
+                    # case is analysing speed
+                    x_auc = r_data.spd_roc_auc[plot_cond2][i_cell_b[im[0]], i_bin_f]
+                    y_auc = r_data.spd_roc_auc[plot_cond][i_cell_b[im[1]], i_bin_f]
+
+        # calculates the compliment of any auc values < 0.5
+        ix_c, iy_c = x_auc < 0.5, y_auc < 0.5
+        x_auc[ix_c], y_auc[iy_c] = 1 - x_auc[ix_c], 1 - y_auc[iy_c]
+
+        # sets the x/y significance points
+        if is_dir:
+            x_sig = r_data.phase_auc_sig[i_cell_b[im[0]], 2]
+            y_sig = r_data.cond_auc_sig[plot_cond][i_cell_b[im[1]], 2]
+        else:
+            i_sig = ['Delong', 'Bootstrapping'].index(r_data.kine_auc_stats_type)
+            if i_bin == 'All Bins':
+                x_sig, y_sig = 0, 0
+                # if use_vel:
+                #     # case is analysing velocity
+                #     x_sig = np.mean(r_data.vel_roc_sig[im[0], i_sig][i_cell_b[im[0]], :][:, i_col], axis=1)
+                #     y_sig = np.mean(r_data.vel_roc_sig[im[1], i_sig][i_cell_b[im[1]], :][:, i_col], axis=1)
+                # else:
+                #     # case is analysing speed
+                #     x_sig = np.mean(r_data.spd_roc_sig[im[0], i_sig][i_cell_b[im[0]], :][:, i_col], axis=1)
+                #     y_sig = np.mean(r_data.spd_roc_sig[im[1], i_sig][i_cell_b[im[1]], :][:, i_col], axis=1)
+
+            else:
+                # case is analysing a specific bin
+                if use_vel:
+                    # case is analysing velocity
+                    x_sig = r_data.vel_roc_sig[im[0], i_sig][i_cell_b[im[0]], i_bin_f]
+                    y_sig = r_data.vel_roc_sig[im[1], i_sig][i_cell_b[im[1]], i_bin_f]
+                else:
+                    # case is analysing speed
+                    x_sig = r_data.spd_roc_sig[im[0], i_sig][i_cell_b[im[0]], i_bin_f]
+                    y_sig = r_data.spd_roc_sig[im[1], i_sig][i_cell_b[im[1]], i_bin_f]
+
+        # returns the all auc values, group match type and the inter-condition index arrays
+        return x_auc, y_auc, g_type_m, x_sig + 2 * y_sig, i_cell_b
+
     ####################################################################################################################
     ####                                           DATA OUTPUT FUNCTIONS                                            ####
     ####################################################################################################################
@@ -9637,6 +9802,27 @@ class AnalysisGUI(QMainWindow):
                 rI = c['rotInfo']
                 for tt in rI['t_spike']:
                     rI['t_spike'][tt] = rI['t_spike'][tt][cl_inc, :, :]
+
+    def setup_valid_bin_indices(self, r_data, use_vel):
+        '''
+
+        :param r_data:
+        :param use_vel:
+        :return:
+        '''
+
+        if use_vel:
+            # sets the column arrays (removes the calculation dependent velocity bin)
+            i_col = np.ones(np.shape(r_data.vel_xi)[0], dtype=bool)
+            i_col[r_data.i_bin_vel] = False
+
+        else:
+            # sets the column arrays (removes the calculation dependent velocity bin)
+            i_col = np.ones(np.shape(r_data.spd_xi)[0], dtype=bool)
+            i_col[r_data.i_bin_spd] = False
+
+        # returns the final array
+        return i_col
 
 ########################################################################################################################
 ########################################################################################################################
@@ -10253,6 +10439,7 @@ class AnalysisFunctions(object):
         # velocity/speed ranges
         vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
         sc_rng = ['{0} to {1}'.format(i * dv, (i + 1) * dv) for i in range(int(v_rng / dv))]
+        p_cond_vel = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'MotorDrifting']))))
 
         #
         rot_filt_grp = cf.init_rotation_filter_data(False)
@@ -10576,12 +10763,12 @@ class AnalysisFunctions(object):
                 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
-                'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng, 
+                'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng,
                 'def_val': '0 to {0}'.format(dv)
             },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/sec)', 'list': roc_vel_bin,
-                'def_val': str(dv), 'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+                'def_val': str(dv), 'para_reset': [['spd_x_rng', self.reset_spd_rng], ['i_bin', self.reset_plot_index]]
             },
             'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
             'equal_time': {
@@ -10600,22 +10787,33 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
+
             'plot_err': {'type': 'B', 'text': 'Plot Error Patch', 'def_val': True},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
                 'link_para': [['plot_exp_name', True], ['plot_err', True]]
             },
-            'use_vel': {'type': 'B', 'text': 'Plot Velocity ROC Values', 'def_val': True},
             'pool_expt': {
                 'type': 'B', 'text': 'Pool All Experiments', 'def_val': False,
                 'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['plot_err', True]]
             },
 
-            'plot_type': {
-                'type': 'L', 'text': 'Analysis Plot Type', 'list': vel_sig_type, 'def_val': vel_sig_type[0]
+            'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond_vel, 'def_val': 'Uniform'},
+            'i_bin': {
+                'type': 'L', 'text': 'Speed/Velocity Bin Index', 'list': vc_rng + ['All Bins'],
+                'def_val': '0 to {0}'.format(dv),
             },
-
+            'use_vel': {
+                'type': 'B', 'text': 'Plot Velocity ROC Values', 'def_val': True,
+                'para_reset': [['i_bin', self.reset_plot_index]]
+            },
+            'plot_type': {
+                'type': 'L', 'text': 'Analysis Plot Type', 'list': vel_sig_type, 'def_val': vel_sig_type[0],
+                'link_para': [['plot_cond', vel_sig_type[0]], ['i_bin', vel_sig_type[0]],
+                              ['plot_err', vel_sig_type[1]], ['plot_exp_name', vel_sig_type[1]],
+                              ['plot_all_expt', vel_sig_type[1]], ['pool_expt', vel_sig_type[1]]]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible plotting parameters
@@ -11888,7 +12086,8 @@ class AnalysisFunctions(object):
         '''
 
         # initialisations
-        cb_fcn = functools.partial(self.update_bool_para, p_name, fcn_para['link_para'])
+        link_para, para_reset = fcn_para['link_para'], fcn_para['para_reset']
+        cb_fcn = functools.partial(self.update_bool_para, p_name, link_para, para_reset)
 
         # creates the object
         h_chk = cf.create_checkbox(None, txt_font_bold, fcn_para['text'], name=p_name, cb_fcn=cb_fcn)
@@ -11896,7 +12095,7 @@ class AnalysisFunctions(object):
         # connects the callback function to the checkbox
         h_chk.setChecked(self.curr_para[p_name])
         if fcn_para['link_para'] is not None:
-            self.update_bool_para(p_name, fcn_para['link_para'], self.curr_para[p_name])
+            self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -12143,11 +12342,14 @@ class AnalysisFunctions(object):
         # resets the update flag so another change can be made
         self.is_updating = False
 
-    def update_bool_para(self, p_name, link_para, state):
+    def update_bool_para(self, p_name, link_para, para_reset, state):
         '''
 
         :return:
         '''
+
+        if self.is_updating:
+            return
 
         # sets the enabled properties for the linked parameters (if they exist)
         if link_para is not None:
@@ -12158,6 +12360,18 @@ class AnalysisFunctions(object):
             for lp in link_para:
                 h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox], lp[0])
                 h_obj[0].setEnabled(bool(state) != lp[1])
+
+        # resets the parameters based on the
+        if para_reset is not None:
+            # flag that the parameters are updating
+            self.is_updating = True
+
+            # runs the parameter reset functions
+            for pr in para_reset:
+                pr[1](pr[0], state)
+
+            # flag that the parameters are finished updating
+            self.is_updating = False
 
         # updates the parameter value
         self.curr_para[p_name] = bool(state)
@@ -12295,6 +12509,58 @@ class AnalysisFunctions(object):
                 # resets the associated parameter value
                 self.curr_para[pp] = sc_rng[h_list[0].currentIndex()]
                 d_grp[i_grp]['para'][pp]['list'] = sc_rng
+
+    def reset_plot_index(self, p_name, dv0):
+        '''
+
+        :param p_name:
+        :param dv0:
+        :return:
+        '''
+
+        # object handles
+        h_vb, h_uv = self.find_obj_handle([QComboBox], 'vel_bin'), self.find_obj_handle([QCheckBox], 'use_vel')
+        if len(h_vb) and len(h_uv):
+            h_vb, h_uv = h_vb[0], h_uv[0]
+        else:
+            return
+
+        # determines the plot function that is currently selected
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # parameters
+        v_rng, dv = 80, int(h_vb.currentText())
+        if not isinstance(p_name, list):
+            p_name = [p_name]
+
+        # sets the new velocity range list values
+        if h_uv.checkState() == Qt.Checked:
+            nw_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
+        else:
+            nw_rng = ['{0} to {1}'.format(i * dv, (i + 1) * dv) for i in range(int(v_rng / dv))]
+
+        # resets the list values for each associated parameter
+        nw_rng += ['All Bins']
+        for pp in p_name:
+            # retrieves the list object
+            h_list = self.find_obj_handle([QComboBox], pp)
+            if len(h_list):
+                # removes the existing items
+                for i in range(h_list[0].count()):
+                    h_list[0].removeItem(0)
+
+                # adds the new range
+                for txt in nw_rng:
+                    h_list[0].addItem(txt)
+
+                i_sel = h_list[0].currentIndex()
+                if (i_sel + 1) >= len(nw_rng):
+                    i_sel = 0
+
+                # resets the associated parameter value
+                self.curr_para[pp] = nw_rng[i_sel]
+                d_grp[i_grp]['para'][pp]['list'] = nw_rng
 
     def reset_grp_type(self, p_name, g_type):
         '''
