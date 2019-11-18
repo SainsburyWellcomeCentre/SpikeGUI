@@ -15,8 +15,9 @@ from numpy.matlib import repmat
 import shapely.geometry as geom
 
 # scipy module imports
-from scipy import stats, signal
+from scipy import stats
 from scipy.stats import poisson as p
+from scipy.signal import medfilt
 from scipy.stats import pearsonr as pr
 from scipy.spatial.distance import *
 from scipy.optimize import minimize, curve_fit
@@ -1780,7 +1781,6 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
 ####    KINEMATIC LDA FUNCTIONS    ####
 #######################################
 
-
 def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True, r_data=None):
     '''
 
@@ -1818,10 +1818,10 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
     if equal_time:
         # case is using resampling from equal time bin sizes
         n_rs = calc_para['n_sample']
-        vel_f, xi_bin = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
+        vel_f, xi_bin, dt = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
     else:
         # calculates the velocity kinematic frequencies
-        vel_f, xi_bin = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
+        vel_f, xi_bin, dt = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
 
     # resets the frequencies based on the types
     for i_filt in range(len(vel_f)):
@@ -1873,6 +1873,148 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         else:
             # case is using the normal time bins
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
+
+
+def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
+    '''
+
+    :param data:
+    :param plot_para:
+    :param calc_para:
+    :param w_prog:
+    :return:
+    '''
+
+    def shuffle_cond_spike_freq(r_data, calc_para, vel_sf, w_prog, pW, i_filt, tt):
+        '''
+
+        :param calc_para:
+        :param vel_sf:
+        :return:
+        '''
+
+        def shuffle_cell_spike_freq(calc_para, vel_sf_grp):
+            '''
+
+            :param calc_para:
+            :param n_sp_cell:
+            :return:
+            '''
+
+            # initialisations
+            n_shuffle, n_sm = calc_para['n_shuffle'], calc_para['n_smooth'] * calc_para['is_smooth']
+            n_trial, n_bin = np.shape(vel_sf_grp)
+
+            # memory allocation
+            v_sf_shuff = np.zeros((n_shuffle, n_bin, n_trial))
+
+            # sets up the shuffled spike counts over all trials/shuffles
+            for i_trial in range(n_trial):
+                for i_shuffle in range(n_shuffle):
+                    ind_shuffle = np.random.permutation(n_bin)
+                    v_sf_shuff[i_shuffle, :, i_trial] = vel_sf_grp[i_trial, ind_shuffle]
+
+            # returns the mean spiking frequencies over all trials
+            return smooth_signal(np.mean(v_sf_shuff, axis=2), n_sm)
+
+        def calc_spike_freq_corr(v_bin, v_sf, mlt):
+            '''
+
+            :param v_bin:
+            :param v_sf:
+            :param mlt:
+            :return:
+            '''
+
+            # memory allocation
+            n_sf = np.size(v_sf, axis=0)
+            v_corr = np.zeros(n_sf)
+
+            # calculate the correlation coefficients for each shuffled value
+            for i_sf in range(n_sf):
+                v_corr[i_sf] = mlt * np.corrcoef(v_sf[i_sf, :], v_bin)[0, 1]
+
+            # returns the correlation array
+            return v_corr
+
+        # parameters
+        p_value = 95
+
+        # initialisations
+        pW0 = i_filt * pW
+        n_trial, n_bin, n_cell = np.shape(vel_sf)
+        n_sm = calc_para['n_smooth'] * calc_para['is_smooth']
+
+        # sets the negative/positive velocity indices
+        i_bin_grp = [np.arange(int(n_bin/2)), np.arange(int(n_bin/2), n_bin)]
+        v_bin_grp = [np.mean(r_data.vel_xi[i_b, :], axis=1) for i_b in i_bin_grp]
+        mlt = [-1, 1] if len(i_bin_grp) == 2 else 1
+
+        # memory allocation
+        n_grp, n_shuffle = len(i_bin_grp), calc_para['n_shuffle']
+        A = np.empty((n_cell, n_grp), dtype=object)
+        v_sf_sh, v_sf_mu, is_sig = dcopy(A), dcopy(A), np.zeros((n_cell, n_grp), dtype=bool)
+        v_corr, v_corr_sh = np.ones((n_cell, n_grp)), np.ones((n_shuffle, n_cell, n_grp))
+
+        # loops through each cell calculating the shuffled trials/correlations
+        for i_cell in range(n_cell):
+            # updates the progressbar
+            w_str = 'Shuffling Spike Frequecies ({0} - {1}/{2})'.format(tt, i_cell + 1, n_cell)
+            w_prog.emit(w_str, 100 * (pW0 + pW * i_cell / n_cell))
+
+            for i_grp in range(n_grp):
+                # sets up the binned spike counts for the current cell (NB - spike counts may not necessarily be integer
+                # because the velocity spiking averages are the average of both the increasing/decreasing velocities)
+                vel_sf_grp = vel_sf[:, :, i_cell][:, i_bin_grp[i_grp]]
+                vel_sf_grp = vel_sf_grp[np.logical_not(np.isnan(vel_sf_grp[:, 0])), :]
+
+                # calculates the shuffled spiking frequencies
+                v_sf_sh[i_cell, i_grp] = shuffle_cell_spike_freq(calc_para, vel_sf_grp)
+                v_corr_sh[:, i_cell, i_grp] = calc_spike_freq_corr(v_bin_grp[i_grp], v_sf_sh[i_cell, i_grp], mlt[i_grp])
+
+                # calculates the mean
+                v_sf_mu[i_cell, i_grp] = smooth_signal(np.mean(vel_sf_grp, axis=0), n_sm)
+                v_corr[i_cell, i_grp] = mlt[i_grp] * np.corrcoef(v_sf_mu[i_cell, i_grp], v_bin_grp[i_grp])[0, 1]
+
+                # calculates the cell correlation significance
+                is_sig[i_cell, i_grp] = v_corr[i_cell, i_grp] > np.percentile(v_corr_sh[:, i_cell, i_grp], p_value)
+
+        # returns the shuffled spiking frequencies, correlation arrays
+        return v_sf_mu, v_sf_sh, v_corr_sh, v_corr, is_sig
+
+    # initialisations
+    r_data, equal_time = data.rotation, calc_para['equal_time']
+    r_obj_k, vel_sf = r_data.r_obj_kine, dcopy(r_data.vel_sf_rs) if equal_time else dcopy(r_data.vel_sf)
+    n_filt = len(r_obj_k.rot_filt_tot)
+    pW = 1 / n_filt
+
+    # initialises the correlation data fields
+    if r_data.vel_sf_corr is None:
+        r_data.vel_sf_mean, r_data.vel_sf_sig = {}, {}
+        r_data.vel_sf_corr_mn, r_data.vel_sf_corr, r_data.vel_sf_shuffle = {}, {}, {}
+
+    # sets the calculation parameters
+    r_data.vel_sf_nsm = calc_para['n_smooth'] * calc_para['is_smooth']
+    r_data.vel_bin_corr = float(calc_para['vel_bin'])
+    r_data.n_shuffle_corr = calc_para['n_shuffle']
+    r_data.vel_sf_eqlt = equal_time
+
+    # calculates the velocity/speed binned spiking frequencies
+    for i_filt, rr in enumerate(r_obj_k.rot_filt_tot):
+        # retrieves
+        tt = rr['t_type'][0]
+        if tt in r_data.vel_sf_corr:
+            # if the values have already been calculated, then continue
+            continue
+
+        # calculates the shuffled spike frequencies
+        vel_sf_mean, vel_sf_shuffle, vel_sf_corr, vel_sf_corr_mn, vel_sf_sig = \
+                    shuffle_cond_spike_freq(r_data, calc_para, dcopy(vel_sf[tt]), w_prog, pW, i_filt, tt)
+
+        # sets the final arrays into the class object
+        r_data.vel_sf_mean[tt], r_data.vel_sf_shuffle[tt] = vel_sf_mean, vel_sf_shuffle
+        r_data.vel_sf_corr[tt], r_data.vel_sf_corr_mn[tt] = vel_sf_corr, vel_sf_corr_mn
+        r_data.vel_sf_sig[tt] = vel_sf_sig
 
 
 def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
@@ -3197,6 +3339,33 @@ def get_dir_para(dir_type):
 ########################################################################################################################
 ####                                      MISCELLANEOUS CALCULATION FUNCTIONS                                       ####
 ########################################################################################################################
+
+def smooth_signal(y_sig, n_sm):
+    '''
+
+    :param y_sig:
+    :param n_sm:
+    :return:
+    '''
+
+    if n_sm > 0:
+        # smooths the signal (if required)
+        if np.ndim(y_sig) == 1:
+            # case is there is only one signal
+            return medfilt(y_sig, n_sm)
+        else:
+            # case is multiple signals
+            y_sig_sm = np.zeros(np.shape(y_sig))
+
+            # calculates the median filter for each signal
+            for i_sig in range(np.size(y_sig, axis=0)):
+                y_sig_sm[i_sig, :] = medfilt(y_sig[i_sig, :], n_sm)
+
+            # returns the final array
+            return y_sig_sm
+    else:
+        return y_sig
+
 
 def get_rsp_reduced_clusters(data):
     '''

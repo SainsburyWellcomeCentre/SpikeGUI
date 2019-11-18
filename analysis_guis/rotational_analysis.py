@@ -1139,7 +1139,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
                     # determines the indices of the time spikes within the current time bin
                     i_sp_bin = np.logical_and(t_sp_trial > t_bin[i_bin], t_sp_trial <= t_bin[i_bin + 1])
                     if np.any(i_sp_bin):
-                        # if there are any
+                        # if there are spikes within the time bin, then calculate the resampled count
                         n_sp_bin[i_bin] = calc_resampled_counts(
                             t_sp_trial[i_sp_bin], t_bin[i_bin:i_bin + 2], dt_min, n_sample
                         )
@@ -1148,12 +1148,6 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
                 vel_bin_tmp = reorder_array(n_sp_bin, i_grp, sd_vel, m=-m, dtype=float)
                 for k in range(2):
                     vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
-
-                # # sets the groupings for each time bins
-                # i_grp, ind_inv = np.unique(
-                #     np.sort(np.vstack([-y_dir[i_trial] * xi_bin[i:i + 2] for i in range(len(xi_bin) - 1)]),
-                #     axis=1), axis=0, return_inverse=True
-                # )
 
             # calculates the position/velocity spiking frequencies over all trials
             for k in range(2):
@@ -1182,7 +1176,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
 
     # returns the values
     if is_full_rs:
-        return vel_f, xi_bin
+        return vel_f, xi_bin, dt_min
     else:
         return vel_f
 
@@ -1300,19 +1294,22 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
                     pos_f[i_filt][ind_t, :, i_cell, k] = pos_bin[:, :, k] / _pos_dt
                     vel_f[i_filt][ind_t, :, i_cell, k] = vel_bin[:, :, k] / _vel_dt
 
+    # sets the bin duration times
+    dt = [pos_dt, vel_dt]
+
     # returns the position/velocity spiking frequency arrays
     if calc_type == 0:
         # calculation type is position data only
-        return pos_f, xi_bin[0]
+        return pos_f, xi_bin[0], dt[0]
     elif calc_type == 1:
         # calculation type is velocity data only
-        return vel_f, xi_bin[1]
+        return vel_f, xi_bin[1], dt[1]
     elif calc_type == 2:
         # calculation type is both kinematic types
-        return [pos_f, vel_f], xi_bin
+        return [pos_f, vel_f], xi_bin, dt
     else:
         # calculation type is both kinematic types (but non-averaged values)
-        return [pos_f, vel_f], xi_bin
+        return [pos_f, vel_f], xi_bin, dt
 
 
 def reorder_array(h, i_grp, sd, dtype=int, m=1):

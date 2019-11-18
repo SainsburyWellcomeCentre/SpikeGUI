@@ -58,7 +58,12 @@ class RotationFilter(QDialog):
                 self.is_ud = init_data['is_ud'][0]
 
         else:
-            self.plot_all_expt = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt').checkState()
+            h_check = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt')
+            if h_check is None:
+                self.plot_all_expt = True
+            else:
+                self.plot_all_expt = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt').checkState()
+
             if other_var is not None:
                 if 'use_ud' in other_var:
                     self.is_ud = main_obj.grp_para_plot.findChildren(QCheckBox, other_var['use_ud'])[0].checkState() > 0

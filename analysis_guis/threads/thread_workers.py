@@ -313,6 +313,26 @@ class WorkerThread(QThread):
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
 
+            elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation Significance':
+                # ensures the smoothing window is an odd integer (if smoothing)
+                if calc_para['is_smooth']:
+                    if calc_para['n_smooth'] % 2 != 1:
+                        # if not, then exit with an error
+                        e_str = 'The median smoothing filter window span must be an odd integer.'
+                        w_err(e_str, 'Incorrect Smoothing Window Span')
+
+                        #
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel', 'vel_sf'], other_para=False)
+
+                # calculates the shuffled kinematic spiking frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
+                cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
+
             ##########################################################
             ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
             ##########################################################
@@ -574,7 +594,7 @@ class WorkerThread(QThread):
                 if data.discrim.indiv.lda is None:
                     # if the individual LDA has not been run, then output an error to screen
                     e_str = 'The Individual LDA must be run first before this analysis can be performed'
-                    self.work_error.emit(e_str, 'Missing Individual LDA Data')
+                    w_err.emit(e_str, 'Missing Individual LDA Data')
 
                     # sets the ok flag to false and exit the function
                     self.is_ok = False
@@ -970,7 +990,7 @@ class WorkerThread(QThread):
 
         if cluster_ids is None:
             e_str = 'Cluster group file is missing? Please re-run with cluster-group file in the source data directory'
-            cf.show_error(e_str, 'Cluster Group File Missing!')
+            self.work_error.emit(e_str, 'Cluster Group File Missing!')
             return
 
         # retrieves the clusters spike data and channel depths
@@ -3535,6 +3555,7 @@ class WorkerThread(QThread):
                     # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
                     if calc_para['equal_time']:
                         if r_data.n_rs != calc_para['n_sample']:
+                            r_data.vel_sf
                             r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                             r_data.n_rs, is_change = calc_para['n_sample'], True
 
@@ -3552,6 +3573,19 @@ class WorkerThread(QThread):
                     # if there was a change, then re-initialise the roc phase fields
                     if is_change:
                         r_data.vel_roc = None
+
+            elif ct == 'vel_sf':
+                # case is the kinematic spiking frequency calculations
+                is_equal = [
+                    check_class_para_equal(r_data, 'vel_sf_nsm', calc_para['n_smooth'] * calc_para['is_smooth']),
+                    check_class_para_equal(r_data, 'vel_bin_corr', float(calc_para['vel_bin'])),
+                    check_class_para_equal(r_data, 'n_shuffle_corr', calc_para['n_shuffle']),
+                    check_class_para_equal(r_data, 'vel_sf_eqlt', calc_para['equal_time'])
+                ]
+
+                # if there was a change in any of the parameters, then reset the spiking frequency fields
+                if not np.all(is_equal) or data.force_calc:
+                    r_data.vel_sf_corr = None
 
             elif ct == 'lda':
                 # case is the LDA calculations
