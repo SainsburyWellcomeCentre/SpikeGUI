@@ -2561,18 +2561,22 @@ def det_closest_file_match(f_grp, f_new):
     :return:
     '''
 
-    # determines the best match and returns the matching file name/score
-    f_score = np.array([fuzz.partial_ratio(x, f_new) for x in f_grp])
-
-    # sorts the scores/file names by descending score
-    i_sort = np.argsort(-f_score)
-    f_score, f_grp = f_score[i_sort], np.array(f_grp)[i_sort]
-
     #
-    if sum(f_score == 100) > 1:
-        a = 1
-    else:
+    ind_m = next((i for i in range(len(f_grp)) if f_grp[i] == f_new), None)
+
+    if ind_m is None:
+        # determines the best match and returns the matching file name/score
+        f_score = np.array([fuzz.partial_ratio(x, f_new) for x in f_grp])
+
+        # sorts the scores/file names by descending score
+        i_sort = np.argsort(-f_score)
+        f_score, f_grp = f_score[i_sort], np.array(f_grp)[i_sort]
+
+        # returns the top matching values
         return f_grp[0], f_score[0]
+    else:
+        # otherwise, return the exact match
+        return f_grp[ind_m], 100.
 
 def get_cfig_line(cfig_file, fld_name):
     '''

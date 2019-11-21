@@ -1200,6 +1200,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
         # memory allocation for the current filter
         n_cell = np.size(r_obj.t_spike[i_filt], axis=0)
         n_trial_max = np.max([np.size(x, axis=0) for x in r_obj.wvm_para[i_filt]])
+        i_expt_uniq = np.unique(r_obj.i_expt[i_filt]) if not r_obj.is_single_cell else None
 
         # determines the experiments which contain the trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
@@ -1212,7 +1213,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
             if r_obj.is_single_cell:
                 i_expt = 0
             else:
-                i_expt = np.where(r_obj.i_expt[i_filt][i_cell] == valid_ind)[0][0]
+                i_expt = np.where(i_expt_uniq == r_obj.i_expt[i_filt][i_cell])[0][0]
 
             # calculates the position/velocity for each of the trials
             t_phase, wvm_p = r_obj.t_phase[i_filt][i_expt], r_obj.wvm_para[i_filt][i_expt]

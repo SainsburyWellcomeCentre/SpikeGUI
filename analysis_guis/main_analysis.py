@@ -1771,7 +1771,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the legend (first plot only)
             if i_plot == 0:
-                self.plot_fig.ax[i_plot].legend(['Fixed', 'Free'], loc=0)
+                self.plot_fig.ax[i_plot].legend(['Fixed', 'Free'], loc=4)
 
     def plot_single_match_mean(self, i_cluster, n_trace, is_horz, rej_outlier, exp_name=None, plot_grid=True):
         '''
@@ -3769,7 +3769,6 @@ class AnalysisGUI(QMainWindow):
             # creates the legend for the subplot
             ax[0].legend([x[0] for x in h_plt], lg_str, loc=2)
             ax[0].set_xlim([-1, 1])
-            ax[0].set_ylim([-0.1, 100.1])
             ax[0].set_title('{0} Velocities ({1})'.format(vel_dir, dist_type))
             ax[0].set_ylabel('Percentage')
             ax[0].set_xlabel('Correlation')
@@ -3781,6 +3780,10 @@ class AnalysisGUI(QMainWindow):
             ax[1].set_xticks(np.arange(n_filt))
             ax[1].set_xticklabels(x_str)
             ax[1].set_ylabel('% Significant Cells')
+
+            # resets the y-axis limits (if plotting the correlation distribution)
+            if dist_type == 'Correlation Distribution':
+                ax[0].set_ylim([-0.1, 100.1])
 
             # sets the other axis properties
             for _ax in ax:
@@ -4511,34 +4514,45 @@ class AnalysisGUI(QMainWindow):
             # retrieves the roc significance values based on type and statistical calculation type
             roc_sig0 = dcopy(r_data.vel_roc_sig[:, is_boot]) if use_vel else dcopy(r_data.spd_roc_sig[:, is_boot])
             roc_sig = [roc_sig0[tt_calc.index(tt)] for tt in tt_robj]
-            c_ofs = [0] + [x['nC'] for x in self.data.cluster[:-1]]
+
+            #
+            i_expt = [np.unique(i_ex) for i_ex in r_obj.i_expt]
+            n_c = np.array([x['nC'] for x in self.data.cluster[:-1]])
+            c_ofs = [np.cumsum([0]+list(n_c[i_ex[:-1]])) for i_ex in i_expt]
+            n_ex = [len(x) for x in i_expt]
 
             #
             if plot_all_expt:
                 # retrieves the experiment significance values for each experiment/filter
-                roc_sig_expt = np.vstack([cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_ex, c_ofs[i_ex])
-                                                                                    for i_ex in range(r_obj.n_expt)])
+                roc_sig_expt = np.empty(r_obj.n_filt, dtype=object)
+                for i_filt in range(r_obj.n_filt):
+                    roc_sig_expt[i_filt] = cfcn.calc_expt_roc_sig(r_obj, roc_sig[i_filt], c_ofs[i_filt], i_filt)
 
                 # case is using all the experiment
                 if pool_expt:
                     # pools all experiment data into a single group for mean calculations
-                    roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt[:, i_filt]), axis=0) for i_filt in range(n_filt)]
+                    roc_sig_mn = [100. * np.mean(np.vstack(r_sig), axis=0) for r_sig in roc_sig_expt]
                 else:
                     # calculates the mean significance over each experiment
-                    roc_sig_expt_mn = np.empty((np.shape(roc_sig_expt)), dtype=object)
-                    for i_ex in range(r_obj.n_expt):
-                        for i_filt in range(n_filt):
-                            roc_sig_expt_mn[i_ex, i_filt] = np.mean(roc_sig_expt[i_ex, i_filt], axis=0)
+                    roc_sig_expt_mn = np.empty(n_filt, dtype=object)
+                    for i_filt in range(n_filt):
+                        roc_sig_expt_mn[i_filt] = np.empty(n_ex[i_filt], dtype=object)
+                        for i_ex in range(n_ex[i_filt]):
+                            roc_sig_expt_mn[i_filt][i_ex] = np.mean(roc_sig_expt[i_filt][i_ex], axis=0)
 
                     # calculates the final mean/SEM values over each filter
-                    N = np.sqrt(r_obj.n_expt)
-                    roc_sig_mn = [100. * np.mean(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) for i_filt in range(n_filt)]
-                    roc_sig_sem = [100. * np.std(np.vstack(roc_sig_expt_mn[:, i_filt]), axis=0) / N for i_filt in range(n_filt)]
+                    roc_sig_mn = [100. * np.nanmean(np.vstack(r_sig), axis=0) for r_sig in roc_sig_expt_mn]
+                    roc_sig_sem = [100. * np.nanstd(np.vstack(r_sig), axis=0) / N ** 0.5 for r_sig, N in zip(roc_sig_expt_mn,n_ex)]
 
             else:
                 # case is using an individual experiment
                 i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-                roc_sig_mn = cfcn.calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs[i_expt], calc_mean=True)
+                roc_sig_mn = np.empty(r_obj.n_filt, dtype=object)
+
+                for i_filt in range(r_obj.n_filt):
+                    if any(r_obj.i_expt[i_filt] == i_expt):
+                        roc_sig_mn[i_filt] = cfcn.calc_expt_roc_sig(r_obj, roc_sig[i_filt], c_ofs[i_filt],
+                                                                    i_filt, calc_mean=True, i_expt=[i_expt])[0]
 
             ################################
             ####    SUBPLOT CREATION    ####
@@ -4547,6 +4561,7 @@ class AnalysisGUI(QMainWindow):
             # initialisations
             w_bar = 0.9
             c, h_plt = cf.get_plot_col(n_filt), []
+            is_ok = np.zeros(r_obj.n_filt,dtype=bool)
 
             # initialises the plot axes
             self.plot_fig.ax = create_sig_plot_axes(self.plot_fig)
@@ -4555,14 +4570,16 @@ class AnalysisGUI(QMainWindow):
             # plots the full auROC curves for each filter type
             for i_filt in range(n_filt):
                 # plots the auc values
-                h_plt.append(ax[0].plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
-                if plot_err and (roc_sig_sem is not None):
-                    cf.create_error_area_patch(ax[0], xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], c[i_filt])
+                if roc_sig_mn[i_filt] is not None:
+                    is_ok[i_filt] = True
+                    h_plt.append(ax[0].plot(xi_bin, roc_sig_mn[i_filt], 'o-', c=c[i_filt]))
+                    if plot_err and (roc_sig_sem is not None):
+                        cf.create_error_area_patch(ax[0], xi_bin, roc_sig_mn[i_filt], roc_sig_sem[i_filt], c[i_filt])
 
             # sets the axis properties
             ax[0].grid(plot_grid)
             ax[0].set_ylabel('%age Significant Cells')
-            ax[0].legend([x[0] for x in h_plt], r_obj.lg_str, loc=0)
+            ax[0].legend([x[0] for x in h_plt], np.array(r_obj.lg_str)[is_ok], loc=0)
             cf.set_axis_limits(ax[0], [-80 * use_vel, 80], [0, ax[0].get_ylim()[1]])
 
             # sets the x-label depending on the speed type
@@ -4576,17 +4593,21 @@ class AnalysisGUI(QMainWindow):
 
             # plots the mean accuracy values
             x_bar = np.arange(n_filt)
-            r_mu = [np.mean(x[i_mu]) for x in roc_sig_mn]
-            r_sem = [np.std(x[i_mu]) / np.sqrt(sum(i_mu)) for x in roc_sig_mn]
+            r_mu = [np.mean(x[i_mu]) if x is not None else None for x in roc_sig_mn]
+            r_sem = [np.std(x[i_mu]) / np.sqrt(sum(i_mu)) if x is not None else None for x in roc_sig_mn]
 
             # creates the bargraph + SEM errorbar
-            ax[1].bar(x_bar, r_mu, width=w_bar, color=c, zorder=1)
+            k = 0
             for i in range(n_filt):
-                ax[1].errorbar(x_bar[i], r_mu[i], yerr=r_sem[i], capsize=40 / n_filt, color='k')
+                if r_mu[i] is not None:
+                    ax[1].bar(k, r_mu[i], width=w_bar, color=c[i], zorder=1)
+                    ax[1].errorbar(k, r_mu[i], yerr=r_sem[i], capsize=40 / n_filt, color='k')
+                    k += 1
 
             # sets the axis properties
             ax[1].grid(plot_grid)
-            ax[1].set_xticks(x_bar)
+            ax[1].set_xlim([-0.5, k-0.5])
+            ax[1].set_xticks(np.arange(k))
             ax[1].set_ylim(ax[0].get_ylim())
             ax[1].set_xticklabels([])
 
@@ -10314,7 +10335,8 @@ class AnalysisFunctions(object):
         vd_type = ['Negative', 'Positive']
 
         # sets the LDA comparison types
-        comp_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in data._cluster]))
+        comp_type = np.unique(
+            cf.flat_list([x['rotInfo']['trial_type'] if x['rotInfo'] is not None else [] for x in data._cluster]))
         comp_type = list(comp_type[comp_type != 'Black'])
         ind_comp = [x == 'Uniform' for x in comp_type]
 

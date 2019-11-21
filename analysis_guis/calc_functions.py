@@ -3525,7 +3525,7 @@ def det_matching_ttype_expt(r_obj, cluster):
 #     # returns the normalised array
 #     return spd_sf_calc
 
-def calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs, calc_mean=False):
+def calc_expt_roc_sig(r_obj, roc_sig, c_ofs, i_filt, calc_mean=False, i_expt=None):
     '''
 
     :param roc_sig:
@@ -3534,19 +3534,23 @@ def calc_expt_roc_sig(r_obj, roc_sig, i_expt, c_ofs, calc_mean=False):
     :return:
     '''
 
+    # sets the
+    if i_expt is None:
+        i_expt = np.arange(len(c_ofs))
+
     # memory allocation
-    n_filt, cl_ind = r_obj.n_filt, r_obj.clust_ind
-    roc_sig_expt = np.empty(n_filt, dtype=object)
+    n_expt, cl_ind = len(i_expt), r_obj.clust_ind[i_filt]
+    roc_sig_expt = np.empty(n_expt, dtype=object)
 
     # retrieves the roc significance values for each of the rotation filter types
-    for i_filt in range(n_filt):
+    for i_ex in range(n_expt):
         # retrieves the roc significance values belonging to the current experiment
-        i_cl = cl_ind[i_filt][i_expt] + c_ofs
-        roc_sig_expt[i_filt] = roc_sig[i_filt][i_cl, :]
+        i_cl = cl_ind[i_expt[i_ex]] + c_ofs[i_expt[i_ex]]
+        roc_sig_expt[i_ex] = roc_sig[i_cl, :]
 
         # calculates the mean (if required)
         if calc_mean:
-            roc_sig_expt[i_filt] = 100. * np.mean(roc_sig_expt[i_filt], axis=0)
+            roc_sig_expt[i_ex] = 100. * np.mean(roc_sig_expt[i_ex], axis=0)
 
     # returns the final array
     return roc_sig_expt
