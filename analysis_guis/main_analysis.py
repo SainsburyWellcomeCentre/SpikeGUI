@@ -3549,7 +3549,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, is_single_cell, plot_grid)
 
-    def plot_spike_freq_corr(self, rot_filt, i_cluster, plot_exp_name, dist_type, plot_type,
+    def plot_spike_freq_corr(self, rot_filt, i_cluster, plot_exp_name, dist_type, bin_size, vel_dir, plot_type,
                              plot_shuffle, plot_grid, plot_scope):
         '''
 
@@ -3572,18 +3572,20 @@ class AnalysisGUI(QMainWindow):
             top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
 
             # creates the gridspec object
-            gs = gridspec.GridSpec(2, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / 2] * 2, figure=plot_fig.fig,
-                                   wspace=wspace, hspace=hspace, left=0.05, right=0.98, bottom=bottom, top=top)
+            gs = gridspec.GridSpec(1, nC, width_ratios=[1 / nC] * nC, height_ratios=[1], figure=plot_fig.fig,
+                                   wspace=wspace, hspace=hspace, left=0.075, right=0.98, bottom=bottom, top=top)
 
             # creates the subplots
-            plot_fig.ax = np.empty(4, dtype=object)
+            plot_fig.ax = np.empty(2, dtype=object)
             plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[0, :2])
             plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, -1])
-            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[1, :2])
-            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[1, -1])
 
         # initialisations
         r_data = self.data.rotation
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
@@ -3591,8 +3593,8 @@ class AnalysisGUI(QMainWindow):
             self.calc_ok = False
             return
 
-        #
-        xi_cdf = np.linspace(-1, 1, 201)
+        # sets the cdf xi-values
+        xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
         x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
 
         # creates the figure based on the scope type
@@ -3633,7 +3635,6 @@ class AnalysisGUI(QMainWindow):
             for i_grp in range(n_grp):
                 # initialisations
                 lg_str_cdf = []
-
                 for i_tt, tt in enumerate(t_type):
                     ########################################
                     ####    SPIKING FREQUENCY OUTPUT    ####
@@ -3664,7 +3665,7 @@ class AnalysisGUI(QMainWindow):
 
                     # calculates the cumulative distribution values
                     sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
-                    sf_corr_cdf = np.cumsum(sf_corr_hist)
+                    sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
 
                     # creates
                     i_cdf_bin = np.where(x_cdf > vel_sf_corr_mn)[0][0]
@@ -3673,15 +3674,15 @@ class AnalysisGUI(QMainWindow):
                     h_plt2.append(ax[i_grp + 2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
                                                      '--', c=col[i_tt]))
 
-                    #
+                    # appends the legend string and updates the axis properties (if final condition type)
                     lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
                     if (i_tt + 1) == len(t_type):
-                        ax[i_grp + 2].plot([-1, 1], 95 * np.ones(2), '--', c='r')
-                        ax[i_grp + 2].legend([x[0] for x in h_plt2], lg_str_cdf)
+                        ax[i_grp + 2].plot([-1, 1], 95 * np.ones(2), '-', c='r', linewidth=2)
+                        ax[i_grp + 2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
 
                     # sets the axis limits
                     ax[i_grp + 2].set_xlim([-1, 1])
-                    ax[i_grp + 2].set_ylim([-1, 101])
+                    ax[i_grp + 2].set_ylim([-0.1, 100.1])
                     ax[i_grp + 2].grid(plot_grid)
 
             # sets the final axis limits
@@ -3723,76 +3724,63 @@ class AnalysisGUI(QMainWindow):
             h_plt, col = [], cf.get_plot_col(n_filt)
             i_ofs = np.cumsum([0] + [x['nC'] for x in self.data.cluster[:-1]])
             x_str = ['#{0}'.format(i + 1) for i in range(n_filt)]
+            i_grp = ['Negative', 'Positive'].index(vel_dir)
 
             #
             lg_str0 = ['#{0} - {1}'.format(i + 1, lg) for i, lg in enumerate(r_obj_wc.lg_str)]
             lg_str = [x.replace('\n', '/') for x in lg_str0]
+            col_sig = cf.get_plot_col(4, n_filt)
 
-            #
+            # retrieves the trial condition types
             t_type = np.unique([x['t_type'] for x in r_obj_wc.rot_filt_tot])
-            n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
 
             # creates the plot axis
             setup_plot_axes(self.plot_fig)
             ax = self.plot_fig.ax
 
             #
-            for i_grp in range(n_grp):
-                for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
-                    # retrieves the cell indices that correspond to the current filter
-                    ind_cell = np.array(cf.flat_list([x + ii for x, ii in zip(r_obj_wc.clust_ind[i_filt], i_ofs)]))
+            for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+                # retrieves the cell indices that correspond to the current filter
+                ind_cell = np.array(cf.flat_list([x + ii for x, ii in zip(r_obj_wc.clust_ind[i_filt], i_ofs)]))
 
-                    # retrieves the significance flags/correlation values for each cell
-                    v_sf_sig = r_data.vel_sf_sig[rr['t_type'][0]][ind_cell, i_grp]
-                    v_sf_corr = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
+                # retrieves the significance flags/correlation values for each cell
+                v_sf_sig = r_data.vel_sf_sig[rr['t_type'][0]][ind_cell, :]
+                v_sf_corr = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
+                v_sf_score = v_sf_sig[:, 0].astype(int) + 2 * v_sf_sig[:, 1].astype(int)
 
-                    # calculates the cumulative distribution values
-                    sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=True)[0]
-                    if dist_type == 'Histogram':
-                        y_dist = sf_corr_hist
-                    else:
-                        y_dist = np.cumsum(sf_corr_hist)
+                # calculates the cumulative distribution values
+                sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=True)[0]
+                if dist_type == 'Histogram':
+                    y_dist = 100. * sf_corr_hist / np.sum(sf_corr_hist)
+                else:
+                    y_dist = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
 
-                    # creates distribution plot
-                    h_plt.append(ax[2 * i_grp].plot(x_cdf, y_dist, c=col[i_filt]))
+                # creates distribution plot
+                h_plt.append(ax[0].plot(x_cdf, y_dist, c=col[i_filt]))
 
-                    # creates the stacked barplots
-                    p_sig = 100. * np.mean(v_sf_sig)
-                    ax[2 * i_grp + 1].bar(i_filt, p_sig, width=0.9, color=col[i_filt], edgecolor=col[i_filt])
-                    ax[2 * i_grp + 1].bar(i_filt, 100. - p_sig, bottom=p_sig, width=0.9, color='w', edgecolor=col[i_filt])
+                # creates the stacked barplots
+                h_plt2, y_bot = [], 0
+                p_sig = [100.* np.mean(v_sf_score == i) for i in range(4)]
+                for i_sig in range(len(p_sig)):
+                    h_plt2.append(ax[1].bar(i_filt, p_sig[i_sig], bottom=y_bot, width=0.9,
+                                                    color=col_sig[i_sig], edgecolor='k'))
+                    y_bot += p_sig[i_sig]
 
-                # creates the legend for the subplot
-                ax[2 * i_grp].legend([x[0] for x in h_plt], lg_str)
-                ax[2 * i_grp].set_xlim([-1, 1])
-
-            if dist_type == 'Histogram':
-                # calculates the overall limits over both distribution axis
-                y_lim0, y_lim1 = ax[0].get_ylim(), ax[2].get_ylim()
-                y_lim_fin = [min(y_lim0[0], y_lim1[0]), max(y_lim0[1], y_lim1[1])]
-
-                # sets the final axis limits
-                ax[0].set_ylim(y_lim_fin)
-                ax[2].set_ylim(y_lim_fin)
-            else:
-                ax[0].set_ylim([-1, 101])
-                ax[2].set_ylim([-1, 101])
+            # creates the legend for the subplot
+            ax[0].legend([x[0] for x in h_plt], lg_str, loc=2)
+            ax[0].set_xlim([-1, 1])
+            ax[0].set_ylim([-0.1, 100.1])
+            ax[0].set_title('{0} Velocities ({1})'.format(vel_dir, dist_type))
+            ax[0].set_ylabel('Percentage')
+            ax[0].set_xlabel('Correlation')
 
             # sets the significance values
-            for i_grp in range(n_grp):
-                ax[2 * i_grp + 1].set_xlim(np.array([0, n_filt]) - 0.5)
-                ax[2 * i_grp + 1].set_ylim([-1, 101])
-                ax[2 * i_grp + 1].set_xticks(np.arange(n_filt))
-                ax[2 * i_grp + 1].set_xticklabels(x_str)
-                ax[2 * i_grp + 1].set_ylabel('% Significant Cells')
-
-            # negative velocity axis properties
-            ax[0].set_title('Negative Velocities ({0})'.format(dist_type))
-            ax[0].set_ylabel('Percentage')
-
-            # positive velocity axis properties
-            ax[2].set_title('Positive Velocities ({0})'.format(dist_type))
-            ax[2].set_ylabel('Percentage')
-            ax[2].set_xlabel('Correlation')
+            ax[1].legend([x[0] for x in h_plt2], ['None', 'Negative', 'Positive', 'Both'])
+            ax[1].set_xlim(np.array([0, n_filt]) - 0.5)
+            ax[1].set_ylim([-0.1, 100.1])
+            ax[1].set_xticks(np.arange(n_filt))
+            ax[1].set_xticklabels(x_str)
+            ax[1].set_ylabel('% Significant Cells')
 
             # sets the other axis properties
             for _ax in ax:
@@ -9415,7 +9403,8 @@ class AnalysisGUI(QMainWindow):
 
         # mandatory update function list
         func_plot_chk = ['Shuffled Cluster Distances',
-                         'Cluster Cross-Correlogram']
+                         'Cluster Cross-Correlogram',
+                         'Kinematic Spiking Frequency Correlation Significance']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -10322,6 +10311,7 @@ class AnalysisFunctions(object):
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
         ksig_type = ['Individual Cell', 'Correlation Distribution']
         dist_type = ['Cumulative Distribution', 'Histogram']
+        vd_type = ['Negative', 'Positive']
 
         # sets the LDA comparison types
         comp_type = np.unique(cf.flat_list([x['rotInfo']['trial_type'] for x in data._cluster]))
@@ -10551,10 +10541,13 @@ class AnalysisFunctions(object):
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
             'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[0]},
+            'bin_size': {'text': 'Bin Size', 'def_val': 0.05, 'min_val': 0.01, 'max_val': 1.00},
+            'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ksig_type, 'def_val': ksig_type[0],
                 'link_para': [['i_cluster', 'Correlation Distribution'], ['plot_exp_name', 'Correlation Distribution'],
-                              ['plot_shuffle', 'Correlation Distribution'], ['dist_type', 'Individual Cell']]
+                              ['plot_shuffle', 'Correlation Distribution'], ['dist_type', 'Individual Cell'],
+                              ['vel_dir', 'Individual Cell']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
