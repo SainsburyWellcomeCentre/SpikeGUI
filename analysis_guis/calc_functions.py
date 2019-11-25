@@ -53,11 +53,30 @@ except:
     pass
 
 # other function declarations
-dcopy = copy.deepcopy
+dcopy, scopy = copy.deepcopy, copy.copy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
 n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
 n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
 lda_trial_type = None
+
+########################################################################################################################
+########################################################################################################################
+
+class EmptyAnalysisData(object):
+    def __init__(self):
+        # field initialisation
+        self._cluster = []
+        self.cluster = None
+
+        # exclusion filter fields
+        self.exc_gen_filt = None
+        self.exc_rot_filt = None
+        self.exc_ud_filt = None
+
+        # other flags
+        self.req_update = True
+        self.force_calc = True
+        self.files = None
 
 ########################################################################################################################
 ########################################################################################################################
@@ -2913,6 +2932,108 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
     return def_para
 
 
+def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
+    '''
+
+    :param r_data_0:
+    :param r_data_f:
+    :param r_data_def:
+    :return:
+    '''
+
+    def set_roc_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    if r_data_f is None:
+        # case is there are no additional field information to be added
+        r_data = r_data_0
+    elif hasattr(r_data_0, r_data_f):
+        # case is there is an additional field to be added. if the field exists, then overwrite it
+        r_data = getattr(r_data_0, r_data_f)
+    else:
+        # otherwise, simply add the new field to the class
+        r_data = r_data_def
+        setattr(r_data_0, r_data_f, r_data_def)
+
+    # memory allocation and parameters
+    dv_0 = 5
+    r_para, para_flds = {}, []
+
+    # sets the parameter fields to be retrieved (based on type)
+    if f_type == 'vel_roc_sig':
+        para_flds = ['n_boot_kine_ci', 'kine_auc_stats_type', 'vel_bin', 'vel_x_rng', 'equal_time', 'n_sample']
+
+    # self.vel_bin_corr = -1
+    # self.n_shuffle_corr = -1
+
+    # self.i_bin_vel = -1
+    # self.is_equal_time = False
+    # self.n_rs = -1
+    # self.kine_auc_stats_type = None
+
+
+    #
+    for pf in para_flds:
+        # sets the new parameter field name (could be altered below...)
+        pf_nw = pf
+
+        #############################
+        ####    SPECIAL CASES    ####
+        #############################
+
+        if pf == 'vel_x_rng':
+            pf_nw = 'spd_x_rng'
+            if isinstance(r_data.i_bin_vel, list):
+                vc_rng = get_kinematic_range_strings(float(r_para['vel_bin']), True)
+                r_para[pf_nw] = vc_rng[r_data.i_bin_vel[1]]
+            else:
+                r_para[pf_nw] = '0 to {0}'.format(r_para['vel_bin'])
+
+        ############################
+        ####    NORMAL CASES    ####
+        ############################
+
+        else:
+            p_type = 'Number'
+
+            if pf == 'n_boot_kine_ci':
+                def_val, fld_name, pf_nw = 100, 'n_boot_kine_ci', 'n_boot'
+
+            elif pf == 'kine_auc_stats_type':
+                def_val, fld_name, pf_nw = 'Delong', 'kine_auc_stats_type', 'auc_stype'
+
+            elif pf == 'equal_time':
+                def_val, fld_name = False, 'is_equal_time'
+
+            elif pf == 'n_sample':
+                def_val, fld_name = 100, 'n_rs'
+
+            elif pf == 'vel_bin':
+                def_val, fld_name, p_type = str(dv_0), 'vel_bin', 'String'
+
+            # sets the roc parameter values into the parameter dictionary
+            if p_type == 'Number':
+                r_para[pf_nw] = set_roc_para(def_val, getattr(r_data, fld_name))
+
+            elif p_type == 'String':
+                r_para[pf_nw] = set_roc_para(def_val, str(int(getattr(r_data, fld_name))))
+
+    # returns the parameter dictionary
+    return r_para
+
+
 def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
     '''
 
@@ -2960,12 +3081,14 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
         # returns the lda default parameter dictionary
         return def_para
 
-    #
     if d_data_f is None:
+        # case is there are no additional field information to be added
         d_data = d_data_0
     elif hasattr(d_data_0, d_data_f):
+        # case is there is an additional field to be added. if the field exists, then overwrite it
         d_data = getattr(d_data_0, d_data_f)
     else:
+        # otherwise, simply add the new field to the class
         d_data = d_data_def
         setattr(d_data_0, d_data_f, d_data_def)
 
@@ -3089,16 +3212,14 @@ def reduce_cluster_data(data, i_expt):
     '''
 
     # creates a copy of the data and removes any
-    data_tmp = dcopy(data)
+    data_tmp = EmptyAnalysisData()
 
     # reduces down the number of
-    if data_tmp.cluster is not None:
-        if len(i_expt) != len(data_tmp.cluster):
-            data_tmp.cluster = [data_tmp.cluster[i_ex] for i_ex in i_expt]
+    if data.cluster is not None:
+        data_tmp.cluster = [scopy(data.cluster[i_ex]) for i_ex in i_expt]
 
-    if data_tmp._cluster is not None:
-        if len(i_expt) != len(data_tmp._cluster):
-            data_tmp._cluster = [data_tmp._cluster[i_ex] for i_ex in i_expt]
+    if data._cluster is not None:
+        data_tmp._cluster = [scopy(data._cluster[i_ex]) for i_ex in i_expt]
 
     # returns the reduced data class object
     return data_tmp
@@ -3303,8 +3424,7 @@ def det_uniq_channel_layers(data, lda_para):
     if i_expt is None:
         return None
     else:
-        _data = reduce_cluster_data(data, i_expt)
-        return list(np.unique(np.hstack([c['chLayer'] for c in _data._cluster])))
+        return list(np.unique(cf.flat_list([data._cluster[i_ex]['chLayer'] for i_ex in i_expt])))
 
 
 def get_glob_para(gp_type):
@@ -3375,11 +3495,13 @@ def get_rsp_reduced_clusters(data):
     '''
 
     # memory allocation
-    _data = dcopy(data)
+    _data = EmptyAnalysisData()
 
     # reduces the data for each cluster
-    for c in _data._cluster:
+    _data._cluster = [[None] for _ in range(len(data._cluster))]
+    for i_cc, cc in enumerate(data._cluster):
         # determines the cells that are in the valid regions (RSPg and RSPd)
+        c = scopy(cc)
         i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
 
         # removes the non-valid cells from the depth, region and layer arrays
@@ -3407,6 +3529,9 @@ def get_rsp_reduced_clusters(data):
                 # removes the non-valid cell from the time spikes
                 for tt in c['rotInfo']['trial_type']:
                     c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
+
+        # sets the cluster values
+        _data._cluster[i_cc] = c
 
     # returns the valid cells array
     return _data
@@ -3554,3 +3679,75 @@ def calc_expt_roc_sig(r_obj, roc_sig, c_ofs, i_filt, calc_mean=False, i_expt=Non
 
     # returns the final array
     return roc_sig_expt
+
+
+def get_all_match_cond_cells(data, t_type):
+    '''
+
+    :param r_obj:
+    :return:
+    '''
+
+    def det_cell_index_interset(ind, tt, i_cell_nw):
+        '''
+
+        :param ind:
+        :param i_cell_nw:
+        :return:
+        '''
+
+        if tt in ind:
+            # if the field does exist, then determine the intersection of current/new index arrays
+            return list(set(ind[tt]).intersection(i_cell_nw))
+        else:
+            # if the field doesn't exist, then use the whole index array
+            return i_cell_nw
+
+    # initalises the filter data
+    rot_filt = cf.init_rotation_filter_data(False)
+    rot_filt['t_type'] = t_type
+
+    # retrieves the rotation filter object
+    r_obj = RotationFilteredData(data, rot_filt, None, None, True, 'Whole Experiment', False)
+
+    #
+    if len(t_type) == 1:
+        # if only only trial condition, then use all indices
+        i_cell_i, _ = cf.det_cell_match_indices(r_obj, [0, 0])
+        ind_all = {t_type[0]: i_cell_i}
+
+    else:
+        # initialisations
+        n_filt, ind_all = r_obj.n_filt, {}
+
+        # determines the matching cell indices between all trial conditions
+        for i in range(n_filt - 1):
+            for j in range(i + 1, n_filt):
+                # determines the matching indices between the 2 conditions
+                i_cell_i, i_cell_j = cf.det_cell_match_indices(r_obj, [i, j])
+                tt_i, tt_j = r_obj.rot_filt_tot[i]['t_type'][0], r_obj.rot_filt_tot[j]['t_type'][0]
+
+                # updates the intersection of the current indices with the new ones
+                ind_all[tt_i] = det_cell_index_interset(ind_all, tt_i, i_cell_i)
+                ind_all[tt_j] = det_cell_index_interset(ind_all, tt_j, i_cell_j)
+
+    #
+    return ind_all
+
+
+def get_kinematic_range_strings(dv, is_vel, v_rng=80):
+    '''
+
+    :param dv:
+    :param is_vel:
+    :param v_rng:
+    :return:
+    '''
+
+    # returns the range strings based on the kinematic type
+    if is_vel:
+        # case is velocity
+        return ['{0} to {1}'.format(int(i * dv - v_rng), int((i + 1) * dv - v_rng)) for i in range(int(2 * v_rng / dv))]
+    else:
+        # case is speed
+        return ['{0} to {1}'.format(int(i * dv), int((i + 1) * dv)) for i in range(int(v_rng / dv))]

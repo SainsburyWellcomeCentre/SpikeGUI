@@ -9,7 +9,7 @@ import numpy as np
 import pickle as p
 import seaborn as sns
 from numpy import ndarray
-from skimage import measure
+# from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
 from fuzzywuzzy import fuzz, process

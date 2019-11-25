@@ -1647,6 +1647,8 @@ class AnalysisGUI(QMainWindow):
 
                 # runs the worker thread
                 fcn_para = [calc_para, plot_para, self.data, self.fcn_data.pool, self.def_data['g_para']]
+                self.text_prog.setText('Initialising Function...')
+                self.pbar_prog.setValue(0)
 
                 # runs the calculation on the next available thread
                 iw = self.det_avail_thread_worker()
@@ -3561,7 +3563,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axes(plot_fig):
+        def setup_plot_axes(plot_fig, n_filt):
             '''
 
             :return:
@@ -3572,13 +3574,15 @@ class AnalysisGUI(QMainWindow):
             top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
 
             # creates the gridspec object
-            gs = gridspec.GridSpec(1, nC, width_ratios=[1 / nC] * nC, height_ratios=[1], figure=plot_fig.fig,
-                                   wspace=wspace, hspace=hspace, left=0.075, right=0.98, bottom=bottom, top=top)
+            gs = gridspec.GridSpec(n_filt, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / n_filt] * n_filt,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
 
             # creates the subplots
-            plot_fig.ax = np.empty(2, dtype=object)
-            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[0, :2])
-            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, -1])
+            plot_fig.ax = np.empty(n_filt+1, dtype=object)
+            plot_fig.ax[n_filt] = plot_fig.figure.add_subplot(gs[:, -1])
+            for i_filt in range(n_filt):
+                plot_fig.ax[i_filt] = plot_fig.figure.add_subplot(gs[i_filt, :2])
 
         # initialisations
         r_data = self.data.rotation
@@ -3720,6 +3724,7 @@ class AnalysisGUI(QMainWindow):
             #####################################
 
             # initialisations
+            is_hist = dist_type == 'Histogram'
             n_filt = r_obj_wc.n_filt
             h_plt, col = [], cf.get_plot_col(n_filt)
             i_ofs = np.cumsum([0] + [x['nC'] for x in self.data.cluster[:-1]])
@@ -3735,7 +3740,7 @@ class AnalysisGUI(QMainWindow):
             t_type = np.unique([x['t_type'] for x in r_obj_wc.rot_filt_tot])
 
             # creates the plot axis
-            setup_plot_axes(self.plot_fig)
+            setup_plot_axes(self.plot_fig, 1 + (n_filt - 1) * is_hist)
             ax = self.plot_fig.ax
 
             #
@@ -3749,37 +3754,61 @@ class AnalysisGUI(QMainWindow):
                 v_sf_score = v_sf_sig[:, 0].astype(int) + 2 * v_sf_sig[:, 1].astype(int)
 
                 # calculates the cumulative distribution values
-                sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=True)[0]
-                if dist_type == 'Histogram':
-                    y_dist = 100. * sf_corr_hist / np.sum(sf_corr_hist)
-                else:
-                    y_dist = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
+                sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=False)[0]
+                sf_corr_hist_sum = np.sum(sf_corr_hist)
 
-                # creates distribution plot
-                h_plt.append(ax[0].plot(x_cdf, y_dist, c=col[i_filt]))
+                #
+                if is_hist:
+                    # calculates the histogram of the significant cells
+                    sf_corr_hist_sig = np.histogram(v_sf_corr[v_sf_sig[:, i_grp]], bins=xi_cdf, normed=False)[0]
+
+                    # calculates the proportions
+                    p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                    p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+
+                    # case is the significant values so normalise using the provided value
+                    b_wid = 0.9*(x_cdf[1] - x_cdf[0])
+                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, color=col[i_filt])
+                    ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
+
+                else:
+                    # case is plotting the cumulative distribution
+                    y_dist = 100. * np.cumsum(sf_corr_hist / sf_corr_hist_sum)
+                    h_plt.append(ax[0].plot(x_cdf, y_dist, c=col[i_filt]))
 
                 # creates the stacked barplots
                 h_plt2, y_bot = [], 0
                 p_sig = [100.* np.mean(v_sf_score == i) for i in range(4)]
                 for i_sig in range(len(p_sig)):
-                    h_plt2.append(ax[1].bar(i_filt, p_sig[i_sig], bottom=y_bot, width=0.9,
-                                                    color=col_sig[i_sig], edgecolor='k'))
+                    h_plt2.append(ax[-1].bar(i_filt, p_sig[i_sig], bottom=y_bot, width=0.9,
+                                                     color=col_sig[i_sig], edgecolor='k'))
                     y_bot += p_sig[i_sig]
 
-            # creates the legend for the subplot
-            ax[0].legend([x[0] for x in h_plt], lg_str, loc=2)
-            ax[0].set_xlim([-1, 1])
-            ax[0].set_title('{0} Velocities ({1})'.format(vel_dir, dist_type))
-            ax[0].set_ylabel('Percentage')
-            ax[0].set_xlabel('Correlation')
+            if is_hist:
+                yL_min = np.min([_ax.get_ylim()[0] for _ax in ax[:n_filt]])
+                yL_max = np.max([_ax.get_ylim()[1] for _ax in ax[:n_filt]])
+
+                for i_ax, _ax in enumerate(ax[:n_filt]):
+                    _ax.set_xlim([-1, 1])
+                    _ax.set_ylim([yL_min, yL_max])
+                    _ax.set_ylabel('Percentage')
+                    _ax.set_title(r_obj_wc.lg_str[i_ax].replace('\n', '\\'))
+
+                ax[n_filt - 1].set_xlabel('Correlation')
+
+            else:
+                ax[0].set_title('{0} Velocities ({1})'.format(vel_dir, dist_type))
+                ax[0].legend([x[0] for x in h_plt], lg_str, loc=2)
+                ax[0].set_xlabel('Correlation')
+                ax[0].set_ylabel('Percentage')
 
             # sets the significance values
-            ax[1].legend([x[0] for x in h_plt2], ['None', 'Negative', 'Positive', 'Both'])
-            ax[1].set_xlim(np.array([0, n_filt]) - 0.5)
-            ax[1].set_ylim([-0.1, 100.1])
-            ax[1].set_xticks(np.arange(n_filt))
-            ax[1].set_xticklabels(x_str)
-            ax[1].set_ylabel('% Significant Cells')
+            ax[-1].legend([x[0] for x in h_plt2], ['None', 'Negative', 'Positive', 'Both'])
+            ax[-1].set_xlim(np.array([0, n_filt]) - 0.5)
+            ax[-1].set_ylim([-0.1, 100.1])
+            ax[-1].set_xticks(np.arange(n_filt))
+            ax[-1].set_xticklabels(x_str)
+            ax[-1].set_ylabel('% Significant Cells')
 
             # resets the y-axis limits (if plotting the correlation distribution)
             if dist_type == 'Correlation Distribution':
@@ -4487,6 +4516,7 @@ class AnalysisGUI(QMainWindow):
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         r_obj = RotationFilteredData(self.data, rot_filt, None, plot_exp_name, True, 'Whole Experiment', False)
         if not r_obj.is_ok:
+            # sets the exit flag and exits the function
             self.calc_ok = False
             return
 
@@ -5265,7 +5295,7 @@ class AnalysisGUI(QMainWindow):
                                   c_col, 'bottom', n_row=1, n_col=1, p_wid=p_wid)
 
     def create_auc_stats_figure(self, r_obj, rot_filt, plot_cond, plot_grid, is_cong=False,
-                                i_bin=None, plot_cond2='Black', use_vel=False):
+                                i_bin=None, plot_cond_base='Black', use_vel=False):
 
         def setup_sig_str(y, is_auc_sig):
             '''
@@ -5309,18 +5339,49 @@ class AnalysisGUI(QMainWindow):
             # returns the array
             return p_str
 
+        def get_filtered_cell_indices(r_obj, tt_filt, use_vel, ind_cond=None):
+            '''
+
+            :param r_obj:
+            :param t_type:
+            :param i_cell_b:
+            :return:
+            '''
+
+            # retrieves the condition filtered rotation data
+            i_cell_b, r_obj_indiv = self.get_cond_filt_data(r_obj)
+            if use_vel:
+                # if the common cell index array is not provided, then initialise it here
+                if ind_cond is None:
+                    ind_cond = cfcn.get_all_match_cond_cells(self.data, tt_filt)
+
+                # collapses the cell index arrays to only those that are present for all selected trial conditions
+                i_cell_b = [np.intersect1d(ind_cond[tt], i_c) for tt, i_c in zip(tt_filt, i_cell_b)]
+
+            # returns the cell indices and the individually filtered objects
+            return i_cell_b, r_obj_indiv
+
         # initialisations
-        e_str = None
+        e_str, r_data = None, self.data.rotation
         is_dir, st_type_name = i_bin is None, ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
+        tt_auc, tt_filt = rot_filt['t_type'], cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
 
         # retrieves the black/matching filter index values
-        t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
-        if plot_cond2 not in t_type:
+        if plot_cond_base not in tt_filt:
+            # case is the base trial condition has not been calculated
             e_str = 'To run this function, you must ensure "{0}" is selected for the ' \
-                    'Trial Type in the Filter Parameters GUI.'.format(plot_cond2)
-        elif plot_cond not in t_type:
+                    'Trial Type in the Filter Parameters GUI.'.format(plot_cond_base)
+        elif plot_cond not in tt_filt:
+            # case is the dependent trial condition has not been calculated
             e_str = 'To run this function, you must ensure "{0}" is selected for the ' \
                     'Trial Type in the Filter Parameters GUI.'.format(plot_cond)
+        else:
+            # determines the indices of the cells that are common to all the trial conditions
+            ind_cond = cfcn.get_all_match_cond_cells(self.data, tt_filt)
+            if len(ind_cond[tt_filt[0]]) == 0:
+                # if there are no matching cells, then output an error to screen
+                e_str = 'There are no cells that match all the selected trial conditions. \n' \
+                        'Try deselecting some of the conditions from the Trial Type in the Filter Parameters GUI.'
 
         # there is an error, then output the message to screen and exit with an error
         if e_str is not None:
@@ -5329,19 +5390,15 @@ class AnalysisGUI(QMainWindow):
             return
 
         # determines the indices of the
-        ind_base = [t_type.index(plot_cond2)]
+        ind_base = [tt_auc.index(plot_cond_base)]
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_base]
 
-        # retrieves the condition filtered rotation data
-        i_cell_b, r_obj_tt = self.get_cond_filt_data(r_obj)
-
-        #
-        r_data = self.data.rotation
+        # retrieves the cell indices and unique filter objects
+        i_cell_b, r_obj_tt = get_filtered_cell_indices(r_obj, tt_filt, use_vel, ind_cond=ind_cond)
         if is_dir:
             st_type = st_type_name.index(r_data.phase_grp_stats_type)
             g_type = r_data.phase_gtype[:, st_type]
         else:
-            e_str = None
             if use_vel and (i_bin in r_data.i_bin_vel):
                 e_str = 'Not possible to plot the auROC stats as the dependent/plotting velocity bins are the same.'
             elif (not use_vel) and (i_bin == r_data.i_bin_spd):
@@ -5354,7 +5411,6 @@ class AnalysisGUI(QMainWindow):
                 cf.show_error(e_str, 'Invalid Bin Index')
                 self.calc_ok = False
                 return
-
 
         #############################
         ####    SUBPLOT SETUP    ####
@@ -5397,11 +5453,17 @@ class AnalysisGUI(QMainWindow):
         B = np.empty(len(ind_match), dtype=object)
         is_sig, auc = dcopy(B), dcopy(B)
 
-        # sets the black/comparison trial condition cell group type values (for the current match)
+        #
+        r_filt_auc = cf.init_rotation_filter_data(False)
+        r_filt_auc['t_type'] = tt_auc
+        r_obj_auc_full = RotationFilteredData(self.data, r_filt_auc, None, None, True, 'Whole Experiment', False)
+
+        # sets the base/comparison trial condition cell group type values (for the current match)
+        i_cell_auc, r_obj_auc = get_filtered_cell_indices(r_obj_auc_full, tt_auc, use_vel)
         if len(i_cell_b[im[1]]):
             # retrieves the auc, signal and statistical significance values
-            x_auc, y_auc, _, xy_sig, i_cell_b = self.get_plot_vals(r_data, r_obj_tt, g_type, i_cell_b, im, plot_cond,
-                                                                   is_cong=is_cong, i_bin=i_bin, use_vel=use_vel)
+            x_auc, y_auc, _, xy_sig, i_cell_auc = self.get_plot_vals(r_data, r_obj_auc, g_type, i_cell_auc, im, plot_cond,
+                                                                     is_cong=is_cong, i_bin=i_bin, use_vel=use_vel)
             if i_bin != 'All Bins':
                 # calculates significant cells for each type
                 is_sig, auc = [xy_sig == (j + 1) for j in range(3)], np.empty(n_grp, dtype=object)
@@ -5409,55 +5471,84 @@ class AnalysisGUI(QMainWindow):
                 # stores the
                 for j in range(n_grp):
                     if j == 0:
+                        # case are base condition cells that were significant only for base conditions
                         auc[j] = x_auc[is_sig[0]].flatten()
                     elif j == 1:
+                        # case are dependent condition cells that were significant only for dependent conditions
                         auc[j] = y_auc[is_sig[1]].flatten()
                     elif j == 2:
+                        # case are base condition cells that were significant for BOTH base/dependent conditions
                         auc[j] = x_auc[is_sig[2]].flatten()
                     else:
+                        # case are dependent condition cells that were significant for BOTH base/dependent conditions
                         auc[j] = y_auc[is_sig[2]].flatten()
 
         # proportion of condition auROC values that are significant
-        tt_auc_sig = rot_filt['t_type']
         if is_dir:
-            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_auc_sig]
+            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_filt]
             p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] == 0) for j_ex in i_ex]
-                         for i_ex, c in zip(i_expt, tt_auc_sig)]
+                         for i_ex, c in zip(i_expt, tt_filt)]
+            n_expt = [len(x) for x in i_expt]
+
         else:
-            i_expt = [[r_obj.i_expt[0] == x for x in range(r_obj.n_expt)] for r_obj, i_c in zip(r_obj_tt,i_cell_b)]
+            # determines the indices of the cells that correspond to each experiment (for each filter type)
+            i_expt = [[rr.i_expt[0][i_c] == x for x in range(r_obj.n_expt)] for rr, i_c in zip(r_obj_tt, i_cell_b)]
+            n_cell = np.vstack([[sum(y) for y in x] for x in i_expt])
+            n_expt = [sum(x > 0) for x in n_cell]
+
+            # determines the indices of the trial conditions with respect to the stored data
+            i_tt = [tt_auc.index(x) for x in tt_filt]
+
             if i_bin == 'All Bins':
+                # case is all bins are being analysed
+
                 # retrieves the valid bin indices
                 i_col = self.setup_valid_bin_indices(r_data, use_vel)
-                if use_vel:
-                    p_auc_sig = [[100. * np.mean(np.mean(v_roc[j_ex, :][:, i_col], axis=1)) for j_ex in i_ex]
-                                                     for i_ex, v_roc in zip(i_expt, r_data.vel_roc_sig[:, st_type])]
-                else:
-                    p_auc_sig = [[100. * np.mean(np.mean(s_roc[j_ex, :][:, i_col], axis=1)) for j_ex in i_ex]
-                                                     for i_ex, s_roc in zip(i_expt, r_data.spd_roc_sig[:, st_type])]
-            else:
-                if use_vel:
-                    p_auc_sig = [[100. * np.mean(v_roc[j_ex, i_bin]) for j_ex in i_ex] for i_ex, v_roc in
-                                 zip(i_expt, r_data.vel_roc_sig[:, st_type])]
-                else:
-                    p_auc_sig = [[100. * np.mean(s_roc[j_ex, i_bin]) for j_ex in i_ex] for i_ex, s_roc in
-                                 zip(i_expt, r_data.spd_roc_sig[:, st_type])]
 
-        #
-        n_expt = [len(x) for x in i_expt]
+                # sets the significance values based on the kinematic type
+                if use_vel:
+                    # case is analysing velocity
+                    v_roc = [r_data.vel_roc_sig[it, st_type][ic, :][:, i_col] for it, ic in zip(i_tt, i_cell_b)]
+                    p_auc_sig = [[100. * np.mean(np.mean(v_r[j_ex, :], axis=1)) for j_ex, n in zip(i_ex, n_c) if n > 0]
+                                                     for i_ex, v_r, n_c in zip(i_expt, v_roc, n_cell)]
+
+                else:
+                    # case is analysing speed
+                    s_roc = [r_data.spd_roc_sig[it, st_type][ic, :][:, i_col] for it, ic in zip(i_tt, i_cell_b)]
+                    p_auc_sig = [[100. * np.mean(np.mean(s_r[j_ex, :], axis=1)) for j_ex, n in zip(i_ex, n_c) if n > 0]
+                                                     for i_ex, s_r, n_c in zip(i_expt, s_roc, n_cell)]
+
+            else:
+                # case is a single bin is being analysed
+
+                # sets the significance values based on the kinematic type
+                if use_vel:
+                    # case is analysing velocity
+                    v_roc = [r_data.vel_roc_sig[it, st_type][ic, :][:, i_bin] for it, ic in zip(i_tt, i_cell_b)]
+                    p_auc_sig = [[100. * np.mean(v_r[j_ex]) for j_ex, n in zip(i_ex, n_c) if n > 0]
+                                                            for i_ex, v_r, n_c in zip(i_expt, v_roc, n_cell)]
+
+                else:
+                    # case is analysing speed
+                    s_roc = [r_data.spd_roc_sig[it, st_type][ic, :][:, i_bin] for it, ic in zip(i_tt, i_cell_b)]
+                    p_auc_sig = [[100. * np.mean(s_r[j_ex]) for j_ex, n in zip(i_ex, n_c) if n > 0]
+                                                            for i_ex, s_r, n_c in zip(i_expt, s_roc, n_cell)]
+
+        # calculates the mean/SEM proportional significances
         p_auc_sig_mn = [np.mean(x) for x in p_auc_sig]
-        p_auc_sig_sem = [np.std(x) / (n ** 0.5) for x, n in zip(p_auc_sig, n_expt)]
         p_auc_nsig_mn = [100 - x for x in p_auc_sig_mn]
+        p_auc_sig_sem = [np.std(x) / (n ** 0.5) for x, n in zip(p_auc_sig, n_expt)]
 
         #################################################
         ####    SIGNIFICANCE HORIZONTAL BAR GRAPH    ####
         #################################################
 
         # parameters and other initialisations
-        col_b = cf.get_plot_col(len(tt_auc_sig))
-        xi_y = np.arange(len(tt_auc_sig)) + 0.5
+        col_b = cf.get_plot_col(len(tt_filt))
+        xi_y = np.arange(len(tt_filt)) + 0.5
 
         # creates the bar graph
-        for i_tt, tt in enumerate(tt_auc_sig):
+        for i_tt, tt in enumerate(tt_filt):
             ax[0].barh(xi_y[i_tt], p_auc_sig_mn[i_tt], height=0.9, color=col_b[i_tt],
                        edgecolor=col_b[i_tt], label=tt, xerr=p_auc_sig_sem[i_tt])
             ax[0].barh(xi_y[i_tt], p_auc_nsig_mn[i_tt], left=p_auc_sig_mn[i_tt],
@@ -5466,9 +5557,10 @@ class AnalysisGUI(QMainWindow):
         # sets the axis properties
         ax[0].set_xlabel('Percentage Significant')
         ax[0].set_xlim([-0.1, 100.1])
-        ax[0].set_ylim([0, len(tt_auc_sig)])
+        ax[0].set_ylim([0, len(tt_filt)])
         ax[0].set_yticks(xi_y)
-        ax[0].set_yticklabels(tt_auc_sig)
+        ax[0].set_yticklabels(['#{0} - {1}'.format(i + 1,lg_str) for i, lg_str in enumerate(r_obj.lg_str)])
+        ax[0].invert_yaxis()
 
         # sets the overall title
         self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
@@ -5478,18 +5570,18 @@ class AnalysisGUI(QMainWindow):
         ############################################
 
         #
-        n_tt = len(tt_auc_sig)
+        n_tt = len(tt_filt)
         col_h = cf.get_plot_col(max(n_grp, n_tt))
 
         # sets the table headers/values
-        row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_auc_sig]
+        # row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_filt]
+        row_hdr = col_hdr = ['#{0}'.format(i + 1) for i in range(n_tt)]
         t_data = setup_sig_str(p_auc_sig, True)
 
         # sets up the n-value table
         ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
         cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h[:n_tt],
-                          col_h[:n_tt],
-                          'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+                          col_h[:n_tt], 'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
 
         #
         if i_bin == 'All Bins':
@@ -5702,7 +5794,7 @@ class AnalysisGUI(QMainWindow):
         col, n_phase, p_value = ['r', 'b'], 3, 0.05
 
         # creates the rotation filter object
-        _data = cfcn.get_rsp_reduced_clusters(dcopy(self.data))
+        _data = cfcn.get_rsp_reduced_clusters(self.data)
         r_obj = RotationFilteredData(_data, rot_filt, None, None, True, 'Whole Experiment', False)
 
         # memory allocation
@@ -10750,13 +10842,16 @@ class AnalysisFunctions(object):
         ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
 
         # velocity/speed ranges
-        vc_rng = ['{0} to {1}'.format(i * dv - v_rng, (i + 1) * dv - v_rng) for i in range(int(2 * v_rng / dv))]
-        sc_rng = ['{0} to {1}'.format(i * dv, (i + 1) * dv) for i in range(int(v_rng / dv))]
+        vc_rng = cfcn.get_kinematic_range_strings(dv, True, v_rng)
+        sc_rng = cfcn.get_kinematic_range_strings(dv, False, v_rng)
         p_cond_vel = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'MotorDrifting']))))
 
         #
         rot_filt_grp = cf.init_rotation_filter_data(False)
         rot_filt_grp['t_type'] = ['Black'] + ['Uniform'] + ['MotorDrifting'] if has_md_expt else []
+
+        #
+        vel_roc_para = cfcn.init_roc_para(data.rotation, 'vel_roc_sig')
 
         # ====> Direction ROC Curves (Single Cell)
         para = {
@@ -11070,22 +11165,25 @@ class AnalysisFunctions(object):
         # ====> Velocity ROC Significance
         para = {
             # calculation parameters
-            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'n_boot': {
+                'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': vel_roc_para['n_boot']
+            },
             'auc_stype': {
-                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype, 'def_val': auc_stype[0],
-                'link_para': ['n_boot', 'Delong']
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
+                'def_val': vel_roc_para['auc_stype'], 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
                 'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng,
-                'def_val': '0 to {0}'.format(dv)
+                'def_val': vel_roc_para['spd_x_rng']
             },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/sec)', 'list': roc_vel_bin,
-                'def_val': str(dv), 'para_reset': [['spd_x_rng', self.reset_spd_rng], ['i_bin', self.reset_plot_index]]
+                'para_reset': [['spd_x_rng', self.reset_spd_rng], ['i_bin', self.reset_plot_index]],
+                'def_val': vel_roc_para['vel_bin'],
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': vel_roc_para['n_sample']},
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': vel_roc_para['equal_time'],
                 'link_para': ['n_sample', False]
             },
 
@@ -13695,6 +13793,7 @@ class RotationData(object):
             self.ch_depth, self.ch_region, self.ch_layer = None, None, None
             self.ch_depth_ms, self.ch_region_ms, self.ch_layer_ms = None, None, None
 
+            # initialises the multi-sensory depth data fields
             self.plt, self.stats, self.ind, self.r_filt = None, None, None, None
             self.plt_rms, self.stats_rms, self.ind_rms, self.r_filt_rms = None, None, None, None
             self.plt_vms, self.stats_vms, self.ind_vms, self.r_filt_vms = None, None, None, None
