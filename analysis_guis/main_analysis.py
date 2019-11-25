@@ -3571,7 +3571,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             nC = 3
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_filt, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / n_filt] * n_filt,
@@ -3736,8 +3736,13 @@ class AnalysisGUI(QMainWindow):
             lg_str = [x.replace('\n', '/') for x in lg_str0]
             col_sig = cf.get_plot_col(4, n_filt)
 
-            # retrieves the trial condition types
-            t_type = np.unique([x['t_type'] for x in r_obj_wc.rot_filt_tot])
+            # # retrieves the trial condition types
+            # t_type = np.unique([x['t_type'] for x in r_obj_wc.rot_filt_tot])
+
+            #
+            ind_cond = cfcn.get_all_match_cond_cells(self.data, rot_filt['t_type'])
+            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
 
             # creates the plot axis
             setup_plot_axes(self.plot_fig, 1 + (n_filt - 1) * is_hist)
@@ -3746,10 +3751,10 @@ class AnalysisGUI(QMainWindow):
             #
             for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
                 # retrieves the cell indices that correspond to the current filter
-                ind_cell = np.array(cf.flat_list([x + ii for x, ii in zip(r_obj_wc.clust_ind[i_filt], i_ofs)]))
+                ind_cell = i_cell_b[i_filt]
 
                 # retrieves the significance flags/correlation values for each cell
-                v_sf_sig = r_data.vel_sf_sig[rr['t_type'][0]][ind_cell, :]
+                v_sf_sig = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
                 v_sf_corr = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
                 v_sf_score = v_sf_sig[:, 0].astype(int) + 2 * v_sf_sig[:, 1].astype(int)
 
@@ -3767,8 +3772,8 @@ class AnalysisGUI(QMainWindow):
                     p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
 
                     # case is the significant values so normalise using the provided value
-                    b_wid = 0.9*(x_cdf[1] - x_cdf[0])
-                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, color=col[i_filt])
+                    b_wid = 0.8*(x_cdf[1] - x_cdf[0])
+                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
                     ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
 
                 else:
@@ -3793,6 +3798,9 @@ class AnalysisGUI(QMainWindow):
                     _ax.set_ylim([yL_min, yL_max])
                     _ax.set_ylabel('Percentage')
                     _ax.set_title(r_obj_wc.lg_str[i_ax].replace('\n', '\\'))
+
+                    if (i_ax + 1) < n_filt:
+                        _ax.set_xticklabels([])
 
                 ax[n_filt - 1].set_xlabel('Correlation')
 
@@ -4726,7 +4734,7 @@ class AnalysisGUI(QMainWindow):
             ####################################
 
             # retrieves the condition filtered rotation data
-            i_cell_b, r_obj_tt = self.get_cond_filt_data(r_obj)
+            i_cell_b, r_obj_tt = cfcn.get_cond_filt_data(self.data, r_obj)
 
             if mark_type == 'Congruency':
                 _show_sig_markers, _show_grp_markers = False, True
@@ -5339,28 +5347,6 @@ class AnalysisGUI(QMainWindow):
             # returns the array
             return p_str
 
-        def get_filtered_cell_indices(r_obj, tt_filt, use_vel, ind_cond=None):
-            '''
-
-            :param r_obj:
-            :param t_type:
-            :param i_cell_b:
-            :return:
-            '''
-
-            # retrieves the condition filtered rotation data
-            i_cell_b, r_obj_indiv = self.get_cond_filt_data(r_obj)
-            if use_vel:
-                # if the common cell index array is not provided, then initialise it here
-                if ind_cond is None:
-                    ind_cond = cfcn.get_all_match_cond_cells(self.data, tt_filt)
-
-                # collapses the cell index arrays to only those that are present for all selected trial conditions
-                i_cell_b = [np.intersect1d(ind_cond[tt], i_c) for tt, i_c in zip(tt_filt, i_cell_b)]
-
-            # returns the cell indices and the individually filtered objects
-            return i_cell_b, r_obj_indiv
-
         # initialisations
         e_str, r_data = None, self.data.rotation
         is_dir, st_type_name = i_bin is None, ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
@@ -5393,7 +5379,7 @@ class AnalysisGUI(QMainWindow):
         ind_match = [tt_auc.index(plot_cond_base), tt_auc.index(plot_cond)]
 
         # retrieves the cell indices and unique filter objects
-        i_cell_b, r_obj_tt = get_filtered_cell_indices(r_obj, tt_filt, use_vel, ind_cond=ind_cond)
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj, tt_filt, use_vel, ind_cond=ind_cond)
         if is_dir:
             st_type = st_type_name.index(r_data.phase_grp_stats_type)
             g_type = r_data.phase_gtype[:, st_type]
@@ -5458,7 +5444,7 @@ class AnalysisGUI(QMainWindow):
         r_obj_auc_full = RotationFilteredData(self.data, r_filt_auc, None, None, True, 'Whole Experiment', False)
 
         # sets the base/comparison trial condition cell group type values (for the current match)
-        i_cell_auc, r_obj_auc = get_filtered_cell_indices(r_obj_auc_full, tt_auc, use_vel)
+        i_cell_auc, r_obj_auc = cfcn.get_common_filtered_cell_indices(self.data, r_obj_auc_full, tt_auc, use_vel)
         if len(i_cell_b[im[1]]):
             # retrieves the auc, signal and statistical significance values
             x_auc, y_auc, _, xy_sig, i_cell_auc = self.get_plot_vals(r_data, r_obj_auc, g_type, i_cell_auc, im, plot_cond,
@@ -9576,31 +9562,6 @@ class AnalysisGUI(QMainWindow):
 
         #
         return [y if (t_key[x] is None) else t_key[x][y] for x, y in zip(f_key, f_perm)]
-
-    def get_cond_filt_data(self, r_obj):
-        '''
-
-        :param r_obj:
-        :param plot_exp_name:
-        :return:
-        '''
-
-        # memory allocation
-        A = np.empty(r_obj.n_filt, dtype=object)
-        i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
-
-        # determine the matching cell indices between the current and black filter
-        for i_filt in range(r_obj.n_filt):
-            # sets up a base filter with each of the filter types
-            r_filt_base = cf.init_rotation_filter_data(False)
-            r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
-            r_obj_tt[i_filt] = RotationFilteredData(self.data, r_filt_base, None, None, True, 'Whole Experiment', False)
-
-            # finds the corresponding cell types between the overall and user-specified filters
-            i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
-
-        # returns the array
-        return i_cell_b, r_obj_tt
 
     def get_plot_vals(self, r_data, r_obj_tt, g_type, i_cell_b, im, plot_cond, is_cong=False, i_bin=None,
                       use_vel=False, plot_cond2='Black'):

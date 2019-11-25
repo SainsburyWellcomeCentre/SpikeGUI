@@ -1840,6 +1840,7 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         vel_f, xi_bin, dt = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
     else:
         # calculates the velocity kinematic frequencies
+        w_prog.emit('Calculating Fixed Spiking Frequencies', 50.)
         vel_f, xi_bin, dt = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
 
     # resets the frequencies based on the types
@@ -1893,6 +1894,8 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
             # case is using the normal time bins
             r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
 
+    # outputs a message to screen
+    w_prog.emit('Spiking Frequency Calculation Complete!', 100.)
 
 def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
     '''
@@ -3751,3 +3754,53 @@ def get_kinematic_range_strings(dv, is_vel, v_rng=80):
     else:
         # case is speed
         return ['{0} to {1}'.format(int(i * dv), int((i + 1) * dv)) for i in range(int(v_rng / dv))]
+
+
+def get_cond_filt_data(data, r_obj):
+    '''
+
+    :param r_obj:
+    :param plot_exp_name:
+    :return:
+    '''
+
+    # memory allocation
+    A = np.empty(r_obj.n_filt, dtype=object)
+    i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
+
+    # determine the matching cell indices between the current and black filter
+    for i_filt in range(r_obj.n_filt):
+        # sets up a base filter with each of the filter types
+        r_filt_base = cf.init_rotation_filter_data(False)
+        r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
+        r_obj_tt[i_filt] = RotationFilteredData(data, r_filt_base, None, None, True, 'Whole Experiment', False)
+
+        # finds the corresponding cell types between the overall and user-specified filters
+        i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
+
+    # returns the array
+    return i_cell_b, r_obj_tt
+
+
+def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_cond=None):
+    '''
+
+    :param data:
+    :param r_obj:
+    :param t_type:
+    :param i_cell_b:
+    :return:
+    '''
+
+    # retrieves the condition filtered rotation data
+    i_cell_b, r_obj_indiv = get_cond_filt_data(data, r_obj)
+    if det_intersect:
+        # if the common cell index array is not provided, then initialise it here
+        if ind_cond is None:
+            ind_cond = get_all_match_cond_cells(data, r_obj.rot_filt['t_type'])
+
+        # collapses the cell index arrays to only those that are present for all selected trial conditions
+        i_cell_b = [np.intersect1d(ind_cond[tt], i_c) for tt, i_c in zip(tt_filt, i_cell_b)]
+
+    # returns the cell indices and the individually filtered objects
+    return i_cell_b, r_obj_indiv

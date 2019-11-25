@@ -134,6 +134,30 @@ class WorkerThread(QThread):
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
+            ###########################################
+            ####    ROTATION ANALYSIS FUNCTIONS    ####
+            ###########################################
+
+            elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation Significance':
+                # ensures the smoothing window is an odd integer (if smoothing)
+                if calc_para['is_smooth']:
+                    if calc_para['n_smooth'] % 2 != 1:
+                        # if not, then output an error message to screen
+                        e_str = 'The median smoothing filter window span must be an odd integer.'
+                        w_err.emit(e_str, 'Incorrect Smoothing Window Span')
+
+                        # sets the error flag and exits the function
+                        self.is_ok = False
+                        self.work_finished.emit(thread_data)
+                        return
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel', 'vel_sf'], other_para=False)
+
+                # calculates the shuffled kinematic spiking frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
+                cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
+
             ######################################
             ####    ROC ANALYSIS FUNCTIONS    ####
             ######################################
@@ -312,26 +336,6 @@ class WorkerThread(QThread):
             #
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
-
-            elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation Significance':
-                # ensures the smoothing window is an odd integer (if smoothing)
-                if calc_para['is_smooth']:
-                    if calc_para['n_smooth'] % 2 != 1:
-                        # if not, then exit with an error
-                        e_str = 'The median smoothing filter window span must be an odd integer.'
-                        w_err(e_str, 'Incorrect Smoothing Window Span')
-
-                        #
-                        self.is_ok = False
-                        self.work_finished.emit(thread_data)
-                        return
-
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel', 'vel_sf'], other_para=False)
-
-                # calculates the shuffled kinematic spiking frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
-                cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
 
             ##########################################################
             ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
@@ -3555,7 +3559,6 @@ class WorkerThread(QThread):
                     # if using equal time bins, then check to see if the sample size has changed (if so then recalculate)
                     if calc_para['equal_time']:
                         if r_data.n_rs != calc_para['n_sample']:
-                            r_data.vel_sf
                             r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                             r_data.n_rs, is_change = calc_para['n_sample'], True
 
@@ -3586,6 +3589,7 @@ class WorkerThread(QThread):
                 # if there was a change in any of the parameters, then reset the spiking frequency fields
                 if not np.all(is_equal) or data.force_calc:
                     r_data.vel_sf_corr = None
+                    r_data.vel_sf, r_data.vel_sf_rs = None, None
 
             elif ct == 'lda':
                 # case is the LDA calculations
