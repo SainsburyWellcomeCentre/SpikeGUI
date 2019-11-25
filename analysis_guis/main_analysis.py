@@ -5390,8 +5390,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # determines the indices of the
-        ind_base = [tt_auc.index(plot_cond_base)]
-        ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_base]
+        ind_match = [tt_auc.index(plot_cond_base), tt_auc.index(plot_cond)]
 
         # retrieves the cell indices and unique filter objects
         i_cell_b, r_obj_tt = get_filtered_cell_indices(r_obj, tt_filt, use_vel, ind_cond=ind_cond)
@@ -5417,13 +5416,13 @@ class AnalysisGUI(QMainWindow):
         #############################
 
         # sets up the axes dimensions
-        nR, nC, nCM = 2, 10, 6
+        nR, nC, nCM = 2, 11, 6
         top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.2, 0.25
         # i_expt = [r_obj.i_expt[0] == x for x in np.unique(r_obj.i_expt[0])]
 
         # creates the gridspec object
         gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                               figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.1, right=0.99,
+                               figure=self.plot_fig.fig, wspace=wspace, hspace=hspace, left=0.12, right=0.99,
                                bottom=bottom, top=top)
 
         # creates the subplots
@@ -5449,7 +5448,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # memory allocation
-        im, n_grp = ind_match[0], 4
+        im, n_grp = ind_match, 4
         B = np.empty(len(ind_match), dtype=object)
         is_sig, auc = dcopy(B), dcopy(B)
 
@@ -10852,6 +10851,7 @@ class AnalysisFunctions(object):
 
         #
         vel_roc_para = cfcn.init_roc_para(data.rotation, 'vel_roc_sig')
+        vc_rng_sig = cfcn.get_kinematic_range_strings(float(vel_roc_para['vel_bin']), True, v_rng)
 
         # ====> Direction ROC Curves (Single Cell)
         para = {
@@ -11212,7 +11212,7 @@ class AnalysisFunctions(object):
 
             'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond_vel, 'def_val': 'Uniform'},
             'i_bin': {
-                'type': 'L', 'text': 'Speed/Velocity Bin Index', 'list': vc_rng + ['All Bins'],
+                'type': 'L', 'text': 'Speed/Velocity Bin Index', 'list': vc_rng_sig + ['All Bins'],
                 'def_val': '0 to {0}'.format(dv),
             },
             'use_vel': {
