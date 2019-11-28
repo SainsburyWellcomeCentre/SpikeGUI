@@ -1515,21 +1515,28 @@ class AnalysisGUI(QMainWindow):
         if (file_dlg.exec() == QDialog.Accepted):
             # otherwise, set the output file name
             filt_type = file_dlg.selectedNameFilter()
-            in_file = file_dlg.selectedFiles()[0]
+            input_file = file_dlg.selectedFiles()
         else:
             # if the user cancelled then exit
             return
 
         if 'All Files' in filt_type:
-            # loads the general data file as a binary
-            with open(in_file, 'rb') as fp:
-                f_data = p.load(fp)
-
             # determines what type of analysis is to be performed based on the opened file
-            _, f_extn = os.path.splitext(in_file)
+            _, f_extn = os.path.splitext(input_file[0])
+
             if f_extn == '.opend':
                 # case is the freely moving data (as calculated/exported by Adam's analysis code)
-                setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
+
+                # loads the general data file as a binary
+                for in_f in input_file:
+                    with open(in_f, 'rb') as fp:
+                        f_data = p.load(fp)
+
+                    # sets the new data based on the type
+                    if hasattr(self.data.externd, 'free_data'):
+                        self.data.externd.free_data.append_data(f_data)
+                    else:
+                        setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
 
         elif 'CSV Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
@@ -14250,15 +14257,66 @@ class ExternalData(object):
         pass
 
 class FreelyMovingData(object):
-    def __init__(self, data_dict):
-        # initialises the object fields
+    def __init__(self, f_data):
 
+        # initialises the static object fields
+        self.n_file = 0
+        self.v_bin = f_data['AHV_bin_size']
+        self.v_max = f_data['AHV_max_magnitude']
+        self.t_type = np.sort(list(f_data['cell_data'][0].keys()))
+
+        # initialises the other
+        self.exp_name = []
+        self.cell_id = []
+        self.s_freq = []
+        self.p_sig_neg = []
+        self.p_sig_pos = []
 
         # creates the objects for each experiment
+        self.append_data(f_data)
 
+    def append_data(self, f_data):
+        '''
 
-        # REMOVE ME LATER
-        pass
+        :param f_data:
+        :return:
+        '''
+
+        # if the data already exists in the class object, then exit
+        if f_data['experiment_name'] in self.exp_name:
+            return
+
+        # increments the file count
+        self.n_file += 1
+
+        # converts the cell ID strings to integers
+        cell_id = [int(x.split('_')[1]) for x in f_data['cell_data'][0][self.t_type[0]]['cell_list_order']]
+        n_cell = len(cell_id)
+
+        # appends the new experiment name and cell IDs
+        self.exp_name.append(f_data['experiment_name'])
+        self.cell_id.append(cell_id)
+
+        # memory allocation
+        A = np.empty((len(self.v_bin), len(self.t_type)), dtype=object)
+        B = np.zeros((n_cell, len(self.v_bin), len(self.t_type)))
+        s_freq, p_sig_neg, p_sig_pos = dcopy(A), dcopy(B), dcopy(B)
+
+        # retrieves the necessary information from trial condition/velocity bin size
+        for i_tt, tt in enumerate(self.t_type):
+            for i_bin, v_bin in enumerate(self.v_bin):
+                # retrieves the cell data for the given trial condition/velocity bin size
+                c_data = f_data['cell_data'][i_bin][tt]
+
+                # retrieves the spiking frequency
+                s_freq[i_bin, i_tt] = c_data['AHV_spiking_frequency']
+                p_sig_neg[:, i_bin, i_tt] = c_data['cell_information']['ahv_pearson_p_neg']
+                p_sig_pos[:, i_bin, i_tt] = c_data['cell_information']['ahv_pearson_p_pos']
+
+        # appends the new fields to the class object
+        self.s_freq.append(s_freq)
+        self.p_sig_neg.append(p_sig_neg)
+        self.p_sig_pos.append(p_sig_pos)
 
 ########################################################################################################################
 ########################################################################################################################
