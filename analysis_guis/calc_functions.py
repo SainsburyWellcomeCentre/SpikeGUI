@@ -2998,9 +2998,12 @@ def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
 
         if pf == 'vel_x_rng':
             pf_nw = 'spd_x_rng'
-            if isinstance(r_data.i_bin_vel, list):
-                vc_rng = get_kinematic_range_strings(float(r_para['vel_bin']), True)
-                r_para[pf_nw] = vc_rng[r_data.i_bin_vel[1]]
+            if hasattr(r_data, 'i_bin_vel'):
+                if isinstance(r_data.i_bin_vel, list):
+                    vc_rng = get_kinematic_range_strings(float(r_para['vel_bin']), True)
+                    r_para[pf_nw] = vc_rng[r_data.i_bin_vel[1]]
+                else:
+                    r_para[pf_nw] = '0 to {0}'.format(r_para['vel_bin'])
             else:
                 r_para[pf_nw] = '0 to {0}'.format(r_para['vel_bin'])
 
@@ -3027,11 +3030,13 @@ def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
                 def_val, fld_name, p_type = str(dv_0), 'vel_bin', 'String'
 
             # sets the roc parameter values into the parameter dictionary
-            if p_type == 'Number':
-                r_para[pf_nw] = set_roc_para(def_val, getattr(r_data, fld_name))
-
-            elif p_type == 'String':
-                r_para[pf_nw] = set_roc_para(def_val, str(int(getattr(r_data, fld_name))))
+            if hasattr(r_data, fld_name):
+                if p_type == 'Number':
+                    r_para[pf_nw] = set_roc_para(def_val, getattr(r_data, fld_name))
+                elif p_type == 'String':
+                    r_para[pf_nw] = set_roc_para(def_val, str(int(getattr(r_data, fld_name))))
+            else:
+                r_para[pf_nw] = def_val
 
     # returns the parameter dictionary
     return r_para
@@ -3256,7 +3261,7 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
         # determines the cells that are in the valid regions (RSPg and RSPd)
         exc_filt = data.exc_rot_filt
-        if data.cluster is None:
+        if cf.use_raw_clust(data):
             cluster = data._cluster[ind]
             ind_m = np.arange(len(cluster['clustID']))
         else:
@@ -3368,7 +3373,7 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
                 return None, None, None, None, s_flag
 
     # determines the valid cells from each of the loaded experiments
-    n_clust = len(data._cluster) if data.cluster is None else len(data.cluster)
+    n_clust = len(data._cluster) if cf.use_raw_clust(data) else len(data.cluster)
     i_cell = np.array([det_valid_cells(data, ic, lda_para) for ic in range(n_clust)])
 
     # determines if there are any valid loaded experiments
@@ -3610,7 +3615,12 @@ def det_missing_data_fields(fld_vals, f_name, chk_flds):
                     # retrieves the depth marker values from the config file (if the match is good enough)
                     cfig_new = os.path.join(cfg_dir, '{0}.cfig'.format(f_match))
                     f_str = cf.get_cfig_line(cfig_new, 'depthHi')
-                    fld_vals[i_c, i_cf] = np.array(eval(f_str[1:-1]), dtype=int)[-1]
+
+                    f_val = eval(f_str[1:-1])
+                    if isinstance(f_val, tuple):
+                        fld_vals[i_c, i_cf] = int(f_val[0])
+                    elif isinstance(f_val, str):
+                        fld_vals[i_c, i_cf] = int(f_val)
 
     # returns the final values array
     return fld_vals
@@ -3804,3 +3814,23 @@ def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_co
 
     # returns the cell indices and the individually filtered objects
     return i_cell_b, r_obj_indiv
+
+
+def check_existing_compare(comp_data, fix_name, free_name):
+    '''
+
+    :param comp_data:
+    :param fix_name:
+    :param free_name:
+    :return:
+    '''
+
+    for i_comp in range(len(comp_data)):
+        # determines if there is a match for either the fixed/free files
+        file_match = (comp_data[i_comp].fix_name == fix_name) + 2 * (comp_data[i_comp].free_name == free_name)
+        if file_match > 0:
+            # if there is, then return their aggregate score
+            return file_match, i_comp
+
+    # if no match, then return a zero value
+    return 0, 0

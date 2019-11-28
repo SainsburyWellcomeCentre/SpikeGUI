@@ -2600,10 +2600,12 @@ def save_single_file(f_name, data):
     with open(f_name, 'wb') as fw:
         p.dump(data, fw)
 
-
 def save_multi_comp_file(main_obj, out_info, force_update=False):
     '''
 
+    :param main_obj:
+    :param out_info:
+    :param force_update:
     :return:
     '''
 
@@ -2614,14 +2616,36 @@ def save_multi_comp_file(main_obj, out_info, force_update=False):
             # if the file does exists and the user doesn't want to overwrite then exit
             return
 
+    # starts the worker thread
+    iw = main_obj.det_avail_thread_worker()
+    main_obj.worker[iw].set_worker_func_type('save_multi_comp_file', thread_job_para=[main_obj.data, out_info])
+    main_obj.worker[iw].start()
+
+def save_single_comp_file(main_obj, out_info, force_update=False):
+    '''
+
+    :return:
+    '''
+
+    # sets the output file name
+    out_file = os.path.join(out_info['inputDir'], '{0}.ccomp'.format(out_info['dataName']))
+    if not force_update:
+        if not check_existing_file(main_obj, out_file):
+            # if the file does exists and the user doesn't want to overwrite then exit
+            return
+
+    # retrieves the index of the data field corresponding to the current experiment
+    i_comp = det_comp_dataset_index(main_obj.data.comp.data, out_info['exptName'])
+
     # creates the multi-experiment data file based on the type
-    data_out = {'data': None, 'comp_data': main_obj.data.comp}
+    data_out = {'data': None, 'c_data': main_obj.data.comp.data[i_comp]}
     data_out['data'] = [[] for _ in range(2)]
-    data_out['data'][0], data_out['data'][1] = main_obj.get_comp_datasets()
+    data_out['data'][0], data_out['data'][1] = get_comp_datasets(main_obj.data, c_data=data_out['c_data'], is_full=True)
 
     # outputs the data to file
     with open(out_file, 'wb') as fw:
         p.dump(data_out, fw)
+
 
 def save_multi_data_file(main_obj, out_info, force_update=False):
     '''
@@ -2638,5 +2662,64 @@ def save_multi_data_file(main_obj, out_info, force_update=False):
 
     # starts the worker thread
     iw = main_obj.det_avail_thread_worker()
-    main_obj.worker[iw].set_worker_func_type('save_data_files', thread_job_para=[main_obj.data, out_info])
+    main_obj.worker[iw].set_worker_func_type('save_multi_expt_file', thread_job_para=[main_obj.data, out_info])
     main_obj.worker[iw].start()
+
+
+def det_comp_dataset_index(c_data, exp_name, is_fix=True):
+    '''
+
+    :param c_data:
+    :param exp_name:
+    :return:
+    '''
+
+    # removes any forward slashes (if present)
+    if '/' in exp_name:
+        exp_name = exp_name.split('/')[0]
+
+    if is_fix:
+        return next((i for i, cd in enumerate(c_data) if cd.fix_name == exp_name), None)
+    else:
+        return next((i for i, cd in enumerate(c_data) if cd.free_name == exp_name), None)
+
+def get_comp_datasets(data, c_data=None, ind=None, is_full=False):
+    '''
+
+    :return:
+    '''
+
+    # sets the cluster type
+    c = data._cluster if (use_raw_clust(data) or is_full) else data.cluster
+
+    # retrieves the fixed/free datasets based on type
+    if ind is None:
+        return c[get_expt_index(c_data.fix_name, c)], c[get_expt_index(c_data.free_name, c)]
+    else:
+        return c[ind[0]], c[ind[1]]
+
+
+def get_comb_file_names(str_1, str_2):
+    '''
+
+    :param str_1:
+    :param str_2:
+    :return:
+    '''
+
+    #
+    N = min(len(str_1), len(str_2))
+
+    #
+    i_match = next((i for i in range(N) if str_1[i] != str_2[i]), N+1)-1
+    return '{0}/{1}'.format(str_1,str_2[i_match:])
+
+
+def use_raw_clust(data):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    return (data.cluster is None) or (len(data.cluster) != len(data._cluster))

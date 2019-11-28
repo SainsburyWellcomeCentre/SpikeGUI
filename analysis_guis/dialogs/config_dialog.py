@@ -2,6 +2,7 @@
 import os
 import re
 import sys
+import copy
 import functools
 import numpy as np
 
@@ -35,6 +36,7 @@ QGroupBox
 # other initialisations
 dX = 10
 bSz = 24
+dcopy = copy.deepcopy
 iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 
 ########################################################################################################################
@@ -42,7 +44,8 @@ iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 
 
 class ConfigDialog(QDialog):
-    def __init__(self, dlg_info, title=None, parent=None, width=1000, init_data=None, def_dir=None, has_reset=True):
+    def __init__(self, dlg_info, title=None, parent=None, width=1000, init_data=None, def_dir=None,
+                 has_reset=True, use_first_line=True):
         # creates the gui object
         super(ConfigDialog, self).__init__(parent)
 
@@ -61,6 +64,7 @@ class ConfigDialog(QDialog):
         self.has_reset = has_reset
         self.init_fields()
         self.is_updating = False
+        self.use_first_line = use_first_line
 
         # creates all the groups
         if init_data is None:
@@ -258,13 +262,18 @@ class ConfigDialog(QDialog):
                 hh.toggled.connect(cb_func)
 
         elif f_type == 'CheckCombo':
+            # sets the first line
+            sel_str = self.fInfo[self.dlg_info[i_grp][1]]
+            if self.use_first_line:
+                first_line = '--- Selection: {0} ---'.format(', '.join(sel_str))
+            else:
+                first_line = '--- {0} Item{1} Selected ---'.format(len(sel_str), '' if len(sel_str) == 0 else 's')
+
             # creates the combobox
-            combocheck_text = self.dlg_info[i_grp][3]
-            first_line = '--- Selection: {0} ---'.format(', '.join(self.fInfo[self.dlg_info[i_grp][1]]))
+            combocheck_text = dcopy(self.dlg_info[i_grp][3])
             h_obj = cf.create_checkcombo(None, None, combocheck_text, first_line=first_line)
 
             # sets the callback functions for the radio buttons in the group
-
             cb_func = functools.partial(self.checkcombo_change, h_obj, combocheck_text, i_grp)
             h_obj.view().pressed.connect(cb_func)
 
@@ -415,17 +424,24 @@ class ConfigDialog(QDialog):
         #
         i_sel = index.row()
         if h_obj.model().item(i_sel).checkState() == Qt.Checked:
-            self.fInfo[self.dlg_info[i_grp][1]].append(checkcombo_text[i_sel - 1])
+            try:
+                self.fInfo[self.dlg_info[i_grp][1]].append(checkcombo_text[i_sel - 1])
+            except:
+                a = 1
         else:
             i_remove = self.fInfo[self.dlg_info[i_grp][1]].index(checkcombo_text[i_sel - 1])
             self.fInfo[self.dlg_info[i_grp][1]].pop(i_remove)
 
 
         #
-        if len(self.fInfo[self.dlg_info[i_grp][1]]):
-            first_line = '--- Selection: {0} ---'.format(', '.join(self.fInfo[self.dlg_info[i_grp][1]]))
+        sel_str = self.fInfo[self.dlg_info[i_grp][1]]
+        if self.use_first_line:
+            if len(self.fInfo[self.dlg_info[i_grp][1]]):
+                first_line = '--- Selection: {0} ---'.format(', '.join(sel_str))
+            else:
+                first_line = '--- Selection: None ---'
         else:
-            first_line = '--- Selection: None ---'
+            first_line = '--- {0} Item{1} Selected ---'.format(len(sel_str), '' if len(sel_str) == 0 else 's')
 
         # updates the save button enabled properties
         h_obj.model().item(0).setText(first_line)

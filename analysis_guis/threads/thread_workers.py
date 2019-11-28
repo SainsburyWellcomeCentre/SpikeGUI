@@ -106,20 +106,27 @@ class WorkerThread(QThread):
             # case is initialising the pool worker object
             thread_data = self.init_pool_worker()
 
+        ##################################
+        ####    DATA I/O FUNCTIONS    ####
+        ##################################
+
         elif self.thread_job_primary == 'load_data_files':
             # case is loading the data files
             thread_data = self.load_data_file()
 
-        elif self.thread_job_primary == 'save_data_files':
+        elif self.thread_job_primary == 'save_multi_expt_file':
             # retrieves the parameters
             data, out_info = self.thread_job_para[0], self.thread_job_para[1]
 
             # case is loading the data files
-            thread_data = self.save_data_file(data, out_info)
+            thread_data = self.save_multi_expt_file(data, out_info)
 
-        elif self.thread_job_primary == 'cluster_matches':
-            # case is determining the cluster matches
-            thread_data = self.det_cluster_matches()
+        elif self.thread_job_primary == 'save_multi_comp_file':
+            # retrieves the parameters
+            data, out_info = self.thread_job_para[0], self.thread_job_para[1]
+
+            # case is loading the data files
+            thread_data = self.save_multi_comp_file(data, out_info)
 
         elif self.thread_job_primary == 'run_calc_func':
             # case is the calculation functions
@@ -130,7 +137,35 @@ class WorkerThread(QThread):
             ####    CLUSTER CLASSIFICATION FUNCTIONS    ####
             ################################################
 
-            if self.thread_job_secondary == 'Cluster Cross-Correlogram':
+            if self.thread_job_secondary == 'Fixed/Free Cluster Matching':
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['clust'])
+
+                # case is determining the cluster matches
+                self.det_cluster_matches(data, calc_para, g_para, w_prog)
+
+            elif self.thread_job_secondary == 'Fixed/Freely Moving Spiking Frequency Correlation':
+
+                # determines if the freely moving data file has been loaded
+                if not hasattr(data.externd, 'free_data'):
+                    # if the data-file has not been loaded then output an error to screen and exit
+                    e_str = 'The freely moving spiking frequency/statistics data file must be loaded ' \
+                            'before being able to run this function.\n\nPlease load this data file and try again.'
+                    w_err.emit(e_str, 'Freely Moving Data Missing?')
+
+                    # exits the function with an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, g_para, ['vel', 'free_corr'], other_para=False)
+
+                # calculates the shuffled kinematic spiking frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
+
+            elif self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
@@ -337,9 +372,9 @@ class WorkerThread(QThread):
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
 
-            ##########################################################
-            ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS    ####
-            ##########################################################
+            ######################################################
+            ####    DEPTH-BASED SPIKING ANALYSIS FUNCTIONS    ####
+            ######################################################
 
             elif self.thread_job_secondary == 'Depth Spiking Rate Comparison':
                 # make a copy of the plotting/calculation parameters
@@ -825,6 +860,7 @@ class WorkerThread(QThread):
         else:
             n_file = len(load_dlg.exp_files)
             dpw, p_rlx, data = 1.0 / n_file, 0.05, []
+            _, f_extn = os.path.splitext(load_dlg.exp_files[0])
 
         #
         for i_file in range(n_file):
@@ -847,7 +883,7 @@ class WorkerThread(QThread):
                     data_nw['expFile'] = load_dlg.exp_files[i_file]
 
                 # re-calculates the signal features (single experiment only)
-                if not is_multi:
+                if f_extn == '.cdata':
                     if np.shape(data_nw['sigFeat'])[1] == 5:
                         # memory allocation for the signal features
                         xi = np.array(range(data_nw['nPts']))
@@ -907,7 +943,7 @@ class WorkerThread(QThread):
         # appends the current filename to the data dictionary and returns the object
         return data
 
-    def save_data_file(self, data, out_info):
+    def save_multi_expt_file(self, data, out_info):
         '''
 
         :return:
@@ -922,6 +958,41 @@ class WorkerThread(QThread):
         # outputs the data to file
         with open(out_file, 'wb') as fw:
             p.dump(data, fw)
+
+        # updates the progressbar
+        self.work_progress.emit('Data Save Complete!', 100.0)
+
+    def save_multi_comp_file(self, data, out_info):
+        '''
+
+        :return:
+        '''
+
+        # updates the progressbar
+        self.work_progress.emit('Saving Data To File...', 50.0)
+
+        # memory allocation
+        n_file = len(out_info['exptName'])
+        data_out = np.empty(n_file, dtype=object)
+
+        # sets the output file name
+        out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
+
+        for i_file in range(n_file):
+            # retrieves the index of the data field corresponding to the current experiment
+            fix_file = out_info['exptName'][i_file].split('/')[0]
+            i_comp = cf.det_comp_dataset_index(data.comp.data, fix_file)
+            c_data_nw = data.comp.data[i_comp]
+
+            # creates the multi-experiment data file based on the type
+            data_out[i_file] = {'data': None, 'c_data': c_data_nw}
+            data_out[i_file]['data'] = [[] for _ in range(2)]
+            data_out[i_file]['data'][0], data_out[i_file]['data'][1] = \
+                                                            cf.get_comp_datasets(data, c_data=c_data_nw, is_full=True)
+
+        # outputs the data to file
+        with open(out_file, 'wb') as fw:
+            p.dump(data_out, fw)
 
         # updates the progressbar
         self.work_progress.emit('Data Save Complete!', 100.0)
@@ -1169,7 +1240,7 @@ class WorkerThread(QThread):
         # with open(out_name, 'wb') as fw:
         #     p.dump(A, fw)
 
-    def det_cluster_matches(self):
+    def det_cluster_matches(self, data, calc_para, g_para, w_prog):
         '''
 
         :param exp_name:
@@ -1177,9 +1248,16 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        # retrieves the thread job parameters
-        comp, data_fix = self.thread_job_para[0], self.thread_job_para[1]
-        data_free, g_para = self.thread_job_para[2], self.thread_job_para[3]
+        # retrieves the comparison dataset
+        i_comp = cf.det_comp_dataset_index(data.comp.data, calc_para['calc_comp'])
+        c_data, data.comp.last_comp = data.comp.data[i_comp], i_comp
+
+        # if there is no further calculation necessary, then exit the function
+        if c_data.is_set:
+            return
+
+        # retrieves the fixed/free cluster dataframes
+        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
 
         def det_overall_cluster_matches(is_feas, D):
             '''
@@ -1213,7 +1291,7 @@ class WorkerThread(QThread):
             # returns the final match array
             return i_match
 
-        def det_cluster_matches_old(comp, is_feas, d_depth, g_para):
+        def det_cluster_matches_old(c_data, is_feas, d_depth, g_para):
             '''
 
             :param data_fix:
@@ -1223,46 +1301,43 @@ class WorkerThread(QThread):
 
             # parameters
             z_max = 1.0
-            sig_corr_min = float(g_para['sig_corr_min'])
+            c_data.sig_corr_min = float(g_para['sig_corr_min'])
 
             # calculates the inter-signal euclidean distances
             DD = cdist(data_fix['vMu'].T, data_free['vMu'].T)
 
             # determines the matches based on the signal euclidean distances
-            comp.i_match_old = det_overall_cluster_matches(is_feas, DD)
+            c_data.i_match_old = det_overall_cluster_matches(is_feas, DD)
 
             # calculates the correlation coefficients between the best matching signals
             for i in range(data_fix['nC']):
                 # calculation of the z-scores
-                i_match = comp.i_match_old[i]
+                i_match = c_data.i_match_old[i]
                 if i_match >= 0:
                     # z-score calculations
                     dW = data_fix['vMu'][:, i] - data_free['vMu'][:, i_match]
-                    comp.z_score[:, i] = np.divide(dW, data_fix['vSD'][:, i])
+                    c_data.z_score[:, i] = np.divide(dW, data_fix['vSD'][:, i])
 
                     # calculates the correlation coefficient
                     CC = np.corrcoef(data_fix['vMu'][:, i], data_free['vMu'][:, i_match])
-                    comp.sig_corr_old[i] = CC[0, 1]
-                    comp.sig_diff_old[i] = DD[i, i_match]
-                    comp.d_depth_old[i] = d_depth[i, i_match]
+                    c_data.sig_corr_old[i] = CC[0, 1]
+                    c_data.sig_diff_old[i] = DD[i, i_match]
+                    c_data.d_depth_old[i] = d_depth[i, i_match]
 
                     # sets the acceptance flag. for a cluster to be accepted, the following must be true:
                     #   * the maximum absolute z-score must be < z_max
                     #   * the correlation coefficient between the fixed/free signals must be > sig_corr_min
-                    comp.is_accept_old[i] = np.max(np.abs(comp.z_score[:, i])) < z_max and \
-                                                   comp.sig_corr_old[i] > sig_corr_min
+                    c_data.is_accept_old[i] = np.max(np.abs(c_data.z_score[:, i])) < z_max and \
+                                                   c_data.sig_corr_old[i] > c_data.sig_corr_min
                 else:
                     # sets NaN values for all the single value metrics
-                    comp.sig_corr[i] = np.nan
-                    comp.d_depth_old[i] = np.nan
+                    c_data.sig_corr[i] = np.nan
+                    c_data.d_depth_old[i] = np.nan
 
                     # ensures the group is rejected
-                    comp.is_accept_old[i] = False
+                    c_data.is_accept_old[i] = False
 
-            # returns the comparison data class object
-            return comp
-
-        def det_cluster_matches_new(comp, is_feas, d_depth, r_spike, g_para):
+        def det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, g_para, w_prog):
             '''
 
             :param data_fix:
@@ -1272,13 +1347,13 @@ class WorkerThread(QThread):
 
             # parameters
             pW = 100.0 / 7.0
-            sig_corr_min = float(g_para['sig_corr_min'])
-            isi_corr_min = float(g_para['isi_corr_min'])
-            sig_diff_max = float(g_para['sig_diff_max'])
-            sig_feat_min = float(g_para['sig_feat_min'])
-            w_sig_feat = float(g_para['w_sig_feat'])
-            w_sig_comp = float(g_para['w_sig_comp'])
-            w_isi = float(g_para['w_isi'])
+            c_data.sig_corr_min = float(g_para['sig_corr_min'])
+            c_data.isi_corr_min = float(g_para['isi_corr_min'])
+            c_data.sig_diff_max = float(g_para['sig_diff_max'])
+            c_data.sig_feat_min = float(g_para['sig_feat_min'])
+            c_data.w_sig_feat = float(g_para['w_sig_feat'])
+            c_data.w_sig_comp = float(g_para['w_sig_comp'])
+            c_data.w_isi = float(g_para['w_isi'])
 
             # memory allocation
             signal_metrics = np.zeros((data_fix['nC'], data_free['nC'], 4))
@@ -1287,17 +1362,17 @@ class WorkerThread(QThread):
             total_metrics = np.zeros((data_fix['nC'], data_free['nC'], 3))
 
             # initialises the comparison data object
-            self.work_progress.emit('Calculating Signal DTW Indices', pW)
-            comp = cfcn.calc_dtw_indices(comp, data_fix, data_free, is_feas)
+            w_prog.emit('Calculating Signal DTW Indices', pW)
+            c_data = cfcn.calc_dtw_indices(c_data, data_fix, data_free, is_feas)
 
             # calculates the signal feature metrics
-            self.work_progress.emit('Calculating Signal Feature Metrics', 2.0 * pW)
+            w_prog.emit('Calculating Signal Feature Metrics', 2.0 * pW)
             signal_feat = cfcn.calc_signal_feature_diff(data_fix, data_free, is_feas)
 
             # calculates the signal direct matching metrics
-            self.work_progress.emit('Calculating Signal Comparison Metrics', 3.0 * pW)
+            w_prog.emit('Calculating Signal Comparison Metrics', 3.0 * pW)
             cc_dtw, dd_dtw, dtw_scale = \
-                cfcn.calc_signal_corr(comp.i_dtw, data_fix, data_free, is_feas)
+                cfcn.calc_signal_corr(c_data.i_dtw, data_fix, data_free, is_feas)
 
             signal_metrics[:, :, 0] = cc_dtw
             signal_metrics[:, :, 1] = 1.0 - dd_dtw
@@ -1306,7 +1381,7 @@ class WorkerThread(QThread):
                 cfcn.calc_signal_hist_metrics(data_fix, data_free, is_feas, cfcn.calc_hist_intersect, max_norm=True)
 
             # calculates the ISI histogram metrics
-            self.work_progress.emit('Calculating ISI Histogram Comparison Metrics', 4.0 * pW)
+            w_prog.emit('Calculating ISI Histogram Comparison Metrics', 4.0 * pW)
             isi_metrics[:, :, 0], isi_metrics_norm[:, :, 0] = \
                 cfcn.calc_isi_corr(data_fix, data_free, is_feas)
             isi_metrics[:, :, 1], isi_metrics_norm[:, :, 1] = \
@@ -1323,80 +1398,78 @@ class WorkerThread(QThread):
             isi_metrics_norm[:, :, 2] = cfcn.norm_array_rows(isi_metrics[:, :, 2], max_norm=False)
 
             # calculates the array euclidean distances (over all measures/clusters)
+            weight_array = [c_data.w_sig_feat, c_data.w_sig_comp, c_data.w_isi]
             total_metrics[:, :, 0] = cfcn.calc_array_euclidean(signal_feat)
             total_metrics[:, :, 1] = cfcn.calc_array_euclidean(signal_metrics)
             total_metrics[:, :, 2] = cfcn.calc_array_euclidean(isi_metrics_norm)
-            total_metrics_mean = cfcn.calc_weighted_mean(total_metrics, W=[w_sig_feat, w_sig_comp, w_isi])
+            total_metrics_mean = cfcn.calc_weighted_mean(total_metrics, W=weight_array)
 
             # determines the unique overall cluster matches
-            self.work_progress.emit('Determining Overall Cluster Matches', 5.0 * pW)
-            comp.i_match = det_overall_cluster_matches(is_feas, -total_metrics_mean)
+            w_prog.emit('Determining Overall Cluster Matches', 5.0 * pW)
+            c_data.i_match = det_overall_cluster_matches(is_feas, -total_metrics_mean)
 
             # calculates the correlation coefficients between the best matching signals
-            self.work_progress.emit('Setting Final Match Metrics', 6.0 * pW)
+            w_prog.emit('Setting Final Match Metrics', 6.0 * pW)
             for i in range(data_fix['nC']):
                 # calculation of the z-scores
-                i_match = comp.i_match[i]
+                i_match = c_data.i_match[i]
                 if i_match >= 0:
                     # sets the signal feature metrics
-                    comp.match_intersect[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i, i_match,
+                    c_data.match_intersect[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i, i_match,
                                                                               True, cfcn.calc_hist_intersect)
-                    comp.match_wasserstain[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i,
+                    c_data.match_wasserstain[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i,
                                                                                 i_match, True, cfcn.calc_wasserstein)
-                    comp.match_bhattacharyya[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i,
+                    c_data.match_bhattacharyya[:, i] = cfcn.calc_single_hist_metric(data_fix, data_free, i,
                                                                                   i_match, True, cfcn.calc_bhattacharyya)
 
                     # sets the signal difference metrics
-                    comp.d_depth[i] = d_depth[i, i_match]
-                    comp.dtw_scale[i] = dtw_scale[i, i_match]
-                    comp.sig_corr[i] = cc_dtw[i, i_match]
-                    comp.sig_diff[i] = max(0.0, 1 - dd_dtw[i, i_match])
-                    comp.sig_intersect[i] = signal_metrics[i, i_match, 2]
+                    c_data.d_depth[i] = d_depth[i, i_match]
+                    c_data.dtw_scale[i] = dtw_scale[i, i_match]
+                    c_data.sig_corr[i] = cc_dtw[i, i_match]
+                    c_data.sig_diff[i] = max(0.0, 1 - dd_dtw[i, i_match])
+                    c_data.sig_intersect[i] = signal_metrics[i, i_match, 2]
 
                     # sets the isi metrics
-                    comp.isi_corr[i] = isi_metrics[i, i_match, 0]
-                    comp.isi_intersect[i] = isi_metrics[i, i_match, 1]
-                    # comp.isi_wasserstein[i] = isi_metrics[i, i_match, 2]
-                    # comp.isi_bhattacharyya[i] = isi_metrics[i, i_match, 3]
+                    c_data.isi_corr[i] = isi_metrics[i, i_match, 0]
+                    c_data.isi_intersect[i] = isi_metrics[i, i_match, 1]
+                    # c_data.isi_wasserstein[i] = isi_metrics[i, i_match, 2]
+                    # c_data.isi_bhattacharyya[i] = isi_metrics[i, i_match, 3]
 
                     # sets the total match metrics
-                    comp.signal_feat[i, :] = signal_feat[i, i_match, :]
-                    comp.total_metrics[i, :] = total_metrics[i, i_match, :]
-                    comp.total_metrics_mean[i] = total_metrics_mean[i, i_match]
+                    c_data.signal_feat[i, :] = signal_feat[i, i_match, :]
+                    c_data.total_metrics[i, :] = total_metrics[i, i_match, :]
+                    c_data.total_metrics_mean[i] = total_metrics_mean[i, i_match]
 
 
                     # sets the acceptance flag. for a cluster to be accepted, the following must be true:
                     #   * the ISI correlation coefficient must be > isi_corr_min
                     #   * the signal correlation coefficient must be > sig_corr_min
                     #   * the inter-signal euclidean distance must be < sig_diff_max
-                    comp.is_accept[i] = (comp.isi_corr[i] > isi_corr_min) and \
-                                        (comp.sig_corr[i] > sig_corr_min) and \
-                                        (comp.sig_diff[i] > (1 - sig_diff_max)) and \
-                                        (np.all(comp.signal_feat[i, :] > sig_feat_min))
+                    c_data.is_accept[i] = (c_data.isi_corr[i] > c_data.isi_corr_min) and \
+                                        (c_data.sig_corr[i] > c_data.sig_corr_min) and \
+                                        (c_data.sig_diff[i] > (1 - c_data.sig_diff_max)) and \
+                                        (np.all(c_data.signal_feat[i, :] > c_data.sig_feat_min))
                 else:
                     # sets NaN values for all the single value metrics
-                    comp.d_depth[i] = np.nan
-                    comp.dtw_scale[i] = np.nan
-                    comp.sig_corr[i] = np.nan
-                    comp.sig_diff[i] = np.nan
-                    comp.sig_intersect[i] = np.nan
-                    comp.isi_corr[i] = np.nan
-                    comp.isi_intersect[i] = np.nan
-                    # comp.isi_wasserstein[i] = np.nan
-                    # comp.isi_bhattacharyya[i] = np.nan
-                    comp.signal_feat[i, :] = np.nan
-                    comp.total_metrics[i, :] = np.nan
-                    comp.total_metrics_mean[i] = np.nan
+                    c_data.d_depth[i] = np.nan
+                    c_data.dtw_scale[i] = np.nan
+                    c_data.sig_corr[i] = np.nan
+                    c_data.sig_diff[i] = np.nan
+                    c_data.sig_intersect[i] = np.nan
+                    c_data.isi_corr[i] = np.nan
+                    c_data.isi_intersect[i] = np.nan
+                    # c_data.isi_wasserstein[i] = np.nan
+                    # c_data.isi_bhattacharyya[i] = np.nan
+                    c_data.signal_feat[i, :] = np.nan
+                    c_data.total_metrics[i, :] = np.nan
+                    c_data.total_metrics_mean[i] = np.nan
 
                     # ensures the group is rejected
-                    comp.is_accept[i] = False
-
-            # returns the comparison data class object
-            return comp
+                    c_data.is_accept[i] = False
 
         # parameters
-        d_max = int(g_para['d_max'])
-        r_max = float(g_para['r_max'])
+        c_data.d_max = int(g_para['d_max'])
+        c_data.r_max = float(g_para['r_max'])
 
         # determines the number of spikes
         n_spike_fix = [len(x) / data_fix['tExp'] for x in data_fix['tSpike']]
@@ -1414,14 +1487,14 @@ class WorkerThread(QThread):
         # determines the feasible fixed/free cluster groupings such that:
         #  1) the channel depth has to be <= d_max
         #  2) the relative spiking rates between clusters is <= r_max
-        is_feas = np.logical_and(r_spike < r_max, d_depth < d_max)
+        is_feas = np.logical_and(r_spike < c_data.r_max, d_depth < c_data.d_max)
 
         # determines the cluster matches from the old/new methods
-        comp = det_cluster_matches_old(comp, is_feas, d_depth, g_para)
-        comp = det_cluster_matches_new(comp, is_feas, d_depth, r_spike, g_para)
+        det_cluster_matches_old(c_data, is_feas, d_depth, g_para)
+        det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, g_para, w_prog)
 
-        # returns the comparison data class object
-        return comp
+        # updates the flah indicating the calculation was successful
+        c_data.is_set = True
 
     def calc_ccgram_types(self, calc_para, data):
         '''
@@ -3513,6 +3586,31 @@ class WorkerThread(QThread):
 
                     r_data.part_roc, r_data.part_roc_xy, r_data.part_roc_auc = {}, {}, {}
 
+            elif ct == 'clust':
+                # case is the fixed/free cell clustering calculations
+                i_expt = cf.det_comp_dataset_index(data.comp.data, calc_para['calc_comp'])
+                c_data = data.comp.data[i_expt]
+
+                # if the calculations have not been made, then exit the function
+                if not c_data.is_set:
+                    continue
+
+                # determines if the global parameters have changed
+                is_equal = [
+                    check_class_para_equal(c_data, 'd_max', int(g_para['d_max'])),
+                    check_class_para_equal(c_data, 'r_max', float(g_para['r_max'])),
+                    check_class_para_equal(c_data, 'sig_corr_min', float(g_para['sig_corr_min'])),
+                    check_class_para_equal(c_data, 'isi_corr_min', float(g_para['isi_corr_min'])),
+                    check_class_para_equal(c_data, 'sig_diff_max', float(g_para['sig_diff_max'])),
+                    check_class_para_equal(c_data, 'sig_feat_min', float(g_para['sig_feat_min'])),
+                    check_class_para_equal(c_data, 'w_sig_feat', float(g_para['w_sig_feat'])),
+                    check_class_para_equal(c_data, 'w_sig_comp', float(g_para['w_sig_comp'])),
+                    check_class_para_equal(c_data, 'w_isi', float(g_para['w_isi'])),
+                ]
+
+                # determines if there was a change in parameters (and hence a recalculation required)
+                c_data.is_set = np.all(is_equal)
+
             elif ct == 'phase':
                 # case is the phase ROC calculations
                 pass
@@ -3590,6 +3688,10 @@ class WorkerThread(QThread):
                 if not np.all(is_equal) or data.force_calc:
                     r_data.vel_sf_corr = None
                     r_data.vel_sf, r_data.vel_sf_rs = None, None
+
+            elif ct == 'free_corr':
+                # case is the fixed/freely moving spiking frequency correlation analysis
+                pass
 
             elif ct == 'lda':
                 # case is the LDA calculations

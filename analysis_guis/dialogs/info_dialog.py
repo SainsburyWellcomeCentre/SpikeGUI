@@ -303,9 +303,14 @@ class InfoDialog(QDialog):
                 elif tt[0] == 'Matching\nCluster':
                     if self.data.comp.is_set:
                         #
-                        data_fix, data_free = self.main_obj.get_comp_datasets(is_full=True)
-                        i_fix = np.where(self.data.comp.is_accept)[0]
-                        i_free = self.data.comp.i_match[self.data.comp.is_accept]
+                        f_name_nw = cf.extract_file_name(c_data['expFile'])
+                        i_comp = cf.det_comp_dataset_index(self.data.comp.data, f_name_nw, is_fixed)
+                        c_data_nw = self.data.comp.data[i_comp]
+
+                        #
+                        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data_nw, is_full=True)
+                        i_fix = np.where(c_data_nw.is_accept)[0]
+                        i_free = c_data_nw.i_match[c_data_nw.is_accept]
 
                         if is_fixed:
                             clustID = data_free['clustID']

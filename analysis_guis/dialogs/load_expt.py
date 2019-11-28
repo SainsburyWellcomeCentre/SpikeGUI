@@ -25,7 +25,7 @@ iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 
 
 class LoadExpt(QDialog):
-    def __init__(self, parent=None, data=[], def_dir=None):
+    def __init__(self, parent=None, data=[], def_dir=None, f_type=1):
         # creates the object
         super(LoadExpt, self).__init__(parent)
 
@@ -43,11 +43,10 @@ class LoadExpt(QDialog):
         if len(loaded_data):
             # if there is previously loaded data,  then set the experiment file locations/names
             if data.multi.is_multi:
-                is_mdata = '.mdata' in data.multi.names[0]
-                i_type = 1 + is_mdata
+                i_type = f_type - 1
+                f_extn = {1: 'ccomp', 2: 'mdata', 3: 'mcomp'}[i_type]
 
-                f_name0 = cf.extract_file_name(data.multi.names[0])
-                self.exp_name = ['{0}.{1}'.format(f_name0, 'mdata' if is_mdata else 'mcomp')]
+                self.exp_name = ['{0}.{1}'.format(cf.extract_file_name(data.multi.names[0]), f_extn)]
                 self.exp_files = data.multi.files
             else:
                 self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
@@ -110,8 +109,9 @@ class LoadExpt(QDialog):
 
         # experiment type combobox
         expt_text = ['Single Processed Experimental Data File (*.cdata)',
-                     'Multiple Cluster Comparison Data File (*.mcomp)',
-                     'Multiple Processed Experimental Data File (*.mdata)']
+                     'Single Free/Fixed Comparison Data File (*.ccomp)',
+                     'Multiple Processed Experimental Data File (*.mdata)',
+                     'Multiple Free/Fixed Comparison Data File (*.mcomp)']
         self.expt_type = cf.create_combobox(self.group_expt, l_font, expt_text, dim=QRect(10, 200, 381, 21))
         self.expt_type.setEnabled(len(self.exp_name) == 0)
         self.expt_type.setCurrentIndex(i_type)
@@ -122,7 +122,7 @@ class LoadExpt(QDialog):
         self.push_rmv.setIconSize(QSize(31, 31))
 
         # if a multi-data file is already loaded, then disable the add button
-        if '*.mdata' in expt_text[i_type]:
+        if ('*.mdata' in expt_text[i_type]) or ('*.mcomp' in expt_text[i_type]):
             self.push_add.setEnabled(False)
 
     def init_control_obj(self):
@@ -163,21 +163,25 @@ class LoadExpt(QDialog):
             def_dir = self.def_dir['inputDir']
 
         # sets the file type based on the user's choice
+        self.is_multi, self.multi_file = False, True
         if '*.cdata' in self.expt_type.currentText():
             # case is single experiments
-            self.is_multi = False
-            file_type = 'Single Experiment Files (*.cdata)'
+            file_type = 'Single Experiment Data File (*.cdata)'
+
+        # sets the file type based on the user's choice
+        elif '*.ccomp' in self.expt_type.currentText():
+            # case is single free/fixed comparison file
+            file_type = 'Single Free/Fixed Comparison File (*.ccomp)'
 
         elif '*.mdata' in self.expt_type.currentText():
-            # case is multi-experiments
-            self.is_multi = True
-            file_type = 'Multi-Experiment Files (*.mdata)'
-            self.multi_file = False
+            # case is multi-experiment data file
+            self.is_multi, self.multi_file = True, False
+            file_type = 'Multi-Experiment Data File (*.mdata)'
 
         else:
-            # case is combined cluster files
-            self.is_multi = True
-            file_type = 'Multi-Cluster Comparison Files (*.mcomp)'
+            # case is multi free/fixed comparison file
+            self.is_multi, self.multi_file = True, False
+            file_type = 'Multi-Free/Fixed Comparison File (*.mcomp)'
 
         # opens the file dialog
         file_dlg = FileDialogModal(caption='Select Data File(s)',

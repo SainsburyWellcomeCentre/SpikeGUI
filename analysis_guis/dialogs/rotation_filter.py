@@ -567,7 +567,7 @@ class RotationFilteredData(object):
         self.is_single_cell = plot_scope == 'Individual Cell'
 
         #
-        if data.cluster is None:
+        if cf.use_raw_clust(data):
             self.n_expt = 1 + plot_all_expt * (len(data._cluster) - 1)
         else:
             self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
@@ -643,7 +643,7 @@ class RotationFilteredData(object):
             self.is_ok = False
             return
 
-        if data.cluster is None:
+        if cf.use_raw_clust(data):
             s_freq = [[data._cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
         else:
             s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
@@ -667,7 +667,7 @@ class RotationFilteredData(object):
             ]
 
         # sets the cluster/channel ID flags
-        if data.cluster is None:
+        if cf.use_raw_clust(data):
             self.cl_id = [sum([list(np.array(data._cluster[x]['clustID'])[y])
                             for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
             self.ch_id = [sum([list(np.array(data._cluster[x]['chDepth'])[y])

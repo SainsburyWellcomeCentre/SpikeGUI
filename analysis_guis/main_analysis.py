@@ -146,6 +146,7 @@ class AnalysisGUI(QMainWindow):
         self.can_close = False
         self.initialising = True
         self.analysis_scope = 'Unprocessed'
+        self.file_type = -1
 
         # determines if the default data file has been set
         if os.path.isfile(cf.default_dir_file):
@@ -203,7 +204,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # creates the experiment information groupbox
-        self.grp_info = cf.create_groupbox(self.centralwidget, QRect(10, 10, grp_wid, 136), grp_font_main,
+        self.grp_info = cf.create_groupbox(self.centralwidget, QRect(10, 10, grp_wid, 96), grp_font_main,
                                            "Experiment Information", "grp_info")
 
         # creates the header label objects
@@ -211,19 +212,13 @@ class AnalysisGUI(QMainWindow):
                                                 QRect(10, 30, 181, 20), "lbl_expt_count_h", 'right')
         self.lbl_analy_scope_h = cf.create_label(self.grp_info, txt_font_bold, "Analysis Scope: ",
                                                  QRect(10, 50, 181, 20), "lbl_analy_scope_h", 'right')
-        self.lbl_comp_set_h = cf.create_label(self.grp_info, txt_font_bold, "Comparison Experiments Set?: ",
-                                              QRect(10, 70, 181, 20), "lbl_comp_set_h", 'right')
-        self.lbl_comp_fix_h = cf.create_label(self.grp_info, txt_font_bold, "Fixed Preparation Experiment: ",
-                                              QRect(10, 90, 191, 20), "lbl_comp_set_h", 'right')
-        self.lbl_comp_free_h = cf.create_label(self.grp_info, txt_font_bold, "Free Preparation Experiment: ",
-                                              QRect(10, 110, 191, 20), "lbl_comp_set_h", 'right')
+        self.lbl_expt_type_h = cf.create_label(self.grp_info, txt_font_bold, "Experiments Type: ",
+                                              QRect(10, 70, 181, 20), "lbl_expt_type_h", 'right')
 
         # creates the text field label objects
         self.lbl_expt_count = cf.create_label(self.grp_info, txt_font, "0", QRect(195, 30, 40, 20), "lbl_expt_count")
         self.lbl_analy_scope = cf.create_label(self.grp_info, txt_font, "N/A", QRect(195, 50, 150, 20), "lbl_analy_scope")
-        self.lbl_comp_set = cf.create_label(self.grp_info, txt_font, "No", QRect(195, 70, 40, 20), "lbl_comp_set")
-        self.lbl_comp_fix = cf.create_label(self.grp_info, txt_font, "N/A", QRect(205, 90, 150, 20), "lbl_comp_fix")
-        self.lbl_comp_free = cf.create_label(self.grp_info, txt_font, "N/A", QRect(205, 110, 150, 20), "lbl_comp_free")
+        self.lbl_expt_type = cf.create_label(self.grp_info, txt_font, "N/A", QRect(195, 70, 150, 20), "lbl_expt_type")
 
         # disables the objects within the group
         self.set_group_enabled_props(self.grp_info, False)
@@ -235,13 +230,13 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # creates the groupbox objects
-        self.grp_func = cf.create_groupbox(self.centralwidget, QRect(10, 155, grp_wid, 656), grp_font_main,
+        self.grp_func = cf.create_groupbox(self.centralwidget, QRect(10, 115, grp_wid, 696), grp_font_main,
                                            "Analysis Functions", "grp_func")
         self.grp_scope = cf.create_groupbox(self.grp_func, QRect(10, 30, grp_inner, 55), grp_font_sub,
                                            "Analysis Type", "grp_scope")
         self.grp_funcsel = cf.create_groupbox(self.grp_func, QRect(10, 95, grp_inner, 171), grp_font_sub,
                                            "Function Select", "grp_funcsel")
-        self.grp_para = cf.create_groupbox(self.grp_func, QRect(10, 275, grp_inner, 371), grp_font_sub,
+        self.grp_para = cf.create_groupbox(self.grp_func, QRect(10, 275, grp_inner, 411), grp_font_sub,
                                            "Function Parameters", "grp_para")
 
         # creates the combobox objectsF
@@ -366,16 +361,19 @@ class AnalysisGUI(QMainWindow):
 
         # creates the file menu/menu-items
         self.menu_cluster_data = cf.create_menu(self.menu_file, "Cluster Datasets", "cluster_data")
-        self.menu_output_data = cf.create_menu(self.menu_file, "Output Data", "save_data")
+        self.menu_output_data = cf.create_menu(self.menu_file, "Output Datasets", "save_data")
+        self.menu_load_general = cf.create_menuitem(self, "Load General File", "menu_load_general",
+                                                    self.load_general_file, s_cut='Ctrl+Z')
         self.menu_default = cf.create_menuitem(self, "Set Default Directories", "menu_default", self.set_default,
                                                s_cut='Ctrl+D')
         self.menu_global_para = cf.create_menuitem(self, "Global Parameters", "global_para", self.update_glob_para,
-                                                   s_cut='Ctrl+G')
+                                                   s_cut='Ctrl+P')
         self.menu_exit = cf.create_menuitem(self, "Exit Program", "menu_exit", self.exit_program, s_cut='Ctrl+X')
 
         # adds the menu items to the file menu
         self.menu_file.addAction(self.menu_cluster_data.menuAction())
         self.menu_file.addAction(self.menu_output_data.menuAction())
+        self.menu_file.addAction(self.menu_load_general)
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.menu_default)
         self.menu_file.addAction(self.menu_global_para)
@@ -384,6 +382,7 @@ class AnalysisGUI(QMainWindow):
 
         # disables the output data menu item
         self.menu_output_data.setEnabled(False)
+        self.menu_load_general.setEnabled(False)
 
         ########################################
         ###    CLUSTER DATASET MENU ITEMS    ###
@@ -591,16 +590,46 @@ class AnalysisGUI(QMainWindow):
                 # case is loading the data files
 
                 # initialisations
-                init_data = True
+                init_data, init_comp = True, len(self.data.comp.data) == 0
+
+                # sets the file data type
+                _, f_extn = os.path.splitext(self.worker[iw].thread_job_para[0].exp_files[0])
+                self.file_type = {'.cdata': 1, '.ccomp': 2, '.mdata': 3, '.mcomp': 4}[f_extn]
+
+                # sets the experiment type
+                expt_type = {1: 'Single Experiments', 2: 'Single Comparison Matches',
+                             3: 'Multiple Experiments', 4: 'Multiple Comparison Matches'}
+                self.lbl_expt_type.setText(expt_type[self.file_type])
 
                 # loops through all the new file names and loads
                 if (worker_data is not None) and len(worker_data):
-                    for loaded_data in worker_data:
-                        if isinstance(loaded_data, dict):
-                            # case is a single file
+                    for i_d, loaded_data in enumerate(worker_data):
+                        if self.file_type == 1:
+                            # case is a single data file
                             self.data._cluster.append(loaded_data)
-                        else:
-                            # case is a multi-file
+
+                        elif self.file_type == 2:
+                            # case is a single free/fixed comparison data file
+
+                            # sets the fixed/free experiment text labels
+                            init_comp = False
+                            fix_name = cf.extract_file_name(loaded_data['data'][0]['expFile'])
+                            free_name = cf.extract_file_name(loaded_data['data'][1]['expFile'])
+
+                            # appends the new data to the overall cluster/comparison data fields
+                            if not self.is_loaded_file(loaded_data['data'][0]['expFile']):
+                                self.data._cluster.append(loaded_data['data'][0])
+
+                            if not self.is_loaded_file(loaded_data['data'][1]['expFile']):
+                                self.data._cluster.append(loaded_data['data'][1])
+
+                            # determines if the new combination files already exist
+                            chk_status, _ = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
+                            if chk_status == 0:
+                                self.data.comp.data.append(loaded_data['c_data'])
+
+                        elif self.file_type == 3:
+                            # case is a multi-experiment data file
                             names, files = dcopy(self.data.multi.names), dcopy(self.data.multi.files)
                             self.data, init_data = loaded_data, False
 
@@ -612,6 +641,27 @@ class AnalysisGUI(QMainWindow):
                             # adds in any missing
                             self.data.check_missing_fields()
                             self.data.multi.is_multi, self.data.multi.files, self.data.multi.names = True, names, files
+
+                        elif self.file_type == 4:
+                            # case is a multi-experiment comparison data file
+                            init_comp = False
+
+                            for ld in loaded_data:
+                                # retrieves the fixed/free file names (for the given experiment comparison)
+                                fix_name = cf.extract_file_name(ld['data'][0]['expFile'])
+                                free_name = cf.extract_file_name(ld['data'][1]['expFile'])
+
+                                # appends the new data to the overall cluster/comparison data fields
+                                if not self.is_loaded_file(ld['data'][0]['expFile']):
+                                    self.data._cluster.append(ld['data'][0])
+
+                                if not self.is_loaded_file(ld['data'][1]['expFile']):
+                                    self.data._cluster.append(ld['data'][1])
+
+                                # determines if the new combination files already exist
+                                chk_status, _ = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
+                                if chk_status == 0:
+                                    self.data.comp.data.append(ld['c_data'])
 
                     if init_data:
                         self.data.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
@@ -630,6 +680,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the enabled properties of the menu items
                 self.menu_output_data.setEnabled(True)
+                self.menu_load_general.setEnabled(True)
                 self.menu_save_file.setEnabled(len(self.data._cluster) > 1 or (self.is_multi))
 
                 # initialises the classification data fields
@@ -638,11 +689,16 @@ class AnalysisGUI(QMainWindow):
 
                 # re-initialises the data fields for all data types
                 if init_data:
-                    self.data.comp.init_comparison_data()
                     self.data.classify.init_classify_fields(exp_name, clust_id)
                     self.data.rotation.init_rot_fields()
                     self.data.depth.init_rot_fields()
                     self.data.discrim.init_discrim_fields()
+
+                    if init_comp:
+                        self.data.comp.init_comparison_data()
+
+                # updates the comparison flag
+                self.data.comp.is_set = self.data.comp.is_set or (self.file_type in [2, 4])
 
                 # enables the menu item
                 self.menu_data.setEnabled(True)
@@ -652,17 +708,12 @@ class AnalysisGUI(QMainWindow):
                 # determines what type of file(s) have been loaded
                 if self.is_multi:
                     # if the multi-files are loaded, then determine what type is loaded
-                    if 'Free' in [x['expInfo']['cond'] for x in self.data._cluster]:
+                    if self.file_type == 4:
                         # case is the matching cluster combined data files
-                        self.data.comp.is_set = True
                         new_func_types = func_types
                     else:
                         # case is the fixed multiple data files
-                        self.data.comp.is_set = False
                         new_func_types = func_types[1:]
-
-                    # disnables the cluster matching comparison menu item
-                    self.menu_set_compare.setEnabled(False)
 
                     # adds the force calculation parameter (if not present)
                     if not hasattr(self.data, 'force_calc'):
@@ -680,7 +731,7 @@ class AnalysisGUI(QMainWindow):
                     new_func_types = func_types[np.array(is_keep)]
 
                 # otherwise, enable the cluster matching comparison menu item
-                self.menu_set_compare.setEnabled(True)
+                self.menu_set_compare.setEnabled(self.file_type == 1)
                 self.menu_init_filt.setEnabled(has_rot_expt)
                 self.menu_gen_filt.setEnabled(True)
                 self.menu_rot_filt.setEnabled(has_rot_expt)
@@ -720,19 +771,6 @@ class AnalysisGUI(QMainWindow):
                 # case is the pool worker object
                 pool = worker_data
                 self.fcn_data.set_pool_worker(pool)
-
-            elif self.worker[iw].thread_job_primary == 'cluster_matches':
-                # case is calculating the cluster matches
-
-                # updates the comparison data struct
-                self.data.comp = worker_data
-
-                # sets the information label properties
-                if self.data.comp.is_set:
-                    self.lbl_comp_set.setText("Yes")
-                    self.menu_output_data.setEnabled(True)
-                else:
-                    self.lbl_comp_set.setText("No")
 
             elif self.worker[iw].thread_job_primary == 'run_calc_func':
                 # case is the calculation functions
@@ -792,6 +830,13 @@ class AnalysisGUI(QMainWindow):
                     # case is calculating the shuffled distances
                     a = 1
 
+                elif self.worker[iw].thread_job_secondary == 'Fixed/Free Cluster Matching':
+                    # case is calculating the cluster matches
+
+                    # updates the comparison data struct
+                    self.fcn_data.update_comp_expts()
+                    self.data.comp.is_set = np.any([x.is_set for x in self.data.comp.data])
+
                 # re-runs the plotting function
                 self.update_click()
 
@@ -838,7 +883,12 @@ class AnalysisGUI(QMainWindow):
 
         # determines which fields are missing values
         if check_missing_only:
-            is_missing = np.where(np.any(fld_vals == None, axis=1))[0]
+            fld_missing = np.any(fld_vals == None, axis=1)
+            is_missing = np.where(fld_missing)[0]
+
+            # is_fix = np.array([c['rotInfo'] is not None for c in self.data._cluster]).reshape(1, -1)
+            # is_missing = np.where(np.logical_and(fld_missing, is_fix))[0]
+
             if len(is_missing):
                 # if there are missing parameters, then reduce down to the experiments that are missing values
                 fld_vals, f_name, t_str = fld_vals[is_missing, :], f_name[is_missing], 'Missing Parameters'
@@ -1029,7 +1079,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # if the loaded data is not
-        load_dlg = load_expt.LoadExpt(data=self.data, def_dir=self.def_data['dir'])
+        load_dlg = load_expt.LoadExpt(data=self.data, def_dir=self.def_data['dir'], f_type=self.file_type)
         if load_dlg.is_ok:
             # clears the plot axes
             try:
@@ -1063,22 +1113,18 @@ class AnalysisGUI(QMainWindow):
                     if cf.extract_file_name(self.data._cluster[i]['expFile']) not in load_dlg.exp_name:
                         self.data._cluster.pop(i)
 
+            if self.file_type == 1:
+                for i in reversed(range(len(self.data.comp.data))):
+                    if self.data.comp.data[i].fix_name not in load_dlg.exp_name:
+                        self.data.comp.data.pop(i)
+
+                self.data.comp.is_set = len(self.data.comp.data) > 0
+
             # updates the multi-file data struct
             if self.is_multi:
                 self.data.multi.set_multi_file_data(load_dlg)
             else:
                 self.data.multi.set_multi_file_data(None)
-
-            # determines if the comparison datasets have been set
-            if self.data.comp.is_set:
-                # if so, determine either the fixed or free files have been unloaded
-                if self.data.comp.fix_name not in load_dlg.exp_name or \
-                    self.data.comp.free_name not in load_dlg.exp_name:
-                        # if so, then reset the comparison flag and the comparison label strings
-                        self.data.comp.is_set = False
-                        self.lbl_comp_set.setText('No')
-                        self.lbl_comp_fix.setText('N/A')
-                        self.lbl_comp_free.setText('N/A')
 
             # starts the worker thread
             iw = self.det_avail_thread_worker()
@@ -1122,26 +1168,57 @@ class AnalysisGUI(QMainWindow):
                 # if the user chose to continue, then update the comparison indices
                 ind = [exp_name.index(comp_dlg.list_fixed.selectedItems()[0].text()),
                        exp_name.index(comp_dlg.list_free.selectedItems()[0].text())]
-                data_fix, data_free = self.get_comp_datasets(ind, is_full=True)
+                data_fix, data_free = cf.get_comp_datasets(self.data, ind=ind, is_full=True)
 
                 # sets the fixed/free experiment text labels
                 fix_name = cf.extract_file_name(data_fix['expFile'])
                 free_name = cf.extract_file_name(data_free['expFile'])
-                self.lbl_comp_fix.setText(fix_name)
-                self.lbl_comp_free.setText(free_name)
 
-                # initialises the comparison data struct
+                # determines if the new combination files already exist
+                chk_status, i_comp = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
+                if chk_status == 3:
+                    # file comparison combination is already stored
+                    return
+                elif chk_status in [1, 2]:
+                    # case is either the fixed or free file is already within an existing comparison combination
+                    c_data = self.data.comp.data[i_comp]
+
+                    # prompts the user if they wish to remove the existing combination for the new one
+                    q_str = 'The {0} data file is currently being used for another comparison match:\n\n' \
+                            ' * Comparison File = {1}\n' \
+                            ' * Existing Matching File = {2}\n' \
+                            ' * New Matching File = {3}\n\n' \
+                            'Do you wish to remove the current comparison match for the new match?'.format(
+                                {1: 'fixed', 2: 'free'}[chk_status],
+                                fix_name if chk_status == 1 else free_name,
+                                free_name if chk_status == 2 else fix_name,
+                                c_data.fix_name if chk_status == 2 else c_data.free_name
+                            )
+                    u_choice = QMessageBox.question(self, 'Output Images To Sub-Directory?', q_str,
+                                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if u_choice == QMessageBox.No:
+                        # if the user refused, then exit the function
+                        return
+                    else:
+                        # otherwise, remove the data field belonging to the existing match
+                        self.data.comp.data.pop(i_comp)
+
+                # creates a new field for the comparison field
                 self.data.comp.set_comparison_data(ind, n_fix=data_fix['nC'],
                                                     n_free=data_free['nC'],
                                                     n_pts=data_fix['nPts'],
                                                     fix_name=fix_name,
                                                     free_name=free_name)
 
-                # starts the worker thread
-                iw = self.det_avail_thread_worker()
-                thread_job_para = [self.data.comp, data_fix, data_free, self.def_data['g_para']]
-                self.worker[iw].set_worker_func_type('cluster_matches', thread_job_para=thread_job_para)
-                self.worker[iw].start()
+                #
+                self.data.comp.is_set = True
+                self.fcn_data.update_comp_expts()
+
+                # # starts the worker thread
+                # iw = self.det_avail_thread_worker()
+                # thread_job_para = [self.data.comp.data[-1], data_fix, data_free, self.def_data['g_para']]
+                # self.worker[iw].set_worker_func_type('cluster_matches', thread_job_para=thread_job_para)
+                # self.worker[iw].start()
 
         else:
             # otherwise, create the error message
@@ -1149,10 +1226,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the information label properties
             if self.data.comp.is_set:
-                self.lbl_comp_set.setText("Yes")
                 self.menu_output_data.setEnabled(True)
-            else:
-                self.lbl_comp_set.setText("No")
 
     def save_figure(self):
         '''
@@ -1215,6 +1289,7 @@ class AnalysisGUI(QMainWindow):
             if fig_info['outType'] == 'Output Current Figure Only':
                 # case is outputting single image
                 self.output_single_figure(fig_info)
+
             else:
                 # if the file already exists, prompt the user if they wish to overwrite the file
                 prompt_text = "Do you want to output the images to a separate sub-directory?"
@@ -1316,9 +1391,27 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # determines which flags have been set
-        is_comp = self.data.comp.is_set
-        s_str = 'Combined Cluster Matching' if is_comp else 'Combined Multi-Experiment'
+        # determines which file type is being combined
+        file_type = self.file_type
+        if file_type == 1:
+            # case is individual experiment files are currently loaded
+            is_comp = self.data.comp.is_set
+            s_str = 'Single Matching Experiments' if is_comp else 'Combined Multi-Experiment'
+
+        elif file_type == 2:
+            # case is individual comparison experiment files are currently loaded
+            is_comp = True
+            s_str = 'Multiple Matching Experiments'
+
+        else:
+            # unable to re-save multi-experiment files, so create an output error message
+            e_str = 'Unable to re-save multi-experiment data files. If you wish to create a file consisting ' \
+                    'of a sub-set of the current experimental files, then you will need to load/re-save ' \
+                    'from the individual experimental files.'
+
+            # shows the error and exits the function
+            cf.show_error(e_str, 'Data File Output Error')
+            return
 
         # sets the initial output data dictionary
         out_data = {'inputDir': self.def_data['dir']['inputDir'], 'dataName': ''}
@@ -1330,18 +1423,48 @@ class AnalysisGUI(QMainWindow):
             ['{0} Data File Name'.format(s_str), 'dataName', 'String', '', True, False, 1],
         ]
 
+        if file_type == 1:
+            if is_comp:
+                # case is outputting a single comparison data file
+                calc_comp = self.fcn_data.det_comp_expt_names(True)
+                dlg_info += [['Fixed Experiment Name', 'exptName', 'List', calc_comp, True, False, 2]]
+                out_data['exptName'] = calc_comp
+
+            # else:
+            #     # case is outputting a multi-experiment data file
+            #     exp_file = [x['expInfo']['name'] for x in self.data._cluster]
+            #     dlg_info += [['Experiment File Name', 'exptName', 'CheckCombo', exp_file, True, False, 2]]
+            #     out_data['expOut'] = exp_file
+
+        elif file_type == 2:
+            # case is outputting a multi-experiment comparison data file
+            calc_comp = self.fcn_data.det_comp_expt_names(True)
+            dlg_info += [['Comparison File Experiment Names', 'exptName', 'CheckCombo', calc_comp, True, False, 2]]
+            out_data['exptName'] = calc_comp
+
         # opens up the config dialog box and retrieves the final file information
         cfig_dlg = config_dialog.ConfigDialog(dlg_info=dlg_info,
                                               title='Combined Cluster Matching Data File Output Options',
                                               width=500,
-                                              init_data=out_data)
+                                              init_data=out_data,
+                                              use_first_line=False)
 
         # retrieves the information from the dialog
         out_info = cfig_dlg.get_info()
         if out_info is not None:
+            # if the output information is valid, then create the data file for output
             if is_comp:
-                cf.save_multi_comp_file(self, out_info)
+                # case is a comparison data file is being output
+                if self.file_type == 1:
+                    # case is a single comparison experiment data file is being output
+                    cf.save_single_comp_file(self, out_info)
+
+                else:
+                    # case is a multi comparison experiment data file is being output
+                    cf.save_multi_comp_file(self, out_info)
+
             else:
+                # case is a multi-experiment data file is being output
                 cf.save_multi_data_file(self, out_info)
 
     def set_default(self):
@@ -1372,6 +1495,49 @@ class AnalysisGUI(QMainWindow):
             self.def_data['dir'] = def_dir_new
             with open(cf.default_dir_file, 'wb') as fw:
                 p.dump(self.def_data, fw)
+
+    def load_general_file(self):
+        '''
+
+        :return:
+        '''
+
+        # sets the file types
+        file_types = ['All Files (*.*)',
+                      'CSV Files (*.csv)',
+                      'Text Files (*.txt)']
+
+        # runs the file dialog
+        file_dlg = FileDialogModal(caption='Select General File To Open',
+                                   filter=';;'.join(file_types),
+                                   directory=cfcn.get_dir_para('inputDir'))
+
+        if (file_dlg.exec() == QDialog.Accepted):
+            # otherwise, set the output file name
+            filt_type = file_dlg.selectedNameFilter()
+            in_file = file_dlg.selectedFiles()[0]
+        else:
+            # if the user cancelled then exit
+            return
+
+        if 'All Files' in filt_type:
+            # loads the general data file as a binary
+            with open(in_file, 'rb') as fp:
+                f_data = p.load(fp)
+
+            # determines what type of analysis is to be performed based on the opened file
+            _, f_extn = os.path.splitext(in_file)
+            if f_extn == '.opend':
+                # case is the freely moving data (as calculated/exported by Adam's analysis code)
+                setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
+
+        elif 'CSV Files' in filt_type:
+            # PUT CODE IN HERE DEPENDING ON FILE TYPE
+            pass
+
+        elif 'Text Files' in filt_type:
+            # PUT CODE IN HERE DEPENDING ON FILE TYPE
+            pass
 
     def update_glob_para(self):
         '''
@@ -1691,43 +1857,41 @@ class AnalysisGUI(QMainWindow):
     ####    CLUSTER MATCHING ANALYSIS FUNCTIONS    ####
     ###################################################
 
-    def plot_multi_match_means(self, i_cluster, plot_all, m_type, exp_name=None, plot_grid=True):
+    def plot_cluster_match_signals(self, i_cluster, plot_all, m_type, plot_grid=True):
         '''
 
         :return:
         '''
 
-        # sets the acceptance flags based on the method
-        comp = dcopy(self.data.comp)
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-        else:
-            # retrieves the fixed/free datasets
-            data_fix, _ = self.get_comp_datasets()
-            _data_fix, data_free = self.get_comp_datasets(is_full=True)
+        # retrieves the
+        i_comp = self.data.comp.last_comp
+        c_data = dcopy(self.data.comp.data[i_comp])
 
-            # retrieves the fixed/free cluster inclusion indices
-            cl_inc_fix = cfcn.get_inclusion_filt_indices(_data_fix, self.data.exc_gen_filt)
-            cl_inc_free = cfcn.get_inclusion_filt_indices(data_free, self.data.exc_gen_filt)
+        # retrieves the fixed/free datasets
+        data_fix, _ = cf.get_comp_datasets(self.data, c_data=c_data)
+        _data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
-            # removes any excluded cells from the free dataset
-            ii = np.where(comp.i_match >= 0)[0]
-            jj = comp.i_match[ii]
-            comp.i_match[ii[np.logical_not(cl_inc_free[jj])]] = -1
-            comp.i_match_old[ii[np.logical_not(cl_inc_free[jj])]] = -1
+        # retrieves the fixed/free cluster inclusion indices
+        cl_inc_fix = cfcn.get_inclusion_filt_indices(_data_fix, self.data.exc_gen_filt)
+        cl_inc_free = cfcn.get_inclusion_filt_indices(data_free, self.data.exc_gen_filt)
 
-            # reduces down the match indices to only include the feasible fixed dataset indices
-            comp.i_match, comp.i_match_old = comp.i_match[cl_inc_fix], comp.i_match_old[cl_inc_fix]
-            comp.is_accept, comp.is_accept_old = comp.is_accept[cl_inc_fix], comp.is_accept_old[cl_inc_fix]
+        # removes any excluded cells from the free dataset
+        ii = np.where(c_data.i_match >= 0)[0]
+        jj = c_data.i_match[ii]
+        c_data.i_match[ii[np.logical_not(cl_inc_free[jj])]] = -1
+        c_data.i_match_old[ii[np.logical_not(cl_inc_free[jj])]] = -1
+
+        # reduces down the match indices to only include the feasible fixed dataset indices
+        c_data.i_match, c_data.i_match_old = c_data.i_match[cl_inc_fix], c_data.i_match_old[cl_inc_fix]
+        c_data.is_accept, c_data.is_accept_old = c_data.is_accept[cl_inc_fix], c_data.is_accept_old[cl_inc_fix]
 
         # sets the match/acceptance flags
         if m_type == 'New Method':
-            i_match = comp.i_match
-            is_acc = comp.is_accept
+            i_match = c_data.i_match
+            is_acc = c_data.is_accept
         else:
-            i_match = comp.i_match_old
-            is_acc = comp.is_accept_old
+            i_match = c_data.i_match_old
+            is_acc = c_data.is_accept_old
 
         # checks cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -1775,20 +1939,18 @@ class AnalysisGUI(QMainWindow):
             if i_plot == 0:
                 self.plot_fig.ax[i_plot].legend(['Fixed', 'Free'], loc=4)
 
-    def plot_single_match_mean(self, i_cluster, n_trace, is_horz, rej_outlier, exp_name=None, plot_grid=True):
+    def plot_single_match_mean(self, plot_comp, i_cluster, n_trace, is_horz, rej_outlier, plot_grid=True):
         '''
 
         :return:
         '''
 
-        # sets the acceptance flags based on the method
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-        else:
-            # retrieves the fixed/free datasets
-            comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets(is_full=True)
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
         # check to see if the cluster index is feasible
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, data_fix['nC'])
@@ -1804,7 +1966,7 @@ class AnalysisGUI(QMainWindow):
 
         # intiialisations
         i_cluster, p_lim = i_cluster[0] - 1, 0.4
-        i_match = comp.i_match[i_cluster]
+        i_match = c_data.i_match[i_cluster]
 
         # determines if there was a feasible cluster match
         if i_match < 0:
@@ -1820,7 +1982,7 @@ class AnalysisGUI(QMainWindow):
         # sets the indices of the fixed/free clusters to be plotted
         ind_fix = np.random.permutation(np.size(data_fix['vSpike'][i_cluster],axis=1))[:n_trace]
         ind_free = np.random.permutation(np.size(data_free['vSpike'][i_match],axis=1))[:n_trace]
-        fix_ID, free_ID = data_fix['clustID'][i_cluster], data_free['clustID'][comp.i_match[i_cluster]]
+        fix_ID, free_ID = data_fix['clustID'][i_cluster], data_free['clustID'][c_data.i_match[i_cluster]]
 
         # sets the free/fixed spikes
         spike_fix = data_fix['vSpike'][i_cluster][:, ind_fix]
@@ -1863,17 +2025,16 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_xlabel('Time (ms)')
         self.plot_fig.ax[1].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
-        #
-        self.plot_fig.ax[0].grid(plot_grid)
-        self.plot_fig.ax[1].grid(plot_grid)
-        self.plot_fig.ax[2].grid(plot_grid)
+        # sets the grid properties for the plot axes
+        for ax in self.plot_fig.ax[:3]:
+            ax.grid(plot_grid)
 
         # resets the x-axis limits
         for ax in self.plot_fig.ax:
             ax.set_xlim(T[0], T[-1])
             ax.set_ylim(yL)
 
-    def plot_signal_metrics(self, is_3d, m_type, all_expt=None, exp_name=None, plot_grid=True):
+    def plot_signal_metrics(self, plot_comp, all_expt, is_3d, m_type, plot_grid):
         '''
 
         :return:
@@ -1886,46 +2047,49 @@ class AnalysisGUI(QMainWindow):
         # retrieves the fixed/free data sets based on the type
         if self.is_multi:
             # case is multi-experiment files have been loaded
-            data_fix, data_free, comp_data = self.get_multi_comp_datasets(all_expt, exp_name)
+            data_fix, data_free, c_data = self.get_multi_comp_datasets(all_expt, plot_comp)
 
             # sets the experiment names (if multi-experiment)
             if all_expt:
-                exp_files = np.array(cf.flat_list([[ex_name(x['expFile'])] * x['data'][0]['nC']
-                                                    for x in self.data.cluster]))
+                exp_files = np.array(cf.flat_list([[x.fix_name] * len(x.i_match) for x in c_data]))
         else:
+            # retrieves the comparison data struct belonging to the selected experiment
+            i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+            c_data = dcopy(self.data.comp.data[i_comp])
+
             # case is only single experiment files have been loaded
-            data_fix, data_free = self.get_comp_datasets(is_full=True)
+            data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
         # ensures the data files are stored in lists
         if not isinstance(data_fix, list):
-            data_fix, data_free = [data_fix], [data_free]
+            data_fix, data_free, c_data = [data_fix], [data_free], [c_data]
 
         # sets up the figure/axis
         self.init_plot_axes(is_3d=is_3d)
+        ax = self.plot_fig.ax[0]
 
         # sets the z-scores to be plotted based on type
         if m_type == 'New Method':
             # sets the match indices and acceptance flags
             if self.is_multi:
                 # sets the match/acceptance flags
-                i_match = np.array(cf.flat_list([list(x.i_match) for x in comp_data]))
-                is_accept = np.array(cf.flat_list([list(x.is_accept) for x in comp_data]))
+                i_match = np.array(cf.flat_list([list(x.i_match) for x in c_data]))
+                is_accept = np.array(cf.flat_list([list(x.is_accept) for x in c_data]))
 
                 # sets the x, y and z-axis plot values
-                x_plot = np.array(cf.flat_list([list(x.sig_diff) for x in comp_data]))
-                y_plot = np.array(cf.flat_list([list(np.min(x.signal_feat, axis=1)) for x in comp_data]))
-                z_plot = np.array(cf.flat_list([list(x.isi_corr) for x in comp_data]))
+                x_plot = np.array(cf.flat_list([list(x.sig_diff) for x in c_data]))
+                y_plot = np.array(cf.flat_list([list(np.min(x.signal_feat, axis=1)) for x in c_data]))
+                z_plot = np.array(cf.flat_list([list(x.isi_corr) for x in c_data]))
 
                 #
                 id_free = np.array(cf.flat_list(
-                    [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, comp_data)]
+                    [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, c_data)]
                 ))
 
             else:
                 # sets the x, y and z-axis plot values
-                comp = self.data.comp
-                i_match, is_accept = comp.i_match, comp.is_accept
-                x_plot, y_plot, z_plot = comp.sig_diff, np.min(comp.signal_feat, axis=1), comp.isi_corr
+                i_match, is_accept = c_data.i_match, c_data.is_accept
+                x_plot, y_plot, z_plot = c_data.sig_diff, np.min(c_data.signal_feat, axis=1), c_data.isi_corr
                 id_free = np.array(self.get_free_cluster_match_ids(data_free[0]['clustID'], i_match))
 
             # sets the axis labels
@@ -1939,23 +2103,22 @@ class AnalysisGUI(QMainWindow):
             # sets the match indices and acceptance flags
             if self.is_multi:
                 # sets the match/acceptance flags
-                i_match = np.array(cf.flat_list([list(x.i_match_old) for x in comp_data]))
-                is_accept = np.array(cf.flat_list([list(x.is_accept_old) for x in comp_data]))
+                i_match = np.array(cf.flat_list([list(x.i_match_old) for x in c_data]))
+                is_accept = np.array(cf.flat_list([list(x.is_accept_old) for x in c_data]))
 
                 # sets the x, y and z-axis plot values
-                x_plot = np.array(cf.flat_list([list(x.sig_corr) for x in comp_data]))
-                y_plot = np.array(cf.flat_list([list(x.sig_diff_old) for x in comp_data]))
-                z_plot = np.array(cf.flat_list([list(np.nanmax(np.abs(x.z_score), axis=0)) for x in comp_data]))
+                x_plot = np.array(cf.flat_list([list(x.sig_corr) for x in c_data]))
+                y_plot = np.array(cf.flat_list([list(x.sig_diff_old) for x in c_data]))
+                z_plot = np.array(cf.flat_list([list(np.nanmax(np.abs(x.z_score), axis=0)) for x in c_data]))
 
                 #
                 id_free = np.array(cf.flat_list(
-                    [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, comp_data)]
+                    [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, c_data)]
                 ))
             else:
                 # sets the x, y and z-axis plot values
-                comp = self.data.comp
-                i_match, is_accept = comp.i_match_old, comp.is_accept_old
-                x_plot, y_plot, z_plot = comp.sig_corr, comp.sig_diff_old, np.nanmax(np.abs(comp.z_score), axis=0)
+                i_match, is_accept = c_data.i_match_old, c_data.is_accept_old
+                x_plot, y_plot, z_plot = c_data.sig_corr, c_data.sig_diff_old, np.nanmax(np.abs(c_data.z_score), axis=0)
                 id_free = np.array(self.get_free_cluster_match_ids(data_free[0]['clustID'], i_match))
 
             # sets the axis labels
@@ -1987,12 +2150,12 @@ class AnalysisGUI(QMainWindow):
         # creates the scatterplot
         if is_3d:
             # case is a 3D plot
-            h = self.plot_fig.ax[0].scatter(x_plot[is_plot], y_plot[is_plot], z_plot[is_plot], marker='o', c=cm)
-            self.remove_scatterplot_spines(self.plot_fig.ax[0])
-            self.plot_fig.ax[0].view_init(20, -45)
+            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], z_plot[is_plot], marker='o', c=cm)
+            self.remove_scatterplot_spines(ax)
+            ax.view_init(20, -45)
         else:
             # case is a 2D plot
-            h = self.plot_fig.ax[0].scatter(x_plot[is_plot], y_plot[is_plot], marker='o', c=cm)
+            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], marker='o', c=cm)
 
         # creates the cursor object
         datacursor(h, formatter=formatter, point_labels=lbl, hover=True)
@@ -2002,34 +2165,32 @@ class AnalysisGUI(QMainWindow):
         # cursor.connect("add", lambda sel: sel.annotation.set_text(lbl[sel.target.index]))
 
         # sets the scatterplot properties
-        # self.plot_fig.ax[0].legend(['Accepted', 'Rejected'], loc=3)
-        self.plot_fig.ax[0].set_xlabel('{0} (X)'.format(x_label))
-        self.plot_fig.ax[0].set_ylabel('{0} (Y)'.format(y_label))
-        self.plot_fig.ax[0].set_xlim(x_lim)
-        self.plot_fig.ax[0].set_ylim(y_lim)
-        self.plot_fig.ax[0].grid(plot_grid)
+        # ax.legend(['Accepted', 'Rejected'], loc=3)
+        ax.set_xlabel('{0} (X)'.format(x_label))
+        ax.set_ylabel('{0} (Y)'.format(y_label))
+        ax.set_xlim(x_lim)
+        ax.set_ylim(y_lim)
+        ax.grid(plot_grid)
         self.plot_fig.draw()
 
         # adds the z-axis label (if a 3D plot)
         if is_3d:
-            self.plot_fig.ax[0].set_zlabel('{0} (Z)'.format(z_label))
-            self.plot_fig.ax[0].set_zlim(z_lim)
+            ax.set_zlabel('{0} (Z)'.format(z_label))
+            ax.set_zlim(z_lim)
 
-    def plot_old_cluster_signals(self, i_cluster, plot_all, exp_name=None, plot_grid=True):
+    def plot_old_cluster_signals(self, plot_comp, i_cluster, plot_all, plot_grid=True):
         '''
 
         :return:
         '''
 
-        # sets the acceptance flags based on the method
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-            n_pts = np.size(data_fix['vMu'], axis=0)
-        else:
-            # retrieves the fixed/free datasets
-            comp, n_pts = self.data.comp, self.data.comp.n_pts
-            data_fix, data_free = self.get_comp_datasets(is_full=True)
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        n_pts = c_data.n_pts
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -2050,20 +2211,20 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # creates the new subplot
             j_plot = i_cluster[i_plot] - 1
-            i_match = comp.i_match[j_plot]
+            i_match = c_data.i_match[j_plot]
             id_fix = data_fix['clustID'][j_plot]
 
             # only plot data values if there was a match
             if i_match >= 0:
                 # plots the z-scores and the upper/lower limits
-                self.plot_fig.ax[i_plot].plot(T,comp.z_score[:, j_plot], 'b')
+                self.plot_fig.ax[i_plot].plot(T,c_data.z_score[:, j_plot], 'b')
                 self.plot_fig.ax[i_plot].plot([0, n_pts], [1, 1], 'r--')
                 self.plot_fig.ax[i_plot].plot([0, n_pts], [-1, -1], 'r--')
 
                 # sets the title properties
                 id_free = data_free['clustID'][i_match]
                 t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(comp.is_accept[j_plot])]
+                t_col = col[int(c_data.is_accept[j_plot])]
             else:
                 # otherwise, set reduced title properties
                 t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
@@ -2079,7 +2240,7 @@ class AnalysisGUI(QMainWindow):
         # # sets the final figure layout
         # self.plot_fig.fig.tight_layout(h_pad=-0.9)
 
-    def plot_new_cluster_signals(self, i_cluster, plot_all, sig_type, exp_name=None, plot_grid=True):
+    def plot_new_cluster_signals(self, plot_comp, i_cluster, plot_all, sig_type, plot_grid=True):
         '''
 
         :return:
@@ -2088,14 +2249,12 @@ class AnalysisGUI(QMainWindow):
         # initialisation
         reset_ylim, y_lim = True, [0, 0]
 
-        # sets the acceptance flags based on the method
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-        else:
-            # retrieves the fixed/free datasets
-            comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets(is_full=True)
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -2111,16 +2270,16 @@ class AnalysisGUI(QMainWindow):
         # sets the plot data based on the signal type
         if sig_type == 'Intersection':
             # case is the signal intersection
-            y_data = comp.match_intersect
+            y_data = c_data.match_intersect
             y_label = 'Intersection'
             y_lim, reset_ylim = [0, 1], False
         elif sig_type == 'Wasserstein Distance':
             # case is the wasserstain (earth-mover) distance
-            y_data = comp.match_wasserstain
+            y_data = c_data.match_wasserstain
             y_label = 'Wasser. Distance'
         else:
             # case is the bhattacharyya distance
-            y_data = comp.match_bhattacharyya
+            y_data = c_data.match_bhattacharyya
             y_label = 'BHA Distance'
 
         # sets up the figure/axis
@@ -2131,7 +2290,7 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # creates the new subplot
             j_plot = i_cluster[i_plot] - 1
-            i_match = comp.i_match[j_plot]
+            i_match = c_data.i_match[j_plot]
             id_fix = data_fix['clustID'][j_plot]
 
             # only plot data values if there was a match
@@ -2142,7 +2301,7 @@ class AnalysisGUI(QMainWindow):
                 # sets the title properties
                 id_free = data_free['clustID'][i_match]
                 t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(comp.is_accept[j_plot])]
+                t_col = col[int(c_data.is_accept[j_plot])]
             else:
                 # otherwise, set reduced title properties
                 t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
@@ -2173,14 +2332,8 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # sets the acceptance flags based on the method
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-        else:
-            # retrieves the fixed/free datasets
-            comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets()
+        # retrieves the fixed/free datasets
+        data_fix, data_free = cf.get_comp_datasets(self.data)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -2207,7 +2360,7 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # creates the new subplot
             j_plot = i_cluster[i_plot] - 1
-            x_plot = self.data.comp.mu_dist[i_plot, :, :].T
+            x_plot = self.data.c_data.mu_dist[i_plot, :, :].T
 
             # creates the final plot based on the type
             if p_type == 'boxplot':
@@ -2237,7 +2390,7 @@ class AnalysisGUI(QMainWindow):
             for xt in self.plot_fig.ax[i_plot].get_xticklabels():
                 xt.set_rotation(90)
 
-    def plot_cluster_isi(self, i_cluster, plot_all, t_lim, plot_all_bin, is_norm, equal_ax, exp_name, plot_grid=True):
+    def plot_cluster_isi(self, plot_comp, i_cluster, plot_all, t_lim, plot_all_bin, is_norm, equal_ax, plot_grid=True):
         '''
 
         :param i_cluster:
@@ -2246,14 +2399,12 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # sets the acceptance flags based on the method
-        if self.is_multi:
-            # case is multi-experiment files have been loaded
-            data_fix, data_free, comp = self.get_multi_comp_datasets(False, exp_name, is_list=False)
-        else:
-            # retrieves the fixed/free datasets
-            comp = self.data.comp
-            data_fix, data_free = self.get_comp_datasets()
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data)
 
         # resets the cluster index if plotting all clusters
         i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
@@ -2292,7 +2443,7 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # creates the new subplot
             j_plot = i_cluster[i_plot] - 1
-            i_match = comp.i_match[j_plot]
+            i_match = c_data.i_match[j_plot]
             id_fix = data_fix['clustID'][j_plot]
 
             # plots the fixed cluster isi histogram
@@ -2308,7 +2459,7 @@ class AnalysisGUI(QMainWindow):
                 # sets the title properties
                 id_free = data_free['clustID'][i_match]
                 t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(comp.is_accept[j_plot])]
+                t_col = col[int(c_data.is_accept[j_plot])]
             else:
                 # otherwise, set reduced title properties
                 t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
@@ -2328,6 +2479,21 @@ class AnalysisGUI(QMainWindow):
         if equal_ax:
             for ax in self.plot_fig.ax:
                 ax.set_ylim(y_lim)
+
+    def plot_fix_free_corr(self, rot_filt, i_cluster, plot_exp_name, vel_dir, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param i_cluster:
+        :param plot_exp_name:
+        :param vel_dir:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        # REMOVE ME LATER
+        pass
 
     ######################################################
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
@@ -9560,7 +9726,6 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        #
         return [y if (t_key[x] is None) else t_key[x][y] for x, y in zip(f_key, f_perm)]
 
     def get_plot_vals(self, r_data, r_obj_tt, g_type, i_cell_b, im, plot_cond, is_cong=False, i_bin=None,
@@ -9704,7 +9869,7 @@ class AnalysisGUI(QMainWindow):
         else:
             # retrieves the fixed/free datasets
             comp, h_str, h_key = [self.data.comp], h_str[1:], h_key[1:]
-            data_fix, data_free = self.get_comp_datasets()
+            data_fix, data_free = cf.get_comp_datasets(self.data)
 
         # retrieves the acceptance flags/match indices
         is_acc, i_match = get_list_fields(comp,'is_accept'), get_list_fields(comp,'i_match')
@@ -9922,40 +10087,27 @@ class AnalysisGUI(QMainWindow):
         else:
             return pp(x[0])
 
-    def get_comp_datasets(self, ind=None, is_full=False):
-        '''
-
-        :return:
-        '''
-
-        if ind is None:
-            if (self.data.cluster is None) or is_full:
-                return self.data._cluster[self.data.comp.ind[0]], self.data._cluster[self.data.comp.ind[1]]
-            else:
-                return self.data.cluster[self.data.comp.ind[0]], self.data.cluster[self.data.comp.ind[1]]
-        else:
-            if (self.data.cluster is None) or is_full:
-                return self.data._cluster[ind[0]], self.data._cluster[ind[1]]
-            else:
-                return self.data.cluster[ind[0]], self.data.cluster[ind[1]]
-
-    def get_multi_comp_datasets(self, all_expt, exp_name, is_list=True):
+    def get_multi_comp_datasets(self, all_expt, plot_comp, is_list=True):
 
         if all_expt:
-            return [x['data'][0] for x in self.data.cluster], \
-                   [x['data'][1] for x in self.data.cluster], \
-                   [x['comp_data'] for x in self.data.cluster]
+            # memory allocation
+            c_data, A = self.data.comp.data, [[] for _ in range(len(self.data.comp.data))]
+            data_fix, data_free = dcopy(A), dcopy(A)
+
+            # retrieves the comparison datasets for each experiment
+            for i_cd, cd in enumerate(c_data):
+                data_fix[i_cd], data_free[i_cd] = cf.get_comp_datasets(self.data, c_data=cd, is_full=True)
+
         else:
-            # retrieves the experiment
-            i_expt = cf.get_expt_index(exp_name, self.data.cluster)
-            if is_list:
-                return self.data.cluster[i_expt]['data'][0], \
-                       self.data.cluster[i_expt]['data'][1], \
-                       [self.data.cluster[i_expt]['comp_data']]
-            else:
-                return self.data.cluster[i_expt]['data'][0], \
-                       self.data.cluster[i_expt]['data'][1], \
-                       self.data.cluster[i_expt]['comp_data']
+            # retrieves the comparison data struct belonging to the selected experiment
+            i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+            c_data = dcopy(self.data.comp.data[i_comp])
+
+            # case is only single experiment files have been loaded
+            data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
+
+        # returns the arrays
+        return data_fix, data_free, c_data
 
     def check_cluster_index_input(self, i_cluster, plot_all, n_max):
         '''
@@ -10024,7 +10176,7 @@ class AnalysisGUI(QMainWindow):
         if i_cluster is None:
             # indices not specified, so plot all fixed clusters
             if n_max is None:
-                data_fix, _ = self.get_comp_datasets()
+                data_fix, _ = self.get_comp_datasets(self.data)
                 return np.array(range(data_fix['nC'])) + 1
             else:
                 return np.array(range(n_max)) + 1
@@ -10092,7 +10244,8 @@ class AnalysisGUI(QMainWindow):
             # removes/keeps the voltage spikes depending on the function type
             if current_fcn != 'plot_single_match_mean':
                 # if the voltage spikes are not required, then remove them
-                del c['vSpike']
+                if 'vSpike' in c:
+                    del c['vSpike']
             else:
                 # otherwise, include only the accepted voltage spike traces
                 c['vSpike'] = c['vSpike'][cl_inc]
@@ -10134,6 +10287,20 @@ class AnalysisGUI(QMainWindow):
 
         # returns the final array
         return i_col
+
+    def is_loaded_file(self, expFile):
+        '''
+
+        :param expFile:
+        :return:
+        '''
+
+        for c in self.data._cluster:
+            if c['expFile'] == expFile:
+                return True
+
+        # if no match, then return a false value
+        return False
 
 ########################################################################################################################
 ########################################################################################################################
@@ -10193,29 +10360,45 @@ class AnalysisFunctions(object):
 
         # initialisations
         m_type = ['New Method', 'Old Method']
+        scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
+        vd_type = ['Negative', 'Positive']
+
+        # retrieves the comparison fixed file names
+        calc_comp = self.det_comp_expt_names(True)
+        plot_comp = self.det_comp_expt_names(False)
 
         # ====> Signal Comparison (All Clusters)
         para = {
+            # calculation parameters
+            'calc_comp': {
+                'gtype': 'C', 'type': 'L', 'text': 'Comparison Fixed Expt', 'list': calc_comp, 'def_val': calc_comp[0],
+                'is_enabled': len(calc_comp) > 1
+            },
+
+            # plotting parameters
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster',True]},
             'm_type': {'type': 'L', 'text': 'Matching Type', 'def_val': m_type[0], 'list': m_type},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
-                      name='Signal Comparison (All Clusters)',
-                      func='plot_multi_match_means',
+                      name='Fixed/Free Cluster Matching',
+                      func='plot_cluster_match_signals',
                       multi_fig=['i_cluster'],
                       para=para)
 
         # ====> Signal Comparison (Single Cluster)
         para = {
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'n_trace': {'text': 'Raw Trace Count', 'def_val': 500},
             'is_horz': {'type': 'B', 'text': 'Plot Subplots Horizontally', 'def_val': False},
             'rej_outlier': {'type': 'B', 'text': 'Reject Outlier Traces', 'def_val': True},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
@@ -10226,11 +10409,17 @@ class AnalysisFunctions(object):
 
         # ====> Match Metrics
         para = {
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
+            'all_expt': {
+                'type': 'B', 'text': 'Plot All Experiments', 'def_val': False, 'is_multi': True,
+                'link_para': ['plot_comp', True]
+            },
             'is_3d': {'type': 'B', 'text': 'Plot 3D Data', 'def_val': True},
             'm_type': {'type': 'L', 'text': 'Matching Type', 'def_val': m_type[0], 'list': m_type},
-            'all_expt': {'type': 'B', 'text': 'Plot All Experiments',
-                         'def_val': False, 'link_para': ['exp_name', True], 'is_multi': True},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
@@ -10240,9 +10429,13 @@ class AnalysisFunctions(object):
 
         # ====> Old Cluster Matched Signals
         para = {
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
@@ -10252,10 +10445,14 @@ class AnalysisFunctions(object):
 
         # ====> New Cluster Matched Signals
         para = {
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
             'sig_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'Intersection', 'list': plt_list},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
@@ -10264,41 +10461,61 @@ class AnalysisFunctions(object):
                       multi_fig=['i_cluster'],
                       para=para)
 
-        # # ====> Shuffled Cluster Distances
-        # para = {
-        #     # calculation parameters
-        #     'n_shuffle': {'gtype': 'C', 'text': 'Number of shuffles', 'def_val': 100},
-        #     'n_spikes': {'gtype': 'C', 'text': 'Spikes per shuffle', 'def_val': 10},
-        #
-        #     # plotting parameters
-        #     'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-        #     'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
-        #     'p_type': {'type': 'L', 'text': 'Plot Type', 'def_val':'bar', 'list':['bar', 'boxplot']},
-        #     'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
-        #     'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-        # }
-        # self.add_func(type='Cluster Matching',
-        #               name='Shuffled Cluster Distances',
-        #               func='plot_cluster_distances',
-        #               multi_fig=['i_cluster'],
-        #               para=para)
-
         # ====> Inter-Spike Interval Distributions
         para = {
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list': True},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
             't_lim': {'text': 'Upper Time Limit', 'def_val': 500, 'min_val': 10},
             'plot_all_bin': {'type': 'B', 'text': 'Plot All Histogram Time Bins', 
                              'def_val': False, 'link_para': ['t_lim', True]},
             'is_norm': {'type': 'B', 'text': 'Use ISI Probabilities', 'def_val': True},
             'equal_ax': {'type': 'B', 'text': 'Use Equal Y-Axis Limits', 'def_val': False},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments', 'is_multi': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
                       name='Inter-Spike Interval Distributions',
                       func='plot_cluster_isi',
                       multi_fig=['i_cluster'],
+                      para=para)
+
+        # ====> Fixed/Freely Moving Spiking Frequency Correlation
+        para = {
+            # calculation parameters
+            'vel_bin': {
+                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Cluster Matching',
+                      name='Fixed/Freely Moving Spiking Frequency Correlation',
+                      func='plot_fix_free_corr',
                       para=para)
 
         ###############################################
@@ -10377,14 +10594,12 @@ class AnalysisFunctions(object):
         norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
         mean_type = ['Mean', 'Median']
         comp_type = ['CW vs BL', 'CCW vs BL']
-        scope_txt = ['Individual Cell', 'Whole Experiment']
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
         ksig_type = ['Individual Cell', 'Correlation Distribution']
         dist_type = ['Cumulative Distribution', 'Histogram']
-        vd_type = ['Negative', 'Positive']
 
         # sets the LDA comparison types
         comp_type = np.unique(
@@ -12274,6 +12489,53 @@ class AnalysisFunctions(object):
                     for p_name in fcn_para['para']:
                         self.para[fcn_name][p_name] = fcn_para['para'][p_name]['def_val']
 
+    def update_comp_expts(self):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the comparison fixed file names
+        p_str = ['calc_comp', 'plot_comp']
+        ex_name = [self.det_comp_expt_names(True), self.det_comp_expt_names(False)]
+
+        # updates the parameters for each function associated with the comparison experiment file names
+        for fd in self.details['Cluster Matching']:
+            for i_pp, pp in enumerate(p_str):
+                if pp in fd['para']:
+                    # updates the parameter list and enabled values
+                    fd['para'][pp]['list'] = dcopy(ex_name[i_pp])
+                    fd['para'][pp]['is_enabled'] = len(ex_name[i_pp]) > 1
+
+                    # updates the default value (if not in the current list)
+                    if fd['para'][pp]['def_val'] not in ex_name[i_pp]:
+                        fd['para'][pp]['def_val'] = dcopy(ex_name[i_pp][0])
+
+                    # if the current experiment
+                    if fd['name'] == self.curr_fcn:
+                        # retrieves the list object
+                        h_list = self.find_obj_handle([QComboBox], pp)
+                        if len(h_list):
+                            # retrieves the current index
+                            i_sel0 = h_list[0].currentIndex()
+
+                            # removes the existing items
+                            for i in range(h_list[0].count()):
+                                h_list[0].removeItem(0)
+
+                            # adds the new range
+                            for txt in ex_name[i_pp]:
+                                h_list[0].addItem(txt)
+
+                            # resets the selected index (if the indices exceed the list count)
+                            if i_sel0 > len(ex_name[i_pp]):
+                                i_sel0 = 0
+
+                            # resets the associated parameter value
+                            self.curr_para[pp] = ex_name[i_pp][i_sel0]
+                            h_list[0].setCurrentIndex(i_sel0)
+                            h_list[0].setEnabled(len(ex_name[i_pp]) > 1)
+
     ##################################################
     ####    OBJECT CREATION/DELETION FUNCTIONS    ####
     ##################################################
@@ -12286,7 +12548,7 @@ class AnalysisFunctions(object):
         '''
 
         # initialisations
-        tab_name, tab_hght = ['Calculation Parameters', 'Plotting Parameters'], 311
+        tab_name, tab_hght = ['Calculation Parameters', 'Plotting Parameters'], 351
 
         # sets the group width
         self.grp_wid = h_grp_para.geometry().width() - dX
@@ -12467,7 +12729,10 @@ class AnalysisFunctions(object):
         # connects the callback function to the checkbox
         h_chk.setChecked(self.curr_para[p_name])
         if fcn_para['link_para'] is not None:
-            self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
+            try:
+                self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
+            except:
+                a = 1
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -13353,6 +13618,39 @@ class AnalysisFunctions(object):
         # returns the final object
         return h_obj
 
+    def det_comp_expt_names(self, is_calc):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the comparison data fields
+        c_data = self.get_data_fcn().comp.data
+
+        if is_calc:
+            # case is determining the feasible comparison datasets for calculation functions
+            if len(c_data):
+                # case is at least one comparison dataset has been set
+                return [cf.get_comb_file_names(x.fix_name, x.free_name) for x in c_data]
+            else:
+                # case is no comparison datasets have been set
+                return ['No Fixed/Free Comparisons Set!']
+
+        else:
+            # case is determining the feasible comparison datasets for plotting functions
+            if len(c_data):
+                # determines the fixed experiments for each of the comparison datasets (that have been calculated)
+                f_name = [cf.get_comb_file_names(x.fix_name, x.free_name) for x in c_data if x.is_set]
+                if len(f_name):
+                    # if there is at least one where the calculations have been made, then return the fixed file names
+                    return f_name
+                else:
+                    # otherwise, there are no feasible comparison datasets for plotting
+                    return ['No Matching Calculations Made!']
+            else:
+                # case is there are no comparison datasets
+                return ['No Fixed/Free Comparisons Set!']
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -13369,6 +13667,7 @@ class AnalysisData(object):
         self.discrim = DiscriminationData()
         self.multi = MultiFileData()
         self.spikedf = SpikingFreqData()
+        self.externd = ExternalData()
 
         # exclusion filter fields
         self.exc_gen_filt = None
@@ -13461,32 +13760,35 @@ class AnalysisData(object):
         if self.exc_ud_filt is None:
             self.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
-class ComparisonData(object):
+class ComparisonDataObj(object):
     def __init__(self):
-
-        # initialises the comparison data
-        self.init_comparison_data()
-
-    def init_comparison_data(self):
-        '''
-
-        :return:
-        '''
-
-        # initialisation
+        # calculation flag
         self.is_set = False
 
-    def set_comparison_data(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
+        # initial parameter fields
+        self.d_max = int(cfcn.get_glob_para('d_max'))
+        self.r_max = float(cfcn.get_glob_para('r_max'))
+        self.sig_corr_min = float(cfcn.get_glob_para('sig_corr_min'))
+        self.isi_corr_min = float(cfcn.get_glob_para('isi_corr_min'))
+        self.sig_diff_max = float(cfcn.get_glob_para('sig_diff_max'))
+        self.sig_feat_min = float(cfcn.get_glob_para('sig_feat_min'))
+        self.w_sig_feat = float(cfcn.get_glob_para('w_sig_feat'))
+        self.w_sig_comp = float(cfcn.get_glob_para('w_sig_comp'))
+        self.w_isi = float(cfcn.get_glob_para('w_isi'))
+
+    def init_class_fields(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
         '''
 
         :param ind:
         :param n_fix:
+        :param n_free:
         :param n_pts:
+        :param fix_name:
+        :param free_name:
         :return:
         '''
 
         # initialisations
-        self.is_set = True
         self.ind = ind
         self.n_pts = n_pts
         self.fix_name = fix_name
@@ -13520,6 +13822,39 @@ class ComparisonData(object):
         self.signal_feat = -np.ones((n_fix, 4), dtype=float)
         self.total_metrics = -np.ones((n_fix,3), dtype=float)
         self.total_metrics_mean = -np.ones(n_fix, dtype=float)
+
+class ComparisonData(object):
+    def __init__(self):
+
+        # initialises the comparison data
+        self.init_comparison_data()
+
+    def init_comparison_data(self):
+        '''
+
+        :return:
+        '''
+
+        # initialisation
+        self.is_set = False
+        self.data = []
+        self.last_comp = -1
+
+    def set_comparison_data(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
+        '''
+
+        :param ind:
+        :param n_fix:
+        :param n_pts:
+        :return:
+        '''
+
+        # creates a new class object
+        DataNw = ComparisonDataObj()
+        DataNw.init_class_fields(ind, n_fix, n_free, n_pts, fix_name, free_name)
+
+        # appends the data to the data array
+        self.data.append(DataNw)
 
 class ClassifyData(object):
     def __init__(self):
@@ -13908,9 +14243,29 @@ class SpikingFreqData(object):
 ########################################################################################################################
 ########################################################################################################################
 
+class ExternalData(object):
+    def __init__(self):
+
+        # creates an empty class
+        pass
+
+class FreelyMovingData(object):
+    def __init__(self, data_dict):
+        # initialises the object fields
+
+
+        # creates the objects for each experiment
+
+
+        # REMOVE ME LATER
+        pass
+
+########################################################################################################################
+########################################################################################################################
+
 
 class OutputData(object):
-    def __init__(self, data):
+    def __init__(self, f_data):
         # REMOVE ME LATER
         pass
 
