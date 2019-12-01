@@ -2600,6 +2600,7 @@ def save_single_file(f_name, data):
     with open(f_name, 'wb') as fw:
         p.dump(data, fw)
 
+
 def save_multi_comp_file(main_obj, out_info, force_update=False):
     '''
 
@@ -2621,6 +2622,7 @@ def save_multi_comp_file(main_obj, out_info, force_update=False):
     main_obj.worker[iw].set_worker_func_type('save_multi_comp_file', thread_job_para=[main_obj.data, out_info])
     main_obj.worker[iw].start()
 
+
 def save_single_comp_file(main_obj, out_info, force_update=False):
     '''
 
@@ -2638,8 +2640,7 @@ def save_single_comp_file(main_obj, out_info, force_update=False):
     i_comp = det_comp_dataset_index(main_obj.data.comp.data, out_info['exptName'])
 
     # creates the multi-experiment data file based on the type
-    data_out = {'data': None, 'c_data': main_obj.data.comp.data[i_comp]}
-    data_out['data'] = [[] for _ in range(2)]
+    data_out = {'data': [[] for _ in range(2)], 'c_data': main_obj.data.comp.data[i_comp]}
     data_out['data'][0], data_out['data'][1] = get_comp_datasets(main_obj.data, c_data=data_out['c_data'], is_full=True)
 
     # outputs the data to file
@@ -2647,14 +2648,17 @@ def save_single_comp_file(main_obj, out_info, force_update=False):
         p.dump(data_out, fw)
 
 
-def save_multi_data_file(main_obj, out_info, force_update=False):
+def save_multi_data_file(main_obj, out_info, is_multi=True, force_update=False):
     '''
 
     :return:
     '''
 
+    # initialisations
+    f_extn = 'mdata' if is_multi else 'mcomp'
+
     # determines if the file exists
-    out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
+    out_file = os.path.join(out_info['inputDir'], '{0}.{1}'.format(out_info['dataName'], f_extn))
     if not force_update:
         if not check_existing_file(main_obj, out_file):
             # if the file does exists and the user doesn't want to overwrite then exit
@@ -2678,10 +2682,43 @@ def det_comp_dataset_index(c_data, exp_name, is_fix=True):
     if '/' in exp_name:
         exp_name = exp_name.split('/')[0]
 
-    if is_fix:
-        return next((i for i, cd in enumerate(c_data) if cd.fix_name == exp_name), None)
-    else:
-        return next((i for i, cd in enumerate(c_data) if cd.free_name == exp_name), None)
+    f_name = [cd.fix_name for cd in c_data] if is_fix else [cd.free_name for cd in c_data]
+    return det_likely_filename_match(f_name, exp_name)
+
+def det_likely_filename_match(f_name, exp_name):
+    '''
+
+    :param f_name:
+    :param exp_name:
+    :return:
+    '''
+
+    # sets the search name
+    exp_name_search = exp_name[0] if isinstance(exp_name, list) else exp_name
+
+    # determines the comparison dataset with the matching freely moving experiment file name
+    i_expt_nw = next((i for i, x in enumerate(f_name) if x.lower() == exp_name_search.lower()), None)
+    if i_expt_nw is None:
+        # if there isn't an exact match, then determine the
+        m_score_fuzz = np.array([fuzz.partial_ratio(x, exp_name_search) for x in f_name])
+        i_match_fuzz = np.where(m_score_fuzz > 99.9)[0]
+
+        #
+        if len(i_match_fuzz) == 0:
+            # case is there are no matches
+            return None
+
+        elif len(i_match_fuzz) > 1:
+            # case is there is more than one match
+            m_score_fuzz_2 = np.array([fuzz.ratio(x, exp_name_search) for x in f_name])
+            i_expt_nw = np.argmax(np.multiply(m_score_fuzz, m_score_fuzz_2))
+
+        else:
+            # case is there is only one match
+            i_expt_nw = i_match_fuzz[0]
+
+    # returns the index of the matching file
+    return i_expt_nw
 
 def get_comp_datasets(data, c_data=None, ind=None, is_full=False):
     '''
@@ -2723,3 +2760,4 @@ def use_raw_clust(data):
     '''
 
     return (data.cluster is None) or (len(data.cluster) != len(data._cluster))
+

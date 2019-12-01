@@ -628,10 +628,11 @@ class AnalysisGUI(QMainWindow):
                             if chk_status == 0:
                                 self.data.comp.data.append(loaded_data['c_data'])
 
-                        elif self.file_type == 3:
+                        elif (self.file_type == 3) or (not isinstance(loaded_data, dict)):
                             # case is a multi-experiment data file
                             names, files = dcopy(self.data.multi.names), dcopy(self.data.multi.files)
                             self.data, init_data = loaded_data, False
+                            init_comp = self.file_type == 3
 
                             # initialises the multi file data field (if not provided)
                             if not hasattr(loaded_data, 'multi'):
@@ -645,23 +646,31 @@ class AnalysisGUI(QMainWindow):
                         elif self.file_type == 4:
                             # case is a multi-experiment comparison data file
                             init_comp = False
+                            n_file = len(loaded_data['c_data'])
 
-                            for ld in loaded_data:
+                            # if the loaded data correlation calculations have been made, then update that field
+                            if loaded_data['ff_corr'].is_set:
+                                self.data.comp.ff_corr = loaded_data['ff_corr']
+
+                            for i_file in range(n_file):
+                                # retrieves the fixed/free clusters
+                                fix_clust, free_clust = loaded_data['data'][i_file, 0], loaded_data['data'][i_file, 1]
+
                                 # retrieves the fixed/free file names (for the given experiment comparison)
-                                fix_name = cf.extract_file_name(ld['data'][0]['expFile'])
-                                free_name = cf.extract_file_name(ld['data'][1]['expFile'])
+                                fix_name = cf.extract_file_name(fix_clust['expFile'])
+                                free_name = cf.extract_file_name(free_clust['expFile'])
 
                                 # appends the new data to the overall cluster/comparison data fields
-                                if not self.is_loaded_file(ld['data'][0]['expFile']):
-                                    self.data._cluster.append(ld['data'][0])
+                                if not self.is_loaded_file(fix_clust['expFile']):
+                                    self.data._cluster.append(fix_clust)
 
-                                if not self.is_loaded_file(ld['data'][1]['expFile']):
-                                    self.data._cluster.append(ld['data'][1])
+                                if not self.is_loaded_file(free_clust['expFile']):
+                                    self.data._cluster.append(free_clust)
 
                                 # determines if the new combination files already exist
                                 chk_status, _ = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
                                 if chk_status == 0:
-                                    self.data.comp.data.append(ld['c_data'])
+                                    self.data.comp.data.append(loaded_data['c_data'][i_file])
 
                     if init_data:
                         self.data.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
@@ -1392,26 +1401,23 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # determines which file type is being combined
-        file_type = self.file_type
+        file_type, is_comp = self.file_type, True
         if file_type == 1:
             # case is individual experiment files are currently loaded
             is_comp = self.data.comp.is_set
-            s_str = 'Single Matching Experiments' if is_comp else 'Combined Multi-Experiment'
+            s_str = 'Multi-Comparison' if is_comp else 'Multi-Experiment'
 
         elif file_type == 2:
             # case is individual comparison experiment files are currently loaded
-            is_comp = True
-            s_str = 'Multiple Matching Experiments'
+            s_str = 'Multi-Comparison'
+
+        elif file_type == 3:
+            # case is a multi-experiment data file
+            s_str = 'Multi-Experiment'
 
         else:
-            # unable to re-save multi-experiment files, so create an output error message
-            e_str = 'Unable to re-save multi-experiment data files. If you wish to create a file consisting ' \
-                    'of a sub-set of the current experimental files, then you will need to load/re-save ' \
-                    'from the individual experimental files.'
-
-            # shows the error and exits the function
-            cf.show_error(e_str, 'Data File Output Error')
-            return
+            # case is a multi-comparison data file
+            s_str = 'Multi-Comparison'
 
         # sets the initial output data dictionary
         out_data = {'inputDir': self.def_data['dir']['inputDir'], 'dataName': ''}
@@ -1452,20 +1458,22 @@ class AnalysisGUI(QMainWindow):
         # retrieves the information from the dialog
         out_info = cfig_dlg.get_info()
         if out_info is not None:
-            # if the output information is valid, then create the data file for output
-            if is_comp:
-                # case is a comparison data file is being output
-                if self.file_type == 1:
-                    # case is a single comparison experiment data file is being output
+            # case is a comparison data file is being output
+            if self.file_type == 1:
+                # case is a single comparison experiment data file is being output
+                if is_comp:
                     cf.save_single_comp_file(self, out_info)
-
                 else:
-                    # case is a multi comparison experiment data file is being output
-                    cf.save_multi_comp_file(self, out_info)
+                    # case is a multi-experiment data file is being output
+                    cf.save_multi_data_file(self, out_info)
+
+            elif self.file_type == 2:
+                # case is a multi comparison experiment data file is being output
+                cf.save_multi_comp_file(self, out_info)
 
             else:
                 # case is a multi-experiment data file is being output
-                cf.save_multi_data_file(self, out_info)
+                cf.save_multi_data_file(self, out_info, self.file_type == 3)
 
     def set_default(self):
         '''
@@ -1503,6 +1511,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # sets the file types
+
         file_types = ['All Files (*.*)',
                       'CSV Files (*.csv)',
                       'Text Files (*.txt)']
@@ -1528,7 +1537,11 @@ class AnalysisGUI(QMainWindow):
                 # case is the freely moving data (as calculated/exported by Adam's analysis code)
 
                 # loads the general data file as a binary
-                for in_f in input_file:
+                for i_f, in_f in enumerate(input_file):
+                    # updates the progress bar
+                    w_str = 'Loading File {0} of {1}'.format(i_f + 1, len(input_file))
+                    self.update_thread_job(w_str, 100. * (i_f + 1) / (len(input_file) + 1))
+                    # opens the new file
                     with open(in_f, 'rb') as fp:
                         f_data = p.load(fp)
 
@@ -1538,6 +1551,9 @@ class AnalysisGUI(QMainWindow):
                     else:
                         setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
 
+                # updates the free experiments
+                self.fcn_data.update_free_expts()
+
         elif 'CSV Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
             pass
@@ -1545,6 +1561,11 @@ class AnalysisGUI(QMainWindow):
         elif 'Text Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
             pass
+
+        # updates the progressbar
+        self.update_thread_job('File Load Complete!', 100.)
+        time.sleep(0.5)
+        self.update_thread_job('Waiting For Process...', 0.)
 
     def update_glob_para(self):
         '''
@@ -2487,7 +2508,8 @@ class AnalysisGUI(QMainWindow):
             for ax in self.plot_fig.ax:
                 ax.set_ylim(y_lim)
 
-    def plot_fix_free_corr(self, rot_filt, i_cluster, plot_exp_name, vel_dir, plot_grid, plot_scope):
+    def plot_fix_free_corr(self, rot_filt, ff_cluster, free_exp_name, show_trend, bin_sz, plot_type,
+                                 vel_dir, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -2499,8 +2521,169 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # REMOVE ME LATER
-        pass
+        # initialisations
+        is_pos_v = int(vel_dir == 'Positive')
+        ff_corr = self.data.comp.ff_corr
+        f_data = self.data.externd.free_data
+        tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
+
+        # determines the matching cells
+        i_expt_f2f, f2f_map = cfcn.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
+
+        if plot_type == 'Individual Cell Correlation':
+            ############################################
+            ####    INDIVIDUAL CELL CORRELATIONS    ####
+            ############################################
+
+            # calculates the number of time bins
+            n_tt = len(f_data.t_type)
+            n_bin_h = int(f_data.v_max / ff_corr.vel_bin)
+            axL = [1e10, -1e10]
+
+            # sets the cdf xi-values
+            xi_cdf = np.linspace(-1, 1, 201)
+            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+
+            # retrieves the fixed/free mapping indices
+            i_expt = f_data.exp_name.index(free_exp_name)
+            is_ok = np.where(f2f_map[i_expt][:, 1] > 0)[0]
+
+            # determines the index of the selected cluster
+            clust_id = np.array(re.findall(r'\d+', ff_cluster)).astype(int)
+            i_clust = is_ok[np.where(np.logical_and(ff_corr.clust_id[i_expt][:, 0] == clust_id[0],
+                                                    ff_corr.clust_id[i_expt][:, 1] == clust_id[1]))[0][0]]
+
+            # retrieves the fixed/free spiking frequencies (across all the group types)
+            i_bin = np.arange(n_bin_h, 2 * n_bin_h) if is_pos_v else np.arange(n_bin_h)
+            sf_fix = [x[i_clust, i_bin] for x in ff_corr.sf_fix[i_expt, :]]
+            sf_free = [x[i_clust, i_bin] for x in ff_corr.sf_free[i_expt, :]]
+            sf_corr = [sf_c[i_clust, is_pos_v] for sf_c in ff_corr.sf_corr[i_expt]]
+            sf_grad = [sf_g[i_clust, is_pos_v] for sf_g in ff_corr.sf_grad[i_expt]]
+            sf_corr_sh = [sf_sh[i_clust, :, is_pos_v] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
+            sf_sig = [sf_s[i_clust, is_pos_v] for sf_s in ff_corr.sf_corr_sig[i_expt]]
+
+            # initialises the plot axes
+            self.init_plot_axes(n_row=n_tt, n_col=2)
+            ax = self.plot_fig.ax
+
+            #
+            for i_tt in range(n_tt):
+                # sets the left/right axis indices
+                iL, iR = 2 * i_tt, 2 * i_tt + 1
+
+                # creates the scatterplot
+                ax[iL].plot(sf_fix[i_tt], sf_free[i_tt], 'o')
+
+                # resets the axis limits
+                axLmx = max(ax[iL].get_xlim()[1], ax[iL].get_ylim()[1])
+                cf.set_axis_limits(ax[iL], [0, axLmx], [0, axLmx])
+
+                # adds in the trendline (if required)
+                if show_trend:
+                    if sf_grad[i_tt] < 1:
+                        ax[iL].plot([0, axLmx], [0, sf_grad[i_tt] * axLmx], 'r--', linewidth=2)
+                    else:
+                        ax[iL].plot([0, axLmx / sf_grad[i_tt]], [0, axLmx], 'r--', linewidth=2)
+
+                # sets the axis properties
+                tt_nw = f_data.t_type[i_tt]
+                ax[iL].set_title('Spiking Frequency Relation ({0}/{1})'.format(tt_nw, tt_key[tt_nw]))
+                ax[iL].set_ylabel('Free Spiking Frequency (Hz)')
+                ax[iL].grid(plot_grid)
+
+                # calculates the cumulative distribution values
+                sf_corr_hist = np.histogram(sf_corr_sh[i_tt], bins=xi_cdf, normed=False)[0]
+                sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
+                i_cdf_bin = np.where(x_cdf > sf_corr[i_tt])[0][0]
+                t_str = 'Correlation = {:5.3f}{}'.format(sf_corr[i_tt], '*' if sf_sig[i_tt] else '')
+
+                # plots the cumulative distribution traces
+                ax[iR].plot(x_cdf, sf_corr_cdf, 'k')
+                ax[iR].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], 'r--')
+                ax[iR].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2), 'r--')
+
+                # sets the axis properties
+                ax[iR].set_title(t_str)
+                ax[iR].set_xlim([-1, 1])
+                ax[iR].set_ylim([0, 100])
+                ax[iR].set_ylabel('Percentage')
+                ax[iR].grid(plot_grid)
+
+            # sets the axis properties
+            ax[-2].set_xlabel('Fixed Spiking Frequency (Hz)')
+            ax[-1].set_xlabel('Correlation')
+
+        else:
+            ############################################
+            ####    INDIVIDUAL CELL CORRELATIONS    ####
+            ############################################
+
+            # REMOVE ME LATER
+            is_norm = False
+
+            #
+            is_ok = [x[:, 0] >= 0 for x in f2f_map]
+            tt_plot = ['DARK1', 'LIGHT1']
+            col = cf.get_plot_col(len(tt_plot))
+
+            # sets the cdf xi-values
+            yLmx = 0
+            xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
+            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+
+            #
+            sf_corr = np.hstack(
+                [np.vstack([sf[ok, is_pos_v] for sf in sf_c]) for sf_c, ok in zip(ff_corr.sf_corr, is_ok)]).T
+            sf_sig = np.hstack(
+                [np.vstack([sf[ok, is_pos_v] for sf in sf_s]) for sf_s, ok in zip(ff_corr.sf_corr_sig, is_ok)]).T
+
+            # initialises the plot axes
+            self.init_plot_axes(n_row=2, n_col=1)
+            ax = self.plot_fig.ax
+
+            #
+            for i_tt, tt in enumerate(tt_plot):
+                # sets the index of the column to be analysed
+                i_col = np.where(f_data.t_type == tt)[0]
+                t_str = '{0} ({1}) - {2} Velocities'.format(tt_key[tt], tt, 'Positive' if is_pos_v else 'Negative')
+
+                # calculates the histogram of the significant cells
+                sf_corr_hist = np.histogram(sf_corr[:, i_col], bins=xi_cdf, normed=False)[0]
+                sf_corr_hist_sig = np.histogram(sf_corr[:, i_col][sf_sig[:, i_col]], bins=xi_cdf, normed=False)[0]
+
+                # calculates the proportions
+                if is_norm:
+                    sf_corr_hist_sum = np.sum(sf_corr_hist)
+                    p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                    p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+                else:
+                    p_sig = sf_corr_hist_sig
+                    p_nsig = sf_corr_hist - sf_corr_hist_sig
+
+                # case is the significant values so normalise using the provided value
+                b_wid = 0.8 * (x_cdf[1] - x_cdf[0])
+                ax[i_tt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_tt], color=col[i_tt])
+                ax[i_tt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_tt], color='None')
+
+                # sets the axis properties
+                ax[i_tt].set_title(t_str)
+                ax[i_tt].set_xlim([-1, 1])
+                ax[i_tt].set_ylabel('Percentage' if is_norm else 'Cell Count')
+                ax[i_tt].grid(plot_grid)
+
+                # sets the y-axis limits
+                if is_norm:
+                    ax[i_tt].set_ylim([-1, 101])
+                else:
+                    yLmx = max(yLmx, ax[i_tt].get_ylim()[1])
+
+            # sets the bottom x-axis label
+            ax[-1].set_xlabel('Correlation')
+
+            # sets the overall y-axis limit (if not normalising)
+            if not is_norm:
+                for _ax in ax:
+                    _ax.set_ylim([0, yLmx])
 
     ######################################################
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
@@ -10370,10 +10553,16 @@ class AnalysisFunctions(object):
         scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
         vd_type = ['Negative', 'Positive']
+        ff_plot_type = ['Individual Cell Correlation', 'Correlation Distribution']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
         plot_comp = self.det_comp_expt_names(False)
+
+        # sets the initial freely moving rotation filter
+        rot_filt_free = cf.init_rotation_filter_data(False)
+        rot_filt_free['t_type'] = ['Black', 'Uniform']
+        free_exp, ff_cluster = self.get_ff_cluster_details()
 
         # ====> Signal Comparison (All Clusters)
         para = {
@@ -10493,6 +10682,7 @@ class AnalysisFunctions(object):
         # ====> Fixed/Freely Moving Spiking Frequency Correlation
         para = {
             # calculation parameters
+            'n_shuffle': {'gtype': 'C', 'text': 'Correlation Shuffle Count', 'def_val': 100},
             'vel_bin': {
                 'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
             },
@@ -10508,10 +10698,21 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_free
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'ff_cluster': {'type': 'L', 'text': 'Matched Index', 'def_val': ff_cluster[0], 'list': ff_cluster},
+            'free_exp_name': {
+                'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
+                'para_reset': [['ff_cluster', self.reset_matched_index]]
+            },
+            'show_trend': {'type': 'B', 'text': 'Show Regression Trendlines', 'def_val': True},
+            'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'list': ff_plot_type, 'def_val': ff_plot_type[0],
+                'link_para': [['ff_cluster', 'Correlation Distribution'], ['free_exp_name', 'Correlation Distribution'],
+                              ['show_trend', 'Correlation Distribution'], ['bin_sz', 'Individual Cell Correlation']]
+            },
             'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -12543,6 +12744,46 @@ class AnalysisFunctions(object):
                             h_list[0].setCurrentIndex(i_sel0)
                             h_list[0].setEnabled(len(ex_name[i_pp]) > 1)
 
+    def update_free_expts(self):
+        '''
+
+        :return:
+        '''
+
+        # initialisations
+        pp = 'free_exp_name'
+        data = self.get_data_fcn()
+        f_data = data.externd.free_data
+
+        # updates the functions parameter/default value fields
+        fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
+        fcn_d['para'][pp]['list'] = f_data.exp_name
+        if 'No Fixed/Free' in fcn_d['para'][pp]['def_val']:
+            fcn_d['para'][pp]['def_val'] = f_data.exp_name[0]
+
+        # if the current experiment
+        if fcn_d['name'] == self.curr_fcn:
+            # retrieves the list object
+            h_list = self.find_obj_handle([QComboBox], pp)[0]
+            i_sel0 = h_list.currentIndex()
+
+            # removes the existing items
+            for i in range(h_list.count()):
+                h_list.removeItem(0)
+
+            # adds the new range
+            for txt in f_data.exp_name:
+                h_list.addItem(txt)
+
+            # updates the selected index
+            h_list.setCurrentIndex(i_sel0)
+        else:
+            # sets the initial selection value to zero
+            i_sel0 = 0
+
+        # resets the matching indices
+        self.reset_matched_index('ff_cluster', f_data.exp_name[i_sel0])
+
     ##################################################
     ####    OBJECT CREATION/DELETION FUNCTIONS    ####
     ##################################################
@@ -13481,6 +13722,49 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
+    def reset_matched_index(self, p_name, exp_name):
+        '''
+
+        :param p_name:
+        :param exp_name:
+        :return:
+        '''
+
+        if self.is_updating:
+            return
+
+        # initialisations
+        data = self.get_data_fcn()
+
+        # retrieves the list object corresponding to the parameter
+        fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
+
+        # retrieves the experiment names and the currently selected index
+        exp_name = fcn_d['para']['free_exp_name']['list']
+        i_sel_exp = exp_name.index(fcn_d['para']['free_exp_name']['def_val'])
+
+        # updates the parameter with the new values
+        nw_txt = cfcn.get_matching_fix_free_strings(data, exp_name[i_sel_exp], i_sel_exp)
+        fcn_d['para'][p_name]['list'] = nw_txt
+        fcn_d['para'][p_name]['def_val'] = nw_txt[0]
+
+        # determines if the current parameter is present
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            # resets the current parameter value
+            self.curr_para[p_name] = nw_txt[0]
+
+            # removes the existing items
+            for i in range(h_list[0].count()):
+                h_list[0].removeItem(0)
+
+            # adds the new range
+            for txt in nw_txt:
+                h_list[0].addItem(txt)
+
+            # updates the selected index
+            h_list[0].setCurrentIndex(0)
+
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
     #######################################
@@ -13658,6 +13942,25 @@ class AnalysisFunctions(object):
                 # case is there are no comparison datasets
                 return ['No Fixed/Free Comparisons Set!']
 
+    def get_ff_cluster_details(self, i_file=0):
+        '''
+
+        :return:
+        '''
+
+        # overall declarations
+        data = self.get_data_fcn()
+
+        if hasattr(data.externd, 'free_data'):
+            free_exp = data.externd.free_data.exp_name
+            ff_cluster = cfcn.get_matching_fix_free_strings(data, [free_exp[i_file]], i_file)
+        else:
+            free_exp = ['No Fixed/Free Data Loaded!']
+            ff_cluster = ['No Fixed/Free Data Loaded!']
+
+        # returns the data arrays
+        return free_exp, ff_cluster
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -13830,6 +14133,25 @@ class ComparisonDataObj(object):
         self.total_metrics = -np.ones((n_fix,3), dtype=float)
         self.total_metrics_mean = -np.ones(n_fix, dtype=float)
 
+
+class FixedFreeCorr(object):
+    def __init__(self):
+
+        # parameters
+        self.is_set = False
+        self.vel_bin = -1
+        self.n_shuffle_corr = -1
+        self.force_update = False
+
+        # other arrays
+        self.sf_fix = None
+        self.sf_free = None
+        self.sf_corr = None
+        self.sf_corr_sh = None
+        self.sf_corr_sig = None
+        self.sf_grad = None
+        self.clust_id = None
+
 class ComparisonData(object):
     def __init__(self):
 
@@ -13846,6 +14168,9 @@ class ComparisonData(object):
         self.is_set = False
         self.data = []
         self.last_comp = -1
+
+        # initialises the fixed/free correlation object
+        self.ff_corr = FixedFreeCorr()
 
     def set_comparison_data(self, ind, n_fix, n_free, n_pts, fix_name, free_name):
         '''

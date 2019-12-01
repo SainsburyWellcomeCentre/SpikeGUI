@@ -13,6 +13,7 @@ import quantities as pq
 from fastdtw import fastdtw
 from numpy.matlib import repmat
 import shapely.geometry as geom
+from fuzzywuzzy import fuzz, process
 
 # scipy module imports
 from scipy import stats
@@ -30,6 +31,9 @@ from rpy2.robjects.methods import RS4
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 pandas2ri.activate()
+
+# sci-kit learn module import
+from sklearn.linear_model import LinearRegression
 
 # try:
 #     r_art = importr("ARTool")
@@ -2039,6 +2043,100 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
         r_data.vel_sf_sig[tt] = vel_sf_sig
 
 
+def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
+    '''
+
+    :param f_corr:
+    :param i_file:
+    :param calc_para:
+    :param i_prog:
+    :param w_prog:
+    :return:
+    '''
+
+    def calc_linregress_para(sf_fix, sf_free):
+        '''
+
+        :param sf_fix:
+        :param sf_free:
+        :return:
+        '''
+
+        sf_fix_fit, sf_free_fit = sf_fix.reshape(-1, 1), sf_free.reshape(-1, 1)
+        model = LinearRegression(fit_intercept=False).fit(sf_fix_fit, sf_free_fit)
+
+        return model.coef_[0][0]
+
+    def calc_cell_shuffled_corr(sf_fix, sf_free, n_sh):
+        '''
+
+        :param sf_fix:
+        :param sf_free:
+        :param n_shuff:
+        :return:
+        '''
+
+        # memory allocation
+        n_bin = len(sf_fix)
+        sf_corr = np.zeros(n_sh)
+
+        # calculate the correlation coefficients for each shuffled value
+        for i_sh in range(n_sh):
+            ind_sh = np.random.permutation(n_bin)
+            sf_corr[i_sh] = np.corrcoef(sf_fix, sf_free[ind_sh])[0, 1]
+
+        # returns the correlation array
+        return sf_corr
+
+    # parameters
+    p_value = 95.
+
+    # initialisations
+    n_shuff, n_cond = calc_para['n_shuffle'], np.size(f_corr.sf_fix, axis=1)
+    sf_fix, sf_free, sf_grad = f_corr.sf_fix[i_file, :], f_corr.sf_free[i_file, :], f_corr.sf_grad[i_file, :]
+    sf_corr, sf_corr_sh, is_sig = f_corr.sf_corr[i_file, :], f_corr.sf_corr_sh[i_file, :], f_corr.sf_corr_sig[i_file, :]
+
+    # memory allocation
+    n_cell, n_bin = np.shape(sf_fix[0])
+    ind_bin = [np.arange(n_bin/2).astype(int), np.arange(n_bin/2, n_bin).astype(int)]
+
+    for i_cond in range(n_cond):
+        sf_grad[i_cond] = np.zeros((n_cell, len(ind_bin)))
+        sf_corr[i_cond] = np.zeros((n_cell, len(ind_bin)))
+        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff, len(ind_bin)))
+        is_sig[i_cond] = np.zeros((n_cell, len(ind_bin)), dtype=bool)
+
+    #
+    for i_cell in range(n_cell):
+        # updates the progressbar
+        i_cell_tot = (i_cell + 1) + i_prog[0]
+        w_str = 'Correlation Calculations (Cell #{0}/{1})'.format(i_cell_tot, i_prog[1])
+        w_prog.emit(w_str, 100. * (i_cell_tot / i_prog[1]))
+
+        # if there is no spiking frequency data then continue
+        if np.isnan(sf_free[0][i_cell, 0]):
+            continue
+
+        # calculates the correlation/shuffled correlations over all conditions/velocity polarities
+        for i_cond in range(n_cond):
+            for i_bin in range(len(ind_bin)):
+                # retrieves the free/fixed spiking frequencies for the velocity range
+                sf_fix_nw = sf_fix[i_cond][i_cell, ind_bin[i_bin]]
+                sf_free_nw = sf_free[i_cond][i_cell, ind_bin[i_bin]]
+
+                # sets the linear regression values
+                sf_grad[i_cond][i_cell, i_bin] = calc_linregress_para(sf_fix_nw, sf_free_nw)
+
+                # calculates the cell spiking frequency correlations
+                sf_corr[i_cond][i_cell, i_bin] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
+
+                # calculates the cell's shuffled spiking frequency correlations and statistical signficance
+                sf_corr_sh[i_cond][i_cell, :, i_bin] = \
+                                                calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
+                is_sig[i_cond][i_cell, i_bin] = sf_corr[i_cond][i_cell, i_bin] > \
+                                                np.percentile(sf_corr_sh[i_cond][i_cell, :, i_bin], p_value)
+
+
 def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
                            is_pooled=False, use_spd=True, r_data=None):
     '''
@@ -3834,3 +3932,91 @@ def check_existing_compare(comp_data, fix_name, free_name):
 
     # if no match, then return a zero value
     return 0, 0
+
+
+def det_matching_fix_free_cells(data, exp_name=None):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    if exp_name is None:
+        exp_name = data.externd.free_data.exp_name
+    elif not isinstance(exp_name, list):
+        exp_name = list(exp_name)
+
+    # initialisations
+    free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
+
+    # retrieves the cluster indices
+    r_filt = cf.init_rotation_filter_data(False)
+    r_filt['t_type'] += ['Uniform']
+    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+    cl_ind = r_obj.clust_ind[0]
+
+    # memory allocation
+    n_file = len(exp_name)
+    is_ok = np.ones(n_file, dtype=bool)
+    i_expt = np.ones(n_file, dtype=int)
+    f2f_map = np.empty(n_file, dtype=object)
+
+    #
+    for i_file, exp_name in enumerate(exp_name):
+        #
+        i_expt_nw = cf.det_likely_filename_match(free_file, exp_name)
+        if i_expt_nw is None:
+            is_ok[i_file] = False
+            continue
+
+        # sets the comparison data index for the current file
+        i_expt[i_file] = i_expt_nw
+
+        # retrieves the fixed/free datasets
+        c_data = data.comp.data[i_expt[i_file]]
+        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
+
+        # sets the match array (removes non-inclusion cells and non-accepted matched cells)
+        cl_ind_nw = cl_ind[i_expt_nw]
+        i_match = c_data.i_match[cl_ind_nw]
+        i_match[~c_data.is_accept[cl_ind_nw]] = -1
+
+        # determines the overlapping cell indices between the free dataset and those from the cdata file
+        _, i_cell_free_f, i_cell_free = \
+                np.intersect1d(free_data.cell_id[i_file], data_free['clustID'], assume_unique=True, return_indices=True)
+
+        # determines the fixed-to-free mapping index arrays
+        _, i_cell_fix, i_free_match = np.intersect1d(i_match, i_cell_free, return_indices=True)
+        f2f_map[i_file] = -np.ones((len(cl_ind_nw),2), dtype=int)
+        f2f_map[i_file][i_cell_fix, 0] = i_cell_free[i_free_match]
+        f2f_map[i_file][i_cell_fix, 1] = i_cell_free_f[i_free_match]
+
+    # returns the experiment index/fixed-to-free mapping indices
+    return i_expt, f2f_map
+
+
+def get_matching_fix_free_strings(data, exp_name, i_expt_sel):
+    '''
+
+    :param data:
+    :param exp_name:
+    :param i_sel:
+    :return:
+    '''
+
+    # retrieves the experiment index and mapping values
+    i_expt, f2f_map = det_matching_fix_free_cells(data, exp_name=[exp_name])
+    is_ok = f2f_map[i_expt_sel][:, 1] > 0
+    clust_id = np.array(data._cluster[i_expt_sel]['clustID'])
+
+    # retrieves the fixed cluster ID#'s
+    r_filt = cf.init_rotation_filter_data(False)
+    r_filt['t_type'] += ['Uniform']
+    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+    clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[i_expt_sel]][is_ok]]
+
+    # retrieves the free cluster ID#'s
+    clust_id_free = np.array(data.externd.free_data.cell_id[i_expt_sel])[f2f_map[i_expt_sel][is_ok, 1]]
+
+    # returns the combined fixed/free cluster ID strings
+    return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]

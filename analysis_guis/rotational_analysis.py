@@ -852,7 +852,15 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         elif ccf == 'match_type':
                             # case is the match type (either Matched or Unmatched)
                             is_cl = True
-                            cv = ['Matched Clusters' if x else 'Unmatched Clusters' for x in data.comp.is_accept]
+                            fix_name = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                            i_comp = cf.det_comp_dataset_index(data.comp.data, fix_name)
+
+                            if i_comp is None:
+                                cv = ['Not Applicable'] * len(ind_cl)
+                                ind_cl[:] = False
+                            else:
+                                c_data = data.comp.data[i_comp]
+                                cv = ['Matched Clusters' if x else 'Unmatched Clusters' for x in c_data.is_accept]
 
                         elif ccf == 'region_name':
                             # case is the region name
@@ -1205,7 +1213,6 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
         # determines the experiments which contain the trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
         is_md_expt = tt == 'MotorDrifting'
-        valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
 
         # calculates the position/velocity for each cell
         for i_cell in range(n_cell):

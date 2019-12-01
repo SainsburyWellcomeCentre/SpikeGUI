@@ -160,10 +160,13 @@ class WorkerThread(QThread):
                     return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel', 'free_corr'], other_para=False)
+                self.check_altered_para(data, calc_para, g_para, ['vel', 'ff_corr'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
+
+                # calculates the fixed/free correlation
+                self.calc_fix_free_correlation(data, calc_para, w_prog)
 
             elif self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
@@ -953,7 +956,11 @@ class WorkerThread(QThread):
         self.work_progress.emit('Saving Data To File...', 50.0)
 
         # sets the output file name
-        out_file = os.path.join(out_info['inputDir'], '{0}.mdata'.format(out_info['dataName']))
+        f_extn = 'mdata' if len(data.comp.data) == 0 else 'mcomp'
+        out_file = os.path.join(out_info['inputDir'], '{0}.{1}'.format(out_info['dataName'], f_extn))
+
+        # deletes the cluster field
+        data.cluster = None
 
         # outputs the data to file
         with open(out_file, 'wb') as fw:
@@ -973,22 +980,26 @@ class WorkerThread(QThread):
 
         # memory allocation
         n_file = len(out_info['exptName'])
-        data_out = np.empty(n_file, dtype=object)
 
         # sets the output file name
         out_file = os.path.join(out_info['inputDir'], '{0}.mcomp'.format(out_info['dataName']))
+
+        # output data file
+        data_out = {
+            'data': np.empty((n_file, 2), dtype=object),
+            'c_data': np.empty(n_file, dtype=object),
+            'ff_corr': data.comp.ff_corr if hasattr(data.comp, 'ff_corr') else None
+        }
 
         for i_file in range(n_file):
             # retrieves the index of the data field corresponding to the current experiment
             fix_file = out_info['exptName'][i_file].split('/')[0]
             i_comp = cf.det_comp_dataset_index(data.comp.data, fix_file)
-            c_data_nw = data.comp.data[i_comp]
 
             # creates the multi-experiment data file based on the type
-            data_out[i_file] = {'data': None, 'c_data': c_data_nw}
-            data_out[i_file]['data'] = [[] for _ in range(2)]
-            data_out[i_file]['data'][0], data_out[i_file]['data'][1] = \
-                                                            cf.get_comp_datasets(data, c_data=c_data_nw, is_full=True)
+            data_out['c_data'][i_file] = data.comp.data[i_comp]
+            data_out['data'][i_file, 0], data_out['data'][i_file, 1] = \
+                                        cf.get_comp_datasets(data, c_data=data_out['c_data'][i_file], is_full=True)
 
         # outputs the data to file
         with open(out_file, 'wb') as fw:
@@ -1568,6 +1579,79 @@ class WorkerThread(QThread):
 
         # FINISH ME!
         pass
+
+    ##########################################
+    ####    CLUSTER MATCHING FUNCTIONS    ####
+    ##########################################
+
+    def calc_fix_free_correlation(self, data, calc_para, w_prog):
+        '''
+
+        :param data:
+        :param plot_para:
+        :param calc_para:
+        :param w_prog:
+        :return:
+        '''
+
+        # if a calculation is not required, then exit the function
+        if data.comp.ff_corr.is_set:
+            return
+
+        # initialisations
+        i_bin = ['5', '10'].index(calc_para['vel_bin'])
+        tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
+        f_data, r_data, ff_corr = data.externd.free_data, data.rotation, data.comp.ff_corr
+        n_bin = 2 * int(f_data.v_max / float(calc_para['vel_bin']))
+
+        # determines matching experiment index and fix-to-free cell index arrays
+        i_expt, f2f_map = cfcn.det_matching_fix_free_cells(data)
+
+        # determines the global indices for each file
+        nC = [len(x) for x in r_data.r_obj_kine.clust_ind[0]]
+        ind_g = [np.arange(i0, i0 + n) for i0, n in zip(np.cumsum([0] + nC)[:-1], nC)]
+
+        # memory allocation
+        n_file, t_type = len(i_expt), f_data.t_type
+        nan_bin = np.nan * np.ones(n_bin)
+        ff_corr.sf_fix = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.sf_free = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.sf_corr = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.sf_corr_sh = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.sf_corr_sig = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.sf_grad = np.empty((n_file, len(t_type)), dtype=object)
+        ff_corr.clust_id = np.empty(n_file, dtype=object)
+
+        # loops through each external data file retrieving the spike frequency data and calculating correlations
+        n_cell_tot, i_cell_tot = np.sum(np.array(nC)[i_expt]), 0
+        for i_file in range(n_file):
+            # initialisations for the current external data file
+            ind_nw = ind_g[i_expt[i_file]]
+            i_f2f = f2f_map[i_file][:, 1]
+            s_freq = f_data.s_freq[i_file][i_bin, :]
+
+            # retrieves the spiking frequency data between the matched fixed/free cells for the current experiment
+            for i_tt, tt in enumerate(t_type):
+                # sets the fixed/free spiking frequency values
+                ff_corr.sf_fix[i_file, i_tt] = np.nanmean(r_data.vel_sf[tt_key[tt]][:, :, ind_nw], axis=0).T
+                ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])
+
+            # sets the cluster ID values
+            is_ok = i_f2f > 0
+            fix_clust_id = np.array(data._cluster[i_expt[i_file]]['clustID'])[is_ok]
+            free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
+            ff_corr.clust_id[i_file] = np.vstack((fix_clust_id, free_clust_id)).T
+
+            # removes any spiking frequency data for where there is no matching data
+            cfcn.calc_shuffled_sf_corr(ff_corr, i_file, calc_para, [i_cell_tot, n_cell_tot], w_prog)
+
+            # increments the progressbar counter
+            i_cell_tot += len(ind_nw)
+
+        # sets the parameter values
+        ff_corr.vel_bin = int(calc_para['vel_bin'])
+        ff_corr.n_shuffle_corr = calc_para['n_shuffle']
+        ff_corr.is_set = True
 
     #########################################
     ####    ROTATION LDA CALCULATIONS    ####
@@ -3550,7 +3634,7 @@ class WorkerThread(QThread):
                 return def_val
 
         # initialisations
-        r_data = data.rotation
+        r_data, ff_corr = data.rotation, data.comp.ff_corr
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # loops through each of the check types determining if any parameters changed
@@ -3689,9 +3773,17 @@ class WorkerThread(QThread):
                     r_data.vel_sf_corr = None
                     r_data.vel_sf, r_data.vel_sf_rs = None, None
 
-            elif ct == 'free_corr':
+            elif ct == 'ff_corr':
+
                 # case is the fixed/freely moving spiking frequency correlation analysis
-                pass
+                is_equal = [
+                    not data.force_calc,
+                    check_class_para_equal(ff_corr, 'vel_bin', float(calc_para['vel_bin'])),
+                    check_class_para_equal(ff_corr, 'n_shuffle_corr', float(calc_para['n_shuffle'])),
+                ]
+
+                # determines if recalculation is required
+                ff_corr.is_set = np.all(is_equal)
 
             elif ct == 'lda':
                 # case is the LDA calculations
