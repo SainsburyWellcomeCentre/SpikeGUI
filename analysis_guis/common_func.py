@@ -2761,3 +2761,13 @@ def use_raw_clust(data):
 
     return (data.cluster is None) or (len(data.cluster) != len(data._cluster))
 
+
+def get_global_expt_index(data, c_data):
+    '''
+
+    :param data:
+    :param c_data:
+    :return:
+    '''
+
+    return [extract_file_name(c['expFile']) for c in data._cluster].index(c_data.fix_name)

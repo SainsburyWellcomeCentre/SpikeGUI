@@ -1638,7 +1638,8 @@ class WorkerThread(QThread):
 
             # sets the cluster ID values
             is_ok = i_f2f > 0
-            fix_clust_id = np.array(data._cluster[i_expt[i_file]]['clustID'])[is_ok]
+            i_expt_fix = cf.get_global_expt_index(data, data.comp.data[i_expt[i_file]])
+            fix_clust_id = np.array(data._cluster[i_expt_fix]['clustID'])[is_ok]
             free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
             ff_corr.clust_id[i_file] = np.vstack((fix_clust_id, free_clust_id)).T
 

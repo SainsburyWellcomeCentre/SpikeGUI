@@ -3076,15 +3076,6 @@ def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
     if f_type == 'vel_roc_sig':
         para_flds = ['n_boot_kine_ci', 'kine_auc_stats_type', 'vel_bin', 'vel_x_rng', 'equal_time', 'n_sample']
 
-    # self.vel_bin_corr = -1
-    # self.n_shuffle_corr = -1
-
-    # self.i_bin_vel = -1
-    # self.is_equal_time = False
-    # self.n_rs = -1
-    # self.kine_auc_stats_type = None
-
-
     #
     for pf in para_flds:
         # sets the new parameter field name (could be altered below...)
@@ -3969,11 +3960,9 @@ def det_matching_fix_free_cells(data, exp_name=None):
             is_ok[i_file] = False
             continue
 
-        # sets the comparison data index for the current file
-        i_expt[i_file] = i_expt_nw
-
         # retrieves the fixed/free datasets
-        c_data = data.comp.data[i_expt[i_file]]
+        i_expt[i_file] = i_expt_nw
+        c_data = data.comp.data[i_expt_nw]
         data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
 
         # sets the match array (removes non-inclusion cells and non-accepted matched cells)
@@ -4007,7 +3996,10 @@ def get_matching_fix_free_strings(data, exp_name, i_expt_sel):
     # retrieves the experiment index and mapping values
     i_expt, f2f_map = det_matching_fix_free_cells(data, exp_name=[exp_name])
     is_ok = f2f_map[i_expt_sel][:, 1] > 0
-    clust_id = np.array(data._cluster[i_expt_sel]['clustID'])
+
+    # retrieves the cluster indices
+    i_ex = cf.get_global_expt_index(data, data.comp.data[i_expt[i_expt_sel]])
+    clust_id = np.array(data._cluster[i_ex]['clustID'])
 
     # retrieves the fixed cluster ID#'s
     r_filt = cf.init_rotation_filter_data(False)
