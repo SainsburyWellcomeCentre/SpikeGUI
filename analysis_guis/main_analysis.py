@@ -68,7 +68,7 @@ from sklearn.mixture import BayesianGaussianMixture as GMM
 # pyqt5 module imports
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QRect, Qt
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QGroupBox, QLineEdit, QComboBox,
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QGroupBox, QLineEdit, QComboBox, QPushButton,
                              QCheckBox, QDialog,  QFormLayout, QMessageBox)
 
 # custom module import
@@ -1742,7 +1742,10 @@ class AnalysisGUI(QMainWindow):
 
         # sets the parameters based on selection type
         if len(sel_item):
-            self.fcn_data.create_para_objects(sel_item[0].text())
+            try:
+                self.fcn_data.create_para_objects(sel_item[0].text())
+            except:
+                a = 1
 
     def cancel_progress(self):
         '''
@@ -2509,20 +2512,25 @@ class AnalysisGUI(QMainWindow):
                 ax.set_ylim(y_lim)
 
     def plot_fix_free_corr(self, rot_filt, ff_cluster, free_exp_name, show_trend, bin_sz, plot_type,
-                                 vel_dir, plot_grid, plot_scope):
+                                 plot_grid, plot_scope):
         '''
 
         :param rot_filt:
-        :param i_cluster:
-        :param plot_exp_name:
-        :param vel_dir:
+        :param ff_cluster:
+        :param free_exp_name:
+        :param show_trend:
+        :param bin_sz:
+        :param plot_type:
         :param plot_grid:
         :param plot_scope:
         :return:
         '''
 
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
         # initialisations
-        is_pos_v = int(vel_dir == 'Positive')
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
         tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
@@ -2554,13 +2562,12 @@ class AnalysisGUI(QMainWindow):
                                                     ff_corr.clust_id[i_expt][:, 1] == clust_id[1]))[0][0]]
 
             # retrieves the fixed/free spiking frequencies (across all the group types)
-            i_bin = np.arange(n_bin_h, 2 * n_bin_h) if is_pos_v else np.arange(n_bin_h)
-            sf_fix = [x[i_clust, i_bin] for x in ff_corr.sf_fix[i_expt, :]]
-            sf_free = [x[i_clust, i_bin] for x in ff_corr.sf_free[i_expt, :]]
-            sf_corr = [sf_c[i_clust, is_pos_v] for sf_c in ff_corr.sf_corr[i_expt]]
-            sf_grad = [sf_g[i_clust, is_pos_v] for sf_g in ff_corr.sf_grad[i_expt]]
-            sf_corr_sh = [sf_sh[i_clust, :, is_pos_v] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
-            sf_sig = [sf_s[i_clust, is_pos_v] for sf_s in ff_corr.sf_corr_sig[i_expt]]
+            sf_fix = [x[i_clust] for x in ff_corr.sf_fix[i_expt, :]]
+            sf_free = [x[i_clust] for x in ff_corr.sf_free[i_expt, :]]
+            sf_corr = [sf_c[i_clust] for sf_c in ff_corr.sf_corr[i_expt]]
+            sf_grad = [sf_g[i_clust] for sf_g in ff_corr.sf_grad[i_expt]]
+            sf_corr_sh = [sf_sh[i_clust, :] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
+            sf_sig = [sf_s[i_clust] for sf_s in ff_corr.sf_corr_sig[i_expt]]
 
             # initialises the plot axes
             self.init_plot_axes(n_row=n_tt, n_col=2)
@@ -2622,6 +2629,13 @@ class AnalysisGUI(QMainWindow):
             is_norm = False
 
             #
+            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+
+            # retrieves the common filtered indices
+            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+
+            #
             is_ok = [x[:, 0] >= 0 for x in f2f_map]
             tt_plot = ['DARK1', 'LIGHT1']
             col = cf.get_plot_col(len(tt_plot))
@@ -2633,9 +2647,9 @@ class AnalysisGUI(QMainWindow):
 
             #
             sf_corr = np.hstack(
-                [np.vstack([sf[ok, is_pos_v] for sf in sf_c]) for sf_c, ok in zip(ff_corr.sf_corr, is_ok)]).T
+                [np.vstack([sf[ok] for sf in sf_c]) for sf_c, ok in zip(ff_corr.sf_corr, is_ok)]).T
             sf_sig = np.hstack(
-                [np.vstack([sf[ok, is_pos_v] for sf in sf_s]) for sf_s, ok in zip(ff_corr.sf_corr_sig, is_ok)]).T
+                [np.vstack([sf[ok] for sf in sf_s]) for sf_s, ok in zip(ff_corr.sf_corr_sig, is_ok)]).T
 
             # initialises the plot axes
             self.init_plot_axes(n_row=2, n_col=1)
@@ -2645,7 +2659,7 @@ class AnalysisGUI(QMainWindow):
             for i_tt, tt in enumerate(tt_plot):
                 # sets the index of the column to be analysed
                 i_col = np.where(f_data.t_type == tt)[0]
-                t_str = '{0} ({1}) - {2} Velocities'.format(tt_key[tt], tt, 'Positive' if is_pos_v else 'Negative')
+                t_str = '{0} ({1})'.format(tt_key[tt], tt)
 
                 # calculates the histogram of the significant cells
                 sf_corr_hist = np.histogram(sf_corr[:, i_col], bins=xi_cdf, normed=False)[0]
@@ -3953,15 +3967,15 @@ class AnalysisGUI(QMainWindow):
             self.calc_ok = False
             return
 
-        # sets the cdf xi-values
-        xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
-        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-
         # creates the figure based on the scope type
         if plot_type == 'Individual Cell':
             ########################################
             ####    INDIVIDUAL CELL ANALYSIS    ####
             ########################################
+
+            # sets the cdf xi-values
+            xi_cdf = np.linspace(-1, 1, 2001)
+            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
 
             # retrieves the base
             rot_filt_base = cf.init_rotation_filter_data(False)
@@ -3984,6 +3998,7 @@ class AnalysisGUI(QMainWindow):
             col = cf.get_plot_col(len(t_type))
 
             #
+            p_value = 2.5
             xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
             i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
 
@@ -4028,7 +4043,7 @@ class AnalysisGUI(QMainWindow):
                     sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
 
                     # creates
-                    i_cdf_bin = np.where(x_cdf > vel_sf_corr_mn)[0][0]
+                    i_cdf_bin = max(0, np.where(x_cdf > vel_sf_corr_mn)[0][0] - 1)
                     ax[i_grp + 2].plot(x_cdf, sf_corr_cdf, col[i_tt], linewidth=2)
                     ax[i_grp + 2].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], '--', c=col[i_tt])
                     h_plt2.append(ax[i_grp + 2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
@@ -4037,7 +4052,8 @@ class AnalysisGUI(QMainWindow):
                     # appends the legend string and updates the axis properties (if final condition type)
                     lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
                     if (i_tt + 1) == len(t_type):
-                        ax[i_grp + 2].plot([-1, 1], 95 * np.ones(2), '-', c='r', linewidth=2)
+                        ax[i_grp + 2].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
+                        ax[i_grp + 2].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
                         ax[i_grp + 2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
 
                     # sets the axis limits
@@ -4078,6 +4094,10 @@ class AnalysisGUI(QMainWindow):
             #####################################
             ####    CORRELATION HISTOGRAM    ####
             #####################################
+
+            # sets the cdf xi-values
+            xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
+            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
 
             # initialisations
             is_hist = dist_type == 'Histogram'
@@ -10711,9 +10731,9 @@ class AnalysisFunctions(object):
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ff_plot_type, 'def_val': ff_plot_type[0],
                 'link_para': [['ff_cluster', 'Correlation Distribution'], ['free_exp_name', 'Correlation Distribution'],
-                              ['show_trend', 'Correlation Distribution'], ['bin_sz', 'Individual Cell Correlation']]
+                              ['show_trend', 'Correlation Distribution'], ['bin_sz', 'Individual Cell Correlation'],
+                              ['rot_filt', 'Individual Cell Correlation']]
             },
-            'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -11037,14 +11057,14 @@ class AnalysisFunctions(object):
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
-            'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[0]},
-            'bin_size': {'text': 'Bin Size', 'def_val': 0.05, 'min_val': 0.01, 'max_val': 1.00},
+            'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
+            'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
             'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ksig_type, 'def_val': ksig_type[0],
                 'link_para': [['i_cluster', 'Correlation Distribution'], ['plot_exp_name', 'Correlation Distribution'],
                               ['plot_shuffle', 'Correlation Distribution'], ['dist_type', 'Individual Cell'],
-                              ['vel_dir', 'Individual Cell']]
+                              ['vel_dir', 'Individual Cell'], ['bin_size', 'Individual Cell']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -13282,7 +13302,10 @@ class AnalysisFunctions(object):
                 link_para = [link_para]
 
             for lp in link_para:
-                h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox], lp[0])
+                h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox, QPushButton], lp[0])
+                if len(h_obj) == 0:
+                    continue
+
                 if isinstance(lp[1], list):
                     h_obj[0].setEnabled(p_list[index] not in lp[1])
                 else:
@@ -14070,6 +14093,7 @@ class AnalysisData(object):
         if self.exc_ud_filt is None:
             self.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
+
 class ComparisonDataObj(object):
     def __init__(self):
         # calculation flag
@@ -14152,6 +14176,7 @@ class FixedFreeCorr(object):
         self.sf_grad = None
         self.clust_id = None
 
+
 class ComparisonData(object):
     def __init__(self):
 
@@ -14187,6 +14212,7 @@ class ComparisonData(object):
 
         # appends the data to the data array
         self.data.append(DataNw)
+
 
 class ClassifyData(object):
     def __init__(self):
@@ -14293,6 +14319,7 @@ class ClassifyData(object):
             # sets the acceptance flags for each action type
             self.is_acc[i_ex] = [np.ones(len(x), dtype=bool) if i < 2 else
                                  np.zeros(len(x), dtype=bool) for i, x in enumerate(t_dur[i])]
+
 
 class RotationData(object):
     def __init__(self, type):
@@ -14426,6 +14453,7 @@ class RotationData(object):
             self.plt_rms, self.stats_rms, self.ind_rms, self.r_filt_rms = None, None, None, None
             self.plt_vms, self.stats_vms, self.ind_vms, self.r_filt_vms = None, None, None, None
 
+
 class DiscriminationData(object):
     def __init__(self):
         # initialisation
@@ -14452,6 +14480,7 @@ class DiscriminationData(object):
         self.spdc = SubDiscriminationData('SpdComp')
         self.spdcp = SubDiscriminationData('SpdCompPool')
         self.spddir = SubDiscriminationData('SpdCompDir')
+
 
 class SubDiscriminationData(object):
     def __init__(self, type):
@@ -14540,6 +14569,7 @@ class SubDiscriminationData(object):
                 self.p_acc_hi = None
                 self.nshuffle = -1
 
+
 class MultiFileData(object):
     def __init__(self, is_multi=False):
 
@@ -14560,6 +14590,7 @@ class MultiFileData(object):
         else:
             self.is_multi, self.names, self.files = True, dcopy(dlg_info.exp_name), dcopy(dlg_info.exp_files)
 
+
 class SpikingFreqData(object):
     def __init__(self):
         # initialises the class fields
@@ -14575,11 +14606,13 @@ class SpikingFreqData(object):
 ########################################################################################################################
 ########################################################################################################################
 
+
 class ExternalData(object):
     def __init__(self):
 
         # creates an empty class
         pass
+
 
 class FreelyMovingData(object):
     def __init__(self, f_data):

@@ -1964,7 +1964,7 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
             return v_corr
 
         # parameters
-        p_value = 95
+        p_value = 2.5           # SET THIS TO EITHER 2.5 or 5
 
         # initialisations
         pW0 = i_filt * pW
@@ -2003,7 +2003,8 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
                 v_corr[i_cell, i_grp] = mlt[i_grp] * np.corrcoef(v_sf_mu[i_cell, i_grp], v_bin_grp[i_grp])[0, 1]
 
                 # calculates the cell correlation significance
-                is_sig[i_cell, i_grp] = v_corr[i_cell, i_grp] > np.percentile(v_corr_sh[:, i_cell, i_grp], p_value)
+                p_tile = np.percentile(v_corr_sh[:, i_cell, i_grp], [p_value, (100 - p_value)])
+                is_sig[i_cell, i_grp] = (v_corr[i_cell, i_grp] < p_tile[0]) or (v_corr[i_cell, i_grp] > p_tile[1])
 
         # returns the shuffled spiking frequencies, correlation arrays
         return v_sf_mu, v_sf_sh, v_corr_sh, v_corr, is_sig
@@ -2089,7 +2090,7 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
         return sf_corr
 
     # parameters
-    p_value = 95.
+    p_value = 2.5       # sets this to either 2.5 or 5
 
     # initialisations
     n_shuff, n_cond = calc_para['n_shuffle'], np.size(f_corr.sf_fix, axis=1)
@@ -2101,10 +2102,10 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
     ind_bin = [np.arange(n_bin/2).astype(int), np.arange(n_bin/2, n_bin).astype(int)]
 
     for i_cond in range(n_cond):
-        sf_grad[i_cond] = np.zeros((n_cell, len(ind_bin)))
-        sf_corr[i_cond] = np.zeros((n_cell, len(ind_bin)))
-        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff, len(ind_bin)))
-        is_sig[i_cond] = np.zeros((n_cell, len(ind_bin)), dtype=bool)
+        sf_grad[i_cond] = np.zeros((n_cell))
+        sf_corr[i_cond] = np.zeros((n_cell))
+        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff))
+        is_sig[i_cond] = np.zeros((n_cell), dtype=bool)
 
     #
     for i_cell in range(n_cell):
@@ -2119,22 +2120,20 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
 
         # calculates the correlation/shuffled correlations over all conditions/velocity polarities
         for i_cond in range(n_cond):
-            for i_bin in range(len(ind_bin)):
-                # retrieves the free/fixed spiking frequencies for the velocity range
-                sf_fix_nw = sf_fix[i_cond][i_cell, ind_bin[i_bin]]
-                sf_free_nw = sf_free[i_cond][i_cell, ind_bin[i_bin]]
+            # retrieves the free/fixed spiking frequencies for the velocity range
+            sf_fix_nw = sf_fix[i_cond][i_cell, :]
+            sf_free_nw = sf_free[i_cond][i_cell, :]
 
-                # sets the linear regression values
-                sf_grad[i_cond][i_cell, i_bin] = calc_linregress_para(sf_fix_nw, sf_free_nw)
+            # sets the linear regression values
+            sf_grad[i_cond][i_cell] = calc_linregress_para(sf_fix_nw, sf_free_nw)
 
-                # calculates the cell spiking frequency correlations
-                sf_corr[i_cond][i_cell, i_bin] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
+            # calculates the cell spiking frequency correlations
+            sf_corr[i_cond][i_cell] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
+            sf_corr_sh[i_cond][i_cell, :] = calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
 
-                # calculates the cell's shuffled spiking frequency correlations and statistical signficance
-                sf_corr_sh[i_cond][i_cell, :, i_bin] = \
-                                                calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
-                is_sig[i_cond][i_cell, i_bin] = sf_corr[i_cond][i_cell, i_bin] > \
-                                                np.percentile(sf_corr_sh[i_cond][i_cell, :, i_bin], p_value)
+            # calculates the cell's shuffled spiking frequency correlations and statistical significance
+            p_tile = np.percentile(sf_corr_sh[i_cond][i_cell, :], [p_value, (100 - p_value)])
+            is_sig[i_cond][i_cell] = (sf_corr[i_cond][i_cell] < p_tile[0]) or (sf_corr[i_cond][i_cell] > p_tile[1])
 
 
 def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,

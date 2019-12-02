@@ -959,9 +959,6 @@ class WorkerThread(QThread):
         f_extn = 'mdata' if len(data.comp.data) == 0 else 'mcomp'
         out_file = os.path.join(out_info['inputDir'], '{0}.{1}'.format(out_info['dataName'], f_extn))
 
-        # deletes the cluster field
-        data.cluster = None
-
         # outputs the data to file
         with open(out_file, 'wb') as fw:
             p.dump(data, fw)
