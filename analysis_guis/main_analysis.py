@@ -1742,10 +1742,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the parameters based on selection type
         if len(sel_item):
-            try:
-                self.fcn_data.create_para_objects(sel_item[0].text())
-            except:
-                a = 1
+            self.fcn_data.create_para_objects(sel_item[0].text())
 
     def cancel_progress(self):
         '''
@@ -2526,6 +2523,17 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def det_reverse_indices(i_cell_b, ind_gff):
+            '''
+
+            :param i_cell_b:
+            :param ind_gff:
+            :return:
+            '''
+
+            _, _, ind_rev = np.intersect1d(i_cell_b, ind_gff, return_indices=True)
+            return ind_rev
+
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
@@ -2534,6 +2542,7 @@ class AnalysisGUI(QMainWindow):
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
         tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
+        collapse_arr = lambda y, i_c: np.array(cf.flat_list([x[i_c] for x in y]))
 
         # determines the matching cells
         i_expt_f2f, f2f_map = cfcn.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
@@ -2544,9 +2553,8 @@ class AnalysisGUI(QMainWindow):
             ############################################
 
             # calculates the number of time bins
+            p_value = 2.5
             n_tt = len(f_data.t_type)
-            n_bin_h = int(f_data.v_max / ff_corr.vel_bin)
-            axL = [1e10, -1e10]
 
             # sets the cdf xi-values
             xi_cdf = np.linspace(-1, 1, 201)
@@ -2573,7 +2581,7 @@ class AnalysisGUI(QMainWindow):
             self.init_plot_axes(n_row=n_tt, n_col=2)
             ax = self.plot_fig.ax
 
-            #
+            # creates the subplots for each condition type
             for i_tt in range(n_tt):
                 # sets the left/right axis indices
                 iL, iR = 2 * i_tt, 2 * i_tt + 1
@@ -2608,6 +2616,8 @@ class AnalysisGUI(QMainWindow):
                 ax[iR].plot(x_cdf, sf_corr_cdf, 'k')
                 ax[iR].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], 'r--')
                 ax[iR].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2), 'r--')
+                ax[iR].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
+                ax[iR].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
 
                 # sets the axis properties
                 ax[iR].set_title(t_str)
@@ -2628,76 +2638,80 @@ class AnalysisGUI(QMainWindow):
             # REMOVE ME LATER
             is_norm = False
 
-            #
-            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-
-            # retrieves the common filtered indices
-            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-
-            #
-            is_ok = [x[:, 0] >= 0 for x in f2f_map]
-            tt_plot = ['DARK1', 'LIGHT1']
-            col = cf.get_plot_col(len(tt_plot))
+            # initialisations
+            yLmx = 0
+            is_ok = np.array(cf.flat_list([x[:, 0] >= 0 for x in f2f_map]))
+            tt_key_rev = {'Black': 'DARK1', 'Uniform': 'LIGHT1'}
 
             # sets the cdf xi-values
-            yLmx = 0
             xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
             x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+            b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
 
-            #
-            sf_corr = np.hstack(
-                [np.vstack([sf[ok] for sf in sf_c]) for sf_c, ok in zip(ff_corr.sf_corr, is_ok)]).T
-            sf_sig = np.hstack(
-                [np.vstack([sf[ok] for sf in sf_s]) for sf_s, ok in zip(ff_corr.sf_corr_sig, is_ok)]).T
+            # retrieves the common filtered indices
+            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+            col = cf.get_plot_col(r_obj_wc.n_filt)
+
+            # sets the global-to-local and trial condition indices
+            ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+            ind_gfilt0 = [det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+            ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+            i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+
+            # sets the spiking frequency correlation/significance values
+            sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g] for i_c, i_g in zip(i_cond, ind_gfilt)]
+            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g] for i_c, i_g in zip(i_cond, ind_gfilt)]
 
             # initialises the plot axes
-            self.init_plot_axes(n_row=2, n_col=1)
+            n_col, n_row = cf.det_subplot_dim(r_obj_wc.n_filt)
+            self.init_plot_axes(n_plot=r_obj_wc.n_filt, n_row=n_row, n_col=n_col)
             ax = self.plot_fig.ax
 
-            #
-            for i_tt, tt in enumerate(tt_plot):
+            # creates the histograms for each filter option
+            for i_filt in range(r_obj_wc.n_filt):
                 # sets the index of the column to be analysed
-                i_col = np.where(f_data.t_type == tt)[0]
-                t_str = '{0} ({1})'.format(tt_key[tt], tt)
+                t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
 
-                # calculates the histogram of the significant cells
-                sf_corr_hist = np.histogram(sf_corr[:, i_col], bins=xi_cdf, normed=False)[0]
-                sf_corr_hist_sig = np.histogram(sf_corr[:, i_col][sf_sig[:, i_col]], bins=xi_cdf, normed=False)[0]
+                if len(sf_corr[i_filt]):
+                    # calculates the histogram of the significant cells
+                    sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
+                    sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
 
-                # calculates the proportions
-                if is_norm:
-                    sf_corr_hist_sum = np.sum(sf_corr_hist)
-                    p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
-                    p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
-                else:
-                    p_sig = sf_corr_hist_sig
-                    p_nsig = sf_corr_hist - sf_corr_hist_sig
+                    # calculates the proportions
+                    if is_norm:
+                        sf_corr_hist_sum = np.sum(sf_corr_hist)
+                        p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                        p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+                    else:
+                        p_sig = sf_corr_hist_sig
+                        p_nsig = sf_corr_hist - sf_corr_hist_sig
 
-                # case is the significant values so normalise using the provided value
-                b_wid = 0.8 * (x_cdf[1] - x_cdf[0])
-                ax[i_tt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_tt], color=col[i_tt])
-                ax[i_tt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_tt], color='None')
+                    # case is the significant values so normalise using the provided value
+                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
+                    ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
 
                 # sets the axis properties
-                ax[i_tt].set_title(t_str)
-                ax[i_tt].set_xlim([-1, 1])
-                ax[i_tt].set_ylabel('Percentage' if is_norm else 'Cell Count')
-                ax[i_tt].grid(plot_grid)
+                ax[i_filt].set_title(t_str)
+                ax[i_filt].set_xlim([-1, 1])
+                ax[i_filt].grid(plot_grid)
 
                 # sets the y-axis limits
-                if is_norm:
-                    ax[i_tt].set_ylim([-1, 101])
-                else:
-                    yLmx = max(yLmx, ax[i_tt].get_ylim()[1])
+                yLmx = max(yLmx, ax[i_filt].get_ylim()[1])
 
-            # sets the bottom x-axis label
-            ax[-1].set_xlabel('Correlation')
+            # sets the axis properties
+            for i_ax, _ax in enumerate(ax):
+                # resets the overall y-axis limit
+                _ax.set_ylim([0, yLmx])
 
-            # sets the overall y-axis limit (if not normalising)
-            if not is_norm:
-                for _ax in ax:
-                    _ax.set_ylim([0, yLmx])
+                # sets the x-axis labels (last row only)
+                if (int(np.floor(i_ax / n_col)) + 1) == n_row:
+                    _ax.set_xlabel('Correlation')
+
+                # sets the y-axis labels (first column only)
+                if (i_ax % n_col) == 0:
+                    _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
 
     ######################################################
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
@@ -3973,6 +3987,9 @@ class AnalysisGUI(QMainWindow):
             ####    INDIVIDUAL CELL ANALYSIS    ####
             ########################################
 
+            # parameters
+            p_value = 2.5
+
             # sets the cdf xi-values
             xi_cdf = np.linspace(-1, 1, 2001)
             x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
@@ -3998,7 +4015,6 @@ class AnalysisGUI(QMainWindow):
             col = cf.get_plot_col(len(t_type))
 
             #
-            p_value = 2.5
             xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
             i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
 
@@ -14175,6 +14191,7 @@ class FixedFreeCorr(object):
         self.sf_corr_sig = None
         self.sf_grad = None
         self.clust_id = None
+        self.ind_g = None
 
 
 class ComparisonData(object):

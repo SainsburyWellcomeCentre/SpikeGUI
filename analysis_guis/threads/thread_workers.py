@@ -1618,6 +1618,7 @@ class WorkerThread(QThread):
         ff_corr.sf_corr_sig = np.empty((n_file, len(t_type)), dtype=object)
         ff_corr.sf_grad = np.empty((n_file, len(t_type)), dtype=object)
         ff_corr.clust_id = np.empty(n_file, dtype=object)
+        ff_corr.ind_g = np.empty(n_file, dtype=object)
 
         # loops through each external data file retrieving the spike frequency data and calculating correlations
         n_cell_tot, i_cell_tot = np.sum(np.array(nC)[i_expt]), 0
@@ -1639,6 +1640,7 @@ class WorkerThread(QThread):
             fix_clust_id = np.array(data._cluster[i_expt_fix]['clustID'])[is_ok]
             free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
             ff_corr.clust_id[i_file] = np.vstack((fix_clust_id, free_clust_id)).T
+            ff_corr.ind_g[i_file] = ind_nw
 
             # removes any spiking frequency data for where there is no matching data
             cfcn.calc_shuffled_sf_corr(ff_corr, i_file, calc_para, [i_cell_tot, n_cell_tot], w_prog)
