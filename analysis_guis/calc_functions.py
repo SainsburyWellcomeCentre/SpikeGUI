@@ -2023,7 +2023,6 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
     # sets the calculation parameters
     r_data.vel_sf_nsm = calc_para['n_smooth'] * calc_para['is_smooth']
     r_data.vel_bin_corr = float(calc_para['vel_bin'])
-    r_data.n_shuffle_corr = calc_para['n_shuffle']
     r_data.vel_sf_eqlt = equal_time
 
     # calculates the velocity/speed binned spiking frequencies
@@ -2064,9 +2063,9 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
         '''
 
         sf_fix_fit, sf_free_fit = sf_fix.reshape(-1, 1), sf_free.reshape(-1, 1)
-        model = LinearRegression(fit_intercept=False).fit(sf_fix_fit, sf_free_fit)
+        model = LinearRegression(fit_intercept=True).fit(sf_fix_fit, sf_free_fit)
 
-        return model.coef_[0][0]
+        return np.array([model.coef_[0][0],model.intercept_[0]])
 
     def calc_cell_shuffled_corr(sf_fix, sf_free, n_sh):
         '''
@@ -2091,6 +2090,7 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
 
     # parameters
     p_value = 2.5       # sets this to either 2.5 or 5
+    p_value_rng = [p_value, (100 - p_value)]
 
     # initialisations
     n_shuff, n_cond = calc_para['n_shuffle'], np.size(f_corr.sf_fix, axis=1)
@@ -2099,13 +2099,17 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
 
     # memory allocation
     n_cell, n_bin = np.shape(sf_fix[0])
-    ind_bin = [np.arange(n_bin/2).astype(int), np.arange(n_bin/2, n_bin).astype(int)]
+    if calc_para['split_vel']:
+        ind_grp = [np.arange(n_bin/2).astype(int), np.arange(n_bin/2, n_bin).astype(int)]
+    else:
+        ind_grp = [np.arange(n_bin).astype(int)]
 
+    n_grp = len(ind_grp)
     for i_cond in range(n_cond):
-        sf_grad[i_cond] = np.zeros((n_cell))
-        sf_corr[i_cond] = np.zeros((n_cell))
-        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff))
-        is_sig[i_cond] = np.zeros((n_cell), dtype=bool)
+        sf_grad[i_cond] = np.zeros((n_cell, 2, n_grp))
+        sf_corr[i_cond] = np.zeros((n_cell, n_grp))
+        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff, n_grp))
+        is_sig[i_cond] = np.zeros((n_cell, n_grp), dtype=bool)
 
     #
     for i_cell in range(n_cell):
@@ -2121,19 +2125,24 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
         # calculates the correlation/shuffled correlations over all conditions/velocity polarities
         for i_cond in range(n_cond):
             # retrieves the free/fixed spiking frequencies for the velocity range
-            sf_fix_nw = sf_fix[i_cond][i_cell, :]
-            sf_free_nw = sf_free[i_cond][i_cell, :]
+            sf_fix_cond = sf_fix[i_cond][i_cell, :]
+            sf_free_cond = sf_free[i_cond][i_cell, :]
 
-            # sets the linear regression values
-            sf_grad[i_cond][i_cell] = calc_linregress_para(sf_fix_nw, sf_free_nw)
+            for i_grp in range(n_grp):
+                # sets the values for the current velocity bin grouping
+                sf_fix_nw, sf_free_nw = sf_fix_cond[ind_grp[i_grp]], sf_free_cond[ind_grp[i_grp]]
 
-            # calculates the cell spiking frequency correlations
-            sf_corr[i_cond][i_cell] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
-            sf_corr_sh[i_cond][i_cell, :] = calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
+                # sets the linear regression values
+                sf_grad[i_cond][i_cell, :, i_grp] = calc_linregress_para(sf_fix_nw, sf_free_nw)
 
-            # calculates the cell's shuffled spiking frequency correlations and statistical significance
-            p_tile = np.percentile(sf_corr_sh[i_cond][i_cell, :], [p_value, (100 - p_value)])
-            is_sig[i_cond][i_cell] = (sf_corr[i_cond][i_cell] < p_tile[0]) or (sf_corr[i_cond][i_cell] > p_tile[1])
+                # calculates the cell spiking frequency correlations
+                sf_corr[i_cond][i_cell, i_grp] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
+                sf_corr_sh[i_cond][i_cell, :, i_grp] = calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
+
+                # calculates the cell's shuffled spiking frequency correlations and statistical significance
+                p_tile = np.percentile(sf_corr_sh[i_cond][i_cell, :, i_grp], p_value_rng)
+                is_sig[i_cond][i_cell, i_grp] = (sf_corr[i_cond][i_cell, i_grp] < p_tile[0]) or \
+                                                (sf_corr[i_cond][i_cell, i_grp] > p_tile[1])
 
 
 def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
@@ -3031,6 +3040,61 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
     # returns the default parameter object
     return def_para
 
+
+def init_clust_para(c_comp, free_exp):
+    '''
+
+    :param c_comp:
+    :param free_exp:
+    :return:
+    '''
+
+    def set_clust_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    # memory allocation and parameters
+    c_para = {}
+
+    # sets the parameter fields to be retrieved (based on type)
+    para_flds = ['d_max', 'r_max', 'sig_corr_min', 'isi_corr_min', 'sig_diff_max',
+                 'sig_feat_min', 'w_sig_feat', 'w_sig_comp', 'w_isi']
+
+    # sets the comparison data object belonging to the current experiment
+    if 'No Fixed/Free Data Loaded' in free_exp:
+        # case is there is no loaded freely moving data files
+        c_data = object
+    else:
+        # case is there are freely moving data files
+        i_expt = cf.det_likely_filename_match([x.free_name for x in c_comp.data], free_exp)
+        c_data = c_comp.data[i_expt]
+
+    #
+    for pf in para_flds:
+        # sets the new parameter field name (could be altered below...)
+        def_val = float(get_glob_para(pf))
+        if pf in ['d_max']:
+            def_val = int(def_val)
+
+        # sets the roc parameter values into the parameter dictionary
+        if hasattr(c_data, pf):
+            c_para[pf] = set_clust_para(def_val, getattr(c_data, pf))
+        else:
+            c_para[pf] = def_val
+
+    # returns the parameter dictionary
+    return c_para
 
 def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
     '''

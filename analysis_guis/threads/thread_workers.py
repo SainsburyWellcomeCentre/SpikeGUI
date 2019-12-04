@@ -160,7 +160,7 @@ class WorkerThread(QThread):
                     return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel', 'ff_corr'], other_para=False)
+                self.check_altered_para(data, calc_para, g_para, ['ff_corr', 'vel'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
@@ -1299,7 +1299,7 @@ class WorkerThread(QThread):
             # returns the final match array
             return i_match
 
-        def det_cluster_matches_old(c_data, is_feas, d_depth, g_para):
+        def det_cluster_matches_old(c_data, is_feas, d_depth):
             '''
 
             :param data_fix:
@@ -1309,7 +1309,6 @@ class WorkerThread(QThread):
 
             # parameters
             z_max = 1.0
-            c_data.sig_corr_min = float(g_para['sig_corr_min'])
 
             # calculates the inter-signal euclidean distances
             DD = cdist(data_fix['vMu'].T, data_free['vMu'].T)
@@ -1345,7 +1344,7 @@ class WorkerThread(QThread):
                     # ensures the group is rejected
                     c_data.is_accept_old[i] = False
 
-        def det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, g_para, w_prog):
+        def det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, w_prog):
             '''
 
             :param data_fix:
@@ -1355,13 +1354,6 @@ class WorkerThread(QThread):
 
             # parameters
             pW = 100.0 / 7.0
-            c_data.sig_corr_min = float(g_para['sig_corr_min'])
-            c_data.isi_corr_min = float(g_para['isi_corr_min'])
-            c_data.sig_diff_max = float(g_para['sig_diff_max'])
-            c_data.sig_feat_min = float(g_para['sig_feat_min'])
-            c_data.w_sig_feat = float(g_para['w_sig_feat'])
-            c_data.w_sig_comp = float(g_para['w_sig_comp'])
-            c_data.w_isi = float(g_para['w_isi'])
 
             # memory allocation
             signal_metrics = np.zeros((data_fix['nC'], data_free['nC'], 4))
@@ -1475,10 +1467,6 @@ class WorkerThread(QThread):
                     # ensures the group is rejected
                     c_data.is_accept[i] = False
 
-        # parameters
-        c_data.d_max = int(g_para['d_max'])
-        c_data.r_max = float(g_para['r_max'])
-
         # determines the number of spikes
         n_spike_fix = [len(x) / data_fix['tExp'] for x in data_fix['tSpike']]
         n_spike_free = [len(x) / data_free['tExp'] for x in data_free['tSpike']]
@@ -1498,11 +1486,21 @@ class WorkerThread(QThread):
         is_feas = np.logical_and(r_spike < c_data.r_max, d_depth < c_data.d_max)
 
         # determines the cluster matches from the old/new methods
-        det_cluster_matches_old(c_data, is_feas, d_depth, g_para)
-        det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, g_para, w_prog)
+        det_cluster_matches_old(c_data, is_feas, d_depth)
+        det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, w_prog)
 
         # updates the flah indicating the calculation was successful
         c_data.is_set = True
+        c_data.d_max = calc_para['d_max']
+        c_data.r_max = calc_para['r_max']
+        c_data.sig_corr_min = calc_para['sig_corr_min']
+        c_data.isi_corr_min = calc_para['isi_corr_min']
+        c_data.sig_diff_max = calc_para['sig_diff_max']
+        c_data.sig_feat_min = calc_para['sig_feat_min']
+        c_data.w_sig_feat = calc_para['w_sig_feat']
+        c_data.w_sig_comp = calc_para['w_sig_comp']
+        c_data.w_isi = calc_para['w_isi']
+
 
     def calc_ccgram_types(self, calc_para, data):
         '''
@@ -1632,7 +1630,7 @@ class WorkerThread(QThread):
             for i_tt, tt in enumerate(t_type):
                 # sets the fixed/free spiking frequency values
                 ff_corr.sf_fix[i_file, i_tt] = np.nanmean(r_data.vel_sf[tt_key[tt]][:, :, ind_nw], axis=0).T
-                ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])
+                ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])[:, ::-1]
 
             # sets the cluster ID values
             is_ok = i_f2f > 0
@@ -1651,6 +1649,7 @@ class WorkerThread(QThread):
         # sets the parameter values
         ff_corr.vel_bin = int(calc_para['vel_bin'])
         ff_corr.n_shuffle_corr = calc_para['n_shuffle']
+        ff_corr.split_vel = int(calc_para['split_vel'])
         ff_corr.is_set = True
 
     #########################################
@@ -3681,19 +3680,34 @@ class WorkerThread(QThread):
 
                 # determines if the global parameters have changed
                 is_equal = [
-                    check_class_para_equal(c_data, 'd_max', int(g_para['d_max'])),
-                    check_class_para_equal(c_data, 'r_max', float(g_para['r_max'])),
-                    check_class_para_equal(c_data, 'sig_corr_min', float(g_para['sig_corr_min'])),
-                    check_class_para_equal(c_data, 'isi_corr_min', float(g_para['isi_corr_min'])),
-                    check_class_para_equal(c_data, 'sig_diff_max', float(g_para['sig_diff_max'])),
-                    check_class_para_equal(c_data, 'sig_feat_min', float(g_para['sig_feat_min'])),
-                    check_class_para_equal(c_data, 'w_sig_feat', float(g_para['w_sig_feat'])),
-                    check_class_para_equal(c_data, 'w_sig_comp', float(g_para['w_sig_comp'])),
-                    check_class_para_equal(c_data, 'w_isi', float(g_para['w_isi'])),
+                    check_class_para_equal(c_data, 'd_max', calc_para['d_max']),
+                    check_class_para_equal(c_data, 'r_max', calc_para['r_max']),
+                    check_class_para_equal(c_data, 'sig_corr_min', calc_para['sig_corr_min']),
+                    check_class_para_equal(c_data, 'isi_corr_min', calc_para['isi_corr_min']),
+                    check_class_para_equal(c_data, 'sig_diff_max', calc_para['sig_diff_max']),
+                    check_class_para_equal(c_data, 'sig_feat_min', calc_para['sig_feat_min']),
+                    check_class_para_equal(c_data, 'w_sig_feat', calc_para['w_sig_feat']),
+                    check_class_para_equal(c_data, 'w_sig_comp', calc_para['w_sig_comp']),
+                    check_class_para_equal(c_data, 'w_isi', calc_para['w_isi']),
                 ]
 
                 # determines if there was a change in parameters (and hence a recalculation required)
                 c_data.is_set = np.all(is_equal)
+
+            elif ct == 'ff_corr':
+
+                # case is the fixed/freely moving spiking frequency correlation analysis
+                is_equal = [
+                    not data.force_calc,
+                    check_class_para_equal(ff_corr, 'vel_bin', float(calc_para['vel_bin'])),
+                    check_class_para_equal(ff_corr, 'n_shuffle_corr', float(calc_para['n_shuffle'])),
+                    check_class_para_equal(ff_corr, 'split_vel', int(calc_para['split_vel'])),
+                ]
+
+                # determines if recalculation is required
+                ff_corr.is_set = np.all(is_equal)
+                if not ff_corr.is_set:
+                    data.force_calc = True
 
             elif ct == 'phase':
                 # case is the phase ROC calculations
@@ -3745,7 +3759,11 @@ class WorkerThread(QThread):
                             r_data.n_rs, is_change = calc_para['n_sample'], True
 
                 # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
-                if roc_calc:
+                if data.force_calc:
+                    r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
+                    r_data.vel_sf, r_data.spd_sf = None, None
+
+                elif roc_calc:
                     if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
                         r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                         r_data.vel_sf, r_data.spd_sf = None, None
@@ -3772,18 +3790,6 @@ class WorkerThread(QThread):
                 if not np.all(is_equal) or data.force_calc:
                     r_data.vel_sf_corr = None
                     r_data.vel_sf, r_data.vel_sf_rs = None, None
-
-            elif ct == 'ff_corr':
-
-                # case is the fixed/freely moving spiking frequency correlation analysis
-                is_equal = [
-                    not data.force_calc,
-                    check_class_para_equal(ff_corr, 'vel_bin', float(calc_para['vel_bin'])),
-                    check_class_para_equal(ff_corr, 'n_shuffle_corr', float(calc_para['n_shuffle'])),
-                ]
-
-                # determines if recalculation is required
-                ff_corr.is_set = np.all(is_equal)
 
             elif ct == 'lda':
                 # case is the LDA calculations

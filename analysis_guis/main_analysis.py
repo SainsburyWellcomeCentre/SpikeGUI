@@ -680,6 +680,10 @@ class AnalysisGUI(QMainWindow):
                 self.check_data_fields()
                 self.fcn_data.init_all_func()
 
+                # updates the cluster parameters (if loading comparison data file types)
+                if self.file_type in [2, 4]:
+                    self.fcn_data.reset_cluster_para()
+
                 # sets the analysis function groupbox properties
                 self.set_group_enabled_props(self.grp_info, len(self.data._cluster) > 0)
                 self.set_group_enabled_props(self.grp_func, len(self.data._cluster) > 0)
@@ -2509,7 +2513,7 @@ class AnalysisGUI(QMainWindow):
                 ax.set_ylim(y_lim)
 
     def plot_fix_free_corr(self, rot_filt, ff_cluster, free_exp_name, show_trend, bin_sz, plot_type,
-                                 plot_grid, plot_scope):
+                                 vel_dir, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -2543,6 +2547,14 @@ class AnalysisGUI(QMainWindow):
         f_data = self.data.externd.free_data
         tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
         collapse_arr = lambda y, i_c: np.array(cf.flat_list([x[i_c] for x in y]))
+        n_bin_h = int(80 / ff_corr.vel_bin)
+
+        # sets the grouping index
+        if ff_corr.split_vel:
+            i_grp = ['Negative', 'Positive'].index(vel_dir)
+            ind_grp = [np.arange(n_bin_h), np.arange(n_bin_h, 2 * n_bin_h)][i_grp]
+        else:
+            i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
 
         # determines the matching cells
         i_expt_f2f, f2f_map = cfcn.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
@@ -2553,6 +2565,7 @@ class AnalysisGUI(QMainWindow):
             ############################################
 
             # calculates the number of time bins
+            axLmx = [1e10, -1e10]
             p_value = 2.5
             n_tt = len(f_data.t_type)
 
@@ -2570,12 +2583,12 @@ class AnalysisGUI(QMainWindow):
                                                     ff_corr.clust_id[i_expt][:, 1] == clust_id[1]))[0][0]]
 
             # retrieves the fixed/free spiking frequencies (across all the group types)
-            sf_fix = [x[i_clust] for x in ff_corr.sf_fix[i_expt, :]]
-            sf_free = [x[i_clust] for x in ff_corr.sf_free[i_expt, :]]
-            sf_corr = [sf_c[i_clust] for sf_c in ff_corr.sf_corr[i_expt]]
-            sf_grad = [sf_g[i_clust] for sf_g in ff_corr.sf_grad[i_expt]]
-            sf_corr_sh = [sf_sh[i_clust, :] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
-            sf_sig = [sf_s[i_clust] for sf_s in ff_corr.sf_corr_sig[i_expt]]
+            sf_fix = [x[i_clust, ind_grp] for x in ff_corr.sf_fix[i_expt, :]]
+            sf_free = [x[i_clust, ind_grp] for x in ff_corr.sf_free[i_expt, :]]
+            sf_corr = [sf_c[i_clust, i_grp] for sf_c in ff_corr.sf_corr[i_expt]]
+            sf_grad = [sf_g[i_clust, :, i_grp] for sf_g in ff_corr.sf_grad[i_expt]]
+            sf_corr_sh = [sf_sh[i_clust, :, i_grp] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
+            sf_sig = [sf_s[i_clust, i_grp] for sf_s in ff_corr.sf_corr_sig[i_expt]]
 
             # initialises the plot axes
             self.init_plot_axes(n_row=n_tt, n_col=2)
@@ -2586,19 +2599,12 @@ class AnalysisGUI(QMainWindow):
                 # sets the left/right axis indices
                 iL, iR = 2 * i_tt, 2 * i_tt + 1
 
-                # creates the scatterplot
-                ax[iL].plot(sf_fix[i_tt], sf_free[i_tt], 'o')
+                # creates the scatterplot (ensures free spiking frequencies are reversed)
+                ax[iL].plot(sf_fix[i_tt], dcopy(sf_free[i_tt]), 'o')
 
                 # resets the axis limits
-                axLmx = max(ax[iL].get_xlim()[1], ax[iL].get_ylim()[1])
-                cf.set_axis_limits(ax[iL], [0, axLmx], [0, axLmx])
-
-                # adds in the trendline (if required)
-                if show_trend:
-                    if sf_grad[i_tt] < 1:
-                        ax[iL].plot([0, axLmx], [0, sf_grad[i_tt] * axLmx], 'r--', linewidth=2)
-                    else:
-                        ax[iL].plot([0, axLmx / sf_grad[i_tt]], [0, axLmx], 'r--', linewidth=2)
+                axLmx = [min(axLmx[0], min(ax[iL].get_xlim()[0], ax[iL].get_ylim()[0])),
+                         max(axLmx[1], max(ax[iL].get_xlim()[1], ax[iL].get_ylim()[1]))]
 
                 # sets the axis properties
                 tt_nw = f_data.t_type[i_tt]
@@ -2625,6 +2631,17 @@ class AnalysisGUI(QMainWindow):
                 ax[iR].set_ylim([0, 100])
                 ax[iR].set_ylabel('Percentage')
                 ax[iR].grid(plot_grid)
+
+            for i_tt in range(n_tt):
+                _ax = ax[2 * i_tt]
+                cf.set_axis_limits(_ax, axLmx, axLmx)
+
+            # # adds in the trendline (if required)
+            # if show_trend:
+            #     if sf_grad[i_tt] < 1:
+            #         ax[iL].plot([0, axLmx], [0, sf_grad[i_tt] * axLmx], 'r--', linewidth=2)
+            #     else:
+            #         ax[iL].plot([0, axLmx / sf_grad[i_tt]], [0, axLmx], 'r--', linewidth=2)
 
             # sets the axis properties
             ax[-2].set_xlabel('Fixed Spiking Frequency (Hz)')
@@ -2661,8 +2678,8 @@ class AnalysisGUI(QMainWindow):
             i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
 
             # sets the spiking frequency correlation/significance values
-            sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g] for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g] for i_c, i_g in zip(i_cond, ind_gfilt)]
+            sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
 
             # initialises the plot axes
             n_col, n_row = cf.det_subplot_dim(r_obj_wc.n_filt)
@@ -10573,7 +10590,7 @@ class AnalysisFunctions(object):
     def init_all_func(self):
 
         # overall declarations
-        data = self.get_data_fcn()
+        data, get_gp = self.get_data_fcn(), cfcn.get_glob_para
         has_multi_expt = len(data._cluster) > 1
         init_lda_para, init_def_class_para = cfcn.init_lda_para, cfcn.init_def_class_para
 
@@ -10585,11 +10602,13 @@ class AnalysisFunctions(object):
         #########################################
 
         # initialisations
+        is_split = True
         m_type = ['New Method', 'Old Method']
         scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
         vd_type = ['Negative', 'Positive']
         ff_plot_type = ['Individual Cell Correlation', 'Correlation Distribution']
+        vel_dir = ['Negative', 'Positive']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
@@ -10600,12 +10619,42 @@ class AnalysisFunctions(object):
         rot_filt_free['t_type'] = ['Black', 'Uniform']
         free_exp, ff_cluster = self.get_ff_cluster_details()
 
+        # initialises the cluster parameters
+        def_clust_para = cfcn.init_clust_para(data.comp, free_exp[0])
+
         # ====> Signal Comparison (All Clusters)
         para = {
             # calculation parameters
             'calc_comp': {
                 'gtype': 'C', 'type': 'L', 'text': 'Comparison Fixed Expt', 'list': calc_comp, 'def_val': calc_comp[0],
-                'is_enabled': len(calc_comp) > 1
+                'is_enabled': len(calc_comp) > 1, 'para_reset': [[None, self.reset_cluster_para]]
+            },
+            'd_max': {
+                'gtype': 'C', 'text': 'Max Channel Depth Difference', 'def_val': def_clust_para['d_max'], 'is_int': True
+            },
+            'r_max': {
+                'gtype': 'C', 'text': 'Max Relative Spike Frequency Rate', 'def_val': def_clust_para['r_max']
+            },
+            'sig_corr_min': {
+                'gtype': 'C', 'text': 'Signal Correlation Minimum', 'def_val': def_clust_para['sig_corr_min']
+            },
+            'isi_corr_min': {
+                'gtype': 'C', 'text': 'ISI Correlation Minimum', 'def_val': def_clust_para['isi_corr_min']
+            },
+            'sig_diff_max': {
+                'gtype': 'C', 'text': 'Maximum Proportional Signal Diff', 'def_val': def_clust_para['sig_diff_max']
+            },
+            'sig_feat_min': {
+                'gtype': 'C', 'text': 'Signal Feature Difference Minimum', 'def_val': def_clust_para['sig_feat_min']
+            },
+            'w_sig_feat': {
+                'gtype': 'C', 'text': 'Signal Feature Score Weight', 'def_val': def_clust_para['w_sig_feat']
+            },
+            'w_sig_comp': {
+                'gtype': 'C', 'text': 'Signal Comparison Score Weight', 'def_val': def_clust_para['w_sig_comp']
+            },
+            'w_isi': {
+                'gtype': 'C', 'text': 'ISI Score Weight', 'def_val': def_clust_para['w_isi']
             },
 
             # plotting parameters
@@ -10727,6 +10776,12 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
                 'link_para': ['n_sample', False]
             },
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                'para_reset': [[None, self.reset_vel_range]]
+            },
+
+            # invisible calculation parameters
             'freq_type': {
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
                 'def_val': 'All', 'is_visible': False
@@ -10735,7 +10790,7 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_free
+                'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
             },
             'ff_cluster': {'type': 'L', 'text': 'Matched Index', 'def_val': ff_cluster[0], 'list': ff_cluster},
             'free_exp_name': {
@@ -10744,6 +10799,9 @@ class AnalysisFunctions(object):
             },
             'show_trend': {'type': 'B', 'text': 'Show Regression Trendlines', 'def_val': True},
             'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
+            'vel_dir': {
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0], 'is_enable': is_split
+            },
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ff_plot_type, 'def_val': ff_plot_type[0],
                 'link_para': [['ff_cluster', 'Correlation Distribution'], ['free_exp_name', 'Correlation Distribution'],
@@ -13804,6 +13862,49 @@ class AnalysisFunctions(object):
             # updates the selected index
             h_list[0].setCurrentIndex(0)
 
+    def reset_cluster_para(self, p_name=None, exp_name=None):
+        '''
+
+        :param p_name:
+        :param exp_name:
+        :return:
+        '''
+
+        # initialisations
+        data = self.get_data_fcn()
+        h_list0 = self.find_obj_handle([QComboBox], 'calc_comp')
+
+        if len(h_list0) == 0:
+            return
+        else:
+            h_list = h_list0[0]
+
+        # retrieves the list object corresponding to the parameter
+        fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Free Cluster Matching' in d['name'])
+        para_new = cfcn.init_clust_para(data.comp, data.comp.data[h_list.currentIndex()].free_name)
+
+        for pf in para_new:
+            # continue if the calculation combination parameter
+            if pf == 'calc_comp':
+                continue
+
+            # retrieves the parameter object
+            h_obj = self.find_obj_handle([QLineEdit], pf)[0]
+            h_obj.setText(str(para_new[pf]))
+
+    def reset_vel_range(self, p_name, state):
+        '''
+
+        :param p_name:
+        :param state:
+        :return:
+        '''
+
+        # initialisations
+        h_list = self.find_obj_handle([QComboBox], 'vel_dir')
+        if len(h_list):
+            h_list[0].setEnabled(state)
+
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
     #######################################
@@ -14181,6 +14282,7 @@ class FixedFreeCorr(object):
         self.is_set = False
         self.vel_bin = -1
         self.n_shuffle_corr = -1
+        self.split_vel = False
         self.force_update = False
 
         # other arrays
