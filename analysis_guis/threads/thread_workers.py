@@ -143,7 +143,7 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, g_para, ['clust'])
 
                 # case is determining the cluster matches
-                self.det_cluster_matches(data, calc_para, g_para, w_prog)
+                self.det_cluster_matches(data, calc_para, w_prog)
 
             elif self.thread_job_secondary == 'Fixed/Freely Moving Spiking Frequency Correlation':
 
@@ -1245,10 +1245,11 @@ class WorkerThread(QThread):
         self.work_progress.emit('Outputting Data To File...', 99.0)
         cf.save_single_file(out_name, A)
 
-        # with open(out_name, 'wb') as fw:
-        #     p.dump(A, fw)
+    ##########################################
+    ####    CLUSTER MATCHING FUNCTIONS    ####
+    ##########################################
 
-    def det_cluster_matches(self, data, calc_para, g_para, w_prog):
+    def det_cluster_matches(self, data, calc_para, w_prog):
         '''
 
         :param exp_name:
@@ -1263,6 +1264,18 @@ class WorkerThread(QThread):
         # if there is no further calculation necessary, then exit the function
         if c_data.is_set:
             return
+
+        # updates the cluster matching parameters
+        c_data.is_set = True
+        c_data.d_max = calc_para['d_max']
+        c_data.r_max = calc_para['r_max']
+        c_data.sig_corr_min = calc_para['sig_corr_min']
+        c_data.isi_corr_min = calc_para['isi_corr_min']
+        c_data.sig_diff_max = calc_para['sig_diff_max']
+        c_data.sig_feat_min = calc_para['sig_feat_min']
+        c_data.w_sig_feat = calc_para['w_sig_feat']
+        c_data.w_sig_comp = calc_para['w_sig_comp']
+        c_data.w_isi = calc_para['w_isi']
 
         # retrieves the fixed/free cluster dataframes
         data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
@@ -1432,23 +1445,20 @@ class WorkerThread(QThread):
                     # sets the isi metrics
                     c_data.isi_corr[i] = isi_metrics[i, i_match, 0]
                     c_data.isi_intersect[i] = isi_metrics[i, i_match, 1]
-                    # c_data.isi_wasserstein[i] = isi_metrics[i, i_match, 2]
-                    # c_data.isi_bhattacharyya[i] = isi_metrics[i, i_match, 3]
 
                     # sets the total match metrics
                     c_data.signal_feat[i, :] = signal_feat[i, i_match, :]
                     c_data.total_metrics[i, :] = total_metrics[i, i_match, :]
                     c_data.total_metrics_mean[i] = total_metrics_mean[i, i_match]
 
-
                     # sets the acceptance flag. for a cluster to be accepted, the following must be true:
                     #   * the ISI correlation coefficient must be > isi_corr_min
                     #   * the signal correlation coefficient must be > sig_corr_min
                     #   * the inter-signal euclidean distance must be < sig_diff_max
                     c_data.is_accept[i] = (c_data.isi_corr[i] > c_data.isi_corr_min) and \
-                                        (c_data.sig_corr[i] > c_data.sig_corr_min) and \
-                                        (c_data.sig_diff[i] > (1 - c_data.sig_diff_max)) and \
-                                        (np.all(c_data.signal_feat[i, :] > c_data.sig_feat_min))
+                                          (c_data.sig_corr[i] > c_data.sig_corr_min) and \
+                                          (c_data.sig_diff[i] > (1 - c_data.sig_diff_max)) and \
+                                          (np.all(c_data.signal_feat[i, :] > c_data.sig_feat_min))
                 else:
                     # sets NaN values for all the single value metrics
                     c_data.d_depth[i] = np.nan
@@ -1458,8 +1468,6 @@ class WorkerThread(QThread):
                     c_data.sig_intersect[i] = np.nan
                     c_data.isi_corr[i] = np.nan
                     c_data.isi_intersect[i] = np.nan
-                    # c_data.isi_wasserstein[i] = np.nan
-                    # c_data.isi_bhattacharyya[i] = np.nan
                     c_data.signal_feat[i, :] = np.nan
                     c_data.total_metrics[i, :] = np.nan
                     c_data.total_metrics_mean[i] = np.nan
@@ -1483,24 +1491,11 @@ class WorkerThread(QThread):
         # determines the feasible fixed/free cluster groupings such that:
         #  1) the channel depth has to be <= d_max
         #  2) the relative spiking rates between clusters is <= r_max
-        is_feas = np.logical_and(r_spike < c_data.r_max, d_depth < c_data.d_max)
+        is_feas = np.logical_and(r_spike <= c_data.r_max, d_depth <= c_data.d_max)
 
         # determines the cluster matches from the old/new methods
         det_cluster_matches_old(c_data, is_feas, d_depth)
         det_cluster_matches_new(c_data, is_feas, d_depth, r_spike, w_prog)
-
-        # updates the flah indicating the calculation was successful
-        c_data.is_set = True
-        c_data.d_max = calc_para['d_max']
-        c_data.r_max = calc_para['r_max']
-        c_data.sig_corr_min = calc_para['sig_corr_min']
-        c_data.isi_corr_min = calc_para['isi_corr_min']
-        c_data.sig_diff_max = calc_para['sig_diff_max']
-        c_data.sig_feat_min = calc_para['sig_feat_min']
-        c_data.w_sig_feat = calc_para['w_sig_feat']
-        c_data.w_sig_comp = calc_para['w_sig_comp']
-        c_data.w_isi = calc_para['w_isi']
-
 
     def calc_ccgram_types(self, calc_para, data):
         '''
@@ -1618,6 +1613,14 @@ class WorkerThread(QThread):
         ff_corr.clust_id = np.empty(n_file, dtype=object)
         ff_corr.ind_g = np.empty(n_file, dtype=object)
 
+        # sets the velocity spiking rates (depending on calculation type)
+        if r_data.is_equal_time:
+            # case is resampled spiking times
+            vel_sf = dcopy(r_data.vel_sf_rs)
+        else:
+            # case is non-resampled spiking times
+            vel_sf = dcopy(r_data.vel_sf)
+
         # loops through each external data file retrieving the spike frequency data and calculating correlations
         n_cell_tot, i_cell_tot = np.sum(np.array(nC)[i_expt]), 0
         for i_file in range(n_file):
@@ -1629,7 +1632,7 @@ class WorkerThread(QThread):
             # retrieves the spiking frequency data between the matched fixed/free cells for the current experiment
             for i_tt, tt in enumerate(t_type):
                 # sets the fixed/free spiking frequency values
-                ff_corr.sf_fix[i_file, i_tt] = np.nanmean(r_data.vel_sf[tt_key[tt]][:, :, ind_nw], axis=0).T
+                ff_corr.sf_fix[i_file, i_tt] = np.nanmean(vel_sf[tt_key[tt]][:, :, ind_nw], axis=0).T
                 ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])[:, ::-1]
 
             # sets the cluster ID values

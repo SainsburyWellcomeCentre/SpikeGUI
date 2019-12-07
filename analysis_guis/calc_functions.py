@@ -1122,7 +1122,7 @@ def calc_weighted_mean(metrics, W=None):
             metric_weighted_mean[i_row, :, i_met] = W[i_met] * metrics[i_row, :, i_met]
 
     # returns the weighted sum
-    return np.sum(metric_weighted_mean, axis=2)
+    return np.nansum(metric_weighted_mean, axis=2)
 
 
 def det_gmm_cluster_groups(grp_means):
@@ -4035,7 +4035,8 @@ def det_matching_fix_free_cells(data, exp_name=None):
 
         # determines the overlapping cell indices between the free dataset and those from the cdata file
         _, i_cell_free_f, i_cell_free = \
-                np.intersect1d(free_data.cell_id[i_file], data_free['clustID'], assume_unique=True, return_indices=True)
+                np.intersect1d(dcopy(free_data.cell_id[i_expt_nw]), dcopy(data_free['clustID']),
+                               assume_unique=True, return_indices=True)
 
         # determines the fixed-to-free mapping index arrays
         _, i_cell_fix, i_free_match = np.intersect1d(i_match, i_cell_free, return_indices=True)
@@ -4047,7 +4048,7 @@ def det_matching_fix_free_cells(data, exp_name=None):
     return i_expt, f2f_map
 
 
-def get_matching_fix_free_strings(data, exp_name, i_expt_sel):
+def get_matching_fix_free_strings(data, exp_name):
     '''
 
     :param data:
@@ -4058,20 +4059,20 @@ def get_matching_fix_free_strings(data, exp_name, i_expt_sel):
 
     # retrieves the experiment index and mapping values
     i_expt, f2f_map = det_matching_fix_free_cells(data, exp_name=[exp_name])
-    is_ok = f2f_map[i_expt_sel][:, 1] > 0
+    is_ok = f2f_map[0][:, 1] > 0
 
     # retrieves the cluster indices
-    i_ex = cf.get_global_expt_index(data, data.comp.data[i_expt[i_expt_sel]])
+    i_ex = cf.get_global_expt_index(data, data.comp.data[i_expt[0]])
     clust_id = np.array(data._cluster[i_ex]['clustID'])
 
     # retrieves the fixed cluster ID#'s
     r_filt = cf.init_rotation_filter_data(False)
     r_filt['t_type'] += ['Uniform']
     r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
-    clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[i_expt_sel]][is_ok]]
+    clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[0]][is_ok]]
 
     # retrieves the free cluster ID#'s
-    clust_id_free = np.array(data.externd.free_data.cell_id[i_expt_sel])[f2f_map[i_expt_sel][is_ok, 1]]
+    clust_id_free = np.array(data.externd.free_data.cell_id[i_expt[0]])[f2f_map[0][is_ok, 1]]
 
     # returns the combined fixed/free cluster ID strings
     return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]

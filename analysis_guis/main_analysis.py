@@ -69,7 +69,7 @@ from sklearn.mixture import BayesianGaussianMixture as GMM
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QRect, Qt
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QGroupBox, QLineEdit, QComboBox, QPushButton,
-                             QCheckBox, QDialog,  QFormLayout, QMessageBox)
+                             QCheckBox, QDialog,  QFormLayout, QMessageBox, QFileDialog)
 
 # custom module import
 import analysis_guis.common_func as cf
@@ -1524,6 +1524,7 @@ class AnalysisGUI(QMainWindow):
         file_dlg = FileDialogModal(caption='Select General File To Open',
                                    filter=';;'.join(file_types),
                                    directory=cfcn.get_dir_para('inputDir'))
+        file_dlg.setFileMode(QFileDialog.ExistingFiles)
 
         if (file_dlg.exec() == QDialog.Accepted):
             # otherwise, set the output file name
@@ -10630,31 +10631,40 @@ class AnalysisFunctions(object):
                 'is_enabled': len(calc_comp) > 1, 'para_reset': [[None, self.reset_cluster_para]]
             },
             'd_max': {
-                'gtype': 'C', 'text': 'Max Channel Depth Difference', 'def_val': def_clust_para['d_max'], 'is_int': True
+                'gtype': 'C', 'text': 'Max Channel Depth Difference', 'def_val': def_clust_para['d_max'],
+                'is_int': True, 'min_val': 1
             },
             'r_max': {
-                'gtype': 'C', 'text': 'Max Relative Spike Frequency Rate', 'def_val': def_clust_para['r_max']
+                'gtype': 'C', 'text': 'Max Relative Spike Frequency Rate', 'def_val': def_clust_para['r_max'],
+                'min_val': 0.01, 'max_val': 1e4
             },
             'sig_corr_min': {
-                'gtype': 'C', 'text': 'Signal Correlation Minimum', 'def_val': def_clust_para['sig_corr_min']
+                'gtype': 'C', 'text': 'Signal Correlation Minimum', 'def_val': def_clust_para['sig_corr_min'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'isi_corr_min': {
-                'gtype': 'C', 'text': 'ISI Correlation Minimum', 'def_val': def_clust_para['isi_corr_min']
+                'gtype': 'C', 'text': 'ISI Correlation Minimum', 'def_val': def_clust_para['isi_corr_min'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'sig_diff_max': {
-                'gtype': 'C', 'text': 'Maximum Proportional Signal Diff', 'def_val': def_clust_para['sig_diff_max']
+                'gtype': 'C', 'text': 'Maximum Proportional Signal Diff', 'def_val': def_clust_para['sig_diff_max'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'sig_feat_min': {
-                'gtype': 'C', 'text': 'Signal Feature Difference Minimum', 'def_val': def_clust_para['sig_feat_min']
+                'gtype': 'C', 'text': 'Signal Feature Difference Minimum', 'def_val': def_clust_para['sig_feat_min'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'w_sig_feat': {
-                'gtype': 'C', 'text': 'Signal Feature Score Weight', 'def_val': def_clust_para['w_sig_feat']
+                'gtype': 'C', 'text': 'Signal Feature Score Weight', 'def_val': def_clust_para['w_sig_feat'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'w_sig_comp': {
-                'gtype': 'C', 'text': 'Signal Comparison Score Weight', 'def_val': def_clust_para['w_sig_comp']
+                'gtype': 'C', 'text': 'Signal Comparison Score Weight', 'def_val': def_clust_para['w_sig_comp'],
+                'min_val': 0.0, 'max_val': 1.0
             },
             'w_isi': {
-                'gtype': 'C', 'text': 'ISI Score Weight', 'def_val': def_clust_para['w_isi']
+                'gtype': 'C', 'text': 'ISI Score Weight', 'def_val': def_clust_para['w_isi'],
+                'min_val': 0.0, 'max_val': 1.0
             },
 
             # plotting parameters
@@ -10696,7 +10706,7 @@ class AnalysisFunctions(object):
                 'is_enabled': len(plot_comp) > 1
             },
             'all_expt': {
-                'type': 'B', 'text': 'Plot All Experiments', 'def_val': False, 'is_multi': True,
+                'type': 'B', 'text': 'Plot All Experiments', 'def_val': False,
                 'link_para': ['plot_comp', True]
             },
             'is_3d': {'type': 'B', 'text': 'Plot 3D Data', 'def_val': True},
@@ -10835,8 +10845,9 @@ class AnalysisFunctions(object):
         # ====> Cluster Classification
         para = {
             'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
-            'all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
-                         'def_val': True, 'link_para': ['exp_name', True]},
+            'all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['exp_name', True]
+            },
             'c_met1': {'type': 'L', 'text': 'Metric #1', 'def_val': c_metric[0], 'list': c_metric},
             'c_met2': {'type': 'L', 'text': 'Metric #2', 'def_val': c_metric[1], 'list': c_metric},
             'c_met3': {'type': 'L', 'text': 'Metric #3', 'def_val': c_metric[2], 'list': c_metric},
@@ -13827,9 +13838,6 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        if self.is_updating:
-            return
-
         # initialisations
         data = self.get_data_fcn()
 
@@ -13838,19 +13846,25 @@ class AnalysisFunctions(object):
 
         # retrieves the experiment names and the currently selected index
         exp_name = fcn_d['para']['free_exp_name']['list']
-        i_sel_exp = exp_name.index(fcn_d['para']['free_exp_name']['def_val'])
+        h_list_exp = self.find_obj_handle([QComboBox], 'free_exp_name')
+        if len(h_list_exp):
+            i_sel_exp = h_list_exp[0].currentIndex()
+            if i_sel_exp < 0:
+                i_sel_exp = 0
+        else:
+            i_sel_exp = exp_name.index(fcn_d['para']['free_exp_name']['def_val'])
 
         # updates the parameter with the new values
-        nw_txt = cfcn.get_matching_fix_free_strings(data, exp_name[i_sel_exp], i_sel_exp)
+        nw_txt = cfcn.get_matching_fix_free_strings(data, exp_name[i_sel_exp])
         fcn_d['para'][p_name]['list'] = nw_txt
         fcn_d['para'][p_name]['def_val'] = nw_txt[0]
 
-        # determines if the current parameter is present
+        # resets the current parameter value
+        self.curr_para[p_name] = nw_txt[0]
+
+        # updates the experiment list items (if currently visible)
         h_list = self.find_obj_handle([QComboBox], p_name)
         if len(h_list):
-            # resets the current parameter value
-            self.curr_para[p_name] = nw_txt[0]
-
             # removes the existing items
             for i in range(h_list[0].count()):
                 h_list[0].removeItem(0)
@@ -14093,7 +14107,7 @@ class AnalysisFunctions(object):
 
         if hasattr(data.externd, 'free_data'):
             free_exp = data.externd.free_data.exp_name
-            ff_cluster = cfcn.get_matching_fix_free_strings(data, [free_exp[i_file]], i_file)
+            ff_cluster = cfcn.get_matching_fix_free_strings(data, [free_exp[i_file]])
         else:
             free_exp = ['No Fixed/Free Data Loaded!']
             ff_cluster = ['No Fixed/Free Data Loaded!']
