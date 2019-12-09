@@ -1896,6 +1896,30 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def setup_plot_axes(plot_fig, n_plot, n_c, n_r):
+            '''
+
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            top, bottom, pH, wspace, hspace = 0.91, 0.06, 0.01, 0.25, 0.35
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_plot, dtype=object)
+            for i_plot in range(n_r * n_c):
+                i_r, i_c = int(i_plot / n_c), i_plot % n_c
+                if i_plot >= n_plot:
+                    ax = plot_fig.figure.add_subplot(gs[i_r, i_c])
+                    ax.axis('off')
+                else:
+                    plot_fig.ax[i_plot] = plot_fig.figure.add_subplot(gs[i_r, i_c])
+
         # retrieves the
         i_comp = self.data.comp.last_comp
         c_data = dcopy(self.data.comp.data[i_comp])
@@ -1939,9 +1963,12 @@ class AnalysisGUI(QMainWindow):
 
         # sets up the figure/axis
         n_plot, col = len(i_cluster), 'kg'
-        self.init_plot_axes(n_plot=n_plot)
+        n_c, n_r = cf.det_subplot_dim(n_plot)
+        setup_plot_axes(self.plot_fig, n_plot, n_c, n_r)
+        ax = self.plot_fig.ax
 
         # plots the values over all subplots
+        n_ct = n_plot % n_c
         for i_plot in range(n_plot):
             # sets the actual fixed/free plot indices
             j_plot = i_cluster[i_plot] - 1
@@ -1949,10 +1976,10 @@ class AnalysisGUI(QMainWindow):
             id_fix = data_fix['clustID'][j_plot]
 
             # plots the fixed signal
-            self.plot_fig.ax[i_plot].plot(T, data_fix['vMu'][:, j_plot], linewidth=3.0)
+            ax[i_plot].plot(T, data_fix['vMu'][:, j_plot], linewidth=3.0)
             if i_match_new >= 0:
                 # if there was a match, then plot the mean matches
-                self.plot_fig.ax[i_plot].plot(T, data_free['vMu'][:, i_match_new], 'r--', linewidth=2.0)
+                ax[i_plot].plot(T, data_free['vMu'][:, i_match_new], 'r', linewidth=2.0)
 
                 # set the title match/colour
                 t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, data_free['clustID'][i_match_new])
@@ -1962,15 +1989,27 @@ class AnalysisGUI(QMainWindow):
                 t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
 
             # sets the plot values
-            self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
-            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
-            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i_plot].set_ylabel('Voltage ({0}V)'.format(cf._mu))
-            self.plot_fig.ax[i_plot].grid(plot_grid)
+            ax[i_plot].set_xlim(T[0], T[-1])
+            ax[i_plot].set_title(t_str, color=t_col)
+            ax[i_plot].grid(plot_grid)
+
+            i_c, i_r = i_plot % n_c, int(i_plot / n_c)
+            is_bot_row = ((i_r + 1) == n_r) if ((i_c < n_ct) or (n_ct == 0)) else ((i_r + 2) == n_r)
+            if is_bot_row:
+                ax[i_plot].set_xlabel('Time (ms)')
+
+            if i_c == 0:
+                ax[i_plot].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
             # creates the legend (first plot only)
             if i_plot == 0:
-                self.plot_fig.ax[i_plot].legend(['Fixed', 'Free'], loc=4)
+                bbox = ax[i_plot].get_position()
+                L, B, W, H = bbox.p0[0], bbox.p0[1], bbox.width, bbox.height
+                TOP = B + H
+                T_lg = TOP + 3 * (1 - TOP) / 4
+
+                bbox_lg = ((0.5 - L) / W, (T_lg - B) / H)
+                ax[i_plot].legend(['Fixed', 'Free'], ncol=2, loc=10, bbox_to_anchor=bbox_lg)
 
     def plot_single_match_mean(self, plot_comp, i_cluster, n_trace, is_horz, rej_outlier, plot_grid=True):
         '''
@@ -2075,16 +2114,14 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         pWL, pWU = 0.90, 1.10
-        ex_name = cf.extract_file_name
 
         # retrieves the fixed/free data sets based on the type
-        if self.is_multi:
+        if all_expt:
             # case is multi-experiment files have been loaded
-            data_fix, data_free, c_data = self.get_multi_comp_datasets(all_expt, plot_comp)
+            data_fix, data_free, c_data = self.get_multi_comp_datasets(all_expt, None)
 
             # sets the experiment names (if multi-experiment)
-            if all_expt:
-                exp_files = np.array(cf.flat_list([[x.fix_name] * len(x.i_match) for x in c_data]))
+            exp_files = np.array(cf.flat_list([[x.fix_name] * len(x.i_match) for x in c_data]))
         else:
             # retrieves the comparison data struct belonging to the selected experiment
             i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
@@ -2097,14 +2134,10 @@ class AnalysisGUI(QMainWindow):
         if not isinstance(data_fix, list):
             data_fix, data_free, c_data = [data_fix], [data_free], [c_data]
 
-        # sets up the figure/axis
-        self.init_plot_axes(is_3d=is_3d)
-        ax = self.plot_fig.ax[0]
-
         # sets the z-scores to be plotted based on type
         if m_type == 'New Method':
             # sets the match indices and acceptance flags
-            if self.is_multi:
+            if all_expt:
                 # sets the match/acceptance flags
                 i_match = np.array(cf.flat_list([list(x.i_match) for x in c_data]))
                 is_accept = np.array(cf.flat_list([list(x.is_accept) for x in c_data]))
@@ -2114,15 +2147,17 @@ class AnalysisGUI(QMainWindow):
                 y_plot = np.array(cf.flat_list([list(np.min(x.signal_feat, axis=1)) for x in c_data]))
                 z_plot = np.array(cf.flat_list([list(x.isi_corr) for x in c_data]))
 
-                #
+                # sets the free cell cluster ID#
                 id_free = np.array(cf.flat_list(
                     [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, c_data)]
                 ))
 
             else:
                 # sets the x, y and z-axis plot values
-                i_match, is_accept = c_data.i_match, c_data.is_accept
-                x_plot, y_plot, z_plot = c_data.sig_diff, np.min(c_data.signal_feat, axis=1), c_data.isi_corr
+                i_match, is_accept = c_data[0].i_match, c_data[0].is_accept
+                x_plot, y_plot, z_plot = c_data[0].sig_diff, np.min(c_data[0].signal_feat, axis=1), c_data[0].isi_corr
+
+                # sets the free cell cluster ID#
                 id_free = np.array(self.get_free_cluster_match_ids(data_free[0]['clustID'], i_match))
 
             # sets the axis labels
@@ -2134,7 +2169,7 @@ class AnalysisGUI(QMainWindow):
             z_lim = [pWL * np.nanmin(z_plot), 1.0]
         else:
             # sets the match indices and acceptance flags
-            if self.is_multi:
+            if all_expt:
                 # sets the match/acceptance flags
                 i_match = np.array(cf.flat_list([list(x.i_match_old) for x in c_data]))
                 is_accept = np.array(cf.flat_list([list(x.is_accept_old) for x in c_data]))
@@ -2144,14 +2179,17 @@ class AnalysisGUI(QMainWindow):
                 y_plot = np.array(cf.flat_list([list(x.sig_diff_old) for x in c_data]))
                 z_plot = np.array(cf.flat_list([list(np.nanmax(np.abs(x.z_score), axis=0)) for x in c_data]))
 
-                #
+                # sets the free cell cluster ID#
                 id_free = np.array(cf.flat_list(
                     [self.get_free_cluster_match_ids(x['clustID'], y.i_match) for x, y in zip(data_free, c_data)]
                 ))
             else:
                 # sets the x, y and z-axis plot values
-                i_match, is_accept = c_data.i_match_old, c_data.is_accept_old
-                x_plot, y_plot, z_plot = c_data.sig_corr, c_data.sig_diff_old, np.nanmax(np.abs(c_data.z_score), axis=0)
+                i_match, is_accept = c_data[0].i_match_old, c_data[0].is_accept_old
+                x_plot, y_plot = c_data[0].sig_corr, c_data[0].sig_diff_old
+                z_plot = np.nanmax(np.abs(c_data[0].z_score), axis=0)
+
+                # sets the free cell cluster ID#
                 id_free = np.array(self.get_free_cluster_match_ids(data_free[0]['clustID'], i_match))
 
             # sets the axis labels
@@ -2159,6 +2197,10 @@ class AnalysisGUI(QMainWindow):
             x_lim = [pWL * np.nanmin(x_plot), 1.0]
             y_lim = [pWL * np.nanmin(y_plot), pWU * np.nanmax(y_plot)]
             z_lim = [pWL * np.nanmin(z_plot), pWU * np.nanmax(z_plot)]
+
+        # sets up the figure/axis
+        self.init_plot_axes(is_3d=is_3d)
+        ax = self.plot_fig.ax[0]
 
         # sets the rejection flags
         is_plot = i_match >= 0
@@ -2183,12 +2225,12 @@ class AnalysisGUI(QMainWindow):
         # creates the scatterplot
         if is_3d:
             # case is a 3D plot
-            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], z_plot[is_plot], marker='o', c=cm)
+            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], z_plot[is_plot], marker='o', c=cm, alpha=1)
             self.remove_scatterplot_spines(ax)
             ax.view_init(20, -45)
         else:
             # case is a 2D plot
-            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], marker='o', c=cm)
+            h = ax.scatter(x_plot[is_plot], y_plot[is_plot], marker='o', c=cm, alpha=1)
 
         # creates the cursor object
         datacursor(h, formatter=formatter, point_labels=lbl, hover=True)
@@ -2210,68 +2252,6 @@ class AnalysisGUI(QMainWindow):
         if is_3d:
             ax.set_zlabel('{0} (Z)'.format(z_label))
             ax.set_zlim(z_lim)
-
-    def plot_old_cluster_signals(self, plot_comp, i_cluster, plot_all, plot_grid=True):
-        '''
-
-        :return:
-        '''
-
-        # retrieves the comparison data struct belonging to the selected experiment
-        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
-        c_data = dcopy(self.data.comp.data[i_comp])
-
-        # retrieves the fixed/free datasets
-        n_pts = c_data.n_pts
-        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
-
-        # resets the cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-
-        # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster)
-        T, col = self.setup_time_vector(data_fix['sFreq'], n_pts), 'rg'
-
-        # sets up the figure/axis
-        n_plot = len(i_cluster)
-        self.init_plot_axes(n_plot=n_plot)
-
-        # plots the values over all subplots
-        for i_plot in range(n_plot):
-            # creates the new subplot
-            j_plot = i_cluster[i_plot] - 1
-            i_match = c_data.i_match[j_plot]
-            id_fix = data_fix['clustID'][j_plot]
-
-            # only plot data values if there was a match
-            if i_match >= 0:
-                # plots the z-scores and the upper/lower limits
-                self.plot_fig.ax[i_plot].plot(T,c_data.z_score[:, j_plot], 'b')
-                self.plot_fig.ax[i_plot].plot([0, n_pts], [1, 1], 'r--')
-                self.plot_fig.ax[i_plot].plot([0, n_pts], [-1, -1], 'r--')
-
-                # sets the title properties
-                id_free = data_free['clustID'][i_match]
-                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(c_data.is_accept[j_plot])]
-            else:
-                # otherwise, set reduced title properties
-                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
-
-            # sets the subplot properties
-            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
-            self.plot_fig.ax[i_plot].set_ylim(-4, 4)
-            self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
-            self.plot_fig.ax[i_plot].set_ylabel('Z-Score')
-            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i_plot].grid(plot_grid)
-
-        # # sets the final figure layout
-        # self.plot_fig.fig.tight_layout(h_pad=-0.9)
 
     def plot_new_cluster_signals(self, plot_comp, i_cluster, plot_all, sig_type, plot_grid=True):
         '''
@@ -2576,7 +2556,7 @@ class AnalysisGUI(QMainWindow):
 
             # retrieves the fixed/free mapping indices
             i_expt = f_data.exp_name.index(free_exp_name)
-            is_ok = np.where(f2f_map[i_expt][:, 1] > 0)[0]
+            is_ok = np.where(f2f_map[0][:, 1] > 0)[0]
 
             # determines the index of the selected cluster
             clust_id = np.array(re.findall(r'\d+', ff_cluster)).astype(int)
@@ -2637,12 +2617,28 @@ class AnalysisGUI(QMainWindow):
                 _ax = ax[2 * i_tt]
                 cf.set_axis_limits(_ax, axLmx, axLmx)
 
-            # # adds in the trendline (if required)
-            # if show_trend:
-            #     if sf_grad[i_tt] < 1:
-            #         ax[iL].plot([0, axLmx], [0, sf_grad[i_tt] * axLmx], 'r--', linewidth=2)
-            #     else:
-            #         ax[iL].plot([0, axLmx / sf_grad[i_tt]], [0, axLmx], 'r--', linewidth=2)
+            # adds in the trendline (if required)
+            if show_trend:
+                #
+                for i_tt in range(n_tt):
+                    # sets the lower limit coordinates
+                    p0 = np.vstack([
+                        [axLmx[0], sf_grad[i_tt][0] * axLmx[0] + sf_grad[i_tt][1]],
+                        [(axLmx[0] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[0]],
+                    ])
+
+                    # sets the upper limit coordinates
+                    p1 = np.vstack([
+                        [axLmx[1], sf_grad[i_tt][0] * axLmx[1] + sf_grad[i_tt][1]],
+                        [(axLmx[1] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[1]],
+                    ])
+
+                    # determines which points are to be plotted
+                    i0 = np.where(np.all(p0 - repmat(axLmx, 2, 1).T >= 0, axis=1))[0][0]
+                    i1 = np.where(np.all(p1 - repmat(axLmx, 2, 1).T >= 0, axis=1))[0][0]
+
+                    # sets the coordinates of the trendline's second point
+                    ax[2 * i_tt].plot([p0[i0, 0], p1[i1, 0]], [p0[i0, 1], p1[i1, 1]], 'r--', linewidth=2)
 
             # sets the axis properties
             ax[-2].set_xlabel('Fixed Spiking Frequency (Hz)')
@@ -2730,6 +2726,68 @@ class AnalysisGUI(QMainWindow):
                 # sets the y-axis labels (first column only)
                 if (i_ax % n_col) == 0:
                     _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
+
+    def plot_old_cluster_signals(self, plot_comp, i_cluster, plot_all, plot_grid=True):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        n_pts = c_data.n_pts
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
+
+        # resets the cluster index if plotting all clusters
+        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
+        if e_str is not None:
+            cf.show_error(e_str, 'Infeasible Cluster Indices')
+            self.calc_ok = False
+            return
+
+        # sets the indices of the clusters to plot and creates the figure/axis objects
+        i_cluster = self.set_cluster_indices(i_cluster)
+        T, col = self.setup_time_vector(data_fix['sFreq'], n_pts), 'rg'
+
+        # sets up the figure/axis
+        n_plot = len(i_cluster)
+        self.init_plot_axes(n_plot=n_plot)
+
+        # plots the values over all subplots
+        for i_plot in range(n_plot):
+            # creates the new subplot
+            j_plot = i_cluster[i_plot] - 1
+            i_match = c_data.i_match[j_plot]
+            id_fix = data_fix['clustID'][j_plot]
+
+            # only plot data values if there was a match
+            if i_match >= 0:
+                # plots the z-scores and the upper/lower limits
+                self.plot_fig.ax[i_plot].plot(T, c_data.z_score[:, j_plot], 'b')
+                self.plot_fig.ax[i_plot].plot([0, n_pts], [1, 1], 'r--')
+                self.plot_fig.ax[i_plot].plot([0, n_pts], [-1, -1], 'r--')
+
+                # sets the title properties
+                id_free = data_free['clustID'][i_match]
+                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
+                t_col = col[int(c_data.is_accept[j_plot])]
+            else:
+                # otherwise, set reduced title properties
+                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
+
+            # sets the subplot properties
+            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
+            self.plot_fig.ax[i_plot].set_ylim(-4, 4)
+            self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
+            self.plot_fig.ax[i_plot].set_ylabel('Z-Score')
+            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
+            self.plot_fig.ax[i_plot].grid(plot_grid)
+
+            # # sets the final figure layout
+            # self.plot_fig.fig.tight_layout(h_pad=-0.9)
 
     ######################################################
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
@@ -4172,8 +4230,10 @@ class AnalysisGUI(QMainWindow):
                 sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=False)[0]
                 sf_corr_hist_sum = np.sum(sf_corr_hist)
 
-                #
+                # creates the subplot based on the type
                 if is_hist:
+                    # case is the histogram
+
                     # calculates the histogram of the significant cells
                     sf_corr_hist_sig = np.histogram(v_sf_corr[v_sf_sig[:, i_grp]], bins=xi_cdf, normed=False)[0]
 
@@ -4187,6 +4247,8 @@ class AnalysisGUI(QMainWindow):
                     ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
 
                 else:
+                    # case is the cumulative distribution
+
                     # case is plotting the cumulative distribution
                     y_dist = 100. * np.cumsum(sf_corr_hist / sf_corr_hist_sum)
                     h_plt.append(ax[0].plot(x_cdf, y_dist, c=col[i_filt]))
@@ -8472,7 +8534,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
 
-    def output_spiking_freq_dataframe(self, plot_all_expt, plot_scope):
+    def output_spiking_freq_dataframe(self, out_name, plot_all_expt, plot_scope):
         '''
 
         :return:
@@ -8482,11 +8544,24 @@ class AnalysisGUI(QMainWindow):
         sf_df = self.data.spikedf.sf_df
 
         # sets the base output file name
-        base_name = os.path.join(self.def_data['dir']['dataDir'], 'DataFrame')
+        base_name = os.path.join(self.def_data['dir']['dataDir'], out_name)
 
-        # outputs the data to csv/pickle files
-        sf_df.to_csv('{0}.csv'.format(base_name))
-        sf_df.to_pickle('{0}.pkl'.format(base_name))
+        if os.path.exists('{0}.csv'.format(base_name)):
+            # prompts the user if they want to remove the selected item(s)
+            u_choice = QMessageBox.question(self, 'Overwrite File?',
+                                            "File already exists. Do you wish to overwrite?",
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if u_choice == QMessageBox.No:
+                return
+
+        try:
+            # outputs the data to csv/pickle files
+            sf_df.to_csv('{0}.csv'.format(base_name))
+            sf_df.to_pickle('{0}.pkl'.format(base_name))
+        except:
+            # if there was an error, then output an error to screen
+            e_str = 'Error while outputting data files. Either the files are already open or the filename is invalid.'
+            cf.show_error(e_str, 'File Output Error')
 
     #########################################
     ####    COMMON ANALYSIS FUNCTIONS    ####
@@ -10623,7 +10698,7 @@ class AnalysisFunctions(object):
         # initialises the cluster parameters
         def_clust_para = cfcn.init_clust_para(data.comp, free_exp[0])
 
-        # ====> Signal Comparison (All Clusters)
+        # ====> Fixed/Free Cluster Matching
         para = {
             # calculation parameters
             'calc_comp': {
@@ -10679,7 +10754,7 @@ class AnalysisFunctions(object):
                       multi_fig=['i_cluster'],
                       para=para)
 
-        # ====> Signal Comparison (Single Cluster)
+        # ====> Matched Signal Comparison
         para = {
             # plotting parameters
             'plot_comp': {
@@ -10693,12 +10768,12 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
-                      name='Signal Comparison (Single Cluster)',
+                      name='Matched Signal Comparison',
                       func='plot_single_match_mean',
                       multi_fig=['i_cluster'],
                       para=para)
 
-        # ====> Match Metrics
+        # ====> Cluster Match Metrics
         para = {
             # plotting parameters
             'plot_comp': {
@@ -10718,23 +10793,7 @@ class AnalysisFunctions(object):
                       func='plot_signal_metrics',
                       para=para)
 
-        # ====> Old Cluster Matched Signals
-        para = {
-            # plotting parameters
-            'plot_comp': {
-                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
-                'is_enabled': len(plot_comp) > 1
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-        }
-        self.add_func(type='Cluster Matching',
-                      name='Old Cluster Matched Signals',
-                      func='plot_old_cluster_signals',
-                      para=para)
-
-        # ====> New Cluster Matched Signals
+        # ====> Matched Cluster ISI Metrics (New Method)
         para = {
             # plotting parameters
             'plot_comp': {
@@ -10747,7 +10806,7 @@ class AnalysisFunctions(object):
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
-                      name='New Cluster Matched Signals',
+                      name='Matched Cluster ISI Metrics (New Method)',
                       func='plot_new_cluster_signals',
                       multi_fig=['i_cluster'],
                       para=para)
@@ -10830,6 +10889,22 @@ class AnalysisFunctions(object):
                       func='plot_fix_free_corr',
                       para=para)
 
+        # ====> Matched Cluster Metrics (Old Method)
+        para = {
+            # plotting parameters
+            'plot_comp': {
+                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Cluster Matching',
+                      name='Matched Cluster Metrics (Old Method)',
+                      func='plot_old_cluster_signals',
+                      para=para)
+
         ###############################################
         ####    CLUSTER CLASSIFICATION FUNCTIONS   ####
         ###############################################
@@ -10844,6 +10919,7 @@ class AnalysisFunctions(object):
 
         # ====> Cluster Classification
         para = {
+            # plotting parameters
             'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
             'all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['exp_name', True]
@@ -10853,8 +10929,6 @@ class AnalysisFunctions(object):
             'c_met3': {'type': 'L', 'text': 'Metric #3', 'def_val': c_metric[2], 'list': c_metric},
             'use_3met': {'type': 'B', 'text': 'Use 3 Metrics For Classification', 'def_val': False,
                       'link_para': ['c_met3', False]},
-            # 'use_pca': {'type': 'B', 'text': 'Use PCA For Classification', 'def_val': False,
-            #             'link_para': [['c_met1', True], ['c_met2', True], ['c_met3', True], ['use_3met', True]]},
             'class_type': {'type': 'L', 'text': 'Classification Method', 'def_val': class_type[0], 'list': class_type},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 60},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -12709,18 +12783,22 @@ class AnalysisFunctions(object):
 
             'bin_sz': {
                 'gtype': 'C', 'text': 'Time Bin Size (ms)',
-                'def_val': cfcn.set_def_para(sf_def_para, 'bin_sz', 200)
+                'def_val': cfcn.set_def_para(sf_def_para, 'bin_sz', 100)
             },
             't_over': {
                 'gtype': 'C', 'text': 'Bin Overlap Duration (ms)',
                 'def_val': cfcn.set_def_para(sf_def_para, 't_over', 100)
             },
-            'n_future': {
-                'gtype': 'C', 'text': 'Number of Future Bins',
-                'def_val': cfcn.set_def_para(sf_def_para, 'n_future', 5)
+            'use_glob_index': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Global Cell Index',
+                'def_val': cfcn.set_def_para(sf_def_para, 'use_glob_index', True)
             },
 
             # invisible parameters
+            'out_name': {
+                'type': 'T', 'text': 'Output File Name',
+                'def_val': cfcn.set_def_para(sf_def_para, 'out_name', 'Spiking_Freq_Data_Frame')
+            },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
@@ -13004,6 +13082,8 @@ class AnalysisFunctions(object):
                 # creates the parameter object based on the type
                 if fcn_para[p_name]['type'] == 'N':
                     self.create_number_para(h_layout, p_name, fcn_para[p_name])
+                elif fcn_para[p_name]['type'] == 'T':
+                    self.create_text_para(h_layout, p_name, fcn_para[p_name])
                 elif fcn_para[p_name]['type'] == 'B':
                     self.create_boolean_para(h_layout, p_name, fcn_para[p_name])
                 elif fcn_para[p_name]['type'] == 'L':
@@ -13065,6 +13145,39 @@ class AnalysisFunctions(object):
 
         # adds the widgets to the layout
         h_layout.addRow(h_lbl, h_num)
+
+    def create_text_para(self, h_layout, p_name, fcn_para):
+        '''
+
+        :param h_layout:
+        :param p_name:
+        :param fcn_para:
+        :return:
+        '''
+
+        # initialisations
+        para_text = '{0}: '.format(fcn_para['text'])
+        def_val = self.curr_para[p_name]
+
+        # creates the label/editbox objects
+        h_lbl = cf.create_label(None, txt_font_bold, para_text, align='right')
+        h_txt = cf.create_edit(None, txt_font, def_val, align='centre', name=p_name)
+        h_lbl.setAlignment(Qt.AlignVCenter)
+
+        # sets the callback function
+        cb_fcn = functools.partial(self.update_text_para, h_txt, p_name)
+        h_txt.editingFinished.connect(cb_fcn)
+
+        # if the visiblity flag is set to false, then hide the objects
+        if not fcn_para['is_visible']:
+            h_lbl.setVisible(False)
+            h_txt.setVisible(False)
+        elif not fcn_para['is_enabled']:
+            h_lbl.setEnabled(False)
+            h_txt.setEnabled(False)
+
+        # adds the widgets to the layout
+        h_layout.addRow(h_lbl, h_txt)
 
     def create_boolean_para(self, h_layout, p_name, fcn_para):
         '''
@@ -13328,6 +13441,25 @@ class AnalysisFunctions(object):
                 self.curr_para[p_name] = nw_val
                 if e_str is not None:
                     h_num.setText(str(nw_val))
+
+        # resets the update flag so another change can be made
+        self.is_updating = False
+
+    def update_text_para(self, h_txt, p_name):
+        '''
+
+        :param h_txt:
+        :param p_name:
+        :return:
+        '''
+
+        if self.is_updating:
+            return
+        else:
+            self.is_updating = True
+
+        # retrieves the string from the editbox
+        self.curr_para[p_name] = h_txt.text()
 
         # resets the update flag so another change can be made
         self.is_updating = False

@@ -225,16 +225,26 @@ class InfoDialog(QDialog):
         #
         for tt in expt_info:
             # sets the label value
-            if tt[2]:
+            if tt[1] == 'name':
+                # special case - experiment name
+                lbl_str = cf.extract_file_name(c_data['expFile'])
+
+            elif tt[2]:
+                # case is the field is in the experiment information dictionary field
                 if tt[1] not in c_data['expInfo']:
+                    # case is the field is not in the experiment information dictionary
                     lbl_str = 'N/A'
                 else:
+                    # case is the field is in the experiment info dictionary
                     nw_val = eval('c_data["expInfo"]["{0}"]'.format(tt[1]))
                     if nw_val is None:
+                        # case is the field is None
                         lbl_str = 'N/A'
                     else:
+                        # otherwise, set the field value
                         lbl_str = '{0}'.format(nw_val)
             else:
+                # case is the field is in the general information fields
                 lbl_str = '{0}'.format(int(eval('c_data["{0}"]'.format(tt[1]))))
 
             # creates the label objects

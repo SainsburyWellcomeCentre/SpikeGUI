@@ -3035,7 +3035,7 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
     # set the default parameter object (based on type)
     if d_data_f == 'spikedf':
         # case is the spiking frequency dataframe
-        def_para = set_def_class_para(d_data, ['rot_filt', 'bin_sz', 't_over', 'n_future'])
+        def_para = set_def_class_para(d_data, ['rot_filt', 'bin_sz', 't_over', 'use_glob_index', 'out_name'])
 
     # returns the default parameter object
     return def_para

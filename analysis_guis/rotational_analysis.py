@@ -700,10 +700,10 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
     else:
         # case is filtering on a single experiment level
         if cf.use_raw_clust(data):
-            i_expt_match = [cf.get_expt_index(exp_name, data._cluster, cf.det_valid_rotation_expt(data))]
+            i_expt_match = [cf.get_expt_index(exp_name, data._cluster)]
             d_clust = [data._cluster[i_expt_match[0]]]
         else:
-            i_expt_match = [cf.get_expt_index(exp_name, data.cluster, cf.det_valid_rotation_expt(data))]
+            i_expt_match = [cf.get_expt_index(exp_name, data.cluster)]
             d_clust = [data.cluster[i_expt_match[0]]]
 
     # sets up the filter permutation array
