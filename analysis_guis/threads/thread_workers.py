@@ -826,6 +826,18 @@ class WorkerThread(QThread):
                 # checks to see if any base spiking frequency dataframe parameters have been altered
                 self.check_altered_para(data, calc_para, g_para, ['spikedf'], other_para=data.spikedf)
 
+                # checks to see if the overlap duration is less than the time bin size
+                if calc_para['t_over'] >= calc_para['bin_sz']:
+                    # if not, then output an error to screen
+                    e_str = 'Bin Overlap Duration must be less than the Time Bin Size.\n' \
+                            'Reset these parameters before running this function.'
+                    w_err.emit(e_str, 'Incorrect Function Parameters')
+
+                    # exits the function with an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
                 # only continue if the spiking frequency dataframe has not been set up
                 if not data.spikedf.is_set:
                     self.setup_spiking_freq_dataframe(data, calc_para)
@@ -3480,12 +3492,12 @@ class WorkerThread(QThread):
 
             # DETERMINE VALID CELLS HERE!
             w, c = np.pi / t_phase, data._cluster[i_expt_rot[i_ex]]
-            is_ok = np.where(is_valid_cell_type(c['chRegion']))[0]
+            is_ok = is_valid_cell_type(c['chRegion'])
 
             # other initialisations
             r_filt, exp_name = calc_para['rot_filt'], cf.extract_file_name(c['expFile'])
-            t_ofs0, n_cond, n_cell, mlt = 0., len(r_filt['t_type']), len(is_ok), [1., -1]
-            t_phs, dt_ofs = calc_para['bin_sz'] / 1000., calc_para['t_over'] / 1000.
+            t_ofs0, n_cond, n_cell, mlt = 0., len(r_filt['t_type']), c['nC'], [1., -1]
+            t_phs, dt_ofs = calc_para['bin_sz'] / 1000., (calc_para['bin_sz'] - calc_para['t_over']) / 1000.
 
             # memory allocation
             n_bin_tot = int(np.floor((t_phase - t_phs) / dt_ofs))
@@ -3512,14 +3524,14 @@ class WorkerThread(QThread):
                     sf = np.empty((n_trial * n_bin_tot, n_cond), dtype=object)
 
                 try:
-                    sp_f_tmp = np.array(dcopy(sp_f0))[:, is_ok, :, 1:]
+                    sp_f_tmp = np.array(dcopy(sp_f0))[:, :, :, 1:]
                 except:
                     return None
 
                 # if the first bin, calculate the average speed over the bin's duration
                 w_vals0 = rot.calc_waveform_values(90, w, t_ofs0)
                 w_vals1 = rot.calc_waveform_values(90, w, t_ofs0 + t_phs)
-                p_bin[i_bin_tot] = 0.5 * (w_vals1[0] + w_vals0[0])
+                p_bin[i_bin_tot] = 0.5 * (w_vals1[0] + w_vals0[0]) + 90
                 v_bin[i_bin_tot] = 0.5 * (w_vals1[1] + w_vals0[1])
 
                 # splits/stores the spiking frequency by the condition
@@ -3550,7 +3562,7 @@ class WorkerThread(QThread):
                 # combines the information for the current cell
                 sf_cell = np.vstack(
                     [np.vstack(
-                        [np.hstack((mlt[i_dir] * p_bin_tot, mlt[i_dir] * v_bin_tot,
+                        [np.hstack((p_bin_tot if (mlt[i_dir] > 0) else (180 - p_bin_tot), mlt[i_dir] * v_bin_tot,
                                     np.array([_sf[i_cell, i_dir] for _sf in sf[:, i_cond]]).reshape(-1, 1)))
                                     for i_dir in range(2)])
                     for i_cond in range(n_cond)]
@@ -3562,15 +3574,15 @@ class WorkerThread(QThread):
                 layer_col = np.array([c['chLayer'][i_cell]] * n_row).reshape(-1, 1)
 
                 # sets the cell indices
-                if calc_para['use_glob_index']:
-                    ind_col = (is_ok[i_cell] + 1) * np.ones((n_row, 1), dtype=int)
-                else:
-                    ind_col = (i_cell + 1) * np.ones((n_row, 1), dtype=int)
+                ind_col = (i_cell + 1) * np.ones((n_row, 1), dtype=int)
 
                 # appends all the data for the given cell
                 if data.classify.class_set:
+                    # sets the cell classification type ('N/A' if 'SC'/'N/A', otherwise use the classification string)
+                    g_str_nw = g_str[data.classify.grp_str[i_expt_rot[i_ex]][i_cell]] if is_ok[i_cell] else 'N/A'
+
                     # adds in the cell group type (if calculated)
-                    grp_col = np.array([g_str[data.classify.grp_str[i_ex][i_cell]]] * n_row).reshape(-1, 1)
+                    grp_col = np.array([g_str_nw] * n_row).reshape(-1, 1)
                     df_tot.append(np.hstack((ind_col, bin_col, trial_col, sf_cell, tt_col, reg_col, layer_col, grp_col)))
                 else:
                     # otherwise, use the existing information only
@@ -3620,8 +3632,8 @@ class WorkerThread(QThread):
         d_data.t_over = calc_para['t_over']
 
         # creates the final dataframe
-        c_str = ['Expt #', 'Cell #', 'Bin #', 'Trial #', 'Position', 'Speed'] + \
-                ['Spike Freq', 'Trial Condition', 'Region', 'Layer'] + \
+        c_str = ['Expt #', 'Cell #', 'Bin #', 'Trial #', 'Position (deg)', 'Speed (deg/s)'] + \
+                ['Firing Rate', 'Trial Condition', 'Region', 'Layer'] + \
                 (['Cell Type'] if data.classify.class_set else [])
         sf_data_valid = np.vstack([x for x in sf_data if x is not None])
         d_data.sf_df = pd.DataFrame(sf_data_valid, columns=c_str)
@@ -4080,7 +4092,6 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 'rot_filt', calc_para['rot_filt']),
                     check_class_para_equal(d_data, 'bin_sz', calc_para['bin_sz']),
                     check_class_para_equal(d_data, 't_over', calc_para['t_over']),
-                    check_class_para_equal(d_data, 'use_glob_index', calc_para['use_glob_index']),
                 ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field

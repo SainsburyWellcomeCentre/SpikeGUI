@@ -1144,6 +1144,71 @@ class AnalysisGUI(QMainWindow):
             self.worker[iw].set_worker_func_type('load_data_files', thread_job_para=[load_dlg, loaded_exp, self.is_multi])
             self.worker[iw].start()
 
+    def load_general_file(self):
+        '''
+
+        :return:
+        '''
+
+        # sets the file types
+
+        file_types = ['All Files (*.*)',
+                      'CSV Files (*.csv)',
+                      'Text Files (*.txt)']
+
+        # runs the file dialog
+        file_dlg = FileDialogModal(caption='Select General File To Open',
+                                   filter=';;'.join(file_types),
+                                   directory=cfcn.get_dir_para('inputDir'))
+        file_dlg.setFileMode(QFileDialog.ExistingFiles)
+
+        # determines if the user selected a valid file
+        if (file_dlg.exec() == QDialog.Accepted):
+            # otherwise, set the output file name
+            filt_type = file_dlg.selectedNameFilter()
+            input_file = file_dlg.selectedFiles()
+        else:
+            # if the user cancelled then exit
+            return
+
+        if 'All Files' in filt_type:
+            # determines what type of analysis is to be performed based on the opened file
+            _, f_extn = os.path.splitext(input_file[0])
+
+            if f_extn == '.opend':
+                # case is the freely moving data (as calculated/exported by Adam's analysis code)
+
+                # loads the general data file as a binary
+                for i_f, in_f in enumerate(input_file):
+                    # updates the progress bar
+                    w_str = 'Loading File {0} of {1}'.format(i_f + 1, len(input_file))
+                    self.update_thread_job(w_str, 100. * (i_f + 1) / (len(input_file) + 1))
+                    # opens the new file
+                    with open(in_f, 'rb') as fp:
+                        f_data = p.load(fp)
+
+                    # sets the new data based on the type
+                    if hasattr(self.data.externd, 'free_data'):
+                        self.data.externd.free_data.append_data(f_data)
+                    else:
+                        setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
+
+                # updates the free experiments
+                self.fcn_data.update_free_expts()
+
+        elif 'CSV Files' in filt_type:
+            # PUT CODE IN HERE DEPENDING ON FILE TYPE
+            pass
+
+        elif 'Text Files' in filt_type:
+            # PUT CODE IN HERE DEPENDING ON FILE TYPE
+            pass
+
+        # updates the progressbar
+        self.update_thread_job('File Load Complete!', 100.)
+        time.sleep(0.5)
+        self.update_thread_job('Waiting For Process...', 0.)
+
     def set_compare(self):
         '''
 
@@ -1507,70 +1572,6 @@ class AnalysisGUI(QMainWindow):
             self.def_data['dir'] = def_dir_new
             with open(cf.default_dir_file, 'wb') as fw:
                 p.dump(self.def_data, fw)
-
-    def load_general_file(self):
-        '''
-
-        :return:
-        '''
-
-        # sets the file types
-
-        file_types = ['All Files (*.*)',
-                      'CSV Files (*.csv)',
-                      'Text Files (*.txt)']
-
-        # runs the file dialog
-        file_dlg = FileDialogModal(caption='Select General File To Open',
-                                   filter=';;'.join(file_types),
-                                   directory=cfcn.get_dir_para('inputDir'))
-        file_dlg.setFileMode(QFileDialog.ExistingFiles)
-
-        if (file_dlg.exec() == QDialog.Accepted):
-            # otherwise, set the output file name
-            filt_type = file_dlg.selectedNameFilter()
-            input_file = file_dlg.selectedFiles()
-        else:
-            # if the user cancelled then exit
-            return
-
-        if 'All Files' in filt_type:
-            # determines what type of analysis is to be performed based on the opened file
-            _, f_extn = os.path.splitext(input_file[0])
-
-            if f_extn == '.opend':
-                # case is the freely moving data (as calculated/exported by Adam's analysis code)
-
-                # loads the general data file as a binary
-                for i_f, in_f in enumerate(input_file):
-                    # updates the progress bar
-                    w_str = 'Loading File {0} of {1}'.format(i_f + 1, len(input_file))
-                    self.update_thread_job(w_str, 100. * (i_f + 1) / (len(input_file) + 1))
-                    # opens the new file
-                    with open(in_f, 'rb') as fp:
-                        f_data = p.load(fp)
-
-                    # sets the new data based on the type
-                    if hasattr(self.data.externd, 'free_data'):
-                        self.data.externd.free_data.append_data(f_data)
-                    else:
-                        setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
-
-                # updates the free experiments
-                self.fcn_data.update_free_expts()
-
-        elif 'CSV Files' in filt_type:
-            # PUT CODE IN HERE DEPENDING ON FILE TYPE
-            pass
-
-        elif 'Text Files' in filt_type:
-            # PUT CODE IN HERE DEPENDING ON FILE TYPE
-            pass
-
-        # updates the progressbar
-        self.update_thread_job('File Load Complete!', 100.)
-        time.sleep(0.5)
-        self.update_thread_job('Waiting For Process...', 0.)
 
     def update_glob_para(self):
         '''
@@ -12782,22 +12783,18 @@ class AnalysisFunctions(object):
             },
 
             'bin_sz': {
-                'gtype': 'C', 'text': 'Time Bin Size (ms)',
+                'gtype': 'C', 'text': 'Time Bin Size (ms)', 'min_val': 10, 'max_val': 1000,
                 'def_val': cfcn.set_def_para(sf_def_para, 'bin_sz', 100)
             },
             't_over': {
-                'gtype': 'C', 'text': 'Bin Overlap Duration (ms)',
-                'def_val': cfcn.set_def_para(sf_def_para, 't_over', 100)
-            },
-            'use_glob_index': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Global Cell Index',
-                'def_val': cfcn.set_def_para(sf_def_para, 'use_glob_index', True)
+                'gtype': 'C', 'text': 'Bin Overlap Duration (ms)', 'min_val': 0, 'max_val': 1000,
+                'def_val': cfcn.set_def_para(sf_def_para, 't_over', 50)
             },
 
             # invisible parameters
             'out_name': {
                 'type': 'T', 'text': 'Output File Name',
-                'def_val': cfcn.set_def_para(sf_def_para, 'out_name', 'Spiking_Freq_Data_Frame')
+                'def_val': cfcn.set_def_para(sf_def_para, 'out_name', 'Spike_Freq_Dataframe')
             },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
             'plot_scope': {
@@ -14865,7 +14862,7 @@ class SpikingFreqData(object):
         # calculation parameters
         self.bin_sz = -1
         self.t_over = -1
-        self.n_future = -1
+        self.out_name = 'Spike_Freq_Dataframe'
         self.rot_filt = cf.init_rotation_filter_data(False)
 
 ########################################################################################################################
@@ -14894,6 +14891,7 @@ class FreelyMovingData(object):
         self.s_freq = []
         self.p_sig_neg = []
         self.p_sig_pos = []
+        self.cell_type = []
 
         # creates the objects for each experiment
         self.append_data(f_data)
@@ -14905,41 +14903,119 @@ class FreelyMovingData(object):
         :return:
         '''
 
+        # parameters
+        v_min_hd = 0.2              # min vec for head direction cells
+        p_tile_hd = 97.0            # min mean vec percentile for head direction cells
+        p_tile_hd_mod = 97.0        # min mean vec percentile for head direction modulated cells
+        p_tile_ahv = 95.0           # min mean vec percentile for angular head velocity cells
+        p_tile_speed = 95.0         # min mean vec percentile for speed cells
+        p_tile_place = 95.0         # min mean vec percentile for place cells
+
+        def check_data_fields(c_info):
+            '''
+
+            :param c_info:
+            :return:
+            '''
+
+            # cell information field keys
+            ci_key = ['mean_vec_length', 'mean_vec_percentile', 'pearson_neg_percentile',
+                      'pearson_pos_percentile', 'pearson_percentile', 'peak_percentile']
+
+            # checks that all the fields (for all trial types) are not empty
+            for tt in c_info.keys():
+                for ck in ci_key:
+                    # if the field is empty, then exit with a false flag
+                    if isinstance(c_info[tt][ck].ix[0], list):
+                        return False
+
+            # flag that
+            return True
+
         # if the data already exists in the class object, then exit
         if f_data['experiment_name'] in self.exp_name:
             return
+
+        # initialisations
+        has_missing_fields = False
+        c_type = ['HD', 'HDMod', 'AHV', 'Speed', 'Place']
 
         # increments the file count
         self.n_file += 1
 
         # converts the cell ID strings to integers
         cell_id = [int(x.split('_')[1]) for x in f_data['cell_data'][0][self.t_type[0]]['cell_list_order']]
-        n_cell = len(cell_id)
 
         # appends the new experiment name and cell IDs
         self.exp_name.append(f_data['experiment_name'])
         self.cell_id.append(cell_id)
 
         # memory allocation
+        n_cell = len(cell_id)
         A = np.empty((len(self.v_bin), len(self.t_type)), dtype=object)
         B = np.zeros((n_cell, len(self.v_bin), len(self.t_type)))
         s_freq, p_sig_neg, p_sig_pos = dcopy(A), dcopy(B), dcopy(B)
+        cell_type = np.empty(len(self.v_bin), dtype=object)
 
         # retrieves the necessary information from trial condition/velocity bin size
-        for i_tt, tt in enumerate(self.t_type):
-            for i_bin, v_bin in enumerate(self.v_bin):
+        for i_bin, v_bin in enumerate(self.v_bin):
+            # initialises the cell information data dictionary
+            c_info = {}
+            for i_tt, tt in enumerate(self.t_type):
                 # retrieves the cell data for the given trial condition/velocity bin size
                 c_data = f_data['cell_data'][i_bin][tt]
+                c_info[tt] = c_data['cell_information']
 
                 # retrieves the spiking frequency
                 s_freq[i_bin, i_tt] = c_data['AHV_spiking_frequency']
-                p_sig_neg[:, i_bin, i_tt] = c_data['cell_information']['ahv_pearson_p_neg']
-                p_sig_pos[:, i_bin, i_tt] = c_data['cell_information']['ahv_pearson_p_pos']
+                p_sig_neg[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_neg']
+                p_sig_pos[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_pos']
+
+            ########################################
+            ####    FREE CELL CLASSIFICATION    ####
+            ########################################
+
+            # if the required fields are not set, then continue
+            if (not check_data_fields(c_info)) or has_missing_fields:
+                has_missing_fields = True
+                continue
+
+            # head direction cell significance
+            hd_sig = np.logical_and(
+                np.logical_and(c_info['LIGHT1']['mean_vec_length'] > v_min_hd,
+                               c_info['LIGHT2']['mean_vec_length'] > v_min_hd),
+                np.logical_and(c_info['LIGHT1']['mean_vec_percentile'] > p_tile_hd,
+                               c_info['LIGHT2']['mean_vec_percentile'] > p_tile_hd)
+            )
+
+            # head direction modulated cell significance
+            hd_mod_sig = np.logical_and(c_info['LIGHT1']['mean_vec_percentile'] > p_tile_hd_mod,
+                                        c_info['LIGHT2']['mean_vec_percentile'] > p_tile_hd_mod)
+
+            # angular head velocity cell significance
+            ahv_sig = np.logical_or(c_info['DARK1']['pearson_neg_percentile'] > p_tile_ahv,
+                                    c_info['DARK1']['pearson_pos_percentile'] > p_tile_ahv)
+
+            # speed cell significance
+            spd_sig = c_info['DARK1']['pearson_percentile'] > p_tile_speed
+
+            # place cell significance
+            pl_sig = np.logical_and(c_info['LIGHT1']['peak_percentile'] > p_tile_place,
+                                    c_info['LIGHT2']['peak_percentile'] > p_tile_place)
+
+            # combines the significance arrays into a single dataframe
+            cell_type[i_bin] = pd.DataFrame(np.vstack((hd_sig, hd_mod_sig, ahv_sig, spd_sig, pl_sig)).T, columns=c_type)
 
         # appends the new fields to the class object
         self.s_freq.append(s_freq)
         self.p_sig_neg.append(p_sig_neg)
         self.p_sig_pos.append(p_sig_pos)
+
+        # sets the cell types (depending if fields were missing or not)
+        if has_missing_fields:
+            self.cell_type.append([])
+        else:
+            self.cell_type.append(cell_type)
 
 ########################################################################################################################
 ########################################################################################################################
