@@ -2744,12 +2744,13 @@ def get_comb_file_names(str_1, str_2):
     :return:
     '''
 
-    #
+    # initialisations
     N = min(len(str_1), len(str_2))
+    _str_1, _str_2 = str_1.lower(), str_2.lower()
 
-    #
-    i_match = next((i for i in range(N) if str_1[i] != str_2[i]), N+1)-1
-    return '{0}/{1}'.format(str_1,str_2[i_match:])
+    # determines the mutual components of each string and combines them into a single string
+    i_match = next((i for i in range(N) if _str_1[i] != _str_2[i]), N + 1) - 1
+    return '{0}/{1}'.format(str_1, str_2[i_match:])
 
 
 def use_raw_clust(data):

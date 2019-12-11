@@ -1420,49 +1420,52 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # determines which flags have been set
-        is_set = np.array([self.data.comp.is_set, self.data.classify.is_set, self.data.rotation.is_set])
-        if not np.any(is_set):
-            return
+        # REMOVE ME LATER!
+        pass
 
-        # sets the initial output data dictionary
-        radio_options = np.array(func_types[:-1])[is_set]
-        file_type = ['Comma Separated Value (.csv)', 'Excel Spreadsheet (.xlsx)']
-        out_data = {'dataDir': self.def_data['dir']['dataDir'], 'dataName': '',
-                    'fileType': file_type[0], 'outData': radio_options[0]}
-
-        # initialisations
-        dlg_info = [
-            ['Data File Output Directory', 'dataDir', 'Directory', self.def_data['dir']['dataDir'], True, False, 0],
-            ['Data File Name', 'dataName', 'String', '', True, False, 1],
-            ['Data File Type', 'fileType', 'List', file_type, True, False, 1],
-            ['Experimental Data To Output', 'outData', 'Radio', radio_options, True, False, 2],
-        ]
-
-        # opens up the config dialog box and retrieves the final file information
-        cfig_dlg = config_dialog.ConfigDialog(dlg_info=dlg_info,
-                                              title='Data Output Options',
-                                              width=500,
-                                              init_data=out_data)
-
-        # retrieves the information from the dialog
-        out_info = cfig_dlg.get_info()
-        if out_info is not None:
-            # sets the output file name
-            out_tmp = os.path.join(out_info['dataDir'], out_info['dataName'])
-            out_file = cf.set_file_name(out_tmp, out_info['fileType'])
-            is_csv = out_file[-3:] == 'csv'
-
-            # outputs the data depending on the type
-            if out_info['outData'] == 'Cluster Matching':
-                # case is the cluster matching
-                self.output_cluster_matching_data(out_file, is_csv)
-            elif out_info['outData'] == 'Cluster Classification':
-                # case is the cell classification (FINISH ME!)
-                self.output_cell_classification_data(out_file, is_csv)
-            elif out_info['outData'] == 'Rotation Analysis':
-                # case is the rotation analysis (FINISH ME!)
-                self.output_rotation_analysis_data(out_file, is_csv)
+        # # determines which flags have been set
+        # is_set = np.array([self.data.comp.is_set, self.data.classify.is_set, self.data.rotation.is_set])
+        # if not np.any(is_set):
+        #     return
+        #
+        # # sets the initial output data dictionary
+        # radio_options = np.array(func_types[:-1])[is_set]
+        # file_type = ['Comma Separated Value (.csv)', 'Excel Spreadsheet (.xlsx)']
+        # out_data = {'dataDir': self.def_data['dir']['dataDir'], 'dataName': '',
+        #             'fileType': file_type[0], 'outData': radio_options[0]}
+        #
+        # # initialisations
+        # dlg_info = [
+        #     ['Data File Output Directory', 'dataDir', 'Directory', self.def_data['dir']['dataDir'], True, False, 0],
+        #     ['Data File Name', 'dataName', 'String', '', True, False, 1],
+        #     ['Data File Type', 'fileType', 'List', file_type, True, False, 1],
+        #     ['Experimental Data To Output', 'outData', 'Radio', radio_options, True, False, 2],
+        # ]
+        #
+        # # opens up the config dialog box and retrieves the final file information
+        # cfig_dlg = config_dialog.ConfigDialog(dlg_info=dlg_info,
+        #                                       title='Data Output Options',
+        #                                       width=500,
+        #                                       init_data=out_data)
+        #
+        # # retrieves the information from the dialog
+        # out_info = cfig_dlg.get_info()
+        # if out_info is not None:
+        #     # sets the output file name
+        #     out_tmp = os.path.join(out_info['dataDir'], out_info['dataName'])
+        #     out_file = cf.set_file_name(out_tmp, out_info['fileType'])
+        #     is_csv = out_file[-3:] == 'csv'
+        #
+        #     # outputs the data depending on the type
+        #     if out_info['outData'] == 'Cluster Matching':
+        #         # case is the cluster matching
+        #         self.output_cluster_matching_data(out_file, is_csv)
+        #     elif out_info['outData'] == 'Cluster Classification':
+        #         # case is the cell classification (FINISH ME!)
+        #         self.output_cell_classification_data(out_file, is_csv)
+        #     elif out_info['outData'] == 'Rotation Analysis':
+        #         # case is the rotation analysis (FINISH ME!)
+        #         self.output_rotation_analysis_data(out_file, is_csv)
 
     def save_file(self):
         '''

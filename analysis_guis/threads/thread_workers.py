@@ -3513,7 +3513,7 @@ class WorkerThread(QThread):
             t_phs, dt_ofs = calc_para['bin_sz'] / 1000., (calc_para['bin_sz'] - calc_para['t_over']) / 1000.
 
             # memory allocation
-            n_bin_tot = int(np.floor((t_phase - t_phs) / dt_ofs))
+            n_bin_tot = int(np.floor(t_phase / dt_ofs))
             A = np.zeros((n_bin_tot, 1))
             p_bin, v_bin = dcopy(A), dcopy(A)
 
@@ -3565,16 +3565,29 @@ class WorkerThread(QThread):
                                                     for i in range(n_bin_tot)]), 2, 1) for _nt in n_trial])
             trial_col = np.vstack([repmat(np.arange(_nt).reshape(-1, 1) + 1, 2 * n_bin_tot, 1) for _nt in n_trial])
 
+            mlt = [-1, 1]
+            ind_fcn = lambda i_dir, cond: (1 - i_dir) if cond == 'MotorDrifting' else i_dir
+
             for i_cell in range(n_cell):
                 # combines the information for the current cell
                 sf_cell = np.vstack(
                     [np.vstack(
-                        [np.hstack((stack_arr(p_bin, nt) if (get_mlt(tt[i_cond], i_dir) > 0) else (180 - stack_arr(p_bin, nt)),
-                                    get_mlt(tt[i_cond], i_dir) * stack_arr(v_bin, nt),
-                                    np.array([_sf[i_cell, i_dir] for _sf in sf[i_cond]]).reshape(-1, 1)))
+                        [np.hstack((stack_arr(p_bin, nt) if (mlt[i_dir] > 0) else (180 - stack_arr(p_bin, nt)),
+                                    mlt[i_dir] * stack_arr(v_bin, nt),
+                                    np.array([_sf[i_cell, ind_fcn(i_dir, tt[i_cond])] for _sf in sf[i_cond]]).reshape(-1, 1)))
                                     for i_dir in range(2)])
                     for i_cond, nt in enumerate(n_trial)]
                 )
+
+                # # combines the information for the current cell
+                # sf_cell = np.vstack(
+                #     [np.vstack(
+                #         [np.hstack((stack_arr(p_bin, nt) if (get_mlt(tt[i_cond], i_dir) > 0) else (180 - stack_arr(p_bin, nt)),
+                #                     get_mlt(tt[i_cond], i_dir) * stack_arr(v_bin, nt),
+                #                     np.array([_sf[i_cell, i_dir] for _sf in sf[i_cond]]).reshape(-1, 1)))
+                #                     for i_dir in range(2)])
+                #     for i_cond, nt in enumerate(n_trial)]
+                # )
 
                 # sets the other column details
                 n_row = np.size(sf_cell, axis=0)
