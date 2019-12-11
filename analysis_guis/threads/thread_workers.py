@@ -3502,12 +3502,15 @@ class WorkerThread(QThread):
 
             # lambda function declarations
             stack_arr = lambda y_arr, n_trial: np.hstack([yy * np.ones(n_trial) for yy in y_arr]).reshape(-1, 1)
+            ind_fcn = lambda i_dir, cond: (1 - i_dir) if cond == 'MotorDrifting' else i_dir
 
             # DETERMINE VALID CELLS HERE!
             w, c = np.pi / t_phase, data._cluster[i_expt_rot[i_ex]]
             is_ok = is_valid_cell_type(c['chRegion'])
 
             # other initialisations
+            mlt = [-1, 1]
+            cond_key = {'Black': 'Vestibular', 'Uniform': 'Visual + Vestibular', 'MotorDrifting': 'Visual'}
             r_filt, exp_name = calc_para['rot_filt'], cf.extract_file_name(c['expFile'])
             t_ofs0, n_cond, n_cell = 0., len(r_filt['t_type']), c['nC']
             t_phs, dt_ofs = calc_para['bin_sz'] / 1000., (calc_para['bin_sz'] - calc_para['t_over']) / 1000.
@@ -3559,14 +3562,11 @@ class WorkerThread(QThread):
             g_str = {'Nar': 'Narrow', 'Wid': 'Wide'}
 
             # sets the trial condition type column
-            tt_col = np.hstack([cf.flat_list([[_tt] * (2 * _nt * n_bin_tot)])
+            tt_col = np.hstack([cf.flat_list([[cond_key[_tt]] * (2 * _nt * n_bin_tot)])
                                                     for _tt, _nt in zip(tt, n_trial)]).reshape(-1, 1)
             bin_col = np.vstack([repmat(np.vstack([(i + 1) * np.ones((_nt, 1), dtype=int)
                                                     for i in range(n_bin_tot)]), 2, 1) for _nt in n_trial])
             trial_col = np.vstack([repmat(np.arange(_nt).reshape(-1, 1) + 1, 2 * n_bin_tot, 1) for _nt in n_trial])
-
-            mlt = [-1, 1]
-            ind_fcn = lambda i_dir, cond: (1 - i_dir) if cond == 'MotorDrifting' else i_dir
 
             for i_cell in range(n_cell):
                 # combines the information for the current cell
