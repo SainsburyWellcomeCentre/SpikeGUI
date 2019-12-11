@@ -1189,12 +1189,13 @@ class AnalysisGUI(QMainWindow):
 
                     # sets the new data based on the type
                     if hasattr(self.data.externd, 'free_data'):
-                        self.data.externd.free_data.append_data(f_data)
+                        self.data.externd.free_data.append_data(self.data, f_data)
                     else:
-                        setattr(self.data.externd, 'free_data', FreelyMovingData(f_data))
+                        setattr(self.data.externd, 'free_data', FreelyMovingData(self.data, f_data))
 
                 # updates the free experiments
-                self.fcn_data.update_free_expts()
+                if self.data.externd.free_data.n_file > 0:
+                    self.fcn_data.update_free_expts()
 
         elif 'CSV Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
@@ -2635,8 +2636,8 @@ class AnalysisGUI(QMainWindow):
                     ])
 
                     # determines which points are to be plotted
-                    i0 = np.where(np.all(p0 - repmat(axLmx, 2, 1).T >= 0, axis=1))[0][0]
-                    i1 = np.where(np.all(p1 - repmat(axLmx, 2, 1).T >= 0, axis=1))[0][0]
+                    i0 = np.where(np.all(np.logical_and(p0 >= axLmx[0], p0 <= axLmx[1]), axis=1))[0][0]
+                    i1 = np.where(np.all(np.logical_and(p1 >= axLmx[0], p1 <= axLmx[1]), axis=1))[0][0]
 
                     # sets the coordinates of the trendline's second point
                     ax[2 * i_tt].plot([p0[i0, 0], p1[i1, 0]], [p0[i0, 1], p1[i1, 1]], 'r--', linewidth=2)
@@ -13192,10 +13193,7 @@ class AnalysisFunctions(object):
         # connects the callback function to the checkbox
         h_chk.setChecked(self.curr_para[p_name])
         if fcn_para['link_para'] is not None:
-            try:
-                self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
-            except:
-                a = 1
+            self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -14199,7 +14197,11 @@ class AnalysisFunctions(object):
         '''
 
         # retrieves the comparison data fields
-        c_data = self.get_data_fcn().comp.data
+        comp = self.get_data_fcn().comp
+        if hasattr(comp, 'data'):
+            c_data = comp.data
+        else:
+            c_data = []
 
         if is_calc:
             # case is determining the feasible comparison datasets for calculation functions
@@ -14233,11 +14235,14 @@ class AnalysisFunctions(object):
 
         # overall declarations
         data = self.get_data_fcn()
+        free_exp, ff_cluster = None, None
 
-        if hasattr(data.externd, 'free_data'):
-            free_exp = data.externd.free_data.exp_name
-            ff_cluster = cfcn.get_matching_fix_free_strings(data, [free_exp[i_file]])
-        else:
+        if hasattr(data, 'externd'):
+            if hasattr(data.externd, 'free_data'):
+                free_exp = data.externd.free_data.exp_name
+                ff_cluster = cfcn.get_matching_fix_free_strings(data, [free_exp[i_file]])
+
+        if free_exp is None:
             free_exp = ['No Fixed/Free Data Loaded!']
             ff_cluster = ['No Fixed/Free Data Loaded!']
 
@@ -14877,7 +14882,7 @@ class ExternalData(object):
 
 
 class FreelyMovingData(object):
-    def __init__(self, f_data):
+    def __init__(self, data, f_data):
 
         # initialises the static object fields
         self.n_file = 0
@@ -14894,11 +14899,12 @@ class FreelyMovingData(object):
         self.cell_type = []
 
         # creates the objects for each experiment
-        self.append_data(f_data)
+        self.append_data(data, f_data)
 
-    def append_data(self, f_data):
+    def append_data(self, data, f_data):
         '''
 
+        :param data:
         :param f_data:
         :return:
         '''
@@ -14932,9 +14938,16 @@ class FreelyMovingData(object):
             # flag that
             return True
 
-        # if the data already exists in the class object, then exit
         if f_data['experiment_name'] in self.exp_name:
+            # if the data already exists in the class object, then exit
             return
+        else:
+            # determines if the new data file matches any of the loaded experiments
+            free_name = [cf.extract_file_name(x['expFile']) for x in data._cluster if x['rotInfo'] is None]
+            i_expt_nw = cf.det_likely_filename_match(free_name, f_data['experiment_name'])
+            if i_expt_nw is None:
+                # if there is no matching expt, then exit without appending
+                return
 
         # initialisations
         has_missing_fields = False
@@ -14966,8 +14979,10 @@ class FreelyMovingData(object):
                 c_data = f_data['cell_data'][i_bin][tt]
                 c_info[tt] = c_data['cell_information']
 
-                # retrieves the spiking frequency
-                s_freq[i_bin, i_tt] = c_data['AHV_spiking_frequency']
+                # sets the spiking frequencies (reverses them to match fixed spiking frequencies)
+                s_freq[i_bin, i_tt] = [x[::-1] for x in dcopy(c_data['AHV_spiking_frequency'])]
+
+                # retrieves the significant cells
                 p_sig_neg[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_neg']
                 p_sig_pos[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_pos']
 

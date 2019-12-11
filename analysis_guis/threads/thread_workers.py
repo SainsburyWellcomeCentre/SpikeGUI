@@ -1596,10 +1596,6 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        # if a calculation is not required, then exit the function
-        if data.comp.ff_corr.is_set:
-            return
-
         # initialisations
         i_bin = ['5', '10'].index(calc_para['vel_bin'])
         tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
@@ -1639,13 +1635,13 @@ class WorkerThread(QThread):
             # initialisations for the current external data file
             ind_nw = ind_g[i_expt[i_file]]
             i_f2f = f2f_map[i_file][:, 1]
-            s_freq = f_data.s_freq[i_file][i_bin, :]
+            s_freq = dcopy(f_data.s_freq[i_file][i_bin, :])
 
             # retrieves the spiking frequency data between the matched fixed/free cells for the current experiment
             for i_tt, tt in enumerate(t_type):
                 # sets the fixed/free spiking frequency values
                 ff_corr.sf_fix[i_file, i_tt] = np.nanmean(vel_sf[tt_key[tt]][:, :, ind_nw], axis=0).T
-                ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])[:, ::-1]
+                ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])
 
             # sets the cluster ID values
             is_ok = i_f2f > 0
@@ -3466,6 +3462,19 @@ class WorkerThread(QThread):
         :return:
         '''
 
+        def get_mlt(t_type, i_dir):
+            '''
+
+            :param t_type:
+            :param i_dir:
+            :return:
+            '''
+
+            if t_type == 'MotorDrifting':
+                return [-1, 1][i_dir]
+            else:
+                return [1, -1][i_dir]
+
         def is_valid_cell_type(ch_region):
             '''
 
@@ -3479,7 +3488,7 @@ class WorkerThread(QThread):
             # returns the cells which have a valid region type
             return np.array([ch_reg in valid_type for ch_reg in ch_region])
 
-        def setup_expt_dataframe(data, calc_para, i_expt_rot, i_ex, t_phase):
+        def setup_expt_dataframe(data, calc_para, i_expt_rot, i_ex, i_ex_c, t_phase):
             '''
 
             :param data:
@@ -3490,13 +3499,17 @@ class WorkerThread(QThread):
             :return:
             '''
 
+
+            # lambda function declarations
+            stack_arr = lambda y_arr, n_trial: np.hstack([yy * np.ones(n_trial) for yy in y_arr]).reshape(-1, 1)
+
             # DETERMINE VALID CELLS HERE!
             w, c = np.pi / t_phase, data._cluster[i_expt_rot[i_ex]]
             is_ok = is_valid_cell_type(c['chRegion'])
 
             # other initialisations
             r_filt, exp_name = calc_para['rot_filt'], cf.extract_file_name(c['expFile'])
-            t_ofs0, n_cond, n_cell, mlt = 0., len(r_filt['t_type']), c['nC'], [1., -1]
+            t_ofs0, n_cond, n_cell = 0., len(r_filt['t_type']), c['nC']
             t_phs, dt_ofs = calc_para['bin_sz'] / 1000., (calc_para['bin_sz'] - calc_para['t_over']) / 1000.
 
             # memory allocation
@@ -3520,13 +3533,11 @@ class WorkerThread(QThread):
 
                 # memory allocation (first iteration only)
                 if i_bin_tot == 0:
-                    n_trial = np.size(sp_f0, axis=2)
-                    sf = np.empty((n_trial * n_bin_tot, n_cond), dtype=object)
+                    n_trial = [np.size(x, axis=1) for x in sp_f0]
+                    sf = [np.empty(nt * n_bin_tot, dtype=object) for nt in n_trial]
 
-                try:
-                    sp_f_tmp = np.array(dcopy(sp_f0))[:, :, :, 1:]
-                except:
-                    return None
+                # retrieves the CW/CCW phases (removes BL)
+                sp_f_tmp = [sp_f[:, :, 1:] for sp_f in dcopy(sp_f0)]
 
                 # if the first bin, calculate the average speed over the bin's duration
                 w_vals0 = rot.calc_waveform_values(90, w, t_ofs0)
@@ -3536,36 +3547,33 @@ class WorkerThread(QThread):
 
                 # splits/stores the spiking frequency by the condition
                 for i_cond in range(n_cond):
-                    for i_trial in range(n_trial):
-                        ind_tot = i_bin_tot * n_trial + i_trial
-                        sf[ind_tot, i_cond] = sp_f_tmp[i_cond, :, i_trial, :]
+                    for i_trial in range(n_trial[i_cond]):
+                        ind_tot = i_bin_tot * n_trial[i_cond] + i_trial
+                        sf[i_cond][ind_tot] = sp_f_tmp[i_cond][:, i_trial, :]
 
                 # increments the time offset by the time-overlap
                 t_ofs0 += dt_ofs
 
             # initialisations
-            df_tot = []
+            df_tot, tt = [], r_filt['t_type']
             g_str = {'Nar': 'Narrow', 'Wid': 'Wide'}
 
             # sets the trial condition type column
-            tt_col = np.array(cf.flat_list([[x] * (2 * n_trial * n_bin_tot) for x in r_filt['t_type']])).reshape(-1, 1)
-            trial_col = repmat(np.arange(n_trial).reshape(-1, 1) + 1, 2 * n_bin_tot * n_cond, 1)
-            bin_col = repmat(np.vstack([(i + 1) * np.ones((n_trial, 1), dtype=int) for i in range(n_bin_tot)]),
-                             2 * n_cond, 1)
+            tt_col = np.hstack([cf.flat_list([[_tt] * (2 * _nt * n_bin_tot)])
+                                                    for _tt, _nt in zip(tt, n_trial)]).reshape(-1, 1)
+            bin_col = np.vstack([repmat(np.vstack([(i + 1) * np.ones((_nt, 1), dtype=int)
+                                                    for i in range(n_bin_tot)]), 2, 1) for _nt in n_trial])
+            trial_col = np.vstack([repmat(np.arange(_nt).reshape(-1, 1) + 1, 2 * n_bin_tot, 1) for _nt in n_trial])
 
-            # expands the position/velocity bin values for all trials
-            p_bin_tot = np.hstack([pp * np.ones(n_trial) for pp in p_bin]).reshape(-1, 1)
-            v_bin_tot = np.hstack([vv * np.ones(n_trial) for vv in v_bin]).reshape(-1, 1)
-
-            #
             for i_cell in range(n_cell):
                 # combines the information for the current cell
                 sf_cell = np.vstack(
                     [np.vstack(
-                        [np.hstack((p_bin_tot if (mlt[i_dir] > 0) else (180 - p_bin_tot), mlt[i_dir] * v_bin_tot,
-                                    np.array([_sf[i_cell, i_dir] for _sf in sf[:, i_cond]]).reshape(-1, 1)))
+                        [np.hstack((stack_arr(p_bin, nt) if (get_mlt(tt[i_cond], i_dir) > 0) else (180 - stack_arr(p_bin, nt)),
+                                    get_mlt(tt[i_cond], i_dir) * stack_arr(v_bin, nt),
+                                    np.array([_sf[i_cell, i_dir] for _sf in sf[i_cond]]).reshape(-1, 1)))
                                     for i_dir in range(2)])
-                    for i_cond in range(n_cond)]
+                    for i_cond, nt in enumerate(n_trial)]
                 )
 
                 # sets the other column details
@@ -3589,7 +3597,7 @@ class WorkerThread(QThread):
                     df_tot.append(np.hstack((ind_col, bin_col, trial_col, sf_cell, tt_col, reg_col, layer_col)))
 
             # combines all data from each cell (along with the experiment index) into a final np array
-            exp_col = (i_ex + 1) * np.ones((n_row * n_cell, 1), dtype=int)
+            exp_col = (i_ex_c + 1) * np.ones((n_row * n_cell, 1), dtype=int)
             return np.hstack((exp_col, np.vstack(df_tot)))
 
         # determines the valid rotation experiments
@@ -3608,7 +3616,7 @@ class WorkerThread(QThread):
 
         # returns the overall rotation filter class object
         r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
-        t_phase = r_obj.t_phase[0][0]
+        t_phase, t_type, i_ex_c = r_obj.t_phase[0][0], calc_para['rot_filt']['t_type'], 0
 
         # creates the spiking frequency dataframe for the each experiment
         for i_ex in range(n_ex):
@@ -3616,8 +3624,13 @@ class WorkerThread(QThread):
             w_str = 'Combining Spike Freq. Data (Expt #{0}/{1})'.format(i_ex + 1, n_ex)
             w_prog.emit(w_str, 100. * (i_ex / n_ex))
 
-            # sets the data for the current experiment
-            sf_data[i_ex] = setup_expt_dataframe(data, calc_para, i_expt_rot, i_ex, t_phase)
+            # determines if all trial types exist within the current experiment
+            tt_expt = list(data._cluster[i_ex]['rotInfo']['trial_type'])
+            if np.all([tt in tt_expt for tt in t_type]):
+                # if so, then set the data for the current experiment
+                sf_data[i_ex] = setup_expt_dataframe(data, calc_para, i_expt_rot, i_ex, i_ex_c, t_phase)
+                if sf_data[i_ex] is not None:
+                    i_ex_c += 1
 
         ######################################
         ####    HOUSEKEEPING EXERCISES    ####

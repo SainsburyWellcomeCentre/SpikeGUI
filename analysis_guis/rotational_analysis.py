@@ -303,6 +303,7 @@ def get_rot_condition_key(exp_info):
 ####    ROTATIONAL ANALYSIS DATA LOADING    ####
 ################################################
 
+
 def load_rot_analysis_data(A, exp_info, sp_io, w_prog=None, pW0=None, is_diagnostic=False):
     '''
 
