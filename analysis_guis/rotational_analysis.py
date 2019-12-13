@@ -616,10 +616,6 @@ def recreate_waveform(s_para, calc_deriv=False):
         else:
             y_sig[i_rng] = s_para['yAmp'] * s_para['yDir'] * np.cos(freq * (t_rng - s_para['tSS0']))
 
-            # # calculates the other components of the signal (if required - only for position values)
-            # if (not sinusoid_only) and (s_para['ppSig'] is not None):
-            #     y_sig += s_para['yDir'] * s_para['ppSig'](np.arange(s_para['nPts']))
-
     # returns the final signal
     return y_sig
 
@@ -752,6 +748,9 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     :return:
     '''
 
+    # import declaration
+    import analysis_guis.calc_functions as cfcn
+
     # sets the trial types
     if rot_filt['is_ud'][0]:
         t_type, is_ud = 'UniformDrifting', True
@@ -768,6 +767,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     n_expt, d_copy = len(d_clust), copy.deepcopy
     is_ok, A = np.zeros(n_expt, dtype=bool), np.empty(n_expt, dtype=object)
     t_spike, wfm_para, trial_ind, clust_ind = d_copy(A), d_copy(A), d_copy(A), d_copy(A)
+    i_expt_f2f = None
 
     ##########################################
     ####    EXPERIMENT-BASED FILTERING    ####
@@ -826,6 +826,11 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
         cc_filt_str += ['t_freq', 't_freq_dir', 't_cycle']
         is_check += [True] * 3
 
+    # if the freely moving cell type information is set, then add on the information to the filter conditions
+    if cf.has_free_ctype(data):
+        cc_filt_str += ['free_ctype']
+        is_check += [True]
+
     # applies the field filters to each experiment
     for i_expt in range(n_expt):
         if is_ok[i_expt]:
@@ -843,7 +848,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                 if (rot_filt[ccf][0] == 'All'):
                     if len(exc_filt[ccf]):
                         # initialisations
-                        is_cl, is_tr = False, False
+                        is_cl, is_tr, is_free = False, False, False
 
                         if ccf == 'sig_type':
                             # case is the signal type (wide or narrow spikes)
@@ -883,13 +888,45 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # case is the temporal cycle frequency
                             cv, is_tr = [str(int(x)) for x in wfm_para[i_expt]['tCycle']], True
 
+                        elif ccf == 'free_ctype':
+                            # case is the freely moving cell types
+                            is_free, is_cl = True, True
+                            ind_cl_nw = np.ones(len(ind_cl), dtype=bool)
+
+                            # retrieves the free-to-fixed cell indices
+                            if i_expt_f2f is None:
+                                # determines the experiment/mapping indices for each of the freely moving data files
+                                cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                                i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
+                                                    exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
+
+                                # retrieves the fixed data files corresponding to the matches above
+                                fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]
+
+                            # determines if the fixed file matches any of those from the fixed-to-free matches
+                            fix_name_nw = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                            if fix_name_nw not in fix_name_f2f:
+                                continue
+
+                            # otherwise, retrieve the matching mapping index array values
+                            ind_m = fix_name_f2f.index(fix_name_nw)
+                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_m][0]
+                            is_match = i_f2f >= 0
+
+                            # sets the exclusion flags for the current filter flags
+                            ind_cl_ff = ~np.any(np.array(cell_type[exc_filt[ccf]]), axis=1)
+                            ind_cl_nw[is_match] = ind_cl_ff[i_f2f[is_match]]
+
                         # sets the new cluster/trial acceptance flags (based on type)
-                        if is_cl:
-                            # case is the filter type is cluster based
-                            ind_cl_nw = np.logical_and.reduce([np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
-                        else:
-                            # case is the filter type is trial based
-                            ind_tr_nw = np.logical_and.reduce([np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
+                        if not is_free:
+                            if is_cl:
+                                # case is the filter type is cluster based
+                                ind_cl_nw = np.logical_and.reduce(
+                                                        [np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
+                            else:
+                                # case is the filter type is trial based
+                                ind_tr_nw = np.logical_and.reduce(
+                                                        [np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
 
                 elif is_check[iccf] and (rot_filt[ccf][0] != 'All'):
                     if ccf == 'sig_type':
@@ -914,6 +951,32 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                     elif ccf == 't_cycle':
                         ind_tr_nw = np.abs(wfm_para[i_expt]['tCycle'] - float(rot_filt[ccf][0])) < 1e-6
+
+                    elif ccf == 'free_ctype':
+                        # retrieves the free-to-fixed cell indices
+                        if i_expt_f2f is None:
+                            # determines the experiment/mapping indices for each of the freely moving data files
+                            cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
+                                                exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
+
+                            # retrieves the fixed data files corresponding to the matches above
+                            fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]
+
+                        # determines if the fixed file matches any of those from the fixed-to-free file matches
+                        fix_name_nw = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                        if fix_name_nw not in fix_name_f2f:
+                            # if not, then set all cluster flags to false
+                            ind_cl[:] = False
+                        else:
+                            # otherwise, retrieve the matching mapping index array values
+                            ind_m = fix_name_f2f.index(fix_name_nw)
+                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_m][0]
+                            is_match = i_f2f >= 0
+
+                            # sets the indices of the cells that match the filter value
+                            ind_cl_nw = np.zeros(len(ind_cl), dtype=bool)
+                            ind_cl_nw[is_match] = cell_type[rot_filt[ccf][0]][i_f2f[is_match]]
 
                 # removes any infeasible trials
                 if ind_tr_nw is not None:

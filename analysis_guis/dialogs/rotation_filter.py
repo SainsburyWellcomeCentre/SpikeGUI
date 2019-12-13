@@ -2,6 +2,7 @@
 import copy
 import functools
 import numpy as np
+import pandas as pd
 
 # pyqt5 module import
 from PyQt5.QtCore import QRect, Qt
@@ -53,6 +54,10 @@ class RotationFilter(QDialog):
             if self.is_gen:
                 self.rmv_fields = ['t_type', 'record_coord', 'sig_type', 'match_type']
                 self.is_ud = False
+
+                if init_data is not None:
+                    if 'free_ctype' not in init_data:
+                        init_data['free_ctype'] = []
             else:
                 self.rmv_fields = None
                 self.is_ud = init_data['is_ud'][0]
@@ -192,7 +197,7 @@ class RotationFilter(QDialog):
             ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, True],
         ]
 
-        # appends on additional query fields for if analysing uniform-drifting
+        # appends additional query fields if analysing uniform-drifting
         if self.is_ud:
             # combines the wave-form parameters over all experiments
             wfm_para = [x['rotInfo']['wfm_para']['UniformDrifting'] for x in
@@ -209,6 +214,19 @@ class RotationFilter(QDialog):
                 ['Temporal Frequency Direction', 'CheckCombo', 't_freq_dir', temp_freq_dir, True],
                 ['Spatial Frequency', 'CheckCombo', 't_cycle', temp_cycle, True],
             ]
+
+        # appends addition query field if analysing freely moving cells
+        if cf.has_free_ctype(self.data):
+            if not self.is_exc or (self.is_exc and self.is_gen):
+                # determines the unique cell types from
+                c_type0 = pd.concat([x[0] for x in self.data.externd.free_data.cell_type if len(x)], axis=0)
+                c_type = [ct for ct, ct_any in zip(c_type0.columns, np.any(c_type0, axis=0)) if ct_any]
+
+                # if there are any significant cell types, then add them to the filter type
+                if len(c_type):
+                    self.fields += [
+                        ['Freely Moving Cell Types', 'CheckCombo', 'free_ctype', c_type, True]
+                    ]
 
         # removes any other fields (if specified)
         if self.rmv_fields is not None:
@@ -791,11 +809,6 @@ class RotationFilteredData(object):
                     for i_phase in range(n_phase):
                         for i_trial in range(n_trial):
                             for i_cell in range(n_cell):
-                                # # resets the full time-spike arrays
-                                # t_sp0 = self.t_spike0[i_filt][i_cell, i_trial, i_phase]
-                                # jj = np.logical_and(t_sp0 >= self._t_ofs, t_sp0 <= (self._t_ofs + self._t_phase))
-                                # t_sp0 = t_sp0[jj]
-
                                 # reshapes the other time-spike arrays
                                 t_sp = self.t_spike[i_filt][i_cell, i_trial, i_phase]
                                 if t_sp is not None:

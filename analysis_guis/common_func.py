@@ -1219,6 +1219,7 @@ def init_general_filter_data():
     f_data = {
         'region_name': [],
         'record_layer': [],
+        'free_ctype': [],
     }
 
     # returns the field data
@@ -1243,6 +1244,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
         't_freq': {'0.5': '0.5 Hz', '2.0': '2 Hz', '4.0': '4 Hz'},
         't_freq_dir': {'-1': 'CW', '1': 'CCW'},
         't_cycle': {'15': '15 Hz', '120': '120 Hz'},
+        'free_ctype': None,
     }
 
     if is_empty:
@@ -1256,6 +1258,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
             't_freq': [],
             't_freq_dir': [],
             't_cycle': [],
+            'free_ctype': [],
             'is_ud': [is_ud],
             't_key': t_key,
         }
@@ -1270,6 +1273,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
             't_freq': ['All'],
             't_freq_dir': ['All'],
             't_cycle': ['All'],
+            'free_ctype': ['All'],
             'is_ud': [is_ud],
             't_key': t_key,
         }
@@ -2772,3 +2776,93 @@ def get_global_expt_index(data, c_data):
     '''
 
     return [extract_file_name(c['expFile']) for c in data._cluster].index(c_data.fix_name)
+
+
+def has_free_ctype(data):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    # determines if the freely moving data field has been set into the external data field of the main data object
+    if hasattr(data, 'externd'):
+        if hasattr(data.externd, 'free_data'):
+            # if so, determine if the cell type information has been set for at least one experiment
+            return np.any([len(x) > 0 for x in data.externd.free_data.cell_type])
+        else:
+            # otherwise, return a false flag value
+            return False
+    else:
+        # if no external data field, then return a false flag value
+        return False
+
+
+def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    from analysis_guis.dialogs.rotation_filter import RotationFilteredData
+
+    if exp_name is None:
+        exp_name = data.externd.free_data.exp_name
+    elif not isinstance(exp_name, list):
+        exp_name = list(exp_name)
+
+    # retrieves the cluster indices
+    if cl_ind is None:
+        r_filt = init_rotation_filter_data(False)
+        r_filt['t_type'] += ['Uniform']
+        r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+        cl_ind = r_obj.clust_ind[0]
+
+    # initialisations
+    free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
+
+    # memory allocation
+    n_file = len(exp_name)
+    is_ok = np.ones(n_file, dtype=bool)
+    i_expt = -np.ones(n_file, dtype=int)
+    f2f_map = np.empty(n_file, dtype=object)
+
+    for i_file, exp_name in enumerate(exp_name):
+        # determines if there is a match between the freely moving experiment file and that stored within the
+        # freely moving data field
+        if det_likely_filename_match(free_data.exp_name, exp_name) is None:
+            # if not, then flag the file as being invalid and continue
+            is_ok[i_file] = False
+            continue
+        else:
+            # otherwise, determine if there is a match within the comparison dataset freely moving data files
+            i_expt_nw = det_likely_filename_match(free_file, exp_name)
+            if i_expt_nw is None:
+                # if not, then flag the file as being invalid and continue
+                is_ok[i_file] = False
+                continue
+
+        # retrieves the fixed/free datasets
+        i_expt[i_file] = i_expt_nw
+        c_data = data.comp.data[i_expt_nw]
+        data_fix, data_free = get_comp_datasets(data, c_data=c_data, is_full=is_full)
+
+        # sets the match array (removes non-inclusion cells and non-accepted matched cells)
+        cl_ind_nw = cl_ind[i_expt_nw]
+        i_match = c_data.i_match[cl_ind_nw]
+        i_match[~c_data.is_accept[cl_ind_nw]] = -1
+
+        # determines the overlapping cell indices between the free dataset and those from the cdata file
+        _, i_cell_free_f, i_cell_free = \
+                np.intersect1d(dcopy(free_data.cell_id[i_file]), dcopy(data_free['clustID']),
+                               assume_unique=True, return_indices=True)
+
+        # determines the fixed-to-free mapping index arrays
+        _, i_cell_fix, i_free_match = np.intersect1d(i_match, i_cell_free, return_indices=True)
+        f2f_map[i_file] = -np.ones((len(cl_ind_nw),2), dtype=int)
+        f2f_map[i_file][i_cell_fix, 0] = i_cell_free[i_free_match]
+        f2f_map[i_file][i_cell_fix, 1] = i_cell_free_f[i_free_match]
+
+    # returns the experiment index/fixed-to-free mapping indices
+    return i_expt, f2f_map

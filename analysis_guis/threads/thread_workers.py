@@ -1603,7 +1603,7 @@ class WorkerThread(QThread):
         n_bin = 2 * int(f_data.v_max / float(calc_para['vel_bin']))
 
         # determines matching experiment index and fix-to-free cell index arrays
-        i_expt, f2f_map = cfcn.det_matching_fix_free_cells(data)
+        i_expt, f2f_map = cf.det_matching_fix_free_cells(data)
 
         # determines the global indices for each file
         nC = [len(x) for x in r_data.r_obj_kine.clust_ind[0]]
@@ -1646,7 +1646,7 @@ class WorkerThread(QThread):
             # sets the cluster ID values
             is_ok = i_f2f > 0
             i_expt_fix = cf.get_global_expt_index(data, data.comp.data[i_expt[i_file]])
-            fix_clust_id = np.array(data._cluster[i_expt_fix]['clustID'])[is_ok]
+            fix_clust_id = np.array(data.cluster[i_expt_fix]['clustID'])[is_ok]
             free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
             ff_corr.clust_id[i_file] = np.vstack((fix_clust_id, free_clust_id)).T
             ff_corr.ind_g[i_file] = ind_nw

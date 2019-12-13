@@ -3988,66 +3988,6 @@ def check_existing_compare(comp_data, fix_name, free_name):
     return 0, 0
 
 
-def det_matching_fix_free_cells(data, exp_name=None):
-    '''
-
-    :param data:
-    :return:
-    '''
-
-    if exp_name is None:
-        exp_name = data.externd.free_data.exp_name
-    elif not isinstance(exp_name, list):
-        exp_name = list(exp_name)
-
-    # initialisations
-    free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
-
-    # retrieves the cluster indices
-    r_filt = cf.init_rotation_filter_data(False)
-    r_filt['t_type'] += ['Uniform']
-    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
-    cl_ind = r_obj.clust_ind[0]
-
-    # memory allocation
-    n_file = len(exp_name)
-    is_ok = np.ones(n_file, dtype=bool)
-    i_expt = np.ones(n_file, dtype=int)
-    f2f_map = np.empty(n_file, dtype=object)
-
-    #
-    for i_file, exp_name in enumerate(exp_name):
-        #
-        i_expt_nw = cf.det_likely_filename_match(free_file, exp_name)
-        if i_expt_nw is None:
-            is_ok[i_file] = False
-            continue
-
-        # retrieves the fixed/free datasets
-        i_expt[i_file] = i_expt_nw
-        c_data = data.comp.data[i_expt_nw]
-        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
-
-        # sets the match array (removes non-inclusion cells and non-accepted matched cells)
-        cl_ind_nw = cl_ind[i_expt_nw]
-        i_match = c_data.i_match[cl_ind_nw]
-        i_match[~c_data.is_accept[cl_ind_nw]] = -1
-
-        # determines the overlapping cell indices between the free dataset and those from the cdata file
-        _, i_cell_free_f, i_cell_free = \
-                np.intersect1d(dcopy(free_data.cell_id[i_expt_nw]), dcopy(data_free['clustID']),
-                               assume_unique=True, return_indices=True)
-
-        # determines the fixed-to-free mapping index arrays
-        _, i_cell_fix, i_free_match = np.intersect1d(i_match, i_cell_free, return_indices=True)
-        f2f_map[i_file] = -np.ones((len(cl_ind_nw),2), dtype=int)
-        f2f_map[i_file][i_cell_fix, 0] = i_cell_free[i_free_match]
-        f2f_map[i_file][i_cell_fix, 1] = i_cell_free_f[i_free_match]
-
-    # returns the experiment index/fixed-to-free mapping indices
-    return i_expt, f2f_map
-
-
 def get_matching_fix_free_strings(data, exp_name):
     '''
 
@@ -4058,7 +3998,7 @@ def get_matching_fix_free_strings(data, exp_name):
     '''
 
     # retrieves the experiment index and mapping values
-    i_expt, f2f_map = det_matching_fix_free_cells(data, exp_name=[exp_name])
+    i_expt, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=[exp_name])
     is_ok = f2f_map[0][:, 1] > 0
 
     # retrieves the cluster indices
@@ -4072,7 +4012,7 @@ def get_matching_fix_free_strings(data, exp_name):
     clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[0]][is_ok]]
 
     # retrieves the free cluster ID#'s
-    clust_id_free = np.array(data.externd.free_data.cell_id[i_expt[0]])[f2f_map[0][is_ok, 1]]
+    clust_id_free = np.array(data.externd.free_data.cell_id[0])[f2f_map[0][is_ok, 1]]
 
     # returns the combined fixed/free cluster ID strings
     return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]

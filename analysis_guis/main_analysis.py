@@ -2543,7 +2543,7 @@ class AnalysisGUI(QMainWindow):
             i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
 
         # determines the matching cells
-        i_expt_f2f, f2f_map = cfcn.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
+        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
 
         if plot_type == 'Individual Cell Correlation':
             ############################################
