@@ -11,6 +11,7 @@ import xlsxwriter
 import pickle as p
 import numpy as np
 import pandas as pd
+from venn import venn
 from random import sample
 from numpy.matlib import repmat
 from mpldatacursor import datacursor, HighlightingDataCursor
@@ -118,7 +119,7 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 
 # other initialisations
 dcopy = copy.deepcopy
-func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Rotation Analysis',
+func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types', 'Rotation Analysis',
                        'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis', 'Depth-Based Analysis',
                        'Direction LDA', 'Speed LDA', 'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
@@ -590,7 +591,7 @@ class AnalysisGUI(QMainWindow):
                 # case is loading the data files
 
                 # initialisations
-                init_data, init_comp = True, len(self.data.comp.data) == 0
+                init_data, has_free_data, init_comp = True, False, len(self.data.comp.data) == 0
 
                 # sets the file data type
                 _, f_extn = os.path.splitext(self.worker[iw].thread_job_para[0].exp_files[0])
@@ -633,6 +634,9 @@ class AnalysisGUI(QMainWindow):
                             names, files = dcopy(self.data.multi.names), dcopy(self.data.multi.files)
                             self.data, init_data = loaded_data, False
                             init_comp = self.file_type == 3
+
+                            if (self.file_type == 4) and hasattr(self.data.externd, 'free_data'):
+                                has_free_data = any([len(x)>0 for x in self.data.externd.free_data.cell_type])
 
                             # initialises the multi file data field (if not provided)
                             if not hasattr(loaded_data, 'multi'):
@@ -718,30 +722,34 @@ class AnalysisGUI(QMainWindow):
                 self.menu_show_info.setEnabled(True)
                 self.menu_alt_fields.setEnabled(True)
 
-                # determines what type of file(s) have been loaded
-                if self.is_multi:
-                    # if the multi-files are loaded, then determine what type is loaded
-                    if self.file_type == 4:
-                        # case is the matching cluster combined data files
-                        new_func_types = func_types
-                    else:
-                        # case is the fixed multiple data files
-                        new_func_types = func_types[1:]
+                # # determines what type of file(s) have been loaded
+                # if self.is_multi:
+                #     # if the multi-files are loaded, then determine what type is loaded
+                #     if self.file_type == 2:
+                #         # case is the matching cluster combined data files
+                #         new_func_types = func_types
+                #     else:
+                #         # case is the fixed multiple data files
+                #         new_func_types = func_types[1:]
 
-                    # adds the force calculation parameter (if not present)
-                    if not hasattr(self.data, 'force_calc'):
-                        self.data.force_calc = False
+                # adds the force calculation parameter (if not present)
+                if not hasattr(self.data, 'force_calc'):
+                    self.data.force_calc = False
 
-                # determines which epxerimental types are available
+                # determines which experimental types are available
                 has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                 has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
                 has_both = has_vis_expt and has_rot_expt
 
                 # if single experiments are loaded, then determine the function types
                 if not self.is_multi:
-                    is_keep = [True, True, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
+                    is_keep = [True, True, False, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
                                has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
                     new_func_types = func_types[np.array(is_keep)]
+                else:
+                    new_func_types = dcopy(func_types)
+                    if not has_free_data:
+                        new_func_types = new_func_types[new_func_types != 'Freely Moving Cell Types']
 
                 # otherwise, enable the cluster matching comparison menu item
                 self.menu_set_compare.setEnabled(self.file_type == 1)
@@ -3256,6 +3264,131 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
             self.plot_fig.ax[i_plot].grid(plot_grid)
+
+    #################################################
+    ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
+    #################################################
+
+    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, use_pcent, plot_grid):
+        '''
+
+        :param free_exp_name:
+        :param plot_all:
+        :param vel_bin:
+        :param plot_grid:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig):
+            '''
+
+            :param plot_fig:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            nR, nC = 2, 2
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(3, dtype=object)
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, 0])
+            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, 1])
+            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[1, 1])
+
+        # initialisations
+        i_bin = ['5', '10'].index(vel_bin)
+        cell_type_all = self.data.externd.free_data.cell_type
+        ahv_score_all = self.data.externd.free_data.ahv_score
+        c_key = list(cell_type_all[0][0].columns)
+
+        # sets the plot values
+        if plot_all:
+            # case is plotting all experiments
+            cell_type, ahv_score = [x[i_bin] for x in cell_type_all], [x[i_bin] for x in ahv_score_all]
+        else:
+            # case is plotting a single experiment
+            i_expt = self.data.externd.free_data.exp_name.index(free_exp_name)
+            cell_type, ahv_score = [cell_type_all[i_expt][i_bin]], [ahv_score_all[i_expt][i_bin]]
+
+        # initialises the plot axes
+        setup_plot_axes(self.plot_fig)
+        ax = self.plot_fig.ax
+
+        # other initialisations
+        n_expt = len(cell_type)
+
+        #############################################
+        ####    CELL TYPE PERCENTAGES SUBPLOT    ####
+        #############################################
+
+        #
+        col = cf.get_plot_col(len(c_key) - 1)
+
+        # calculates the freely moving cell types
+        p_type_cell = 100. * np.vstack([np.array(np.mean(x, axis=0)) for x in cell_type])
+        p_type_mu = np.mean(p_type_cell, axis=0)[1:]
+        p_type_sem = np.std(p_type_cell, axis=0)[1:] / np.sqrt(n_expt)
+
+        # creates the bar graphs for each cell type
+        for i_type in range(len(p_type_mu)):
+            ax[0].bar(i_type, p_type_mu[i_type], width=0.9, color=col[i_type],
+                                        edgecolor=col[i_type], yerr=p_type_sem[i_type])
+            ax[0].bar(i_type, 100 - p_type_mu[i_type], bottom=p_type_mu[i_type],
+                                        width=0.9, color='w', edgecolor=col[i_type])
+
+        # sets the axis properties
+        ax[0].set_xticks(np.arange(len(p_type_mu)))
+        ax[0].set_xticklabels(c_key[1:])
+        ax[0].set_ylabel('Percentage of Cells')
+        ax[0].set_ylim([-1, 101])
+        ax[0].grid(plot_grid)
+
+        ####################################
+        ####    VENN DIAGRAM SUBPLOT    ####
+        ####################################
+
+        # memory allocation
+        ct_dict = dict([(ck, set()) for ck in c_key[1:]])
+
+        # sets the type matches over all experiments/cell types
+        for i_ct, ct in enumerate(cell_type):
+            for ck in ct_dict.keys():
+                nw_match = set(['{0}|{1}'.format(i_ct+1, x) for x in np.where(ct[ck])[0]])
+                ct_dict[ck] = ct_dict[ck].union(nw_match)
+
+        # creates the venn diagram
+        if use_pcent:
+            # case is using percentages to represent venn diagram set regions
+            venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", ax=ax[1])
+        else:
+            # case is using counts to represent venn diagram set regions
+            venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1])
+
+        #################################
+        ####    FINISH ME SUBPLOT    ####
+        #################################
+
+        # FINISH ME!
+        ax[2].axis('off')
+
+    def plot_free_cell_kinematics(self, free_exp_name, plot_all, vel_bin, plot_grid):
+        '''
+
+        :param free_exp_name:
+        :param plot_all:
+        :param vel_bin:
+        :param plot_grid:
+        :return:
+        '''
+
+        # REMOVE ME LATER
+        pass
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -8539,6 +8672,10 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
 
+    #########################################
+    ####    COMMON ANALYSIS FUNCTIONS    ####
+    #########################################
+
     def output_spiking_freq_dataframe(self, out_name, plot_all_expt, plot_scope):
         '''
 
@@ -10645,28 +10782,9 @@ class AnalysisFunctions(object):
         # initialises the calculation/plotting parameter groupboxes
         self.init_para_groupbox(h_para_grp)
 
-    def reset_curr_para_fields(self):
-        '''
-
-        :return:
-        '''
-
-        self.curr_fcn = None
-        self.curr_para = None
-        self.prev_fcn = None
-        self.prev_calc_para = None
-        self.prev_plot_para = None
-        self.is_updating = False
-
-    def set_pool_worker(self, pool):
-        '''
-
-        :param pool:
-        :return:
-        '''
-
-        # sets the pool worker
-        self.pool = pool
+    ################################################
+    ####    ANALYSIS FUNCTION INITALISATIONS    ####
+    ################################################
 
     def init_all_func(self):
 
@@ -10972,26 +11090,68 @@ class AnalysisFunctions(object):
                       func='plot_classification_ccgram',
                       para=para)
 
+        #################################################
+        ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
+        #################################################
+
+        # parameter lists
+        sig_vel_bin = ['5', '10']
+
+        # ====> Freely Moving Cell Type Statistics
+        para = {
+            # plotting parameters
+            'free_exp_name': {'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp},
+            'plot_all': {
+                'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['free_exp_name', True]
+            },
+            'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'},
+            'use_pcent': {'type': 'B', 'text': 'Use Percentages For Venn Diagram', 'def_val': True},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Freely Moving Cell Types',
+                      name='Freely Moving Cell Type Statistics',
+                      func='plot_free_cell_stats',
+                      para=para)
+
+        # ====> Freely Moving Cell Kinematic Response
+        para = {
+            # plotting parameters
+            'free_exp_name': {'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp},
+            'plot_all': {
+                'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['free_exp_name', True]
+            },
+            'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Freely Moving Cell Types',
+                      name='Freely Moving Cell Kinematic Response',
+                      func='plot_free_cell_kinematics',
+                      para=para)
+
+        # ====> 
+
+        # REMOVE ME LATER
+        a = 1
+
         ##########################################
         ####    ROTATION ANALYSIS FUNCTIONS   ####
         ##########################################
 
         # parameters
+        t_phase, t_ofs = 1.0, 0.2
         pos_bin = [str(x) for x in [3, 4, 5, 6, 10, 15, 20, 30, 45, 60]]
         vel_bin = [str(x) for x in [4, 5, 8, 10, 16, 20, 40]]
-        t_phase, t_ofs = 1.0, 0.2
 
         # type lists
-        sig_vel_bin = ['5', '10']
         norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
         mean_type = ['Mean', 'Median']
-        comp_type = ['CW vs BL', 'CCW vs BL']
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
-        cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
         ksig_type = ['Individual Cell', 'Correlation Distribution']
         dist_type = ['Cumulative Distribution', 'Histogram']
+        cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
+        comp_type = ['CW vs BL', 'CCW vs BL']
 
         # sets the LDA comparison types
         comp_type = np.unique(
@@ -12859,6 +13019,33 @@ class AnalysisFunctions(object):
         else:
             i_func = fcn_name.index(kwargs['name'])
             self.details[type][i_func]['para'] = kwargs['para']
+
+    ##################################################
+    ####    OBJECT CREATION/DELETION FUNCTIONS    ####
+    ##################################################
+
+    def reset_curr_para_fields(self):
+        '''
+
+        :return:
+        '''
+
+        self.curr_fcn = None
+        self.curr_para = None
+        self.prev_fcn = None
+        self.prev_calc_para = None
+        self.prev_plot_para = None
+        self.is_updating = False
+
+    def set_pool_worker(self, pool):
+        '''
+
+        :param pool:
+        :return:
+        '''
+
+        # sets the pool worker
+        self.pool = pool
 
     def init_para_dict(self):
         '''
@@ -14900,6 +15087,7 @@ class FreelyMovingData(object):
         self.p_sig_neg = []
         self.p_sig_pos = []
         self.cell_type = []
+        self.ahv_score = []
 
         # creates the objects for each experiment
         self.append_data(data, f_data)
@@ -14972,6 +15160,7 @@ class FreelyMovingData(object):
         B = np.zeros((n_cell, len(self.v_bin), len(self.t_type)))
         s_freq, p_sig_neg, p_sig_pos = dcopy(A), dcopy(B), dcopy(B)
         cell_type = np.empty(len(self.v_bin), dtype=object)
+        ahv_score = np.empty(len(self.v_bin), dtype=object)
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
@@ -15011,8 +15200,10 @@ class FreelyMovingData(object):
                                         c_info['LIGHT2']['mean_vec_percentile'] > p_tile_hd_mod)
 
             # angular head velocity cell significance
-            ahv_sig = np.logical_or(c_info['DARK1']['pearson_neg_percentile'] > p_tile_ahv,
-                                    c_info['DARK1']['pearson_pos_percentile'] > p_tile_ahv)
+            ahv_sig_pos = c_info['DARK1']['pearson_pos_percentile'] > p_tile_ahv
+            ahv_sig_neg = c_info['DARK1']['pearson_neg_percentile'] > p_tile_ahv
+            ahv_score[i_bin] = np.array(ahv_sig_neg).astype(int) + 2 * np.array(ahv_sig_pos).astype(int)
+            ahv_sig = ahv_score[i_bin] > 0
 
             # speed cell significance
             spd_sig = c_info['DARK1']['pearson_percentile'] > p_tile_speed
@@ -15032,8 +15223,10 @@ class FreelyMovingData(object):
         # sets the cell types (depending if fields were missing or not)
         if has_missing_fields:
             self.cell_type.append([])
+            self.ahv_score.append([])
         else:
             self.cell_type.append(cell_type)
+            self.ahv_score.append(ahv_score)
 
 ########################################################################################################################
 ########################################################################################################################
@@ -15102,67 +15295,6 @@ class PlotCanvas(FigureCanvas):
                     self.ax[i_plot] = self.figure.add_subplot(n_row, n_col, i_plot + 1)
                     self.ax[i_plot].set_frame_on(True)
 
-################## IMPORTANT CODE ##################
+########################################################################################################################
+########################################################################################################################
 
-# DELETEING ALL WIDGETS IN A GROUPBOX
-# for hh in self.grp_func.findChildren(QWidget):
-#     hh.deleteLater()
-
-# CONVERTING .ui FILES FROM QT DESIGNER
-# from PyQt5.uic import *;
-# py_file = 'C:\\Work\\EPhys\\Code\\Sepi\\analysis_guis\\main_analysis_tmp.py';
-# ui_file = 'C:\\Work\\EPhys\\Code\\Sepi\\analysis_guis\\main_analysis.ui';
-# fp = open(py_file, "w");
-# compileUi(ui_file, fp);
-# fp.close()
-
-
-# def plot_signal_pair(self, y1, y2, ax=None, col=None):
-#     '''
-#
-#     :param y1:
-#     :param y2:
-#     :return:
-#     '''
-#
-#     #
-#     if col is None:
-#         col = 'br'
-#
-#     #
-#     if ax is None:
-#         plt.figure()
-#         plt.plot(y1, c=col[0])
-#         plt.plot(y2, c=col[1])
-#     else:
-#         ax.plot(y1, c=col[0])
-#         ax.plot(y2, c=col[1])
-
-# def reset_axis_lim(self, ax, ax_type='y', min_tick=3, max_tick=4):
-#     '''
-#
-#     :param ax:
-#     :param ax_lim:
-#     :return:
-#     '''
-#
-#     #
-#     dt = [0.0010, 0.0020, 0.0025, 0.005, 0.010, 0.020, 0.025, 0.050, 0.10, 0.20,
-#           0.25, 0.50, 1.00, 1.50, 2.00, 2.50, 5.00, 10.0, 20.0, 25.0, 50.0, 100.0]
-#
-#     # retrieves the limits
-#     ax_lim = eval('ax.get_{0}lim()'.format(ax_type))
-#     n_tick = np.ceil(np.diff(ax_lim) / dt).astype(int)
-#
-#     # determines the number of tick labels
-#     i_tick = next((i for i in range(len(n_tick)) if ((n_tick[i] >= min_tick) and (n_tick[i] <= max_tick))), None)
-#
-#     #
-#     if i_tick is None:
-#         return
-#
-#     #
-#     d_tick = dt[i_tick]
-#     ax_lim_nw = np.arange(d_tick * np.floor(ax_lim[0] / d_tick), d_tick * np.ceil(ax_lim[1] / d_tick) + 1, d_tick)
-#     eval('ax.{0}axis.set_major_locator(FixedLocator(ax_lim_nw))'.format(ax_type))
-#     eval('ax.set_{0}lim([ax_lim_nw[0], ax_lim_nw[-1]])'.format(ax_type))
