@@ -680,8 +680,12 @@ class AnalysisGUI(QMainWindow):
                         self.data.exc_rot_filt = cf.init_rotation_filter_data(False, is_empty=True)
                         self.data.exc_ud_filt = cf.init_rotation_filter_data(True, is_empty=True)
 
-                # sets up the analysis functions and resets the current parameter fields
-                self.check_data_fields()
+                # checks the data fields (if loading single/multi-experiment files only)
+                if self.file_type in [1, 3]:
+                    self.check_data_fields()
+
+                # sets up the analysis functions and resets the trial type strings
+                self.reset_trial_type_strings()
                 self.fcn_data.init_all_func()
 
                 # updates the cluster parameters (if loading comparison data file types)
@@ -721,16 +725,6 @@ class AnalysisGUI(QMainWindow):
                 self.menu_data.setEnabled(True)
                 self.menu_show_info.setEnabled(True)
                 self.menu_alt_fields.setEnabled(True)
-
-                # # determines what type of file(s) have been loaded
-                # if self.is_multi:
-                #     # if the multi-files are loaded, then determine what type is loaded
-                #     if self.file_type == 2:
-                #         # case is the matching cluster combined data files
-                #         new_func_types = func_types
-                #     else:
-                #         # case is the fixed multiple data files
-                #         new_func_types = func_types[1:]
 
                 # adds the force calculation parameter (if not present)
                 if not hasattr(self.data, 'force_calc'):
@@ -773,11 +767,8 @@ class AnalysisGUI(QMainWindow):
                     # sets the flag which disables the function type callback function
                     self.initialising = True
 
-                    #
-                    for _ in reversed(range(self.combo_scope.count())):
-                        self.combo_scope.removeItem(0)
-
-                    #
+                    # re-adds all the items
+                    self.combo_scope.clear()
                     for new_ft in new_func_types:
                         self.combo_scope.addItem(new_ft)
 
@@ -954,6 +945,42 @@ class AnalysisGUI(QMainWindow):
             return True
         else:
             return False
+
+    def reset_trial_type_strings(self):
+        '''
+
+        :return:
+        '''
+
+        # loops through each of the data clusters
+        for ic, c in enumerate(self.data._cluster):
+            # if there is no rotation information (i.e, free expt) then continue
+            if c['rotInfo'] is None:
+                continue
+
+            # determines if there are any trial type names that need to be altered
+            tt_0 = list(c['rotInfo']['wfm_para'].keys())
+            tt_nw = [[x, y] for x, y in zip(tt_0, [cf.convert_trial_type(x) for x in tt_0]) if x != y]
+
+            # if there are alterations that need to be changed, then
+            if len(tt_nw):
+                for tt in tt_nw:
+                    # replaces the values within the rotation information field
+                    c['rotInfo']['trial_type'] = np.where(c['rotInfo']['trial_type'] == tt[0], tt[1],
+                                                          c['rotInfo']['trial_type'])
+                    c['rotInfo']['t_spike'][tt[1]] = c['rotInfo']['t_spike'].pop(tt[0])
+                    c['rotInfo']['wfm_para'][tt[1]] = c['rotInfo']['wfm_para'].pop(tt[0])
+
+                    # determines if the temporary cluster field has been set
+                    if self.data.cluster is not None:
+                        # if so, then retrieve the temporary cluster field (for the current experiment)
+                        cc = self.data.cluster[ic]
+
+                        # replaces the values within the rotation information field
+                        cc['rotInfo']['trial_type'] = np.where(cc['rotInfo']['trial_type'] == tt[0], tt[1],
+                                                               cc['rotInfo']['trial_type'])
+                        cc['rotInfo']['t_spike'][tt[1]] = cc['rotInfo']['t_spike'].pop(tt[0])
+                        cc['rotInfo']['wfm_para'][tt[1]] = cc['rotInfo']['wfm_para'].pop(tt[0])
 
     ####################################################################################################################
     ####                                          MENU CALLBACK FUNCTIONS                                           ####
@@ -1203,7 +1230,7 @@ class AnalysisGUI(QMainWindow):
 
                 # updates the free experiments
                 if self.data.externd.free_data.n_file > 0:
-                    self.fcn_data.update_free_expts()
+                    self.fcn_data.update_free_expts(self.combo_scope)
 
         elif 'CSV Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
@@ -3287,19 +3314,20 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # sets up the axes dimensions
-            nR, nC = 2, 2
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
+            nR, nC = 2, 4
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.3, 0.0
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
                                    bottom=bottom, top=top)
 
             # creates the subplots
-            plot_fig.ax = np.empty(3, dtype=object)
-            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, 0])
-            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, 1])
-            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[1, 1])
+            plot_fig.ax = np.empty(4, dtype=object)
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, :2])
+            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, 2:])
+            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[1, 2])
+            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[1, 3])
 
         # initialisations
         i_bin = ['5', '10'].index(vel_bin)
@@ -3323,12 +3351,13 @@ class AnalysisGUI(QMainWindow):
         # other initialisations
         n_expt = len(cell_type)
 
+        # sets the bar graph colours
+        col_b = cf.get_plot_col(len(c_key) - 1)
+        col_pp = cf.get_plot_col(2, len(c_key) - 1)
+
         #############################################
         ####    CELL TYPE PERCENTAGES SUBPLOT    ####
         #############################################
-
-        #
-        col = cf.get_plot_col(len(c_key) - 1)
 
         # calculates the freely moving cell types
         p_type_cell = 100. * np.vstack([np.array(np.mean(x, axis=0)) for x in cell_type])
@@ -3337,10 +3366,10 @@ class AnalysisGUI(QMainWindow):
 
         # creates the bar graphs for each cell type
         for i_type in range(len(p_type_mu)):
-            ax[0].bar(i_type, p_type_mu[i_type], width=0.9, color=col[i_type],
-                                        edgecolor=col[i_type], yerr=p_type_sem[i_type])
+            ax[0].bar(i_type, p_type_mu[i_type], width=0.9, color=col_b[i_type],
+                                        edgecolor=col_b[i_type], yerr=p_type_sem[i_type])
             ax[0].bar(i_type, 100 - p_type_mu[i_type], bottom=p_type_mu[i_type],
-                                        width=0.9, color='w', edgecolor=col[i_type])
+                                        width=0.9, color='w', edgecolor=col_b[i_type])
 
         # sets the axis properties
         ax[0].set_xticks(np.arange(len(p_type_mu)))
@@ -3348,6 +3377,11 @@ class AnalysisGUI(QMainWindow):
         ax[0].set_ylabel('Percentage of Cells')
         ax[0].set_ylim([-1, 101])
         ax[0].grid(plot_grid)
+
+        # creates the output table
+        p_type_str = np.array(['{:.1f}'.format(pt) for pt in p_type_mu]).reshape(1, -1)
+        cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['% of Cells'],
+                                         c_key[1:], [col_pp[0]], col_b, 'bottom') #, n_row=1, n_col=2)
 
         ####################################
         ####    VENN DIAGRAM SUBPLOT    ####
@@ -3365,17 +3399,51 @@ class AnalysisGUI(QMainWindow):
         # creates the venn diagram
         if use_pcent:
             # case is using percentages to represent venn diagram set regions
-            venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", ax=ax[1])
+            venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", cmap=col_b, ax=ax[1])
         else:
             # case is using counts to represent venn diagram set regions
-            venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1])
+            venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1], cmap=col_b)
 
-        #################################
-        ####    FINISH ME SUBPLOT    ####
-        #################################
+        ###########################################
+        ####    AHV TYPE PERCENTAGE SUBPLOT    ####
+        ###########################################
 
-        # FINISH ME!
-        ax[2].axis('off')
+        # calculates the total/symmetric ahv cell counts
+        n_ahv_sig = [sum(x > 0) for x in ahv_score]
+        n_ahv_sym = [100 * sum(x == 3) / y for x, y in zip(ahv_score, n_ahv_sig)]
+
+        # calculates the proportion of symmetric cells
+        p_ahv_sym_mu, p_ahv_sym_sem = np.mean(n_ahv_sym), np.std(n_ahv_sym) / np.sqrt(n_expt)
+
+        # creates the bar-graph
+        ax[2].bar(1, p_ahv_sym_mu, width=0.9, color=col_pp[0], edgecolor=col_pp[0], yerr=p_ahv_sym_sem)
+        ax[2].bar(1, 100 - p_ahv_sym_mu, bottom=p_ahv_sym_mu, width=0.9, color='w', edgecolor=col_pp[0])
+
+        # sets the axis properties
+        ax[2].set_xticklabels([])
+        ax[2].set_xlim([0.5, 1.5])
+        ax[2].set_title('Sym/Asym AHV Cell %age')
+        ax[2].set_ylabel('% Symmetric AHV Cells')
+        ax[2].grid(plot_grid)
+
+        ########################################
+        ####    HDMOD PERCENTAGE SUBPLOT    ####
+        ########################################
+
+        # calculates the head direction cells
+        p_hd = [100. * sum(ct['HD']) / sum(ct['HDMod']) for ct in cell_type]
+        p_hd_mu, p_hd_sem = np.mean(p_hd), np.std(p_hd) / np.sqrt(n_expt)
+
+        # creates the bar-graph
+        ax[3].bar(1, p_hd_mu, width=0.9, color=col_pp[1], edgecolor=col_pp[1], yerr=p_hd_sem)
+        ax[3].bar(1, 100 - p_hd_mu, bottom=p_hd_mu, width=0.9, color='w', edgecolor=col_pp[1])
+
+        # sets the axis properties
+        ax[3].set_xticklabels([])
+        ax[3].set_xlim([0.5, 1.5])
+        ax[3].set_title('HD/HDMod Cell %age')
+        ax[3].set_ylabel('% of HDMod Cell')
+        ax[3].grid(plot_grid)
 
     def plot_free_cell_kinematics(self, free_exp_name, plot_all, vel_bin, plot_grid):
         '''
@@ -13115,16 +13183,34 @@ class AnalysisFunctions(object):
                             h_list[0].setCurrentIndex(i_sel0)
                             h_list[0].setEnabled(len(ex_name[i_pp]) > 1)
 
-    def update_free_expts(self):
+    def update_free_expts(self, h_combo):
         '''
 
         :return:
         '''
 
         # initialisations
-        pp = 'free_exp_name'
         data = self.get_data_fcn()
         f_data = data.externd.free_data
+        pp, fcn_str = 'free_exp_name', 'Freely Moving Cell Types'
+
+        # determines if the freely moving cell types is in the function list
+        h_combo_list = [h_combo.itemText(i) for i in range(h_combo.count())]
+        if fcn_str not in h_combo_list:
+            # appends the function list the freely moving cell types
+            h_combo_list.insert(np.where(func_types == fcn_str)[0][0], fcn_str)
+            i_sel0 = h_combo.currentIndex()
+
+            # removes the function types
+            for i in range(h_combo.count() - 1):
+                h_combo.removeItem(h_combo.count() - 1)
+
+            # re-adds the function types
+            for l_str in h_combo_list[1:]:
+                h_combo.addItem(l_str)
+
+            # resets the current index
+            h_combo.setCurrentIndex(i_sel0)
 
         # updates the functions parameter/default value fields
         fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
@@ -15084,6 +15170,7 @@ class FreelyMovingData(object):
         self.exp_name = []
         self.cell_id = []
         self.s_freq = []
+        self.c_info = []
         self.p_sig_neg = []
         self.p_sig_pos = []
         self.cell_type = []
@@ -15158,65 +15245,66 @@ class FreelyMovingData(object):
         n_cell = len(cell_id)
         A = np.empty((len(self.v_bin), len(self.t_type)), dtype=object)
         B = np.zeros((n_cell, len(self.v_bin), len(self.t_type)))
+        C = np.empty(len(self.v_bin), dtype=object)
         s_freq, p_sig_neg, p_sig_pos = dcopy(A), dcopy(B), dcopy(B)
-        cell_type = np.empty(len(self.v_bin), dtype=object)
-        ahv_score = np.empty(len(self.v_bin), dtype=object)
+        cell_type, ahv_score, c_info = dcopy(C), dcopy(C), dcopy(C)
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
             # initialises the cell information data dictionary
-            c_info = {}
+            c_info[i_bin] = {}
             for i_tt, tt in enumerate(self.t_type):
                 # retrieves the cell data for the given trial condition/velocity bin size
                 c_data = f_data['cell_data'][i_bin][tt]
-                c_info[tt] = c_data['cell_information']
+                c_info[i_bin][tt] = c_data['cell_information']
 
                 # sets the spiking frequencies (reverses them to match fixed spiking frequencies)
                 s_freq[i_bin, i_tt] = [x[::-1] for x in dcopy(c_data['AHV_spiking_frequency'])]
 
                 # retrieves the significant cells
-                p_sig_neg[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_neg']
-                p_sig_pos[:, i_bin, i_tt] = c_info[tt]['ahv_pearson_p_pos']
+                p_sig_neg[:, i_bin, i_tt] = c_info[i_bin][tt]['ahv_pearson_p_neg']
+                p_sig_pos[:, i_bin, i_tt] = c_info[i_bin][tt]['ahv_pearson_p_pos']
 
             ########################################
             ####    FREE CELL CLASSIFICATION    ####
             ########################################
 
             # if the required fields are not set, then continue
-            if (not check_data_fields(c_info)) or has_missing_fields:
+            if (not check_data_fields(c_info[i_bin])) or has_missing_fields:
                 has_missing_fields = True
                 continue
 
             # head direction cell significance
             hd_sig = np.logical_and(
-                np.logical_and(c_info['LIGHT1']['mean_vec_length'] > v_min_hd,
-                               c_info['LIGHT2']['mean_vec_length'] > v_min_hd),
-                np.logical_and(c_info['LIGHT1']['mean_vec_percentile'] > p_tile_hd,
-                               c_info['LIGHT2']['mean_vec_percentile'] > p_tile_hd)
+                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd,
+                               c_info[i_bin]['LIGHT2']['mean_vec_length'] > v_min_hd),
+                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_percentile'] > p_tile_hd,
+                               c_info[i_bin]['LIGHT2']['mean_vec_percentile'] > p_tile_hd)
             )
 
             # head direction modulated cell significance
-            hd_mod_sig = np.logical_and(c_info['LIGHT1']['mean_vec_percentile'] > p_tile_hd_mod,
-                                        c_info['LIGHT2']['mean_vec_percentile'] > p_tile_hd_mod)
+            hd_mod_sig = np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_percentile'] > p_tile_hd_mod,
+                                        c_info[i_bin]['LIGHT2']['mean_vec_percentile'] > p_tile_hd_mod)
 
             # angular head velocity cell significance
-            ahv_sig_pos = c_info['DARK1']['pearson_pos_percentile'] > p_tile_ahv
-            ahv_sig_neg = c_info['DARK1']['pearson_neg_percentile'] > p_tile_ahv
+            ahv_sig_pos = c_info[i_bin]['DARK1']['pearson_pos_percentile'] > p_tile_ahv
+            ahv_sig_neg = c_info[i_bin]['DARK1']['pearson_neg_percentile'] > p_tile_ahv
             ahv_score[i_bin] = np.array(ahv_sig_neg).astype(int) + 2 * np.array(ahv_sig_pos).astype(int)
             ahv_sig = ahv_score[i_bin] > 0
 
             # speed cell significance
-            spd_sig = c_info['DARK1']['pearson_percentile'] > p_tile_speed
+            spd_sig = c_info[i_bin]['DARK1']['pearson_percentile'] > p_tile_speed
 
             # place cell significance
-            pl_sig = np.logical_and(c_info['LIGHT1']['peak_percentile'] > p_tile_place,
-                                    c_info['LIGHT2']['peak_percentile'] > p_tile_place)
+            pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,
+                                    c_info[i_bin]['LIGHT2']['peak_percentile'] > p_tile_place)
 
             # combines the significance arrays into a single dataframe
             cell_type[i_bin] = pd.DataFrame(np.vstack((hd_sig, hd_mod_sig, ahv_sig, spd_sig, pl_sig)).T, columns=c_type)
 
         # appends the new fields to the class object
         self.s_freq.append(s_freq)
+        self.c_info.append(c_info)
         self.p_sig_neg.append(p_sig_neg)
         self.p_sig_pos.append(p_sig_pos)
 

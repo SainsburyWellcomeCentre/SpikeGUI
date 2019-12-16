@@ -2412,11 +2412,40 @@ def cond_abb(tt):
         'uniformdrifting': 'UD',
         'landmarkleft': 'LL',
         'landmarkright': 'LR',
-        'black40': 'B40'
+        'black40': 'B40',
+        'black45': 'B45',
+        'mismatch1': 'MM1',
+        'mismatch2': 'MM2',
+        'black_discard': 'BD',
     }
 
     # returns the matching abbreviation
-    return abb_txt[tt.lower()]
+    return abb_txt[convert_trial_type(tt).lower()]
+
+
+def convert_trial_type(tt_str):
+    '''
+
+    :param tt_str:
+    :return:
+    '''
+
+    # sets the trial type key dictionary
+    tt_key = {
+        'Black40': ['Black_40', 'Black40deg'],
+        'Black45': ['Black_45', 'Black45deg'],
+        'Mismatch1': ['mismatch1'],
+        'Mismatch2': ['mismatch2'],
+        'Black_Discard': ['Black_discard', 'Black1_Discard']
+    }
+
+    # determines if the trial type string is in any of the conversion dictionary fields
+    for tt in tt_key:
+        if tt_str in tt_key[tt]:
+            return tt
+
+    # if no matches are made, then return the original strings
+    return tt_str
 
 
 def calc_pointwise_diff(x1, x2):
