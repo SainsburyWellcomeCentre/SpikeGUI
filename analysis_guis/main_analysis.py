@@ -33,6 +33,7 @@ from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle, Polygon, Patch
 from matplotlib.colors import ListedColormap
+from matplotlib_venn import venn3, venn2
 import matplotlib.style
 import matplotlib as mpl
 from matplotlib.pyplot import rc
@@ -2569,6 +2570,7 @@ class AnalysisGUI(QMainWindow):
         tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
         collapse_arr = lambda y, i_c: np.array(cf.flat_list([x[i_c] for x in y]))
         n_bin_h = int(80 / ff_corr.vel_bin)
+        tt_key_rev = {'Black': 'DARK1', 'Uniform': 'LIGHT1'}
 
         # sets the grouping index
         if ff_corr.split_vel:
@@ -2577,13 +2579,13 @@ class AnalysisGUI(QMainWindow):
         else:
             i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
 
-        # determines the matching cells
-        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
-
         if plot_type == 'Individual Cell Correlation':
             ############################################
             ####    INDIVIDUAL CELL CORRELATIONS    ####
             ############################################
+
+            # determines the matching cells against the freely moving experiment file
+            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
 
             # calculates the number of time bins
             axLmx = [1e10, -1e10]
@@ -2685,87 +2687,99 @@ class AnalysisGUI(QMainWindow):
             ax[-1].set_xlabel('Correlation')
 
         else:
-            ############################################
-            ####    INDIVIDUAL CELL CORRELATIONS    ####
-            ############################################
-
-            # REMOVE ME LATER
-            is_norm = False
-
-            # initialisations
-            yLmx = 0
+            # determines the matching cells against the freely moving experiment file
+            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
             is_ok = np.array(cf.flat_list([x[:, 0] >= 0 for x in f2f_map]))
-            tt_key_rev = {'Black': 'DARK1', 'Uniform': 'LIGHT1'}
-
-            # sets the cdf xi-values
-            xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
-            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-            b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
 
             # retrieves the common filtered indices
             r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
             t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
             i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-            col = cf.get_plot_col(r_obj_wc.n_filt)
 
-            # sets the global-to-local and trial condition indices
-            ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-            ind_gfilt0 = [det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-            ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-            i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+            if plot_type == 'Correlation Histogram':
+                #####################################
+                ####    CORRELATION HISTOGRAM    ####
+                #####################################
 
-            # sets the spiking frequency correlation/significance values
-            sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+                # REMOVE ME LATER
+                is_norm = False
 
-            # initialises the plot axes
-            n_col, n_row = cf.det_subplot_dim(r_obj_wc.n_filt)
-            self.init_plot_axes(n_plot=r_obj_wc.n_filt, n_row=n_row, n_col=n_col)
-            ax = self.plot_fig.ax
+                # initialisations
+                yLmx = 0
+                col = cf.get_plot_col(r_obj_wc.n_filt)
 
-            # creates the histograms for each filter option
-            for i_filt in range(r_obj_wc.n_filt):
-                # sets the index of the column to be analysed
-                t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
+                # sets the cdf xi-values
+                xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
+                x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+                b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
 
-                if len(sf_corr[i_filt]):
-                    # calculates the histogram of the significant cells
-                    sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
-                    sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
+                # sets the global-to-local and trial condition indices
+                ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+                ind_gfilt0 = [det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+                ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+                i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
 
-                    # calculates the proportions
-                    if is_norm:
-                        sf_corr_hist_sum = np.sum(sf_corr_hist)
-                        p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
-                        p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
-                    else:
-                        p_sig = sf_corr_hist_sig
-                        p_nsig = sf_corr_hist - sf_corr_hist_sig
+                # sets the spiking frequency correlation/significance values
+                sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+                sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
 
-                    # case is the significant values so normalise using the provided value
-                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
-                    ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
+                # initialises the plot axes
+                n_col, n_row = cf.det_subplot_dim(r_obj_wc.n_filt)
+                self.init_plot_axes(n_plot=r_obj_wc.n_filt, n_row=n_row, n_col=n_col)
+                ax = self.plot_fig.ax
+
+                # creates the histograms for each filter option
+                for i_filt in range(r_obj_wc.n_filt):
+                    # sets the index of the column to be analysed
+                    t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
+
+                    if len(sf_corr[i_filt]):
+                        # calculates the histogram of the significant cells
+                        sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
+                        sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
+
+                        # calculates the proportions
+                        if is_norm:
+                            sf_corr_hist_sum = np.sum(sf_corr_hist)
+                            p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                            p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+                        else:
+                            p_sig = sf_corr_hist_sig
+                            p_nsig = sf_corr_hist - sf_corr_hist_sig
+
+                        # case is the significant values so normalise using the provided value
+                        ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
+                        ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
+
+                    # sets the axis properties
+                    ax[i_filt].set_title(t_str)
+                    ax[i_filt].set_xlim([-1, 1])
+                    ax[i_filt].grid(plot_grid)
+
+                    # sets the y-axis limits
+                    yLmx = max(yLmx, ax[i_filt].get_ylim()[1])
 
                 # sets the axis properties
-                ax[i_filt].set_title(t_str)
-                ax[i_filt].set_xlim([-1, 1])
-                ax[i_filt].grid(plot_grid)
+                for i_ax, _ax in enumerate(ax):
+                    # resets the overall y-axis limit
+                    _ax.set_ylim([0, yLmx])
 
-                # sets the y-axis limits
-                yLmx = max(yLmx, ax[i_filt].get_ylim()[1])
+                    # sets the x-axis labels (last row only)
+                    if (int(np.floor(i_ax / n_col)) + 1) == n_row:
+                        _ax.set_xlabel('Correlation')
 
-            # sets the axis properties
-            for i_ax, _ax in enumerate(ax):
-                # resets the overall y-axis limit
-                _ax.set_ylim([0, yLmx])
+                    # sets the y-axis labels (first column only)
+                    if (i_ax % n_col) == 0:
+                        _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
 
-                # sets the x-axis labels (last row only)
-                if (int(np.floor(i_ax / n_col)) + 1) == n_row:
-                    _ax.set_xlabel('Correlation')
+            elif plot_type == 'Correlation Scatterplot':
+                #######################################
+                ####    CORRELATION SCATTERPLOT    ####
+                #######################################
 
-                # sets the y-axis labels (first column only)
-                if (i_ax % n_col) == 0:
-                    _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
+                # REMOVE ME LATER
+                a = 1
+
 
     def plot_old_cluster_signals(self, plot_comp, i_cluster, plot_all, plot_grid=True):
         '''
@@ -3296,7 +3310,7 @@ class AnalysisGUI(QMainWindow):
     ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
     #################################################
 
-    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, use_pcent, plot_grid):
+    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, use_pcent, use_place, plot_grid):
         '''
 
         :param free_exp_name:
@@ -3314,20 +3328,23 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # sets up the axes dimensions
-            nR, nC = 2, 4
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.3, 0.0
+            nR, nC = 10, 4
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.4, 0.05
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
                                    bottom=bottom, top=top)
 
             # creates the subplots
             plot_fig.ax = np.empty(4, dtype=object)
             plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, :2])
-            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[0, 2:])
-            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[1, 2])
-            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[1, 3])
+            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[2:, 2:])
+            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[0, 2:])
+            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[1, 2:])
+
+            plot_fig.ax[2].axis('off')
+            plot_fig.ax[3].axis('off')
 
         # initialisations
         i_bin = ['5', '10'].index(vel_bin)
@@ -3350,100 +3367,138 @@ class AnalysisGUI(QMainWindow):
 
         # other initialisations
         n_expt = len(cell_type)
+        n_plot = len(c_key) - (1 + int(not use_place))
 
         # sets the bar graph colours
-        col_b = cf.get_plot_col(len(c_key) - 1)
-        col_pp = cf.get_plot_col(2, len(c_key) - 1)
+        col_b = cf.get_plot_col(n_plot)
+        col_pp = cf.get_plot_col(2, n_plot)
 
         #############################################
         ####    CELL TYPE PERCENTAGES SUBPLOT    ####
         #############################################
 
         # calculates the freely moving cell types
+        n_type_cell = np.vstack([np.array(np.sum(x, axis=0)) for x in cell_type])
         p_type_cell = 100. * np.vstack([np.array(np.mean(x, axis=0)) for x in cell_type])
         p_type_mu = np.mean(p_type_cell, axis=0)[1:]
         p_type_sem = np.std(p_type_cell, axis=0)[1:] / np.sqrt(n_expt)
+        x_lbl = c_key[1:(n_plot+1)]
 
         # creates the bar graphs for each cell type
-        for i_type in range(len(p_type_mu)):
+        for i_type in range(n_plot):
             ax[0].bar(i_type, p_type_mu[i_type], width=0.9, color=col_b[i_type],
                                         edgecolor=col_b[i_type], yerr=p_type_sem[i_type])
             ax[0].bar(i_type, 100 - p_type_mu[i_type], bottom=p_type_mu[i_type],
                                         width=0.9, color='w', edgecolor=col_b[i_type])
 
         # sets the axis properties
-        ax[0].set_xticks(np.arange(len(p_type_mu)))
-        ax[0].set_xticklabels(c_key[1:])
+        ax[0].set_xticks(np.arange(n_plot))
+        ax[0].set_xticklabels(x_lbl)
         ax[0].set_ylabel('Percentage of Cells')
         ax[0].set_ylim([-1, 101])
         ax[0].grid(plot_grid)
 
         # creates the output table
-        p_type_str = np.array(['{:.1f}'.format(pt) for pt in p_type_mu]).reshape(1, -1)
-        cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['% of Cells'],
-                                         c_key[1:], [col_pp[0]], col_b, 'bottom') #, n_row=1, n_col=2)
+        p_type_str = np.vstack([np.sum(n_type_cell, axis=0)[1:(n_plot+1)],
+                                np.array(['{:.1f}'.format(pt) for pt in p_type_mu[:n_plot]])])
+        cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['Count', '%age'],
+                                         x_lbl, col_pp, col_b, 'bottom')
 
         ####################################
         ####    VENN DIAGRAM SUBPLOT    ####
         ####################################
 
         # memory allocation
-        ct_dict = dict([(ck, set()) for ck in c_key[1:]])
+        ct_dict = {}
 
         # sets the type matches over all experiments/cell types
         for i_ct, ct in enumerate(cell_type):
-            for ck in ct_dict.keys():
-                nw_match = set(['{0}|{1}'.format(i_ct+1, x) for x in np.where(ct[ck])[0]])
-                ct_dict[ck] = ct_dict[ck].union(nw_match)
+            for ck in x_lbl:
+                # determines the number of matches with the current cell-type
+                n_match = np.where(ct[ck])[0]
+                if len(n_match) > 0:
+                    # if there are any matches, then add it to the match dictionary
+                    nw_match = set(['{0}|{1}'.format(i_ct+1, x) for x in n_match])
+                    if ck in ct_dict:
+                        ct_dict[ck] = ct_dict[ck].union(nw_match)
+                    else:
+                        ct_dict[ck] = nw_match
 
         # creates the venn diagram
-        if use_pcent:
-            # case is using percentages to represent venn diagram set regions
-            venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", cmap=col_b, ax=ax[1])
+        if len(list(ct_dict.keys())) == 4:
+            # case is 4 cell-types groups have been found
+            if use_pcent:
+                # case is using percentages to represent venn diagram set regions
+                venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", cmap=col_b, ax=ax[1])
+            else:
+                # case is using counts to represent venn diagram set regions
+                venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1], cmap=col_b)
         else:
-            # case is using counts to represent venn diagram set regions
-            venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1], cmap=col_b)
+            # case is less than 4 groups have been found
+            ct_lbl = set([x for x in x_lbl if x in ct_dict])
+            ct_set = [set(ct_dict[ct]) for ct in ct_lbl]
+            col_venn = [col_b[x_lbl.index(ct)] for ct in ct_lbl]
+
+            # creates the venn diagrams based on the type group count
+            if use_pcent:
+                n_total = len(set(cf.flat_list([list(x) for x in ct_set])))
+                lbl_fmt = lambda x: f"{(x/n_total):1.0%}"
+
+                if len(ct_lbl) == 3:
+                    venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
+                else:
+                    venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
+            else:
+                if len(ct_lbl) == 3:
+                    venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
+                else:
+                    venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
 
         ###########################################
         ####    AHV TYPE PERCENTAGE SUBPLOT    ####
         ###########################################
 
         # calculates the total/symmetric ahv cell counts
-        n_ahv_sig = [sum(x > 0) for x in ahv_score]
-        n_ahv_sym = [100 * sum(x == 3) / y for x, y in zip(ahv_score, n_ahv_sig)]
+        n_ahv_sig = sum([sum(x > 0) for x in ahv_score])
+        n_ahv_sym = sum([sum(x == 3) for x in ahv_score])
 
-        # calculates the proportion of symmetric cells
-        p_ahv_sym_mu, p_ahv_sym_sem = np.mean(n_ahv_sym), np.std(n_ahv_sym) / np.sqrt(n_expt)
-
-        # creates the bar-graph
-        ax[2].bar(1, p_ahv_sym_mu, width=0.9, color=col_pp[0], edgecolor=col_pp[0], yerr=p_ahv_sym_sem)
-        ax[2].bar(1, 100 - p_ahv_sym_mu, bottom=p_ahv_sym_mu, width=0.9, color='w', edgecolor=col_pp[0])
-
-        # sets the axis properties
-        ax[2].set_xticklabels([])
-        ax[2].set_xlim([0.5, 1.5])
-        ax[2].set_title('Sym/Asym AHV Cell %age')
-        ax[2].set_ylabel('% Symmetric AHV Cells')
-        ax[2].grid(plot_grid)
+        # creates the output table
+        n_ahv_str = np.array([str(x) for x in [n_ahv_sym, n_ahv_sig - n_ahv_sym, n_ahv_sig]]).reshape(1, -1)
+        t_props_1 = cf.add_plot_table(self.plot_fig, ax[2], table_font, n_ahv_str, ['Count'],
+                                      ['Symmetric', 'Asymmetric', 'Total'], [col_pp[0]], col_b[:3], 'top')
 
         ########################################
         ####    HDMOD PERCENTAGE SUBPLOT    ####
         ########################################
 
         # calculates the head direction cells
-        p_hd = [100. * sum(ct['HD']) / sum(ct['HDMod']) for ct in cell_type]
-        p_hd_mu, p_hd_sem = np.mean(p_hd), np.std(p_hd) / np.sqrt(n_expt)
+        n_hd = sum([sum(ct['HD']) for ct in cell_type])
+        n_hdmod = sum([sum(ct['HDMod']) for ct in cell_type])
 
-        # creates the bar-graph
-        ax[3].bar(1, p_hd_mu, width=0.9, color=col_pp[1], edgecolor=col_pp[1], yerr=p_hd_sem)
-        ax[3].bar(1, 100 - p_hd_mu, bottom=p_hd_mu, width=0.9, color='w', edgecolor=col_pp[1])
+        # creates the output table
+        n_hd_str = np.array([str(x) for x in [n_hd, n_hdmod]]).reshape(1, -1)
+        t_props_2 = cf.add_plot_table(self.plot_fig, ax[3], table_font, n_hd_str, ['Count'],
+                                      ['HD Cells', 'HDMod Cells'], [col_pp[0]], col_b[:2], 'top')
 
-        # sets the axis properties
-        ax[3].set_xticklabels([])
-        ax[3].set_xlim([0.5, 1.5])
-        ax[3].set_title('HD/HDMod Cell %age')
-        ax[3].set_ylabel('% of HDMod Cell')
-        ax[3].grid(plot_grid)
+        # resets the bottom location of the upper table
+        time.sleep(0.05)
+        c_hght = t_props_1[0]._bbox[3] / (np.size(n_ahv_str, axis=0) + 1)
+        t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
+
+    # # sets up the positive velocity range
+    # t_props_1 = cf.add_plot_table(self.plot_fig, ax, table_font_small, p_stats_1, row_hdr, col_hdr_1,
+    #                               c[1:], c_col, 'bottom', n_row=1, n_col=1, p_wid=p_wid)
+    # t_props_2 = cf.add_plot_table(self.plot_fig, ax, table_font_small, p_stats_2, row_hdr, col_hdr_2,
+    #                               c[1:], c_col, 'bottom', n_row=1, n_col=1, p_wid=p_wid)
+    #
+    # # resizes the plot axes position (to account for the second table)
+    # ax_p, fig_hght = ax.get_position(), self.plot_fig.height()
+    # d_hght = t_props_1[2] * t_props_1[0]._bbox[3] * (1 + .5 / (np.size(p_stats_1, axis=0) + 1))
+    # ax_pos_nw = [ax_p.x0, ax_p.y0 + d_hght / fig_hght, ax_p.width, ax_p.height - d_hght / fig_hght]
+    # ax.set_position(ax_pos_nw)
+    #
+
+
 
     def plot_free_cell_kinematics(self, free_exp_name, plot_all, vel_bin, plot_grid):
         '''
@@ -4497,7 +4552,7 @@ class AnalysisGUI(QMainWindow):
             ax[-1].set_ylabel('% Significant Cells')
 
             # resets the y-axis limits (if plotting the correlation distribution)
-            if dist_type == 'Correlation Distribution':
+            if dist_type == 'Correlation Histogram':
                 ax[0].set_ylim([-0.1, 100.1])
 
             # sets the other axis properties
@@ -10135,7 +10190,7 @@ class AnalysisGUI(QMainWindow):
             # resets the bottom location of the upper table
             t_props_2[0]._bbox[1] = t_props[0]._bbox[1] - (t_props[0]._bbox[3] + c_hght)
 
-            # resets the titla position
+            # resets the title position
             t_pos = list(h_title_2.get_position())
             t_pos[1] = t_props_2[0]._bbox[1] + t_props_2[0]._bbox[3] + dh_title
             h_title_2.set_position(tuple(t_pos))
@@ -10874,7 +10929,7 @@ class AnalysisFunctions(object):
         scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
         vd_type = ['Negative', 'Positive']
-        ff_plot_type = ['Individual Cell Correlation', 'Correlation Distribution']
+        ff_plot_type = ['Individual Cell Correlation', 'Correlation Histogram', 'Correlation Scatterplot']
         vel_dir = ['Negative', 'Positive']
 
         # retrieves the comparison fixed file names
@@ -11064,8 +11119,10 @@ class AnalysisFunctions(object):
             },
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ff_plot_type, 'def_val': ff_plot_type[0],
-                'link_para': [['ff_cluster', 'Correlation Distribution'], ['free_exp_name', 'Correlation Distribution'],
-                              ['show_trend', 'Correlation Distribution'], ['bin_sz', 'Individual Cell Correlation'],
+                'link_para': [['ff_cluster', ['Correlation Histogram', 'Correlation Scatterplot']],
+                              ['free_exp_name', ['Correlation Histogram', 'Correlation Scatterplot']],
+                              ['show_trend', ['Correlation Histogram', 'Correlation Scatterplot']],
+                              ['bin_sz', 'Individual Cell Correlation'],
                               ['rot_filt', 'Individual Cell Correlation']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -11174,6 +11231,7 @@ class AnalysisFunctions(object):
             },
             'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'},
             'use_pcent': {'type': 'B', 'text': 'Use Percentages For Venn Diagram', 'def_val': True},
+            'use_place': {'type': 'B', 'text': 'Include Place Cells For Analysis', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Freely Moving Cell Types',
@@ -11216,7 +11274,7 @@ class AnalysisFunctions(object):
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
-        ksig_type = ['Individual Cell', 'Correlation Distribution']
+        ksig_type = ['Individual Cell', 'Correlation Histogram']
         dist_type = ['Cumulative Distribution', 'Histogram']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
@@ -11454,8 +11512,8 @@ class AnalysisFunctions(object):
             'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': ksig_type, 'def_val': ksig_type[0],
-                'link_para': [['i_cluster', 'Correlation Distribution'], ['plot_exp_name', 'Correlation Distribution'],
-                              ['plot_shuffle', 'Correlation Distribution'], ['dist_type', 'Individual Cell'],
+                'link_para': [['i_cluster', 'Correlation Histogram'], ['plot_exp_name', 'Correlation Histogram'],
+                              ['plot_shuffle', 'Correlation Histogram'], ['dist_type', 'Individual Cell'],
                               ['vel_dir', 'Individual Cell'], ['bin_size', 'Individual Cell']]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
