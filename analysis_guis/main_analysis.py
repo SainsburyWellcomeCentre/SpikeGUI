@@ -2873,7 +2873,7 @@ class AnalysisGUI(QMainWindow):
                     ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col_sig[i], yerr=p_sig_sem[i])
 
                 # updates the axis properties
-                ax[-1].set_ylabel('%age')
+                ax[-1].set_ylabel('%age Matched')
                 ax[-1].set_xticks(xi)
                 ax[-1].set_xticklabels(['#{0}'.format(x) for x in xi])
                 ax[-1].grid(plot_grid)
