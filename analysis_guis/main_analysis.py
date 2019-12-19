@@ -2873,7 +2873,7 @@ class AnalysisGUI(QMainWindow):
                     ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col_sig[i], yerr=p_sig_sem[i])
 
                 # updates the axis properties
-                ax[-1].set_ylabel('%age Matched')
+                ax[-1].set_title('%age Matched')
                 ax[-1].set_xticks(xi)
                 ax[-1].set_xticklabels(['#{0}'.format(x) for x in xi])
                 ax[-1].grid(plot_grid)
@@ -2888,7 +2888,7 @@ class AnalysisGUI(QMainWindow):
                     # resets the table dimensions
                     t_props[i][0]._bbox[0] = max(t_props[i][0]._bbox[0], -0.05)
                     t_props[i][0]._bbox[1] = 1 - (i / n_filt) * (1 + 1.25 * t_props[i][0]._bbox[3])
-                    t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 0.95)
+                    t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 1.0)
 
             elif plot_type == 'Correlation Scatterplot':
                 #######################################
