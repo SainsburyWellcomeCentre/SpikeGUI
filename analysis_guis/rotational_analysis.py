@@ -958,7 +958,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # determines the experiment/mapping indices for each of the freely moving data files
                             cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
                             i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
-                                                exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
+                                                exp_name=data.externd.free_data.exp_name, cl_ind=cl_ind_0)
 
                             # retrieves the fixed data files corresponding to the matches above
                             fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]
