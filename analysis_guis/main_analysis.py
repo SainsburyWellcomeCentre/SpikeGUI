@@ -2588,7 +2588,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             n_r, n_c = n_filt, 7
-            top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.30, 0.15
+            top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.30, 0.20
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
@@ -2596,16 +2596,17 @@ class AnalysisGUI(QMainWindow):
                                    bottom=bottom, top=top)
 
             # creates the subplots
-            plot_fig.ax = np.empty(2 * n_filt + 1, dtype=object)
+            plot_fig.ax = np.empty(n_filt + 2, dtype=object)
             for i_filt in range(n_filt):
                 plot_fig.ax[i_filt] = plot_fig.figure.add_subplot(gs[i_filt, :(n_c - 3)])
-                plot_fig.ax[i_filt + n_filt] = plot_fig.figure.add_subplot(gs[i_filt, (n_c - 3):(n_c - 1)])
 
-                plot_fig.ax[i_filt + n_filt].plot([0, 1], [0, 1], 'w')
-                plot_fig.ax[i_filt + n_filt].axis('off')
+            # sets up the other axes
+            plot_fig.ax[n_filt] = plot_fig.figure.add_subplot(gs[:, (n_c - 3):(n_c - 1)])
+            plot_fig.ax[n_filt + 1] = plot_fig.figure.add_subplot(gs[:, -1])
 
-            # sets up the final
-            plot_fig.ax[2 * n_filt] = plot_fig.figure.add_subplot(gs[:, -1])
+            cf.set_axis_limits(plot_fig.ax[n_filt], [0, 1], [0, 1])
+            plot_fig.ax[n_filt].plot([-2, -1], [-2, -1], 'w')
+            plot_fig.ax[n_filt].axis('off')
 
         # initialises the rotation filter (if not set)
         if rot_filt is None:
@@ -2818,7 +2819,7 @@ class AnalysisGUI(QMainWindow):
                     ax[i_filt].grid(plot_grid)
 
                     # removes the x-ticklabels (except for the final row)
-                    if (i_filt + 1) < n_filt:
+                    if (i_filt + 1) <= n_filt:
                         ax[i_filt].set_xticklabels([])
 
                     # sets the y-axis limits
@@ -2842,17 +2843,16 @@ class AnalysisGUI(QMainWindow):
                 ############################################
 
                 # sets the axis properties
-                for i_ax, _ax in enumerate(ax[:-1]):
+                for i_ax, _ax in enumerate(ax[:n_filt]):
                     # resets the overall y-axis limit
                     _ax.set_ylim([0, yLmx])
 
                     # sets the x-axis labels (last row only)
-                    if (int(np.floor(i_ax / n_col)) + 1) == n_row:
+                    if (i_ax + 1) == n_filt:
                         _ax.set_xlabel('Correlation')
 
-                    # sets the y-axis labels (first column only)
-                    if (i_ax % n_col) == 0:
-                        _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
+                    # sets the y-axis labels
+                    _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
 
                 ################################################
                 ####    CELL SIGNIFICANCE SUBPLOT/TABLES    ####
@@ -2865,8 +2865,8 @@ class AnalysisGUI(QMainWindow):
                 col_hdr, row_hdr = ['Matched', 'Unmatched', 'Total'], ['Count', '%age']
 
                 # calculates the mean/sem percentages
-                p_sig_mu = 100. * np.mean(np.vstack(p_sig_tot), axis=0)
-                p_sig_sem = 100. * np.std(np.vstack(p_sig_tot), axis=0) / np.sqrt(n_free)
+                p_sig_mu = 100. * np.mean(np.vstack(p_sig_tot).T, axis=0)
+                p_sig_sem = 100. * np.std(np.vstack(p_sig_tot).T, axis=0) / np.sqrt(n_free)
 
                 # creates the bar graph
                 for i in range(len(xi)):
@@ -2882,13 +2882,13 @@ class AnalysisGUI(QMainWindow):
                 # creates the statistics tables for each filter type
                 for i in range(n_filt):
                     # creates the table
-                    t_props[i] = cf.add_plot_table(self.plot_fig, ax[i + n_filt], table_font_small, tab_str[i], row_hdr,
+                    t_props[i] = cf.add_plot_table(self.plot_fig, ax[n_filt], table_font_small, tab_str[i], row_hdr,
                                                    col_hdr, col_row, col_sig, 'top')
 
                     # resets the table dimensions
                     t_props[i][0]._bbox[0] = max(t_props[i][0]._bbox[0], -0.05)
-                    t_props[i][0]._bbox[1] = 1
-                    t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 1.00)
+                    t_props[i][0]._bbox[1] = 1 - (i / n_filt) * (1 + 1.25 * t_props[i][0]._bbox[3])
+                    t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 0.95)
 
             elif plot_type == 'Correlation Scatterplot':
                 #######################################
