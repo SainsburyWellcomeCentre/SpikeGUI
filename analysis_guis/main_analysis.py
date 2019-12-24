@@ -2543,7 +2543,9 @@ class AnalysisGUI(QMainWindow):
         :param free_exp_name:
         :param show_trend:
         :param bin_sz:
+        :param lcond_type:
         :param plot_type:
+        :param vel_dir:
         :param plot_grid:
         :param plot_scope:
         :return:
@@ -2761,7 +2763,7 @@ class AnalysisGUI(QMainWindow):
 
             #
             n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
-            ind_ex = [det_expt_index(x, ff_corr.ind_g) for x in ind_gfilt]
+            ind_ex = [det_expt_index(x, ff_corr.ind_g) for x in i_cell_b]
 
             if plot_type == 'Correlation Histogram':
                 #####################################
@@ -3657,18 +3659,454 @@ class AnalysisGUI(QMainWindow):
         t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
         t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
 
-    def plot_free_cell_kinematics(self, free_exp_name, plot_all, vel_bin, plot_grid):
+    def plot_spike_freq_corr_indiv(self, rot_filt, i_cluster, plot_exp_name, plot_shuffle, plot_grid, plot_scope):
         '''
 
-        :param free_exp_name:
-        :param plot_all:
-        :param vel_bin:
+        :param rot_filt:
+        :param i_cluster:
+        :param plot_exp_name:
+        :param plot_shuffle:
         :param plot_grid:
+        :param plot_scope:
         :return:
         '''
 
-        # REMOVE ME LATER
-        pass
+        # initialisations
+        r_data = self.data.rotation
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        if not r_obj_wc.is_ok:
+            self.calc_ok = False
+            return
+
+        ########################################
+        ####    INDIVIDUAL CELL ANALYSIS    ####
+        ########################################
+
+        # parameters
+        p_value = 2.5
+
+        # initialisations
+        xi_cdf = np.linspace(-1, 1, 2001)
+        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+        xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
+
+        # retrieves the base
+        rot_filt_base = cf.init_rotation_filter_data(False)
+        r_obj_b = RotationFilteredData(self.data, rot_filt_base, None, None, False, 'Whole Experiment', False)
+
+        # retrieves the indices of the cells that correspond to the selected experiment
+        i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
+        ind_expt = np.where(r_obj_b.i_expt[0] == i_expt)[0]
+        if i_cluster >= len(ind_expt):
+            # if the cluster index is invalid, then exit the function
+            e_str = 'You have specified an index greater than the number of clusters ({0}) for the selected ' \
+                    'experiment. Reset the cluster index and re-run the function.'.format(len(ind_expt))
+            cf.show_error(e_str, 'Infeasible Cluster Indices')
+            self.calc_ok = False
+            return
+
+        # otherwise, determine the global cell index
+        i_cell_g, t_type = ind_expt[i_cluster - 1], rot_filt['t_type']
+        n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
+        col = cf.get_plot_col(len(t_type))
+
+        # sets the velocity range indices
+        if r_data.split_vel:
+            # case is the velocity range is split into negative/positive ranges
+            i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
+        else:
+            # case is the velocity range is not split
+            i_nw = [np.arange(len(xi))]
+
+        # creates the plot axis
+        self.init_plot_axes(n_row=2, n_col=n_grp)
+        ax = self.plot_fig.ax
+
+        # creates the sub-plot figures for each velocity group type/trial condition
+        for i_grp in range(n_grp):
+            # initialisations
+            lg_str_cdf = []
+            i_ax1, i_ax2 = i_grp, n_grp + i_grp
+
+            for i_tt, tt in enumerate(t_type):
+                ########################################
+                ####    SPIKING FREQUENCY OUTPUT    ####
+                ########################################
+
+                # retrieves the mean/shuffled signal values
+                vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g, i_grp]
+                vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g, i_grp].T
+
+                # creates the signal plot
+                if plot_shuffle:
+                    ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_shuffle, col[i_tt], linewidth=1, alpha=0.05)
+                h_plt.append(ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_mean, col[i_tt], linewidth=2))
+
+                # creates the legend (final plot)
+                ax[i_ax1].grid(plot_grid)
+                if (i_tt + 1) == len(t_type):
+                    ax[i_ax1].legend([x[0] for x in h_plt], t_type)
+
+                ########################################
+                ####    SPIKING FREQUENCY OUTPUT    ####
+                ########################################
+
+                # retrieves the correlation/significance values
+                vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g, i_grp]
+                vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g, i_grp]
+                vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g, i_grp]
+
+                # calculates the cumulative distribution values
+                sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
+                sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
+
+                # creates
+                i_cdf_bin = max(0, np.where(x_cdf > vel_sf_corr_mn)[0][0] - 1)
+                ax[i_ax2].plot(x_cdf, sf_corr_cdf, col[i_tt], linewidth=2)
+                ax[i_ax2].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], '--', c=col[i_tt])
+                h_plt2.append(ax[i_ax2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
+                                                 '--', c=col[i_tt]))
+
+                # appends the legend string and updates the axis properties (if final condition type)
+                lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
+                if (i_tt + 1) == len(t_type):
+                    ax[i_ax2].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
+                    ax[i_ax2].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
+                    ax[i_ax2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
+
+                # sets the axis limits
+                ax[i_ax2].set_xlim([-1, 1])
+                ax[i_ax2].set_ylim([-0.1, 100.1])
+                ax[i_ax2].grid(plot_grid)
+
+        # sets the x/y-labels for the first subplot
+        ax[0].set_ylabel('Spiking Frequency (Hz)')
+        ax[0].set_xlabel('Angular Velocity (deg/s)')
+
+        # sets the cumulative distribution properties for the first subplot
+        ax[n_grp].set_ylabel('Percentage')
+        ax[n_grp].set_xlabel('Correlation')
+
+        if n_grp > 1:
+            # sets the final axis limits
+            y_lim0, y_lim1 = ax[0].get_ylim(), ax[1].get_ylim()
+            y_lim_fin = [min(y_lim0[0], y_lim1[0]), max(y_lim0[1], y_lim1[1])]
+
+            # negative velocity axis properties
+            ax[0].set_title('Negative Velocities')
+            ax[0].set_ylim(y_lim_fin)
+
+            # positive velocity axis properties
+            ax[1].set_title('Positive Velocities')
+            ax[1].set_xlabel('Angular Velocity (deg/s)')
+            ax[1].set_ylim(y_lim_fin)
+
+            # positive velocity correlation cumulative distribution properties
+            ax[3].set_xlabel('Correlation')
+
+        else:
+            # sets the axis title
+            ax[0].set_title('All Velocities')
+
+        # creates the super-title
+        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, False, 'Individual Cell', False)
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0],
+                                   int(r_obj.ch_id[0][0])), fontsize=16, fontweight='bold')
+
+    def plot_spike_freq_corr_hist(self, rot_filt, dist_type, bin_size, comb_all, vel_dir, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param dist_type:
+        :param bin_size:
+        :param vel_dir:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig, n_grp):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            nR, nC = n_grp, 3
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_grp + 1, dtype=object)
+            for i_grp in range(n_grp):
+                # sets up the distribution/significance axis
+                plot_fig.ax[i_grp] = plot_fig.figure.add_subplot(gs[i_grp, :2])
+
+            # turns off the significance axis off
+            plot_fig.ax[-1] = plot_fig.figure.add_subplot(gs[:, -1])
+            plot_fig.ax[-1].axis('off')
+
+        def calc_kw_stats(sf_cdf):
+            '''
+
+            :return:
+            '''
+
+            # parameters
+            p_val = 0.05
+
+            # memory allocation
+            n_grp = len(sf_cdf)
+            kw_stats = np.empty((n_grp, n_grp), dtype=object)
+
+            # sets up the stats strings for each comparison
+            for i_grp in range(n_grp):
+                for j_grp in range(i_grp, n_grp):
+                    if i_grp == j_grp:
+                        # case is the comparison is against itself
+                        kw_stats[i_grp, j_grp] = 'N/A'
+                    else:
+                        # case is the comparison is against another cdf distribution
+                        kw_val = cfcn.calc_kw_stat(sf_cdf[i_grp], sf_cdf[j_grp])
+                        kw_stats_nw = '{:.3f}{}'.format(kw_val, '*' if kw_val < p_val else '')
+                        kw_stats[i_grp, j_grp] = kw_stats[j_grp, i_grp] = kw_stats_nw
+
+            # returns the final stats array
+            return kw_stats
+
+        # initialisations
+        r_data = self.data.rotation
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        if not r_obj_wc.is_ok:
+            self.calc_ok = False
+            return
+
+        # initialisations
+        n_filt = r_obj_wc.n_filt
+        is_hist = dist_type == 'Histogram'
+        i_grp = ['Negative', 'Positive'].index(vel_dir) if r_data.split_vel else 0
+
+        # sets the cdf xi-values
+        xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
+        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # memory allocation
+        A = np.empty(n_filt, dtype=object)
+        v_sf_sig, v_sf_corr, v_sf_score, sf_cdf = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
+
+        # retrieves the indices of the cells that are common across all trial types
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+
+        # sets the spiking frequency significance/correlation
+        for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+            # retrieves the cell indices that correspond to the current filter
+            ind_cell = i_cell_b[i_filt]
+
+            # retrieves the significance flags/correlation values for each cell
+            v_sf_sig[i_filt] = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+            v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
+
+            # calculates the significance scores
+            if r_data.split_vel:
+                v_sf_score[i_filt] = v_sf_sig[i_filt][:, 0].astype(int) + 2 * v_sf_sig[i_filt][:, 1].astype(int)
+            else:
+                v_sf_score[i_filt] = v_sf_sig[i_filt].astype(int)
+
+        #####################################
+        ####    DISTRIBUTION SUBPLOTS    ####
+        #####################################
+
+        # parameters
+        p_wid = 0.85
+        t_type_filt = rot_filt['t_type']
+
+        # sets the legend strings
+        lg_str_d0 = [', '.join(x.split('\n')) for x in r_obj_wc.lg_str] if comb_all else t_type_filt
+        lg_str_d = ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str_d0)]
+
+        # determines the number of the trial types/groups
+        n_tt = len(t_type_filt)
+        n_grp = int(r_obj_wc.n_filt / n_tt)
+        h_plt, col = [], cf.get_plot_col(n_filt) if comb_all else cf.get_plot_col(n_tt) * n_grp
+
+        # sets up the subplot axis
+        n_plot = 1 if comb_all else n_grp
+        setup_plot_axes(self.plot_fig, n_plot)
+        ax = self.plot_fig.ax
+
+        # sets the spiking frequency significance/correlation
+        for i_filt in range(n_filt):
+            # sets the axis
+            i_axD = 0 if comb_all else int(i_filt / n_tt)
+            i_tt = i_filt if comb_all else (i_filt % n_tt)
+
+            # calculates the cumulative distribution values
+            sf_corr_hist = np.histogram(v_sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
+            sf_corr_hist_sum = np.sum(sf_corr_hist)
+            sf_cdf[i_filt] = 100. * np.cumsum(sf_corr_hist / sf_corr_hist_sum)
+
+            # creates the subplot based on the type
+            if is_hist:
+                # sets the bar graph offsets
+                if i_filt == 0:
+                    n_wid = n_filt if comb_all else n_tt
+                    dx = np.linspace(-1, 1, 2 * n_wid + 1)[1::2]
+                    b_wid = p_wid * (x_cdf[1] - x_cdf[0]) / 2
+
+                # case is plotting the histogram
+                sf_corr_hist_sig = np.histogram(v_sf_corr[i_filt][v_sf_sig[i_filt][:, i_grp]],
+                                                bins=xi_cdf, normed=False)[0]
+
+                # calculates the proportions
+                p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+
+                # case is the significant values so normalise using the provided value
+                x_cdf_tt = x_cdf + dx[i_tt] * b_wid
+                ax[i_axD].bar(x_cdf_tt, p_sig, width=2 * b_wid / n_wid, edgecolor=col[i_filt], color=col[i_filt])
+                ax[i_axD].bar(x_cdf_tt, p_nsig, width=2 * b_wid / n_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
+                h_plt.append(ax[i_axD].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
+
+            else:
+                # case is plotting the cumulative distribution
+                h_plt.append(ax[i_axD].plot(x_cdf, sf_cdf[i_filt], c=col[i_filt]))
+
+        # sets the title strings (based on the type)
+        if ('\n' not in r_obj_wc.lg_str[0]) or comb_all:
+            # case is no special filter has been applied (except for trial type) or all filters are combined
+            t_str = ['All Cells']
+        else:
+            # case is there is some sort of additional filter being applied
+            t_str = [', '.join(x.split('\n')[:-1]) for x in r_obj_wc.lg_str]
+
+        # sets the properties for each of the subplot axes
+        for i_ax, _ax in enumerate(ax[:n_plot]):
+            _ax.set_ylabel('Percentage')
+            _ax.set_title(t_str[2 * i_ax])
+            _ax.grid(plot_grid)
+
+            # sets the axis limits and legend for the sub-plot
+            if is_hist:
+                # sets the y-axis limits (first subplot only)
+                if i_ax == 0:
+                    yL_min = np.min([_ax.get_ylim()[0] for _ax in ax[:n_plot]])
+                    yL_max = np.max([_ax.get_ylim()[1] for _ax in ax[:n_plot]])
+
+                # case is the histogram distribution
+                _ax.set_xlim([-1, 1])
+                _ax.set_ylim([yL_min, yL_max])
+                _ax.legend(h_plt, lg_str_d)
+
+                # plots the histogram bin demarkation markers
+                for xx in 0.5 * (x_cdf[:-1] + x_cdf[1:]):
+                    _ax.plot([xx] * 2, [yL_min, yL_max], 'k--', linewidth=0.5)
+
+            else:
+                # sets the x-axis limits (first subplot only)
+                if i_ax == 0:
+                    xL_min = np.min([_ax.get_xlim()[0] for _ax in ax[:n_plot]])
+                    xL_max = np.max([_ax.get_xlim()[1] for _ax in ax[:n_plot]])
+
+                # case is the cumulative distribution
+                _ax.set_xlim([xL_min, xL_max])
+                _ax.set_ylim([-0.1, 100.1])
+                _ax.legend([x[0] for x in h_plt], lg_str_d)
+
+            # sets the x-axis label
+            if (i_ax + 1) < n_plot:
+                # case is the non-final row
+                _ax.set_xticklabels([])
+            else:
+                # case is the final row
+                _ax.set_xlabel('Correlation')
+
+        #######################################
+        ####    DISTRIBUTION STATISTICS    ####
+        #######################################
+
+        # sets the indices for each stats comparison group
+        if comb_all:
+            ind_grp = [np.arange(n_filt)]
+        else:
+            ind_grp = [np.arange(n_tt) + i_grp * n_tt for i_grp in range(n_grp)]
+
+        # initialisations
+        t_props = np.empty(len(ind_grp), dtype=object)
+        cl_hdr = rw_hdr = ['#{0}'.format(i + 1) for i in range(len(lg_str_d))]
+
+        #
+        for i_grp, ig in enumerate(ind_grp):
+            # sets up the statistic strings for the current group comparisons
+            kw_stats = calc_kw_stats(sf_cdf[ig])
+
+            # creates the table
+            col_tab = list(np.array(col)[ig])
+            t_props[i_grp] = cf.add_plot_table(self.plot_fig, ax[-1], table_font_small, kw_stats, rw_hdr,
+                                               cl_hdr, col_tab, col_tab, None)
+
+        # resets the table positions
+        cf.reset_table_pos(self.plot_fig, ax[-1], t_props)
+
+    def plot_spike_freq_corr_scatter(self, rot_filt, vel_dir, x_plot, y_plot, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param vel_dir:
+        :param x_plot:
+        :param y_plot:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            a = 1
+
+        # initialisations
+        r_data = self.data.rotation
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        if not r_obj_wc.is_ok:
+            self.calc_ok = False
+            return
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -4428,293 +4866,6 @@ class AnalysisGUI(QMainWindow):
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, is_single_cell, plot_grid)
-
-    def plot_spike_freq_corr(self, rot_filt, i_cluster, plot_exp_name, dist_type, bin_size, vel_dir, plot_type,
-                             plot_shuffle, plot_grid, plot_scope):
-        '''
-
-        :param rot_filt:
-        :param i_cluster:
-        :param plot_exp_name:
-        :param plot_type:
-        :param plot_grid:
-        :return:
-        '''
-
-        def setup_plot_axes(plot_fig, n_filt):
-            '''
-
-            :return:
-            '''
-
-            # sets up the axes dimensions
-            nC = 3
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
-
-            # creates the gridspec object
-            gs = gridspec.GridSpec(n_filt, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / n_filt] * n_filt,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
-                                   bottom=bottom, top=top)
-
-            # creates the subplots
-            plot_fig.ax = np.empty(n_filt+1, dtype=object)
-            plot_fig.ax[n_filt] = plot_fig.figure.add_subplot(gs[:, -1])
-            for i_filt in range(n_filt):
-                plot_fig.ax[i_filt] = plot_fig.figure.add_subplot(gs[i_filt, :2])
-
-        # initialisations
-        r_data = self.data.rotation
-
-        # initialises the rotation filter (if not set)
-        if rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
-
-        # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        if not r_obj_wc.is_ok:
-            self.calc_ok = False
-            return
-
-        # creates the figure based on the scope type
-        if plot_type == 'Individual Cell':
-            ########################################
-            ####    INDIVIDUAL CELL ANALYSIS    ####
-            ########################################
-
-            # parameters
-            p_value = 2.5
-
-            # sets the cdf xi-values
-            xi_cdf = np.linspace(-1, 1, 2001)
-            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-
-            # retrieves the base
-            rot_filt_base = cf.init_rotation_filter_data(False)
-            r_obj_b = RotationFilteredData(self.data, rot_filt_base, None, None, False, 'Whole Experiment', False)
-
-            # retrieves the indices of the cells that correspond to the selected experiment
-            i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-            ind_expt = np.where(r_obj_b.i_expt[0] == i_expt)[0]
-            if i_cluster >= len(ind_expt):
-                # if the cluster index is invalid, then exit the function
-                e_str = 'You have specified an index greater than the number of clusters ({0}) for the selected ' \
-                        'experiment. Reset the cluster index and re-run the function.'.format(len(ind_expt))
-                cf.show_error(e_str, 'Infeasible Cluster Indices')
-                self.calc_ok = False
-                return
-
-            # otherwise, determine the global cell index
-            i_cell_g, t_type = ind_expt[i_cluster - 1], rot_filt['t_type']
-            n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
-            col = cf.get_plot_col(len(t_type))
-
-            #
-            xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
-            i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
-
-            # creates the plot axis
-            self.init_plot_axes(n_row=2, n_col=n_grp)
-            ax = self.plot_fig.ax
-
-            # creates the sub-plot figures for each velocity group type/trial condition
-            for i_grp in range(n_grp):
-                # initialisations
-                lg_str_cdf = []
-                for i_tt, tt in enumerate(t_type):
-                    ########################################
-                    ####    SPIKING FREQUENCY OUTPUT    ####
-                    ########################################
-
-                    # retrieves the mean/shuffled signal values
-                    vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g, i_grp]
-                    vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g, i_grp].T
-
-                    # creates the signal plot
-                    if plot_shuffle:
-                        ax[i_grp].plot(xi[i_nw[i_grp]], vel_sf_shuffle, col[i_tt], linewidth=1, alpha=0.05)
-                    h_plt.append(ax[i_grp].plot(xi[i_nw[i_grp]], vel_sf_mean, col[i_tt], linewidth=2))
-
-                    # creates the legend (final plot)
-                    ax[i_grp].grid(plot_grid)
-                    if (i_tt + 1) == len(t_type):
-                        ax[i_grp].legend([x[0] for x in h_plt], t_type)
-
-                    ########################################
-                    ####    SPIKING FREQUENCY OUTPUT    ####
-                    ########################################
-
-                    # retrieves the correlation/significance values
-                    vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g, i_grp]
-                    vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g, i_grp]
-                    vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g, i_grp]
-
-                    # calculates the cumulative distribution values
-                    sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
-                    sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
-
-                    # creates
-                    i_cdf_bin = max(0, np.where(x_cdf > vel_sf_corr_mn)[0][0] - 1)
-                    ax[i_grp + 2].plot(x_cdf, sf_corr_cdf, col[i_tt], linewidth=2)
-                    ax[i_grp + 2].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], '--', c=col[i_tt])
-                    h_plt2.append(ax[i_grp + 2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
-                                                     '--', c=col[i_tt]))
-
-                    # appends the legend string and updates the axis properties (if final condition type)
-                    lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
-                    if (i_tt + 1) == len(t_type):
-                        ax[i_grp + 2].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
-                        ax[i_grp + 2].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
-                        ax[i_grp + 2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
-
-                    # sets the axis limits
-                    ax[i_grp + 2].set_xlim([-1, 1])
-                    ax[i_grp + 2].set_ylim([-0.1, 100.1])
-                    ax[i_grp + 2].grid(plot_grid)
-
-            # sets the final axis limits
-            y_lim0, y_lim1 = ax[0].get_ylim(), ax[1].get_ylim()
-            y_lim_fin = [min(y_lim0[0], y_lim1[0]), max(y_lim0[1], y_lim1[1])]
-
-            # negative velocity axis properties
-            ax[0].set_title('Negative Velocities')
-            ax[0].set_ylabel('Spiking Frequency (Hz)')
-            ax[0].set_xlabel('Angular Velocity (deg/s)')
-            ax[0].set_ylim(y_lim_fin)
-
-            # positive velocity axis properties
-            ax[1].set_title('Positive Velocities')
-            ax[1].set_xlabel('Angular Velocity (deg/s)')
-            ax[1].set_ylim(y_lim_fin)
-
-            # negative velocity correlation cumulative distribution properties
-            ax[2].set_ylabel('Percentage')
-            ax[2].set_xlabel('Correlation')
-
-            # positive velocity correlation cumulative distribution properties
-            ax[3].set_xlabel('Correlation')
-
-            # creates the super-title
-            r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, False, 'Individual Cell', False)
-            self.plot_fig.fig.set_tight_layout(False)
-            self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
-            self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0],
-                                       int(r_obj.ch_id[0][0])), fontsize=16, fontweight='bold')
-
-        else:
-            #####################################
-            ####    CORRELATION HISTOGRAM    ####
-            #####################################
-
-            # sets the cdf xi-values
-            xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
-            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-
-            # initialisations
-            is_hist = dist_type == 'Histogram'
-            n_filt = r_obj_wc.n_filt
-            h_plt, col = [], cf.get_plot_col(n_filt)
-            i_ofs = np.cumsum([0] + [x['nC'] for x in self.data.cluster[:-1]])
-            x_str = ['#{0}'.format(i + 1) for i in range(n_filt)]
-            i_grp = ['Negative', 'Positive'].index(vel_dir)
-
-            #
-            lg_str0 = ['#{0} - {1}'.format(i + 1, lg) for i, lg in enumerate(r_obj_wc.lg_str)]
-            lg_str = [x.replace('\n', '/') for x in lg_str0]
-            col_sig = cf.get_plot_col(4, n_filt)
-
-            # # retrieves the trial condition types
-            # t_type = np.unique([x['t_type'] for x in r_obj_wc.rot_filt_tot])
-
-            #
-            ind_cond = cfcn.get_all_match_cond_cells(self.data, rot_filt['t_type'])
-            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-
-            # creates the plot axis
-            setup_plot_axes(self.plot_fig, 1 + (n_filt - 1) * is_hist)
-            ax = self.plot_fig.ax
-
-            #
-            for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
-                # retrieves the cell indices that correspond to the current filter
-                ind_cell = i_cell_b[i_filt]
-
-                # retrieves the significance flags/correlation values for each cell
-                v_sf_sig = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
-                v_sf_corr = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
-                v_sf_score = v_sf_sig[:, 0].astype(int) + 2 * v_sf_sig[:, 1].astype(int)
-
-                # calculates the cumulative distribution values
-                sf_corr_hist = np.histogram(v_sf_corr, bins=xi_cdf, normed=False)[0]
-                sf_corr_hist_sum = np.sum(sf_corr_hist)
-
-                # creates the subplot based on the type
-                if is_hist:
-                    # case is the histogram
-
-                    # calculates the histogram of the significant cells
-                    sf_corr_hist_sig = np.histogram(v_sf_corr[v_sf_sig[:, i_grp]], bins=xi_cdf, normed=False)[0]
-
-                    # calculates the proportions
-                    p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
-                    p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
-
-                    # case is the significant values so normalise using the provided value
-                    b_wid = 0.8*(x_cdf[1] - x_cdf[0])
-                    ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
-                    ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
-
-                else:
-                    # case is the cumulative distribution
-
-                    # case is plotting the cumulative distribution
-                    y_dist = 100. * np.cumsum(sf_corr_hist / sf_corr_hist_sum)
-                    h_plt.append(ax[0].plot(x_cdf, y_dist, c=col[i_filt]))
-
-                # creates the stacked barplots
-                h_plt2, y_bot = [], 0
-                p_sig = [100.* np.mean(v_sf_score == i) for i in range(4)]
-                for i_sig in range(len(p_sig)):
-                    h_plt2.append(ax[-1].bar(i_filt, p_sig[i_sig], bottom=y_bot, width=0.9,
-                                                     color=col_sig[i_sig], edgecolor='k'))
-                    y_bot += p_sig[i_sig]
-
-            if is_hist:
-                yL_min = np.min([_ax.get_ylim()[0] for _ax in ax[:n_filt]])
-                yL_max = np.max([_ax.get_ylim()[1] for _ax in ax[:n_filt]])
-
-                for i_ax, _ax in enumerate(ax[:n_filt]):
-                    _ax.set_xlim([-1, 1])
-                    _ax.set_ylim([yL_min, yL_max])
-                    _ax.set_ylabel('Percentage')
-                    _ax.set_title(r_obj_wc.lg_str[i_ax].replace('\n', '\\'))
-
-                    if (i_ax + 1) < n_filt:
-                        _ax.set_xticklabels([])
-
-                ax[n_filt - 1].set_xlabel('Correlation')
-
-            else:
-                ax[0].set_title('{0} Velocities ({1})'.format(vel_dir, dist_type))
-                ax[0].legend([x[0] for x in h_plt], lg_str, loc=2)
-                ax[0].set_xlabel('Correlation')
-                ax[0].set_ylabel('Percentage')
-
-            # sets the significance values
-            ax[-1].legend([x[0] for x in h_plt2], ['None', 'Negative', 'Positive', 'Both'])
-            ax[-1].set_xlim(np.array([0, n_filt]) - 0.5)
-            ax[-1].set_ylim([-0.1, 100.1])
-            ax[-1].set_xticks(np.arange(n_filt))
-            ax[-1].set_xticklabels(x_str)
-            ax[-1].set_ylabel('% Significant Cells')
-
-            # resets the y-axis limits (if plotting the correlation distribution)
-            if dist_type == 'Correlation Histogram':
-                ax[0].set_ylim([-0.1, 100.1])
-
-            # sets the other axis properties
-            for _ax in ax:
-                _ax.grid(plot_grid)
 
     def plot_overall_direction_bias(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid, plot_scope):
         '''
@@ -5988,12 +6139,7 @@ class AnalysisGUI(QMainWindow):
                 :return:
                 '''
 
-                # calculates the kruskal-wallis
-                # try:
-                #     ph_stats = r_pHOC.kwAllPairsDunnTest(FloatVector(y_grp), FloatVector(i_grp),
-                #                                          p_adjust_method="bonferroni")
-                #     return ph_stats[ph_stats.names.index('p.value')][0]
-                # except:
+                # calculates the kruskal-wallis test
                 kw_stats = r_stats.kruskal_test(FloatVector(y_grp), FloatVector(i_grp))
                 return kw_stats[kw_stats.names.index('p.value')][0]
 
@@ -6007,7 +6153,6 @@ class AnalysisGUI(QMainWindow):
                 #
                 roc_auc_c = dcopy(roc_auc[i_comp + 1])
                 i_grp = [0] * np.size(roc_auc_b, axis=0) + [1] * np.size(roc_auc_c, axis=0)
-
 
                 for i_bin in range(n_bin):
                     # sets the base/comparison values into a single array
@@ -10409,7 +10554,9 @@ class AnalysisGUI(QMainWindow):
         # mandatory update function list
         func_plot_chk = ['Shuffled Cluster Distances',
                          'Cluster Cross-Correlogram',
-                         'Kinematic Spiking Frequency Correlation Significance']
+                         'Kinematic Spiking Frequency Correlation (Individual Cells)',
+                         'Kinematic Spiking Frequency Correlation (Distributions)',
+                         'Kinematic Spiking Frequency Correlation (Scatterplot)']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -11085,21 +11232,21 @@ class AnalysisFunctions(object):
         m_type = ['New Method', 'Old Method']
         scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
-        vd_type = ['Negative', 'Positive']
         ff_plot_type = ['Individual Cell Correlation', 'Correlation Histogram', 'Correlation Scatterplot']
         vel_dir = ['Negative', 'Positive']
         lcond_type = ['LIGHT1', 'LIGHT2']
+        rt_free = ['Black', 'Uniform']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
         plot_comp = self.det_comp_expt_names(False)
 
-        # sets the initial freely moving rotation filter
+        # sets up the freely moving scatterplot rotational filter
         rot_filt_free = cf.init_rotation_filter_data(False)
-        rot_filt_free['t_type'] = ['Black', 'Uniform']
-        free_exp, ff_cluster = self.get_ff_cluster_details()
+        rot_filt_free['t_type'] = dcopy(rt_free)
 
         # initialises the cluster parameters
+        free_exp, ff_cluster = self.get_ff_cluster_details()
         def_clust_para = cfcn.init_clust_para(data.comp, free_exp[0])
 
         # ====> Fixed/Free Cluster Matching
@@ -11273,7 +11420,8 @@ class AnalysisFunctions(object):
             'show_trend': {'type': 'B', 'text': 'Show Regression Trendlines', 'def_val': True},
             'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
             'vel_dir': {
-                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0], 'is_enable': is_split
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
+                'def_val': vel_dir[0], 'is_enabled': is_split
             },
             'lcond_type': {
                 'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
@@ -11383,6 +11531,18 @@ class AnalysisFunctions(object):
 
         # parameter lists
         sig_vel_bin = ['5', '10']
+        dist_type = ['Cumulative Distribution', 'Histogram']
+        is_split = True if not hasattr(data.rotation, 'split_vel') else data.rotation.split_vel
+
+        rot_filt_fm = cf.init_rotation_filter_data(False)
+        rot_filt_kine = cf.init_rotation_filter_data(False)
+
+        # sets up the freely moving scatterplot rotational filter
+        if data.rotation.vel_sf_mean is None:
+            rot_filt_kine['t_type'] = dcopy(rt_free)
+        else:
+            vel_sf_tt = list(data.rotation.vel_sf_mean.keys())
+            rot_filt_fm['t_type'], rot_filt_kine['t_type'] = dcopy(vel_sf_tt), dcopy(vel_sf_tt)
 
         # ====> Freely Moving Cell Type Statistics
         para = {
@@ -11401,25 +11561,158 @@ class AnalysisFunctions(object):
                       func='plot_free_cell_stats',
                       para=para)
 
-        # ====> Freely Moving Cell Kinematic Response
+        # ====> Kinematic Spiking Frequency Correlation (Individual Cells)
         para = {
-            # plotting parameters
-            'free_exp_name': {'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp},
-            'plot_all': {
-                'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['free_exp_name', True]
+            # calculation parameters
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'vel_bin': {
+                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
             },
-            'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'},
+            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
+                'link_para': ['n_smooth', False]
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                'para_reset': [[None, self.reset_vel_range]]
+            },
+
+            # invisible calculation parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': dcopy(rot_filt_fm)
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
         }
         self.add_func(type='Freely Moving Cell Types',
-                      name='Freely Moving Cell Kinematic Response',
-                      func='plot_free_cell_kinematics',
+                      name='Kinematic Spiking Frequency Correlation (Individual Cells)',
+                      func='plot_spike_freq_corr_indiv',
                       para=para)
 
-        # ====> 
+        # ====> Kinematic Spiking Frequency Correlation (Distributions)
+        para = {
+            # calculation parameters
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'vel_bin': {
+                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+            },
+            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
+                'link_para': ['n_smooth', False]
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                'para_reset': [[None, self.reset_vel_range]]
+            },
 
-        # REMOVE ME LATER
-        a = 1
+            # invisible calculation parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': dcopy(rot_filt_fm), 'para_reset': [[None, self.reset_comb_all]]
+            },
+            'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
+            'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
+            'comb_all': {
+                'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
+            },
+            'vel_dir': {
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
+                'def_val': vel_dir[0], 'is_enabled': is_split
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Freely Moving Cell Types',
+                      name='Kinematic Spiking Frequency Correlation (Distributions)',
+                      func='plot_spike_freq_corr_hist',
+                      para=para)
+
+        # ====> Kinematic Spiking Frequency Correlation (Scatterplot)
+        para = {
+            # calculation parameters
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'vel_bin': {
+                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+            },
+            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
+                'link_para': ['n_smooth', False]
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                'para_reset': [[None, self.reset_vel_range]]
+            },
+
+            # invisible calculation parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': rot_filt_kine, 'para_reset': [[None, self.reset_trial_sel]]
+            },
+            'vel_dir': {
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
+                'def_val': vel_dir[0], 'is_enabled': is_split
+            },
+            'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[0]},
+            'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[1]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Freely Moving Cell Types',
+                      name='Kinematic Spiking Frequency Correlation (Scatterplot)',
+                      func='plot_spike_freq_corr_scatter',
+                      para=para)
 
         ##########################################
         ####    ROTATION ANALYSIS FUNCTIONS   ####
@@ -11436,8 +11729,7 @@ class AnalysisFunctions(object):
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
-        ksig_type = ['Individual Cell', 'Correlation Histogram']
-        dist_type = ['Cumulative Distribution', 'Histogram']
+        ksig_type = ['Individual Cell', 'Correlation Histogram', 'Correlation Scatterplot', 'Correlation Significance']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
 
@@ -11638,56 +11930,6 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Analysis',
                       name='Kinematic Spiking Frequency',
                       func='plot_spike_freq_kinematics',
-                      para=para)
-
-        # ====> Kinematic Spiking Frequency Correlation Significance
-        para = {
-            # calculation parameters
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
-            'vel_bin': {
-                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
-            },
-            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
-            'is_smooth': {
-                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
-                'link_para': ['n_smooth', False]
-            },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
-            'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
-                'link_para': ['n_sample', False]
-            },
-            'freq_type': {
-                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
-                'def_val': 'All', 'is_visible': False
-            },
-
-            # plotting parameters
-            'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
-            'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
-            'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
-            'vel_dir': {'type': 'L', 'text': 'Velocity Direction', 'list': vd_type, 'def_val': vd_type[0]},
-            'plot_type': {
-                'type': 'L', 'text': 'Plot Type', 'list': ksig_type, 'def_val': ksig_type[0],
-                'link_para': [['i_cluster', 'Correlation Histogram'], ['plot_exp_name', 'Correlation Histogram'],
-                              ['plot_shuffle', 'Correlation Histogram'], ['dist_type', 'Individual Cell'],
-                              ['vel_dir', 'Individual Cell'], ['bin_size', 'Individual Cell']]
-            },
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
-            # invisible parameters
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
-            },
-        }
-        self.add_func(type='Rotation Analysis',
-                      name='Kinematic Spiking Frequency Correlation Significance',
-                      func='plot_spike_freq_corr',
                       para=para)
 
         # ====> Rotation Trial Cell Depth Direction Selectivity
@@ -13840,6 +14082,8 @@ class AnalysisFunctions(object):
     def update_special_para(self, p_name, fcn_para):
         '''
 
+        :param p_name:
+        :param fcn_para:
         :return:
         '''
 
@@ -13872,7 +14116,6 @@ class AnalysisFunctions(object):
                 # flag that the parameters are finished updating
                 self.is_updating = False
 
-        #
         if h_sp.update_plot:
             self.update_plot()
 
@@ -14537,10 +14780,58 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # initialisations
+        # updates the parameter enabled value for all associated parameters
+        d_grp = self.details[self.get_plot_grp_fcn()]
+
+        # updates the split velocity parameter value
+        for i_grp in [i for i in range(len(d_grp)) if 'split_vel' in d_grp[i]['para']]:
+            d_grp[i_grp]['para']['split_vel']['def_val'] = state > 0
+            self.para[d_grp[i_grp]['name']]['split_vel'] = state > 0
+
+        # updates the velocity direction enabled parameter
+        for i_grp in [i for i in range(len(d_grp)) if 'vel_dir' in d_grp[i]['para']]:
+            d_grp[i_grp]['para']['vel_dir']['is_enabled'] = state > 0
+
+        # updates the split velocity parameter
+        self.curr_para['split_vel'] = state
+
+        # if the velocity direction parameter is present, then update it
         h_list = self.find_obj_handle([QComboBox], 'vel_dir')
         if len(h_list):
             h_list[0].setEnabled(state)
+
+    def reset_comb_all(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # sets the number of selections for each filter type (except trial type and key)
+        multi_sel = np.any(np.array([len(exp_info[x]) for x in exp_info if x not in ['t_type', 't_key']]) > 1)
+
+        # updates the checkbox properties based on the user rotation filter selections
+        h_chk = self.find_obj_handle([QCheckBox], 'comb_all')[0]
+        h_chk.setEnabled(multi_sel)
+        if not multi_sel:
+            h_chk.setChecked(False)
+
+        # updates the parameter enabled value for all associated parameters
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        d_grp[i_grp]['para']['comb_all']['is_enabled'] = multi_sel
+
+    def reset_trial_sel(self, exp_info, p_name):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # REMOVE ME LATER
+        a = 1
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
@@ -15183,11 +15474,13 @@ class RotationData(object):
         self.vel_ci_hi = None                   # velocity roc upper confidence interval
         self.vel_roc_sig = None
 
-        #
+        # velocity shuffled correlation fields
         self.vel_sf_nsm = -1
         self.vel_bin_corr = -1
         self.n_shuffle_corr = -1
         self.vel_sf_eqlt = False
+        self.split_vel = True
+        self.vel_shuffle_calc = False
         self.vel_sf_mean = None
         self.vel_sf_shuffle = None
         self.vel_sf_corr = None

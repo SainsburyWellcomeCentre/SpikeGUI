@@ -38,6 +38,7 @@ class RotationFilter(QDialog):
 
         # other initialisations
         self.grp_type = main_obj.get_plot_grp_fcn()
+        self.curr_fcn = main_obj.get_plot_fcn()
         self.can_close = False
         self.update_plot = False
         self.is_ok = True
@@ -168,10 +169,14 @@ class RotationFilter(QDialog):
         is_rot_expt = cf.det_valid_rotation_expt(self.data)
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
+        # determines the valid group/function types for displaying the trial type field
+        valid_grp = (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
+                                       'Miscellaneous Functions', 'Depth-Based Analysis'])
+        valid_fcn = (self.grp_type == 'Freely Moving Cell Types') and \
+                    (self.curr_fcn != 'Freely Moving Cell Type Statistics')
+
         # retrieves the trial-types from each experiment
-        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
-                              'Miscellaneous Functions', 'Depth-Based Analysis']) or \
-           (self.is_exc and (not self.is_ud)):
+        if (valid_grp or valid_fcn) or (self.is_exc and (not self.is_ud)):
             t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
             if self.use_both:
                 trial_type = [x for x in np.unique(t_list0) if x != 'UniformDrifting']

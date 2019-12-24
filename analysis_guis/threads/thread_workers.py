@@ -140,7 +140,7 @@ class WorkerThread(QThread):
             if self.thread_job_secondary == 'Fixed/Free Cluster Matching':
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['clust'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['clust'])
 
                 # case is determining the cluster matches
                 self.det_cluster_matches(data, calc_para, w_prog)
@@ -160,12 +160,10 @@ class WorkerThread(QThread):
                     return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['ff_corr', 'vel'], other_para=False)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['ff_corr', 'vel'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
-
-                # calculates the fixed/free correlation
                 self.calc_fix_free_correlation(data, calc_para, w_prog)
 
             elif self.thread_job_secondary == 'Cluster Cross-Correlogram':
@@ -176,7 +174,10 @@ class WorkerThread(QThread):
             ####    ROTATION ANALYSIS FUNCTIONS    ####
             ###########################################
 
-            elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation Significance':
+            elif self.thread_job_secondary in ['Kinematic Spiking Frequency Correlation (Individual Cells)',
+                                               'Kinematic Spiking Frequency Correlation (Distributions)',
+                                               'Kinematic Spiking Frequency Correlation (Scatterplot)']:
+
                 # ensures the smoothing window is an odd integer (if smoothing)
                 if calc_para['is_smooth']:
                     if calc_para['n_smooth'] % 2 != 1:
@@ -189,8 +190,13 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
+                elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation (Scatterplot)':
+                    # if the plot type is the kinematic spiking frequency correlation scatterplot, then ensure at
+                    # least two trial types have been selected. if not, output an error and exit the function
+                    a = 1
+
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel', 'vel_sf'], other_para=False)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
@@ -202,7 +208,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition'])
 
                 # case is the shuffled cluster distances
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 100.):
@@ -212,7 +218,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC Curves (Whole Experiment)':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase'])
 
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, False, 33.):
@@ -226,7 +232,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Direction ROC AUC Histograms':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition'])
 
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 100., True):
@@ -236,7 +242,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Single Cell)':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
@@ -244,7 +250,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
@@ -252,7 +258,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
@@ -260,7 +266,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity ROC Significance':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
 
                 # calculates the binned kinematic spike frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
@@ -271,7 +277,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Condition ROC Curve Comparison':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['phase'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['phase'])
 
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.):
@@ -285,7 +291,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Motion/Direction Selectivity Cell Grouping Scatterplot':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase'])
 
                 # calculates the phase roc-curves for each cell
                 if not self.calc_cond_roc_curves(data, pool, calc_para, plot_para, g_para, True, 33.,
@@ -325,7 +331,7 @@ class WorkerThread(QThread):
                     return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase', 'visual'])
 
                 # initisalises the rotational filter (if not initialised already)
                 if plot_para['rot_filt'] is None:
@@ -370,7 +376,7 @@ class WorkerThread(QThread):
 
             # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
             #     # checks to see if any parameters have been altered
-            #     self.check_altered_para(data, calc_para, g_para, ['vel'], other_para=True)
+            #     self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
             #
             #     # calculates the binned kinematic spike frequencies
             #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
@@ -385,7 +391,7 @@ class WorkerThread(QThread):
                 _plot_para['plot_exp_name'] = None
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase', 'visual'])
 
                 # reduces the data clusters to only include the RSPd/RSPg cells
                 _data = cfcn.get_rsp_reduced_clusters(data)
@@ -432,7 +438,7 @@ class WorkerThread(QThread):
                     t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['condition', 'phase', 'visual'])
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase', 'visual'])
 
                 # adds motordrifting (if it is the visual expt type)
                 if calc_para['vis_expt_type'] == 'MotorDrifting':
@@ -495,7 +501,7 @@ class WorkerThread(QThread):
                 d_data = data.discrim.dir
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=d_data)
 
                 # sets up the lda values
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
@@ -515,12 +521,12 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Temporal Duration/Offset LDA':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.temp)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.temp)
 
                 # if the temporal data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.temp.lda is None:
                     # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.temp)
+                    self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.temp)
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.temp,
@@ -541,8 +547,8 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Individual LDA':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.indiv)
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.indiv)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
@@ -571,8 +577,8 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Shuffled LDA':
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.shuffle)
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.shuffle)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                 # sets up the important arrays for the LDA
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
@@ -600,12 +606,12 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'Pooled Neuron LDA':
                 # resets the minimum cell count and checks if the pooled parameters have been altered
                 # calc_para['lda_para']['n_cell_min'] = calc_para['n_cell_min']
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.part)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.part)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.part.lda is None:
                     # checks to see if any base LDA calculation parameters have been altered
-                    self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.dir)
+                    self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.dir)
 
                     # sets up the important arrays for the LDA
                     r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, data.discrim.dir,
@@ -708,7 +714,7 @@ class WorkerThread(QThread):
             elif self.thread_job_secondary == 'LDA Group Weightings':
                 # checks to see if the data class as changed parameters
                 d_data, w_prog = data.discrim.wght, self.work_progress
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=d_data)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=d_data)
 
                 # sets up the lda values
                 r_filt, i_expt, i_cell, n_trial_max, status = cfcn.setup_lda(data, calc_para, d_data,
@@ -731,7 +737,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Speed LDA Accuracy':
                 # checks to see if any base LDA calculation parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdacc)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.spdacc)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.spdc.lda is None:
@@ -752,7 +758,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Speed LDA Comparison (Individual Experiments)':
                 # checks to see if any base LDA calculation parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdc)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.spdc)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.spdc.lda is None:
@@ -774,7 +780,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Speed LDA Comparison (Pooled Experiments)':
                 # checks to see if any base LDA calculation parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spdcp)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.spdcp)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.spdcp.lda is None:
@@ -798,7 +804,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity Direction Discrimination LDA':
                 # checks to see if any base LDA calculation parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['lda'], other_para=data.discrim.spddir)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.spddir)
 
                 # if the pooled data parameters have changed/has not been initialised then calculate the values
                 if data.discrim.spddir.lda is None:
@@ -824,7 +830,7 @@ class WorkerThread(QThread):
 
             elif self.thread_job_secondary == 'Velocity Multilinear Regression Dataframe Output':
                 # checks to see if any base spiking frequency dataframe parameters have been altered
-                self.check_altered_para(data, calc_para, g_para, ['spikedf'], other_para=data.spikedf)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['spikedf'], other_para=data.spikedf)
 
                 # checks to see if the overlap duration is less than the time bin size
                 if calc_para['t_over'] >= calc_para['bin_sz']:
@@ -3689,7 +3695,7 @@ class WorkerThread(QThread):
         # if everything is correct, then return a true value
         return True
 
-    def check_altered_para(self, data, calc_para, g_para, chk_type, other_para=None):
+    def check_altered_para(self, data, calc_para, plot_para, g_para, chk_type, other_para=None):
         '''
 
         :param calc_para:
@@ -3858,18 +3864,28 @@ class WorkerThread(QThread):
                         r_data.vel_roc = None
 
             elif ct == 'vel_sf':
+                # if the spiking frequency calculation field has not been set, then force an update
+                if not hasattr(r_data, 'vel_shuffle_calc'):
+                    data.force_calc = True
+
                 # case is the kinematic spiking frequency calculations
                 is_equal = [
                     check_class_para_equal(r_data, 'vel_sf_nsm', calc_para['n_smooth'] * calc_para['is_smooth']),
                     check_class_para_equal(r_data, 'vel_bin_corr', float(calc_para['vel_bin'])),
                     check_class_para_equal(r_data, 'n_shuffle_corr', calc_para['n_shuffle']),
+                    check_class_para_equal(r_data, 'split_vel', calc_para['split_vel']),
                     check_class_para_equal(r_data, 'vel_sf_eqlt', calc_para['equal_time'])
                 ]
 
                 # if there was a change in any of the parameters, then reset the spiking frequency fields
                 if not np.all(is_equal) or data.force_calc:
-                    r_data.vel_sf_corr = None
+                    r_data.vel_shuffle_calc, r_data.vel_sf_corr = False, None
                     r_data.vel_sf, r_data.vel_sf_rs = None, None
+
+                # determines if all trial conditions have been calculated (for calculation if not)
+                if r_data.vel_shuffle_calc:
+                    t_type = list(r_data.vel_sf_mean.keys())
+                    r_data.vel_shuffle_calc = np.all([tt in t_type for tt in plot_para['rot_filt']['t_type']])
 
             elif ct == 'lda':
                 # case is the LDA calculations

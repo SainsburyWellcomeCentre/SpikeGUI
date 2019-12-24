@@ -2895,3 +2895,40 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False)
 
     # returns the experiment index/fixed-to-free mapping indices
     return i_expt, f2f_map
+
+
+def reset_table_pos(fig, ax_t, t_props):
+    '''
+
+    :param fig:
+    :param ax:
+    :param t_props:
+    :return:
+    '''
+
+    # no need to reset positions if only one table
+    n_table = len(t_props)
+    if n_table == 1:
+        return
+
+    # parameters
+    y_ofs = 40
+
+    # initialisations
+    f_rend = fig.get_renderer()
+    ax_pos = ax_t.get_tightbbox(f_rend).bounds
+    ax_hght = ax_pos[1] + ax_pos[3]
+
+    #
+    t_pos = [tp[0].get_tightbbox(f_rend).bounds for tp in t_props]
+    t_pos_bb = [tp[0]._bbox for tp in t_props]
+
+    #
+    for i_table in range(1, n_table):
+        #
+        p_hght = 1 - i_table / n_table
+        y_nw = (p_hght * ax_hght) - t_pos[i_table][3]
+
+        #
+        t_props[i_table][0]._bbox[1] = y_nw / t_props[i_table][2]
+        t_props[i_table][0]._bbox[0] = t_pos_bb[0][0] + (t_pos_bb[0][2] - t_pos_bb[i_table][2]) / 2

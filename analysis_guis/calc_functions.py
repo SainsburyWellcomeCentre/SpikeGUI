@@ -1901,6 +1901,7 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
     # outputs a message to screen
     w_prog.emit('Spiking Frequency Calculation Complete!', 100.)
 
+
 def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
     '''
 
@@ -1971,13 +1972,18 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
         n_trial, n_bin, n_cell = np.shape(vel_sf)
         n_sm = calc_para['n_smooth'] * calc_para['is_smooth']
 
+        # sets the indices of the groups (based on whether the velocity is being split)
+        if calc_para['split_vel']:
+            ind_grp = [np.arange(n_bin / 2).astype(int), np.arange(n_bin / 2, n_bin).astype(int)]
+        else:
+            ind_grp = [np.arange(n_bin).astype(int)]
+
         # sets the negative/positive velocity indices
-        i_bin_grp = [np.arange(int(n_bin/2)), np.arange(int(n_bin/2), n_bin)]
-        v_bin_grp = [np.mean(r_data.vel_xi[i_b, :], axis=1) for i_b in i_bin_grp]
-        mlt = [-1, 1] if len(i_bin_grp) == 2 else 1
+        v_bin_grp = [np.mean(r_data.vel_xi[i_b, :], axis=1) for i_b in ind_grp]
+        mlt = [-1, 1] if len(ind_grp) == 2 else [1]
 
         # memory allocation
-        n_grp, n_shuffle = len(i_bin_grp), calc_para['n_shuffle']
+        n_grp, n_shuffle = len(ind_grp), calc_para['n_shuffle']
         A = np.empty((n_cell, n_grp), dtype=object)
         v_sf_sh, v_sf_mu, is_sig = dcopy(A), dcopy(A), np.zeros((n_cell, n_grp), dtype=bool)
         v_corr, v_corr_sh = np.ones((n_cell, n_grp)), np.ones((n_shuffle, n_cell, n_grp))
@@ -1991,7 +1997,7 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
             for i_grp in range(n_grp):
                 # sets up the binned spike counts for the current cell (NB - spike counts may not necessarily be integer
                 # because the velocity spiking averages are the average of both the increasing/decreasing velocities)
-                vel_sf_grp = vel_sf[:, :, i_cell][:, i_bin_grp[i_grp]]
+                vel_sf_grp = vel_sf[:, :, i_cell][:, ind_grp[i_grp]]
                 vel_sf_grp = vel_sf_grp[np.logical_not(np.isnan(vel_sf_grp[:, 0])), :]
 
                 # calculates the shuffled spiking frequencies
@@ -2009,6 +2015,10 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
         # returns the shuffled spiking frequencies, correlation arrays
         return v_sf_mu, v_sf_sh, v_corr_sh, v_corr, is_sig
 
+    # if the shuffled spiking frequencies have been calculated already, then exit the function
+    if data.rotation.vel_shuffle_calc:
+        return
+
     # initialisations
     r_data, equal_time = data.rotation, calc_para['equal_time']
     r_obj_k, vel_sf = r_data.r_obj_kine, dcopy(r_data.vel_sf_rs) if equal_time else dcopy(r_data.vel_sf)
@@ -2023,6 +2033,8 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
     # sets the calculation parameters
     r_data.vel_sf_nsm = calc_para['n_smooth'] * calc_para['is_smooth']
     r_data.vel_bin_corr = float(calc_para['vel_bin'])
+    r_data.n_shuffle_corr = float(calc_para['n_shuffle'])
+    r_data.split_vel = calc_para['split_vel']
     r_data.vel_sf_eqlt = equal_time
 
     # calculates the velocity/speed binned spiking frequencies
@@ -2041,6 +2053,9 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
         r_data.vel_sf_mean[tt], r_data.vel_sf_shuffle[tt] = vel_sf_mean, vel_sf_shuffle
         r_data.vel_sf_corr[tt], r_data.vel_sf_corr_mn[tt] = vel_sf_corr, vel_sf_corr_mn
         r_data.vel_sf_sig[tt] = vel_sf_sig
+
+    # updates the shuffled spiking frequency calculation flag
+    r_data.vel_shuffle_calc = True
 
 
 def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
