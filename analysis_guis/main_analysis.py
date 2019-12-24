@@ -3674,10 +3674,6 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         r_data = self.data.rotation
 
-        # initialises the rotation filter (if not set)
-        if rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
-
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
         if not r_obj_wc.is_ok:
@@ -3891,10 +3887,6 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         r_data = self.data.rotation
 
-        # initialises the rotation filter (if not set)
-        if rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
-
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
         if not r_obj_wc.is_ok:
@@ -4072,7 +4064,7 @@ class AnalysisGUI(QMainWindow):
         # resets the table positions
         cf.reset_table_pos(self.plot_fig, ax[-1], t_props)
 
-    def plot_spike_freq_corr_scatter(self, rot_filt, vel_dir, x_plot, y_plot, plot_grid, plot_scope):
+    def plot_spike_freq_corr_scatter(self, rot_filt, x_plot, y_plot, comb_all, vel_dir, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4084,29 +4076,122 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axes(plot_fig):
-            '''
-
-            :param plot_fig:
-            :param n_filt:
-            :return:
-            '''
-
-            # sets up the axes dimensions
-            a = 1
-
         # initialisations
         r_data = self.data.rotation
-
-        # initialises the rotation filter (if not set)
-        if rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
         if not r_obj_wc.is_ok:
+            # if there was an error, then exit with an error flag
             self.calc_ok = False
             return
+
+        elif x_plot == y_plot:
+            # if the x/y axis trial types are the same, then output an error to screen
+            e_str = 'The trial types for the X and Y axis must be unique to run this function.'
+            cf.show_error(e_str, 'Incorrect Plotting Parameters')
+
+            # exits the function with an error flag
+            self.calc_ok = False
+            return
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # initialisations
+        tt_plot = [x_plot, y_plot]
+        i_grp = ['Negative', 'Positive'].index(vel_dir) if r_data.split_vel else 0
+
+        # retrieves the indices of the cells that are common across all trial types (for the selected trial types)
+        t_type_info = np.vstack([[i, x['t_type'][0]] for i, x in
+                                 enumerate(r_obj_wc.rot_filt_tot) if (x['t_type'][0] in tt_plot)])
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_info[:, 1], True)
+
+        # memory allocation
+        n_plot_tt = len(i_cell_b)
+        A = np.empty(n_plot_tt, dtype=object)
+        v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
+
+        # sets the spiking frequency significance/correlation values for the selected trial types
+        for i_filt, tt in enumerate(t_type_info[:, 1]):
+            # retrieves the cell indices that correspond to the current filter
+            ind_cell = i_cell_b[i_filt]
+
+            # retrieves the significance flags/correlation values for each cell
+            v_sf_sig[i_filt] = r_data.vel_sf_sig[tt][i_cell_b[i_filt], i_grp]
+            v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[tt][ind_cell, i_grp]
+
+        ########################################
+        ####    CORRELATION SCATTERPLOTS    ####
+        ########################################
+
+        # parameters
+        m_size, mlt = 20, 3
+
+        # initialises the plot axes
+        n_grp, n_tt = int(n_plot_tt / 2), 2
+        n_plot = 1 if comb_all else int(n_plot_tt / n_tt)
+        n_row, n_col = int(np.ceil(n_plot / 2)), 1 if (n_plot == 1) else 2
+        self.init_plot_axes(n_plot=n_plot, n_row=n_row, n_col=n_col)
+        ax = self.plot_fig.ax
+
+        # determines the number of the trial types/groups
+        h_sig, col = [], cf.get_plot_col(n_plot_tt) if comb_all else cf.get_plot_col(n_tt) * n_grp
+        ind_grp = [np.arange(n_tt) + i_grp * n_tt for i_grp in range(n_grp)]
+
+        # significance colours
+        sig_col = [cf.convert_rgb_col([147, 149, 152])[0],      # non-significant markers
+                   cf.convert_rgb_col(_green)[0],               # black-only significant markers
+                   cf.convert_rgb_col(_bright_purple)[0],       # uniform-only significant markers
+                   cf.convert_rgb_col(_bright_red)[0]]          # both condition significant spikes
+
+        # sets the title strings (based on the type)
+        if ('\n' not in r_obj_wc.lg_str[0]) or comb_all:
+            # case is no special filter has been applied (except for trial type) or all filters are combined
+            t_str = ['All Cells']
+        else:
+            # case is there is some sort of additional filter being applied
+            t_str = [', '.join(x.split('\n')[:-1]) for x in r_obj_wc.lg_str]
+
+        #
+        for i_grp in range(n_grp):
+            # sets the plot index
+            i_plot = 0 if comb_all else i_grp
+
+            # sets the correlation/significance values
+            x_sig, y_sig = v_sf_sig[ind_grp[i_grp][0]], v_sf_sig[ind_grp[i_grp][1]]
+            x_corr, y_corr = v_sf_corr[ind_grp[i_grp][0]], v_sf_corr[ind_grp[i_grp][1]]
+            sig_score = x_sig + 2 * y_sig
+
+            # plots the significant values
+            for i_sig in range(1, 4):
+                # creates the legend markers (first subplot only)
+                if i_plot == 0:
+                    h_sig.append(ax[i_plot].scatter(-2, -2, marker='o', s=mlt * m_size, facecolor=sig_col[i_sig]))
+
+                # determines if there are any significant cells
+                is_sig = sig_score == i_sig
+                if np.any(is_sig):
+                    # if there are significant cells, then
+                    ax[i_plot].scatter(x_corr[is_sig], y_corr[is_sig], marker='o',
+                                       s=mlt * m_size, facecolor=sig_col[i_sig])
+
+            # plots the scatterplot values
+            ax[i_plot].scatter(x_corr, y_corr, marker='o', s=m_size, facecolor=sig_col[0])
+            ax[i_plot].plot([-1, 1], [0, 0], 'r--')
+            ax[i_plot].plot([0, 0], [-1, 1], 'r--')
+            cf.set_axis_limits(ax[i_plot], [-1, 1], [-1, 1])
+
+            # sets the other axis properties
+            ax[i_plot].set_title(t_str[2 * i_plot])
+            ax[i_plot].grid(plot_grid)
+
+            # creates the legend (first subplot only)
+            if ((i_plot == 0) and comb_all) or (not comb_all):
+                ax[i_plot].set_xlabel('{0} Correlation'.format(x_plot))
+                ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
+                ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -11696,12 +11781,15 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'def_val': rot_filt_kine, 'para_reset': [[None, self.reset_trial_sel]]
             },
+            'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[0]},
+            'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[1]},
+            'comb_all': {
+                'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
+            },
             'vel_dir': {
                 'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
                 'def_val': vel_dir[0], 'is_enabled': is_split
             },
-            'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[0]},
-            'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[1]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -14808,19 +14896,8 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # sets the number of selections for each filter type (except trial type and key)
-        multi_sel = np.any(np.array([len(exp_info[x]) for x in exp_info if x not in ['t_type', 't_key']]) > 1)
-
-        # updates the checkbox properties based on the user rotation filter selections
-        h_chk = self.find_obj_handle([QCheckBox], 'comb_all')[0]
-        h_chk.setEnabled(multi_sel)
-        if not multi_sel:
-            h_chk.setChecked(False)
-
-        # updates the parameter enabled value for all associated parameters
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
-        d_grp[i_grp]['para']['comb_all']['is_enabled'] = multi_sel
+        # resets the combine all field
+        self.reset_comb_all_field(exp_info)
 
     def reset_trial_sel(self, exp_info, p_name):
         '''
@@ -14830,8 +14907,67 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # REMOVE ME LATER
-        a = 1
+        # resets the combine all field
+        self.reset_comb_all_field(exp_info)
+
+        # retrieves the new trial type
+        tt_new = exp_info['t_type']
+
+        # updates the parameter enabled value for all associated parameters
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # updates the list parameters
+        d_grp[i_grp]['para']['x_plot']['list'] = dcopy(tt_new)
+        d_grp[i_grp]['para']['y_plot']['list'] = dcopy(tt_new)
+
+        # retrieves the x/y plot checkbox objects
+        h_chk_x = self.find_obj_handle([QComboBox], 'x_plot')[0]
+        h_chk_y = self.find_obj_handle([QComboBox], 'y_plot')[0]
+
+        # updates the x/y axis indices based on the user's selection
+        if len(tt_new) == 1:
+            i_sel_x = i_sel_y = 0
+            self.curr_para['x_plot'] = self.curr_para['y_plot'] = dcopy(tt_new[0])
+        else:
+            # determines if the x/y-axis trial types are in the new trial type selection
+            x_in, y_in = self.curr_para['x_plot'] in tt_new, self.curr_para['y_plot'] in tt_new
+
+            # updates the x-axis trial type index
+            if x_in:
+                # if the trial type is in the trial type selections, then determine the index
+                i_sel_x = tt_new.index(self.curr_para['x_plot'])
+
+            elif y_in:
+                # if the x-axis is not, but the y-axis trial type is, then reset the index
+                i_sel_x = 1 if (tt_new.index(self.curr_para['y_plot']) == 0) else 0
+
+            else:
+                # otherwise, set the new index to the first trial type
+                i_sel_x = 0
+
+            # updates the y-axis trial type index
+            if y_in:
+                # if the trial type is in the trial type selections, then determine the index
+                i_sel_y = tt_new.index(self.curr_para['y_plot'])
+
+            else:
+                # otherwise, set the index based on the x-axis index
+                i_sel_y = 1 if (i_sel_x == 0) else 0
+
+        # updates the x-axis checklist values
+        h_chk_x.clear()
+        for tt in tt_new:
+            h_chk_x.addItem(tt)
+
+        # updates the y-axis checklist values
+        h_chk_y.clear()
+        for tt in tt_new:
+            h_chk_y.addItem(tt)
+
+        # updates the indices
+        h_chk_x.setCurrentIndex(i_sel_x)
+        h_chk_y.setCurrentIndex(i_sel_y)
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
@@ -14858,65 +14994,6 @@ class AnalysisFunctions(object):
         '''
 
         self.curr_fcn = curr_fcn
-
-    @staticmethod
-    def set_missing_para_field(para):
-        '''
-
-        :param para:
-        :return:
-        '''
-
-        # sets the group type flag
-        if 'gtype' not in para:
-            para['gtype'] = 'P'
-
-        # sets the object type flag
-        if 'type' not in para:
-            para['type'] = 'N'
-
-        # sets the link type flag
-        if 'link_para' not in para:
-            para['link_para'] = None
-
-        # sets the link type flag
-        if 'is_list' not in para:
-            para['is_list'] = False
-
-        # sets the link type flag
-        if 'is_int' not in para:
-            para['is_int'] = True
-
-        # sets the link type flag
-        if 'min_val' not in para:
-            para['min_val'] = 1
-
-        # sets the multiple cell flag
-        if 'is_multi' not in para:
-            para['is_multi'] = False
-
-        # sets the enabled flag
-        if 'is_enabled' not in para:
-            para['is_enabled'] = True
-
-        # sets the visible flag
-        if 'is_visible' not in para:
-            para['is_visible'] = True
-
-        # sets the parameter reset function type
-        if 'para_reset' not in para:
-            para['para_reset'] = None
-
-        # sets the reset function type
-        if 'reset_func' not in para:
-            para['reset_func'] = None
-
-        # sets the object type flag
-        if 'other_para' not in para:
-            para['other_para'] = None
-
-        # returns the parameter dictionary
-        return para
 
     def get_group_offset(self, h_grp):
         '''
@@ -15035,6 +15112,87 @@ class AnalysisFunctions(object):
 
         # returns the data arrays
         return free_exp, ff_cluster
+
+    def reset_comb_all_field(self, exp_info):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # sets the number of selections for each filter type (except trial type and key)
+        multi_sel = np.any(np.array([len(exp_info[x]) for x in exp_info if x not in ['t_type', 't_key']]) > 1)
+
+        # updates the checkbox properties based on the user rotation filter selections
+        h_chk = self.find_obj_handle([QCheckBox], 'comb_all')[0]
+        h_chk.setEnabled(multi_sel)
+        if not multi_sel:
+            h_chk.setChecked(False)
+
+        # updates the parameter enabled value for all associated parameters
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        d_grp[i_grp]['para']['comb_all']['is_enabled'] = multi_sel
+
+    @staticmethod
+    def set_missing_para_field(para):
+        '''
+
+        :param para:
+        :return:
+        '''
+
+        # sets the group type flag
+        if 'gtype' not in para:
+            para['gtype'] = 'P'
+
+        # sets the object type flag
+        if 'type' not in para:
+            para['type'] = 'N'
+
+        # sets the link type flag
+        if 'link_para' not in para:
+            para['link_para'] = None
+
+        # sets the link type flag
+        if 'is_list' not in para:
+            para['is_list'] = False
+
+        # sets the link type flag
+        if 'is_int' not in para:
+            para['is_int'] = True
+
+        # sets the link type flag
+        if 'min_val' not in para:
+            para['min_val'] = 1
+
+        # sets the multiple cell flag
+        if 'is_multi' not in para:
+            para['is_multi'] = False
+
+        # sets the enabled flag
+        if 'is_enabled' not in para:
+            para['is_enabled'] = True
+
+        # sets the visible flag
+        if 'is_visible' not in para:
+            para['is_visible'] = True
+
+        # sets the parameter reset function type
+        if 'para_reset' not in para:
+            para['para_reset'] = None
+
+        # sets the reset function type
+        if 'reset_func' not in para:
+            para['reset_func'] = None
+
+        # sets the object type flag
+        if 'other_para' not in para:
+            para['other_para'] = None
+
+        # returns the parameter dictionary
+        return para
 
 ########################################################################################################################
 ########################################################################################################################
