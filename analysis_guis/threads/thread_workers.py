@@ -170,13 +170,11 @@ class WorkerThread(QThread):
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-            ###########################################
-            ####    ROTATION ANALYSIS FUNCTIONS    ####
-            ###########################################
+            #################################################
+            ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
+            #################################################
 
-            elif self.thread_job_secondary in ['Kinematic Spiking Frequency Correlation (Individual Cells)',
-                                               'Kinematic Spiking Frequency Correlation (Distributions)',
-                                               'Kinematic Spiking Frequency Correlation (Scatterplot)']:
+            elif 'Kinematic Spiking Frequency Correlation' in self.thread_job_secondary:
 
                 # ensures the smoothing window is an odd integer (if smoothing)
                 if calc_para['is_smooth']:
@@ -189,11 +187,6 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-
-                elif self.thread_job_secondary == 'Kinematic Spiking Frequency Correlation (Scatterplot)':
-                    # if the plot type is the kinematic spiking frequency correlation scatterplot, then ensure at
-                    # least two trial types have been selected. if not, output an error and exit the function
-                    a = 1
 
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf'], other_para=False)

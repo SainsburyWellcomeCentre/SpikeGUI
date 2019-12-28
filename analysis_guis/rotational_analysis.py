@@ -934,8 +934,9 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         ind_cl_nw = [np.any([x in y for y in rot_filt[ccf]]) for x in grp_str]
 
                     elif ccf == 'match_type':
-                        m_flag = (rot_filt[ccf][0].split(' ')[0] != 'Matched')
-                        ind_cl_nw = list(np.where(data.comp.is_accept == m_flag)[0])
+                        m_flag = 'Matched ' in rot_filt[ccf][0]
+                        # ind_cl_nw = list(np.where(data.comp.data[i_expt].is_accept == m_flag)[0])
+                        ind_cl_nw = data.comp.data[i_expt].is_accept == m_flag
 
                     elif ccf == 'region_name':
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chRegion']]

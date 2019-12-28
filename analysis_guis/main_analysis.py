@@ -2832,8 +2832,9 @@ class AnalysisGUI(QMainWindow):
                     ##############################################
 
                     # calculates the percentage of significant cells (over all experiments)
-                    n_sig = sum([np.sum(sf_sig_all[i_filt][ind_ex[i_filt] == i_ex]) for i_ex in range(n_free)])
-                    p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][ind_ex[i_filt] == i_ex]) for i_ex in range(n_free)]
+                    i_ex_gf = ind_ex[i_filt][ind_gfilt[i_filt]]
+                    n_sig = sum([np.sum(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)])
+                    p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
 
                     # sets up the table values
                     n_sig_tab = np.array([n_sig, n_cell[i_filt] - n_sig, n_cell[i_filt]])
@@ -3856,7 +3857,7 @@ class AnalysisGUI(QMainWindow):
             plot_fig.ax[-1] = plot_fig.figure.add_subplot(gs[:, -1])
             plot_fig.ax[-1].axis('off')
 
-        def calc_kw_stats(sf_cdf):
+        def calc_ks_stats(sf_cdf):
             '''
 
             :return:
@@ -3867,22 +3868,22 @@ class AnalysisGUI(QMainWindow):
 
             # memory allocation
             n_grp = len(sf_cdf)
-            kw_stats = np.empty((n_grp, n_grp), dtype=object)
+            ks_stats = np.empty((n_grp, n_grp), dtype=object)
 
             # sets up the stats strings for each comparison
             for i_grp in range(n_grp):
                 for j_grp in range(i_grp, n_grp):
                     if i_grp == j_grp:
                         # case is the comparison is against itself
-                        kw_stats[i_grp, j_grp] = 'N/A'
+                        ks_stats[i_grp, j_grp] = 'N/A'
                     else:
                         # case is the comparison is against another cdf distribution
-                        kw_val = cfcn.calc_kw_stat(sf_cdf[i_grp], sf_cdf[j_grp])
-                        kw_stats_nw = '{:.3f}{}'.format(kw_val, '*' if kw_val < p_val else '')
-                        kw_stats[i_grp, j_grp] = kw_stats[j_grp, i_grp] = kw_stats_nw
+                        ks_val = cfcn.calc_ks2_stat(sf_cdf[i_grp], sf_cdf[j_grp])
+                        ks_stats_nw = '{:.3f}{}'.format(ks_val, '*' if ks_val < p_val else '')
+                        ks_stats[i_grp, j_grp] = ks_stats[j_grp, i_grp] = ks_stats_nw
 
             # returns the final stats array
-            return kw_stats
+            return ks_stats
 
         # initialisations
         r_data = self.data.rotation
@@ -3989,12 +3990,12 @@ class AnalysisGUI(QMainWindow):
                 h_plt.append(ax[i_axD].plot(x_cdf, sf_cdf[i_filt], c=col[i_filt]))
 
         # sets the title strings (based on the type)
-        if ('\n' not in r_obj_wc.lg_str[0]) or comb_all:
+        if ('\n' not in r_obj_wc.lg_str[0].replace('Matched Clusters\n', '')) or comb_all:
             # case is no special filter has been applied (except for trial type) or all filters are combined
             t_str = ['All Cells']
         else:
             # case is there is some sort of additional filter being applied
-            t_str = [', '.join(x.split('\n')[:-1]) for x in r_obj_wc.lg_str]
+            t_str = [', '.join(x.replace('Matched Clusters\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
 
         # sets the properties for each of the subplot axes
         for i_ax, _ax in enumerate(ax[:n_plot]):
@@ -4054,11 +4055,11 @@ class AnalysisGUI(QMainWindow):
         #
         for i_grp, ig in enumerate(ind_grp):
             # sets up the statistic strings for the current group comparisons
-            kw_stats = calc_kw_stats(sf_cdf[ig])
+            ks_stats = calc_ks_stats(sf_cdf[ig])
 
             # creates the table
             col_tab = list(np.array(col)[ig])
-            t_props[i_grp] = cf.add_plot_table(self.plot_fig, ax[-1], table_font_small, kw_stats, rw_hdr,
+            t_props[i_grp] = cf.add_plot_table(self.plot_fig, ax[-1], table_font_small, ks_stats, rw_hdr,
                                                cl_hdr, col_tab, col_tab, None)
 
         # resets the table positions
@@ -4147,12 +4148,12 @@ class AnalysisGUI(QMainWindow):
                    cf.convert_rgb_col(_bright_red)[0]]          # both condition significant spikes
 
         # sets the title strings (based on the type)
-        if ('\n' not in r_obj_wc.lg_str[0]) or comb_all:
+        if ('\n' not in r_obj_wc.lg_str[0].replace('Matched Clusters\n', '')) or comb_all:
             # case is no special filter has been applied (except for trial type) or all filters are combined
             t_str = ['All Cells']
         else:
             # case is there is some sort of additional filter being applied
-            t_str = [', '.join(x.split('\n')[:-1]) for x in r_obj_wc.lg_str]
+            t_str = [', '.join(x.replace('Matched Clusters\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
 
         #
         for i_grp in range(n_grp):
@@ -4192,6 +4193,158 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_xlabel('{0} Correlation'.format(x_plot))
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
+
+    def plot_spike_freq_corr_signifiance(self, rot_filt, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            nR, nC = 4, 3
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(5, dtype=object)
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:3, :2])
+            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[:3, -1])
+            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[-1, 0])
+            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[-1, 1])
+            plot_fig.ax[4] = plot_fig.figure.add_subplot(gs[-1, 2])
+
+            # turns off the axis
+            plot_fig.ax[2].axis('off')
+            plot_fig.ax[3].axis('off')
+            plot_fig.ax[4].axis('off')
+
+        # initialisations
+        r_data = self.data.rotation
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        if not r_obj_wc.is_ok:
+            # if there was an error, then exit with an error flag
+            self.calc_ok = False
+            return
+
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
+
+        # memory allocation
+        n_filt = r_obj_wc.n_filt
+        n_filt_ex = np.zeros(n_filt, dtype=int)
+        n_cell_ex = np.empty(n_filt, dtype=object)
+        v_sf_sig_count = np.empty(n_filt, dtype=object)
+
+        # retrieves the indices of the cells that are common across all trial types
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+
+        # sets the spiking frequency significance values
+        for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+            # retrieves the indices of the cells within each experiment
+            i_ex = [np.where(r_obj_wc.i_expt[i_filt] == ii)[0] for ii in np.unique(r_obj_wc.i_expt[i_filt])]
+            n_filt_ex[i_filt] = len(i_ex)
+            v_sf_sig_count[i_filt] = np.zeros((n_filt_ex[i_filt], 3))
+            n_cell_ex[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
+
+            # retrieves the significance flags for the current filter type
+            v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+
+            # determines the number of cells for each significance type:
+            #   =0 - No direction is significance
+            #   =1 - Negative direction only is significance
+            #   =2 - Positive direction only is significance
+            #   =3 - Both directions are significance
+            v_sf_sig_score = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
+            v_sf_sig_ex = [v_sf_sig_score[_i_ex] for _i_ex in i_ex]
+            v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+
+        #################################################
+        ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
+        #################################################
+
+        # parameters
+        p_wid = 0.85
+        x_bar = np.arange(3)
+        col = cf.get_plot_col(n_filt)
+        h_plt = []
+
+        # creates the subplot axis
+        setup_plot_axes(self.plot_fig)
+        ax = self.plot_fig.ax
+
+        # sets the spiking frequency significance/correlation
+        for i_filt in range(n_filt):
+            # sets the bar graph offsets
+            if i_filt == 0:
+                dx = np.linspace(-1, 1, 2 * n_filt + 1)[1::2]
+                b_wid = p_wid * (x_bar[1] - x_bar[0]) / 2
+
+            # calculates the significance percentages for each type
+            p_sig = 100. * v_sf_sig_count[i_filt] / n_cell_ex[i_filt]
+            p_sig_mn = np.mean(p_sig, axis=0)
+            p_sig_sem = np.std(p_sig, axis=0) / np.sqrt(n_filt_ex[i_filt])
+
+            # case is the significant values so normalise using the provided value
+            x_bar_tt = x_bar + dx[i_filt] * b_wid
+            ax[0].bar(x_bar_tt, p_sig_mn, width=2 * b_wid / n_filt, yerr=p_sig_sem,
+                      edgecolor=col[i_filt], color=col[i_filt])
+            h_plt.append(ax[0].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
+
+            # calculates the significance percentages (either/or)
+            p_sig_f = 100. * np.sum(v_sf_sig_count[i_filt], axis=1) / n_cell_ex[i_filt][:, 0]
+            p_sig_f_mn = np.mean(p_sig_f)
+            p_sig_f_sem = np.std(p_sig_f) / np.sqrt(n_filt_ex[i_filt])
+
+            # case is the significant values so normalise using the provided value
+            x_bar_f = dx[i_filt] * b_wid
+            ax[1].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
+                      edgecolor=col[i_filt], color=col[i_filt])
+
+        # sets the legend string
+        lg_str0 = [', '.join(x.replace('Matched Clusters\n', '').split('\n')) for x in r_obj_wc.lg_str]
+        ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)])
+
+        # sets the specific axis properties
+        ax[0].set_xticks(np.arange(3))
+        ax[0].set_xticklabels(['Negative', 'Positive', 'Both'])
+        ax[0].set_xlim([-0.5, 2.5])
+
+        # sets the specific axis properties
+        ax[1].set_xticks(np.arange(1))
+        ax[1].set_xticklabels([])
+        ax[1].set_xlim([-0.5, 0.5])
+
+        # sets the general axis properties
+        for _ax in ax[:2]:
+            _ax.set_ylim([-0.1, 100.1])
+            _ax.set_ylabel('%age of Cells')
+            _ax.grid(plot_grid)
+
+        ###################################################
+        ####    CORRELATION SIGNIFICANCE STATISTICS    ####
+        ###################################################
+
+        # REMOVE ME LATER
+        a = 1
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -10641,7 +10794,8 @@ class AnalysisGUI(QMainWindow):
                          'Cluster Cross-Correlogram',
                          'Kinematic Spiking Frequency Correlation (Individual Cells)',
                          'Kinematic Spiking Frequency Correlation (Distributions)',
-                         'Kinematic Spiking Frequency Correlation (Scatterplot)']
+                         'Kinematic Spiking Frequency Correlation (Scatterplot)',
+                         'Kinematic Spiking Frequency Correlation (Significance)']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -11623,6 +11777,7 @@ class AnalysisFunctions(object):
         rot_filt_kine = cf.init_rotation_filter_data(False)
 
         # sets up the freely moving scatterplot rotational filter
+        rot_filt_kine['match_type'] = ['Matched Clusters']
         if data.rotation.vel_sf_mean is None:
             rot_filt_kine['t_type'] = dcopy(rt_free)
         else:
@@ -11677,7 +11832,7 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': dcopy(rot_filt_fm)
+                'def_val': dcopy(rot_filt_fm), 'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -11725,7 +11880,8 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': dcopy(rot_filt_fm), 'para_reset': [[None, self.reset_comb_all]]
+                'def_val': dcopy(rot_filt_fm), 'para_reset': [[None, self.reset_comb_all]],
+                'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
             'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
@@ -11779,7 +11935,8 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': rot_filt_kine, 'para_reset': [[None, self.reset_trial_sel]]
+                'def_val': rot_filt_kine, 'para_reset': [[None, self.reset_trial_sel]],
+                'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[0]},
             'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[1]},
@@ -11800,6 +11957,50 @@ class AnalysisFunctions(object):
         self.add_func(type='Freely Moving Cell Types',
                       name='Kinematic Spiking Frequency Correlation (Scatterplot)',
                       func='plot_spike_freq_corr_scatter',
+                      para=para)
+
+        # ====> Kinematic Spiking Frequency Correlation (Significance)
+        para = {
+            # calculation parameters
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+            },
+            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
+                'link_para': ['n_smooth', False]
+            },
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+
+            # invisible calculation parameters
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': True, 'is_visible': False
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': rot_filt_kine, 'para_gui_var': {'rmv_fields': ['match_type']}
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+        }
+        self.add_func(type='Freely Moving Cell Types',
+                      name='Kinematic Spiking Frequency Correlation (Significance)',
+                      func='plot_spike_freq_corr_signifiance',
                       para=para)
 
         ##########################################

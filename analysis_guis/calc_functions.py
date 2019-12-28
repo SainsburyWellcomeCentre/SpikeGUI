@@ -550,6 +550,18 @@ def calc_kw_stat(hist_1, hist_2):
     return ks_stat
 
 
+def calc_ks2_stat(hist_1, hist_2):
+    '''
+
+    :param hist_1:
+    :param hist_2:
+    :return:
+    '''
+
+    _, ks_stat = stats.ks_2samp(hist_1, hist_2)
+    return ks_stat
+
+
 def calc_wasserstein(hist_1, hist_2):
     '''
 
