@@ -3068,6 +3068,73 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
     return def_para
 
 
+def init_corr_para(r_data):
+    '''
+
+    :param r_data:
+    :return:
+    '''
+
+    def set_corr_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr <= 0) else para_curr
+
+    # initialisations
+    dv_0 = 5
+    r_para = {}
+
+    # sets the parameter fields
+    para_flds = ['n_shuffle', 'vel_bin', 'n_smooth', 'is_smooth', 'n_sample', 'equal_time']
+
+    #
+    for pf in para_flds:
+        # sets the parameter type
+        p_type = 'Number'
+
+        # sets the default value and class field name
+        if pf == 'n_shuffle':
+            def_val, fld_name = 100, 'n_shuffle_corr'
+
+        elif pf == 'vel_bin':
+            def_val, fld_name, p_type = str(dv_0), 'vel_bin_corr', 'String'
+
+        elif pf == 'n_smooth':
+            def_val, fld_name = 5, 'vel_sf_nsm'
+
+        elif pf == 'is_smooth':
+            def_val, fld_name, p_type = False, 'vel_sf_nsm', 'Boolean'
+
+        elif pf == 'n_sample':
+            def_val, fld_name = 100, 'n_rs'
+
+        elif pf == 'equal_time':
+            def_val, fld_name = False, 'vel_sf_eqlt'
+
+        # sets the roc parameter values into the parameter dictionary
+        if hasattr(r_data, fld_name):
+            if p_type == 'Number':
+                r_para[pf] = int(set_corr_para(def_val, getattr(r_data, fld_name)))
+            elif p_type == 'String':
+                r_para[pf] = set_corr_para(def_val, str(int(getattr(r_data, fld_name))))
+            elif p_type == 'Boolean':
+                r_para[pf] = set_corr_para(def_val, getattr(r_data, fld_name)) > 0
+        else:
+            r_para[pf] = def_val
+
+    #
+    return r_para
+
 def init_clust_para(c_comp, free_exp):
     '''
 
@@ -3122,6 +3189,7 @@ def init_clust_para(c_comp, free_exp):
 
     # returns the parameter dictionary
     return c_para
+
 
 def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
     '''

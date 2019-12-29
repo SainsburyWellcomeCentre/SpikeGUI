@@ -59,7 +59,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
-from scipy.stats import linregress, bartlett, ks_2samp
+from scipy.stats import linregress, bartlett, ks_2samp, kruskal
 
 # sklearn module imports
 from sklearn.cluster import KMeans
@@ -97,6 +97,8 @@ fig_hght = 891
 txt_font = cf.create_font_obj()
 table_font = cf.create_font_obj(size=12)
 table_font_small = cf.create_font_obj(size=10)
+table_font_smaller = cf.create_font_obj(size=8)
+table_font_smallest = cf.create_font_obj(size=6)
 txt_font_bold = cf.create_font_obj(is_bold=True, font_weight=QFont.Bold)
 grp_font_sub = cf.create_font_obj(size=10, is_bold=True, font_weight=QFont.Bold)
 grp_font_sub2 = cf.create_font_obj(size=9, is_bold=True, font_weight=QFont.Bold)
@@ -4194,7 +4196,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
-    def plot_spike_freq_corr_signifiance(self, rot_filt, plot_grid, plot_scope):
+    def plot_spike_freq_corr_signifiance(self, rot_filt, show_stats, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -4203,7 +4205,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axes(plot_fig):
+        def setup_plot_axes(plot_fig, show_stats):
             '''
 
             :param plot_fig:
@@ -4212,26 +4214,49 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # sets up the axes dimensions
-            nR, nC = 4, 3
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.225
+            nR, nC, i_ofs = 4, 4, 1
+            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
 
             # creates the gridspec object
             gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
                                    bottom=bottom, top=top)
 
             # creates the subplots
-            plot_fig.ax = np.empty(5, dtype=object)
-            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:3, :2])
-            plot_fig.ax[1] = plot_fig.figure.add_subplot(gs[:3, -1])
-            plot_fig.ax[2] = plot_fig.figure.add_subplot(gs[-1, 0])
-            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[-1, 1])
-            plot_fig.ax[4] = plot_fig.figure.add_subplot(gs[-1, 2])
+            plot_fig.ax = np.empty(1 + nC * show_stats, dtype=object)
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:(nR-show_stats), :])
 
-            # turns off the axis
-            plot_fig.ax[2].axis('off')
-            plot_fig.ax[3].axis('off')
-            plot_fig.ax[4].axis('off')
+            # sets up the statistics tables
+            if show_stats:
+                for iC in range(nC):
+                    plot_fig.ax[iC + i_ofs] = plot_fig.figure.add_subplot(gs[-1, iC])
+                    plot_fig.ax[iC + i_ofs].axis('off')
+
+        def calc_kw_stats(p_sig, n_filt):
+            '''
+
+            :param p_sig:
+            :return:
+            '''
+
+            # parameters
+            p_val = 0.05
+
+            # initialisations
+            kw_stats = np.empty((n_filt, n_filt), dtype=object)
+
+            #
+            for i_filt in range(n_filt):
+                for j_filt in range(i_filt, n_filt):
+                    if i_filt == j_filt:
+                        kw_stats[i_filt, j_filt] = 'N/A'
+                    else:
+                        _, kw_val = kruskal(p_sig[i_filt], p_sig[j_filt])
+                        kw_str = '{:.3f}{}'.format(kw_val, '*' if kw_val < p_val else '')
+                        kw_stats[i_filt, j_filt] = kw_stats[j_filt, i_filt] = kw_str
+
+            # returns the stats array
+            return kw_stats
 
         # initialisations
         r_data = self.data.rotation
@@ -4281,14 +4306,19 @@ class AnalysisGUI(QMainWindow):
         ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
         #################################################
 
-        # parameters
+        # parameters and other initialisations
         p_wid = 0.85
         x_bar = np.arange(3)
         col = cf.get_plot_col(n_filt)
+        x_tick_lbl = ['Negative', 'Positive', 'Both', 'Any Significant']
+
+        # memory allocation
         h_plt = []
+        p_sig = np.empty((n_filt, 3), dtype=object)
+        p_sig_f = np.empty(n_filt, dtype=object)
 
         # creates the subplot axis
-        setup_plot_axes(self.plot_fig)
+        setup_plot_axes(self.plot_fig, show_stats)
         ax = self.plot_fig.ax
 
         # sets the spiking frequency significance/correlation
@@ -4299,9 +4329,12 @@ class AnalysisGUI(QMainWindow):
                 b_wid = p_wid * (x_bar[1] - x_bar[0]) / 2
 
             # calculates the significance percentages for each type
-            p_sig = 100. * v_sf_sig_count[i_filt] / n_cell_ex[i_filt]
-            p_sig_mn = np.mean(p_sig, axis=0)
-            p_sig_sem = np.std(p_sig, axis=0) / np.sqrt(n_filt_ex[i_filt])
+            p_sig0 = 100. * v_sf_sig_count[i_filt] / n_cell_ex[i_filt]
+            p_sig_mn = np.mean(p_sig0, axis=0)
+            p_sig_sem = np.std(p_sig0, axis=0) / np.sqrt(n_filt_ex[i_filt])
+
+            for i_type in range(3):
+                p_sig[i_filt, i_type] = p_sig0[:, i_type]
 
             # case is the significant values so normalise using the provided value
             x_bar_tt = x_bar + dx[i_filt] * b_wid
@@ -4310,13 +4343,13 @@ class AnalysisGUI(QMainWindow):
             h_plt.append(ax[0].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
 
             # calculates the significance percentages (either/or)
-            p_sig_f = 100. * np.sum(v_sf_sig_count[i_filt], axis=1) / n_cell_ex[i_filt][:, 0]
-            p_sig_f_mn = np.mean(p_sig_f)
-            p_sig_f_sem = np.std(p_sig_f) / np.sqrt(n_filt_ex[i_filt])
+            p_sig_f[i_filt] = 100. * np.sum(v_sf_sig_count[i_filt], axis=1) / n_cell_ex[i_filt][:, 0]
+            p_sig_f_mn = np.mean(p_sig_f[i_filt])
+            p_sig_f_sem = np.std(p_sig_f[i_filt]) / np.sqrt(n_filt_ex[i_filt])
 
             # case is the significant values so normalise using the provided value
-            x_bar_f = dx[i_filt] * b_wid
-            ax[1].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
+            x_bar_f = 3 + dx[i_filt] * b_wid
+            ax[0].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
                       edgecolor=col[i_filt], color=col[i_filt])
 
         # sets the legend string
@@ -4324,27 +4357,51 @@ class AnalysisGUI(QMainWindow):
         ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)])
 
         # sets the specific axis properties
-        ax[0].set_xticks(np.arange(3))
-        ax[0].set_xticklabels(['Negative', 'Positive', 'Both'])
-        ax[0].set_xlim([-0.5, 2.5])
+        ax[0].set_xticks(np.arange(len(x_tick_lbl)))
+        ax[0].set_xticklabels(x_tick_lbl)
+        ax[0].set_ylabel('%age of Cells')
+        ax[0].set_xlim([-0.5, 3.5])
+        ax[0].set_ylim([-0.1, 100.1])
+        ax[0].grid(plot_grid)
 
-        # sets the specific axis properties
-        ax[1].set_xticks(np.arange(1))
-        ax[1].set_xticklabels([])
-        ax[1].set_xlim([-0.5, 0.5])
-
-        # sets the general axis properties
-        for _ax in ax[:2]:
-            _ax.set_ylim([-0.1, 100.1])
-            _ax.set_ylabel('%age of Cells')
-            _ax.grid(plot_grid)
+        if not show_stats:
+            return
 
         ###################################################
         ####    CORRELATION SIGNIFICANCE STATISTICS    ####
         ###################################################
 
-        # REMOVE ME LATER
-        a = 1
+        # initialisations
+        n_grp, dt_ofs, i_ofs = 4, 20, 1
+        f_rend = self.plot_fig.get_renderer()
+        rw_hdr = cl_hdr = ['#{0}'.format(i + 1) for i in range(n_filt)]
+        _table_font = cf.get_table_font_size(n_filt)
+
+        # calculates the statistics for each significance group
+        for i_grp in range(n_grp):
+            if (i_grp + 1) == n_grp:
+                # case is the combined significance
+                kw_stats = calc_kw_stats(p_sig_f, n_filt)
+            else:
+                # case is the individual significance
+                kw_stats = calc_kw_stats(p_sig[:, i_grp], n_filt)
+
+            # copies the original axes dimensions
+            bbox0 = ax[i_ofs + i_grp].bbox._bbox
+            ax_hght_0 = dcopy(bbox0.height)
+            ax_hght_abs_0 = dcopy(ax[i_ofs + i_grp].get_tightbbox(f_rend).height)
+
+            # creates the new plot table and retrieves the table height
+            t_props = cf.add_plot_table(self.plot_fig, ax[i_ofs + i_grp], _table_font, kw_stats,
+                                             rw_hdr, cl_hdr, col, col, 'top')
+            t_props[0].draw(f_rend)
+            t_hght_abs_0 = dcopy(t_props[0].get_tightbbox(f_rend).height)
+
+            # resets the axes height
+            ax_hght_nw = ax_hght_abs_0 - (t_hght_abs_0 + dt_ofs)
+            ax_hght_bb_nw = ax_hght_0 * ax_hght_nw / ax_hght_abs_0
+            ax[i_ofs + i_grp].set_position([bbox0.x0, bbox0.y0, bbox0.width, ax_hght_bb_nw])
+            t_props[0]._bbox[3] *= t_hght_abs_0 / t_props[0].get_tightbbox(f_rend).height
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -11784,6 +11841,9 @@ class AnalysisFunctions(object):
             vel_sf_tt = list(data.rotation.vel_sf_mean.keys())
             rot_filt_fm['t_type'], rot_filt_kine['t_type'] = dcopy(vel_sf_tt), dcopy(vel_sf_tt)
 
+        # retrieves the correlation default parameters
+        corr_def_para = cfcn.init_corr_para(data.rotation)
+
         # ====> Freely Moving Cell Type Statistics
         para = {
             # plotting parameters
@@ -11804,19 +11864,29 @@ class AnalysisFunctions(object):
         # ====> Kinematic Spiking Frequency Correlation (Individual Cells)
         para = {
             # calculation parameters
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
             'vel_bin': {
-                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
             },
-            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
             'is_smooth': {
-                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
-                'link_para': ['n_smooth', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
-                'link_para': ['n_sample', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
             },
             'split_vel': {
                 'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
@@ -11852,19 +11922,29 @@ class AnalysisFunctions(object):
         # ====> Kinematic Spiking Frequency Correlation (Distributions)
         para = {
             # calculation parameters
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
             'vel_bin': {
-                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
             },
-            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
             'is_smooth': {
-                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
-                'link_para': ['n_smooth', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
-                'link_para': ['n_sample', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
             },
             'split_vel': {
                 'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
@@ -11907,19 +11987,29 @@ class AnalysisFunctions(object):
         # ====> Kinematic Spiking Frequency Correlation (Scatterplot)
         para = {
             # calculation parameters
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
             'vel_bin': {
-                'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
             },
-            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
             'is_smooth': {
-                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
-                'link_para': ['n_smooth', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
-                'link_para': ['n_sample', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
             },
             'split_vel': {
                 'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
@@ -11962,24 +12052,34 @@ class AnalysisFunctions(object):
         # ====> Kinematic Spiking Frequency Correlation (Significance)
         para = {
             # calculation parameters
-            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 100},
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
             'vel_bin': {
-                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
             },
-            'n_smooth': {'gtype': 'C', 'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
             'is_smooth': {
-                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': False,
-                'link_para': ['n_smooth', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
-                'link_para': ['n_sample', False]
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
             },
 
             # invisible calculation parameters
             'split_vel': {
-                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': True, 'is_visible': False
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
             },
             'freq_type': {
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
@@ -11991,6 +12091,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'def_val': rot_filt_kine, 'para_gui_var': {'rmv_fields': ['match_type']}
             },
+            'show_stats': {'type': 'B', 'text': 'Show Statstics Tables', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters

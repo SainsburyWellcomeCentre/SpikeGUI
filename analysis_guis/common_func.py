@@ -2911,8 +2911,6 @@ def reset_table_pos(fig, ax_t, t_props):
     if n_table == 1:
         return
 
-    # parameters
-    y_ofs = 40
 
     # initialisations
     f_rend = fig.get_renderer()
@@ -2932,3 +2930,18 @@ def reset_table_pos(fig, ax_t, t_props):
         #
         t_props[i_table][0]._bbox[1] = y_nw / t_props[i_table][2]
         t_props[i_table][0]._bbox[0] = t_pos_bb[0][0] + (t_pos_bb[0][2] - t_pos_bb[i_table][2]) / 2
+
+
+def get_table_font_size(n_grp):
+    '''
+
+    :param n_grp:
+    :return:
+    '''
+
+    if n_grp <= 4:
+        return create_font_obj(size=10)
+    elif n_grp <= 6:
+        return create_font_obj(size=8)
+    else:
+        return create_font_obj(size=6)
