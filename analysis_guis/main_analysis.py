@@ -11835,6 +11835,7 @@ class AnalysisFunctions(object):
 
         # sets up the freely moving scatterplot rotational filter
         rot_filt_kine['match_type'] = ['Matched Clusters']
+        rot_filt_fm['match_type'] = ['Matched Clusters']
         if data.rotation.vel_sf_mean is None:
             rot_filt_kine['t_type'] = dcopy(rt_free)
         else:
@@ -11902,7 +11903,8 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': dcopy(rot_filt_fm), 'para_gui_var': {'rmv_fields': ['match_type']}
+                'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer', 'sig_type', 'free_ctype']},
+                'def_val': dcopy(rot_filt_fm)
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
