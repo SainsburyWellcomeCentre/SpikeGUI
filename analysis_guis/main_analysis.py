@@ -739,12 +739,12 @@ class AnalysisGUI(QMainWindow):
                 has_both = has_vis_expt and has_rot_expt
 
                 # if single experiments are loaded, then determine the function types
+                new_func_types = dcopy(func_types)
                 if not self.is_multi:
                     is_keep = [True, True, False, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
                                has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
                     new_func_types = func_types[np.array(is_keep)]
                 else:
-                    new_func_types = dcopy(func_types)
                     if not has_free_data:
                         new_func_types = new_func_types[new_func_types != 'Freely Moving Cell Types']
 
