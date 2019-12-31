@@ -4150,6 +4150,7 @@ class AnalysisGUI(QMainWindow):
                    cf.convert_rgb_col(_bright_red)[0]]          # both condition significant spikes
 
         # sets the title strings (based on the type)
+        n_str = int(len(r_obj_wc.lg_str) / n_grp)
         if ('\n' not in r_obj_wc.lg_str[0].replace('Matched Clusters\n', '')) or comb_all:
             # case is no special filter has been applied (except for trial type) or all filters are combined
             t_str = ['All Cells']
@@ -4186,7 +4187,7 @@ class AnalysisGUI(QMainWindow):
             cf.set_axis_limits(ax[i_plot], [-1, 1], [-1, 1])
 
             # sets the other axis properties
-            ax[i_plot].set_title(t_str[2 * i_plot])
+            ax[i_plot].set_title(t_str[n_str * i_plot])
             ax[i_plot].grid(plot_grid)
 
             # creates the legend (first subplot only)
@@ -14098,6 +14099,9 @@ class AnalysisFunctions(object):
 
         # resets the matching indices
         self.reset_matched_index('ff_cluster', f_data.exp_name[i_sel0])
+
+        # re-initalises all the function data
+        self.init_all_func(True)
 
     ##################################################
     ####    OBJECT CREATION/DELETION FUNCTIONS    ####
