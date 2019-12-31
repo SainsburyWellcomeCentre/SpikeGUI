@@ -4051,6 +4051,11 @@ def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_co
 
     # retrieves the condition filtered rotation data
     i_cell_b, r_obj_indiv = get_cond_filt_data(data, r_obj)
+
+    # only return the matching indices/filters that intersect with the trial type filter array
+    i_match = np.array([i for i, x in enumerate(r_obj_indiv) if x.rot_filt_tot[0]['t_type'][0] in tt_filt])
+    i_cell_b, r_obj_indiv = i_cell_b[i_match], r_obj_indiv[i_match]
+
     if det_intersect:
         # if the common cell index array is not provided, then initialise it here
         if ind_cond is None:
