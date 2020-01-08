@@ -174,7 +174,7 @@ class WorkerThread(QThread):
             ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
             #################################################
 
-            elif 'Kinematic Spiking Frequency Correlation' in self.thread_job_secondary:
+            elif ' (Fixed)' in self.thread_job_secondary:
 
                 # ensures the smoothing window is an odd integer (if smoothing)
                 if calc_para['is_smooth']:

@@ -122,9 +122,10 @@ txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 
 # other initialisations
 dcopy = copy.deepcopy
-func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types', 'Rotation Analysis',
-                       'UniformDrift Analysis', 'ROC Analysis', 'Combined Analysis', 'Depth-Based Analysis',
-                       'Direction LDA', 'Speed LDA', 'Single Experiment Analysis', 'Miscellaneous Functions'])
+func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types',
+                       'Spiking Frequency Correlation', 'Rotation Analysis', 'UniformDrift Analysis', 'ROC Analysis',
+                       'Combined Analysis', 'Depth-Based Analysis', 'Direction LDA', 'Speed LDA',
+                       'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
 _bright_red, _bright_cyan, _bright_purple = (249, 2, 2), (2, 241, 249), (245, 2, 249)
@@ -741,7 +742,7 @@ class AnalysisGUI(QMainWindow):
                 # if single experiments are loaded, then determine the function types
                 new_func_types = dcopy(func_types)
                 if not self.is_multi:
-                    is_keep = [True, True, False, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
+                    is_keep = [True, True, False, has_rot_expt, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
                                has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
                     new_func_types = func_types[np.array(is_keep)]
                 else:
@@ -2662,7 +2663,7 @@ class AnalysisGUI(QMainWindow):
             sf_corr = [sf_c[i_clust, i_grp] for sf_c in ff_corr.sf_corr[i_expt]]
             sf_grad = [sf_g[i_clust, :, i_grp] for sf_g in ff_corr.sf_grad[i_expt]]
             sf_corr_sh = [sf_sh[i_clust, :, i_grp] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
-            sf_sig = [sf_s[i_clust, i_grp] for sf_s in ff_corr.sf_corr_sig[i_expt]]
+            sf_sig = [(sf_s[i_clust, i_grp] != 0) for sf_s in ff_corr.sf_corr_sig[i_expt]]
 
             # initialises the plot axes
             self.init_plot_axes(n_row=n_tt, n_col=2)
@@ -2759,13 +2760,13 @@ class AnalysisGUI(QMainWindow):
 
             # sets the spiking frequency correlation/significance values
             sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :], axis=1)
+            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
+            sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
                                                                         for i_c, i_g in zip(i_cond, ind_gfilt)]
 
             #
             n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
-            ind_ex = [det_expt_index(x, ff_corr.ind_g) for x in i_cell_b]
+            ind_ex = np.array(cf.flat_list([[i] * len(x) for i, x in enumerate(ff_corr.ind_g)]))
 
             if plot_type == 'Correlation Histogram':
                 #####################################
@@ -2786,7 +2787,7 @@ class AnalysisGUI(QMainWindow):
                 b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
 
                 # initialises the plot axes
-                n_col, n_row = cf.det_subplot_dim(n_filt)
+                # n_col, n_row = cf.det_subplot_dim(n_filt)
                 setup_plot_axes(self.plot_fig, n_filt)
                 ax = self.plot_fig.ax
 
@@ -2822,8 +2823,7 @@ class AnalysisGUI(QMainWindow):
                     ax[i_filt].set_xlim([-1, 1])
                     ax[i_filt].grid(plot_grid)
 
-                    # removes the x-ticklabels (except for the final row)
-                    if (i_filt + 1) <= n_filt:
+                    if (i_filt + 1) < n_filt:
                         ax[i_filt].set_xticklabels([])
 
                     # sets the y-axis limits
@@ -2834,7 +2834,7 @@ class AnalysisGUI(QMainWindow):
                     ##############################################
 
                     # calculates the percentage of significant cells (over all experiments)
-                    i_ex_gf = ind_ex[i_filt][ind_gfilt[i_filt]]
+                    i_ex_gf = ind_ex[ind_gfilt[i_filt]]
                     n_sig = sum([np.sum(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)])
                     p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
 
@@ -2865,7 +2865,7 @@ class AnalysisGUI(QMainWindow):
 
                 # initialisations
                 xi = np.arange(n_filt) + 1
-                col_sig, col_row = cf.get_plot_col(n_filt+1), cf.get_plot_col(2, n_filt+1)
+                col_sig, col_row = cf.get_plot_col(n_filt + 1, n_filt), cf.get_plot_col(2, 2 * n_filt + 1)
                 t_props = np.empty(n_filt, dtype=object)
                 col_hdr, row_hdr = ['Matched', 'Unmatched', 'Total'], ['Count', '%age']
 
@@ -2875,7 +2875,7 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the bar graph
                 for i in range(len(xi)):
-                    ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col_sig[i], yerr=p_sig_sem[i])
+                    ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col[i], yerr=p_sig_sem[i])
 
                 # updates the axis properties
                 ax[-1].set_title('%age Matched')
@@ -3540,10 +3540,11 @@ class AnalysisGUI(QMainWindow):
         # other initialisations
         n_expt = len(cell_type)
         n_plot = len(c_key) - (1 + int(not use_place))
+        n_cell = [np.shape(x)[0] for x in cell_type]
 
         # sets the bar graph colours
-        col_b = cf.get_plot_col(n_plot)
-        col_pp = cf.get_plot_col(2, n_plot)
+        col_b = cf.get_plot_col(n_plot+1)
+        col_pp = cf.get_plot_col(2, n_plot+1)
 
         #############################################
         ####    CELL TYPE PERCENTAGES SUBPLOT    ####
@@ -3573,8 +3574,9 @@ class AnalysisGUI(QMainWindow):
         # creates the output table
         p_type_str = np.vstack([np.sum(n_type_cell, axis=0)[1:(n_plot+1)],
                                 np.array(['{:.1f}'.format(pt) for pt in p_type_mu[:n_plot]])])
+        p_type_str = np.hstack(([p_type_str, np.array([str(sum(n_cell)), '100.0']).reshape(-1, 1)]))
         cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['Count', '%age'],
-                                         x_lbl, col_pp, col_b, 'bottom')
+                                         x_lbl + ['Total Cells'], col_pp, col_b, 'bottom')
 
         ####################################
         ####    VENN DIAGRAM SUBPLOT    ####
@@ -3613,8 +3615,8 @@ class AnalysisGUI(QMainWindow):
 
             # creates the venn diagrams based on the type group count
             if use_pcent:
-                n_total = len(set(cf.flat_list([list(x) for x in ct_set])))
-                lbl_fmt = lambda x: f"{(x/n_total):1.0%}"
+                n_total = sum(n_cell)
+                lbl_fmt = lambda x: '{:.1%}'.format(x/n_total)
 
                 if len(ct_lbl) == 3:
                     venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
@@ -3662,7 +3664,11 @@ class AnalysisGUI(QMainWindow):
         t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
         t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
 
-    def plot_spike_freq_corr_indiv(self, rot_filt, i_cluster, plot_exp_name, plot_shuffle, plot_grid, plot_scope):
+    #######################################################
+    ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
+    #######################################################
+
+    def plot_freq_corr_indiv(self, rot_filt, i_cluster, plot_exp_name, plot_shuffle, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -3671,6 +3677,7 @@ class AnalysisGUI(QMainWindow):
         :param plot_shuffle:
         :param plot_grid:
         :param plot_scope:
+        :param is_fixed:
         :return:
         '''
 
@@ -3820,15 +3827,17 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0],
                                    int(r_obj.ch_id[0][0])), fontsize=16, fontweight='bold')
 
-    def plot_spike_freq_corr_hist(self, rot_filt, dist_type, bin_size, comb_all, vel_dir, plot_grid, plot_scope):
+    def plot_freq_corr_hist(self, rot_filt, dist_type, bin_size, comb_all, vel_dir, plot_grid, plot_scope, is_fixed):
         '''
 
         :param rot_filt:
         :param dist_type:
         :param bin_size:
+        :param comb_all:
         :param vel_dir:
         :param plot_grid:
         :param plot_scope:
+        :param is_fixed:
         :return:
         '''
 
@@ -3887,50 +3896,70 @@ class AnalysisGUI(QMainWindow):
             # returns the final stats array
             return ks_stats
 
-        # initialisations
-        r_data = self.data.rotation
-
-        # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        if not r_obj_wc.is_ok:
-            self.calc_ok = False
-            return
+        ###################################
+        ####    DATA PRE-PROCESSING    ####
+        ###################################
 
         # initialisations
-        n_filt = r_obj_wc.n_filt
         is_hist = dist_type == 'Histogram'
-        i_grp = ['Negative', 'Positive'].index(vel_dir) if r_data.split_vel else 0
+        i_grp = ['Negative', 'Positive'].index(vel_dir)
 
         # sets the cdf xi-values
         xi_cdf = np.linspace(-1, 1, int(2 / bin_size) + 1)
         x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
 
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
+        if is_fixed:
+            ###################################
+            ####    FIXED HEAD ANALYSIS    ####
+            ###################################
 
-        # memory allocation
-        A = np.empty(n_filt, dtype=object)
-        v_sf_sig, v_sf_corr, v_sf_score, sf_cdf = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
+            # initialisations
+            r_data = self.data.rotation
 
-        # retrieves the indices of the cells that are common across all trial types
-        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+            # if there was an error setting up the rotation calculation object, then exit the function with an error
+            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+            if not r_obj_wc.is_ok:
+                self.calc_ok = False
+                return
 
-        # sets the spiking frequency significance/correlation
-        for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
-            # retrieves the cell indices that correspond to the current filter
-            ind_cell = i_cell_b[i_filt]
+            # memory allocation
+            n_filt = r_obj_wc.n_filt
+            A = np.empty(n_filt, dtype=object)
+            v_sf_sig, v_sf_corr, v_sf_score, sf_cdf = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
 
-            # retrieves the significance flags/correlation values for each cell
-            v_sf_sig[i_filt] = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
-            v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
+            # retrieves the indices of the cells that are common across all trial types
+            t_type_filt = rot_filt['t_type']
+            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
 
-            # calculates the significance scores
-            if r_data.split_vel:
-                v_sf_score[i_filt] = v_sf_sig[i_filt][:, 0].astype(int) + 2 * v_sf_sig[i_filt][:, 1].astype(int)
-            else:
-                v_sf_score[i_filt] = v_sf_sig[i_filt].astype(int)
+            # sets the spiking frequency significance/correlation
+            for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+                # retrieves the cell indices that correspond to the current filter
+                ind_cell = i_cell_b[i_filt]
+
+                # retrieves the significance flags/correlation values for each cell
+                v_sf_sig[i_filt] = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+                v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[rr['t_type'][0]][ind_cell, i_grp]
+
+                # calculates the significance scores
+                if r_data.split_vel:
+                    v_sf_score[i_filt] = v_sf_sig[i_filt][:, 0].astype(int) + 2 * v_sf_sig[i_filt][:, 1].astype(int)
+                else:
+                    v_sf_score[i_filt] = v_sf_sig[i_filt].astype(int)
+
+        else:
+            ######################################
+            ####    FREELY MOVING ANALYSIS    ####
+            ######################################
+
+            #
+            t_type_filt = dcopy(rot_filt)
+            n_filt = len(t_type_filt)
+
+            # FINISH ME!
+            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
+            self.calc_ok = False
+            return
 
         #####################################
         ####    DISTRIBUTION SUBPLOTS    ####
@@ -3938,7 +3967,6 @@ class AnalysisGUI(QMainWindow):
 
         # parameters
         p_wid = 0.85
-        t_type_filt = rot_filt['t_type']
 
         # sets the legend strings
         lg_str_d0 = [', '.join(x.split('\n')) for x in r_obj_wc.lg_str] if comb_all else t_type_filt
@@ -3946,7 +3974,7 @@ class AnalysisGUI(QMainWindow):
 
         # determines the number of the trial types/groups
         n_tt = len(t_type_filt)
-        n_grp = int(r_obj_wc.n_filt / n_tt)
+        n_grp = int(n_filt / n_tt)
         h_plt, col = [], cf.get_plot_col(n_filt) if comb_all else cf.get_plot_col(n_tt) * n_grp
 
         # sets up the subplot axis
@@ -4067,29 +4095,21 @@ class AnalysisGUI(QMainWindow):
         # resets the table positions
         cf.reset_table_pos(self.plot_fig, ax[-1], t_props)
 
-    def plot_spike_freq_corr_scatter(self, rot_filt, x_plot, y_plot, comb_all, vel_dir, plot_grid, plot_scope):
+    def plot_freq_corr_scatter(self, rot_filt, x_plot, y_plot, comb_all, vel_dir, plot_grid, plot_scope, is_fixed):
         '''
 
         :param rot_filt:
-        :param vel_dir:
         :param x_plot:
         :param y_plot:
+        :param comb_all:
+        :param vel_dir:
         :param plot_grid:
         :param plot_scope:
+        :param is_fixed:
         :return:
         '''
 
-        # initialisations
-        r_data = self.data.rotation
-
-        # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        if not r_obj_wc.is_ok:
-            # if there was an error, then exit with an error flag
-            self.calc_ok = False
-            return
-
-        elif x_plot == y_plot:
+        if x_plot == y_plot:
             # if the x/y axis trial types are the same, then output an error to screen
             e_str = 'The trial types for the X and Y axis must be unique to run this function.'
             cf.show_error(e_str, 'Incorrect Plotting Parameters')
@@ -4104,26 +4124,51 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         tt_plot = [x_plot, y_plot]
-        i_grp = ['Negative', 'Positive'].index(vel_dir) if r_data.split_vel else 0
+        i_grp = ['Negative', 'Positive'].index(vel_dir)
 
-        # retrieves the indices of the cells that are common across all trial types (for the selected trial types)
-        t_type_info = np.vstack([[i, x['t_type'][0]] for i, x in
-                                 enumerate(r_obj_wc.rot_filt_tot) if (x['t_type'][0] in tt_plot)])
-        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_info[:, 1], True)
+        if is_fixed:
+            ###################################
+            ####    FIXED HEAD ANALYSIS    ####
+            ###################################
 
-        # memory allocation
-        n_plot_tt = len(i_cell_b)
-        A = np.empty(n_plot_tt, dtype=object)
-        v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
+            # initialisations
+            r_data = self.data.rotation
 
-        # sets the spiking frequency significance/correlation values for the selected trial types
-        for i_filt, tt in enumerate(t_type_info[:, 1]):
-            # retrieves the cell indices that correspond to the current filter
-            ind_cell = i_cell_b[i_filt]
+            # if there was an error setting up the rotation calculation object, then exit the function with an error
+            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+            if not r_obj_wc.is_ok:
+                # if there was an error, then exit with an error flag
+                self.calc_ok = False
+                return
 
-            # retrieves the significance flags/correlation values for each cell
-            v_sf_sig[i_filt] = r_data.vel_sf_sig[tt][i_cell_b[i_filt], i_grp]
-            v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[tt][ind_cell, i_grp]
+            # retrieves the indices of the cells that are common across all trial types (for the selected trial types)
+            t_type_info = np.vstack([[i, x['t_type'][0]] for i, x in
+                                     enumerate(r_obj_wc.rot_filt_tot) if (x['t_type'][0] in tt_plot)])
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_info[:, 1], True)
+
+            # memory allocation
+            n_plot_tt = len(i_cell_b)
+            A = np.empty(n_plot_tt, dtype=object)
+            v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
+
+            # sets the spiking frequency significance/correlation values for the selected trial types
+            for i_filt, tt in enumerate(t_type_info[:, 1]):
+                # retrieves the cell indices that correspond to the current filter
+                ind_cell = i_cell_b[i_filt]
+
+                # retrieves the significance flags/correlation values for each cell
+                v_sf_sig[i_filt] = r_data.vel_sf_sig[tt][i_cell_b[i_filt], i_grp]
+                v_sf_corr[i_filt] = r_data.vel_sf_corr_mn[tt][ind_cell, i_grp]
+
+        else:
+            ######################################
+            ####    FREELY MOVING ANALYSIS    ####
+            ######################################
+
+            # FINISH ME!
+            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
+            self.calc_ok = False
+            return
 
         ########################################
         ####    CORRELATION SCATTERPLOTS    ####
@@ -4196,12 +4241,14 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
-    def plot_spike_freq_corr_signifiance(self, rot_filt, show_stats, plot_grid, plot_scope):
+    def plot_freq_corr_signifiance(self, rot_filt, show_stats, plot_grid, plot_scope, is_fixed):
         '''
 
         :param rot_filt:
+        :param show_stats:
         :param plot_grid:
         :param plot_scope:
+        :param is_fixed:
         :return:
         '''
 
@@ -4245,11 +4292,12 @@ class AnalysisGUI(QMainWindow):
             # initialisations
             kw_stats = np.empty((n_filt, n_filt), dtype=object)
 
-            #
             for i_filt in range(n_filt):
                 for j_filt in range(i_filt, n_filt):
                     if i_filt == j_filt:
                         kw_stats[i_filt, j_filt] = 'N/A'
+                    elif np.array_equal(p_sig[j_filt], p_sig[i_filt]):
+                        kw_stats[i_filt, j_filt] = kw_stats[j_filt, i_filt] = '1.000'
                     else:
                         _, kw_val = kruskal(p_sig[i_filt], p_sig[j_filt])
                         kw_str = '{:.3f}{}'.format(kw_val, '*' if kw_val < p_val else '')
@@ -4258,49 +4306,68 @@ class AnalysisGUI(QMainWindow):
             # returns the stats array
             return kw_stats
 
-        # initialisations
-        r_data = self.data.rotation
-
-        # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        if not r_obj_wc.is_ok:
-            # if there was an error, then exit with an error flag
-            self.calc_ok = False
-            return
-
         ###################################
         ####    DATA PRE-PROCESSING    ####
         ###################################
 
-        # memory allocation
-        n_filt = r_obj_wc.n_filt
-        n_filt_ex = np.zeros(n_filt, dtype=int)
-        n_cell_ex = np.empty(n_filt, dtype=object)
-        v_sf_sig_count = np.empty(n_filt, dtype=object)
+        if is_fixed:
+            ###################################
+            ####    FIXED HEAD ANALYSIS    ####
+            ###################################
 
-        # retrieves the indices of the cells that are common across all trial types
-        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+            # initialisations
+            r_data = self.data.rotation
 
-        # sets the spiking frequency significance values
-        for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
-            # retrieves the indices of the cells within each experiment
-            i_ex = [np.where(r_obj_wc.i_expt[i_filt] == ii)[0] for ii in np.unique(r_obj_wc.i_expt[i_filt])]
-            n_filt_ex[i_filt] = len(i_ex)
-            v_sf_sig_count[i_filt] = np.zeros((n_filt_ex[i_filt], 3))
-            n_cell_ex[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
+            # if there was an error setting up the rotation calculation object, then exit the function with an error
+            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+            if not r_obj_wc.is_ok:
+                # if there was an error, then exit with an error flag
+                self.calc_ok = False
+                return
 
-            # retrieves the significance flags for the current filter type
-            v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+            # retrieves the indices of the cells that are common across all trial types
+            n_filt = r_obj_wc.n_filt
+            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
 
-            # determines the number of cells for each significance type:
-            #   =0 - No direction is significance
-            #   =1 - Negative direction only is significance
-            #   =2 - Positive direction only is significance
-            #   =3 - Both directions are significance
-            v_sf_sig_score = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
-            v_sf_sig_ex = [v_sf_sig_score[_i_ex] for _i_ex in i_ex]
-            v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+            # memory allocation
+            n_filt_ex = np.zeros(n_filt, dtype=int)
+            n_cell_ex = np.empty(n_filt, dtype=object)
+            v_sf_sig_count = np.empty(n_filt, dtype=object)
+
+            # sets the spiking frequency significance values
+            for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+                # retrieves the indices of the cells within each experiment
+                i_ex = [np.where(r_obj_wc.i_expt[i_filt] == ii)[0] for ii in np.unique(r_obj_wc.i_expt[i_filt])]
+                n_filt_ex[i_filt] = len(i_ex)
+                v_sf_sig_count[i_filt] = np.zeros((n_filt_ex[i_filt], 3))
+                n_cell_ex[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
+
+                # retrieves the significance flags for the current filter type
+                v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+
+                # determines the number of cells for each significance type:
+                #   =0 - No direction is significance
+                #   =1 - Negative direction only is significance
+                #   =2 - Positive direction only is significance
+                #   =3 - Both directions are significance
+                v_sf_sig_score = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
+                v_sf_sig_ex = [v_sf_sig_score[_i_ex] for _i_ex in i_ex]
+                v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+
+        else:
+            ######################################
+            ####    FREELY MOVING ANALYSIS    ####
+            ######################################
+
+            # initialisations
+            t_type_full = dcopy(rot_filt)
+            n_filt = len(t_type_full)
+
+            # FINISH ME!
+            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
+            self.calc_ok = False
+            return
 
         #################################################
         ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
@@ -10839,7 +10906,8 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # mandatory update plot scope list
-        plot_scope_chk = ['ROC Analysis',
+        plot_scope_chk = ['Spiking Frequency Correlation',
+                          'ROC Analysis',
                           'Combined Analysis',
                           'Depth-Based Analysis',
                           'Direction LDA',
@@ -10848,11 +10916,7 @@ class AnalysisGUI(QMainWindow):
 
         # mandatory update function list
         func_plot_chk = ['Shuffled Cluster Distances',
-                         'Cluster Cross-Correlogram',
-                         'Kinematic Spiking Frequency Correlation (Individual Cells)',
-                         'Kinematic Spiking Frequency Correlation (Distributions)',
-                         'Kinematic Spiking Frequency Correlation (Scatterplot)',
-                         'Kinematic Spiking Frequency Correlation (Significance)']
+                         'Cluster Cross-Correlogram']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -11668,7 +11732,7 @@ class AnalysisFunctions(object):
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list': True},
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
             't_lim': {'text': 'Upper Time Limit', 'def_val': 500, 'min_val': 10},
-            'plot_all_bin': {'type': 'B', 'text': 'Plot All Histogram Time Bins', 
+            'plot_all_bin': {'type': 'B', 'text': 'Plot All Histogram Time Bins',
                              'def_val': False, 'link_para': ['t_lim', True]},
             'is_norm': {'type': 'B', 'text': 'Use ISI Probabilities', 'def_val': True},
             'equal_ax': {'type': 'B', 'text': 'Use Equal Y-Axis Limits', 'def_val': False},
@@ -11827,26 +11891,6 @@ class AnalysisFunctions(object):
 
         # only initialise these functions if there is free data
         if has_free_data:
-            # parameter lists
-            sig_vel_bin = ['5', '10']
-            dist_type = ['Cumulative Distribution', 'Histogram']
-            is_split = True if not hasattr(data.rotation, 'split_vel') else data.rotation.split_vel
-
-            rot_filt_fm = cf.init_rotation_filter_data(False)
-            rot_filt_kine = cf.init_rotation_filter_data(False)
-
-            # sets up the freely moving scatterplot rotational filter
-            rot_filt_kine['match_type'] = ['Matched Clusters']
-            rot_filt_fm['match_type'] = ['Matched Clusters']
-            if data.rotation.vel_sf_mean is None:
-                rot_filt_kine['t_type'] = dcopy(rt_free)
-            else:
-                vel_sf_tt = list(data.rotation.vel_sf_mean.keys())
-                rot_filt_fm['t_type'], rot_filt_kine['t_type'] = dcopy(vel_sf_tt), dcopy(vel_sf_tt)
-
-            # retrieves the correlation default parameters
-            corr_def_para = cfcn.init_corr_para(data.rotation)
-
             # ====> Freely Moving Cell Type Statistics
             para = {
                 # plotting parameters
@@ -11854,7 +11898,7 @@ class AnalysisFunctions(object):
                 'plot_all': {
                     'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['free_exp_name', True]
                 },
-                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin, 'def_val': '5'},
+                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
                 'use_pcent': {'type': 'B', 'text': 'Use Percentages For Venn Diagram', 'def_val': True},
                 'use_place': {'type': 'B', 'text': 'Include Place Cells For Analysis', 'def_val': False},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -11864,119 +11908,290 @@ class AnalysisFunctions(object):
                           func='plot_free_cell_stats',
                           para=para)
 
-            # ====> Kinematic Spiking Frequency Correlation (Individual Cells)
+        ######################################################
+        ####    SPIKING FREQUENCY CORRELATION FUNCTIONS   ####
+        ######################################################
+
+        # initialisations
+        sig_vel_bin = ['5', '10']
+        dist_type = ['Cumulative Distribution', 'Histogram']
+
+        # sets up the fixed correlation rotational filter
+        rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
+        if data.rotation.vel_sf_mean is None:
+            rot_filt_corr_fixed['t_type'] = dcopy(rt_free)
+        else:
+            vel_sf_tt = list(data.rotation.vel_sf_mean.keys())
+            rot_filt_corr_fixed['t_type'] = dcopy(vel_sf_tt)
+
+        # retrieves the correlation default parameters
+        corr_def_para = cfcn.init_corr_para(data.rotation)
+        rt_corr = dcopy(rot_filt_corr_fixed['t_type'])
+
+        # ====> Individual Cell Correlation (Fixed)
+        para = {
+            # calculation parameters
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+            },
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
+            },
+
+            # invisible calculation parameters
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer',
+                                                'sig_type', 'free_ctype']},
+                'def_val': dcopy(rot_filt_corr_fixed)
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                'is_visible': False
+            },
+        }
+        self.add_func(type='Spiking Frequency Correlation',
+                      name='Individual Cell Correlation (Fixed)',
+                      func='plot_freq_corr_indiv',
+                      para=para)
+
+        # ====> Correlation Distributions (Fixed)
+        para = {
+            # calculation parameters
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+            },
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
+            },
+
+            # invisible calculation parameters
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': dcopy(rot_filt_corr_fixed), 'para_reset': [[None, self.reset_comb_all]],
+                'para_gui_var': {'rmv_fields': ['match_type']}
+            },
+            'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
+            'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
+            'comb_all': {
+                'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
+            },
+            'vel_dir': {
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                'is_visible': False
+            },
+            'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
+        }
+        self.add_func(type='Spiking Frequency Correlation',
+                      name='Correlation Distributions (Fixed)',
+                      func='plot_freq_corr_hist',
+                      para=para)
+
+        # ====> Correlation Scatterplot (Fixed)
+        para = {
+            # calculation parameters
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+            },
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
+            },
+
+            # invisible calculation parameters
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': rot_filt_corr_fixed, 'para_reset': [[None, self.reset_trial_sel]],
+                'para_gui_var': {'rmv_fields': ['match_type']}
+            },
+            'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[0]},
+            'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[1]},
+            'comb_all': {
+                'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
+            },
+            'vel_dir': {
+                'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+            'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
+        }
+        self.add_func(type='Spiking Frequency Correlation',
+                      name='Correlation Scatterplot (Fixed)',
+                      func='plot_freq_corr_scatter',
+                      para=para)
+
+        # ====> Correlation Significance (Fixed)
+        para = {
+            # calculation parameters
+            'n_shuffle': {
+                'gtype': 'C', 'text': 'Trial Shuffle Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+            },
+            'vel_bin': {
+                'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+            },
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+            },
+            'n_sample': {
+                'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+            },
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
+            },
+
+            # invisible calculation parameters
+            'split_vel': {
+                'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
+            },
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': rot_filt_corr_fixed, 'para_gui_var': {'rmv_fields': ['match_type']}
+            },
+            'show_stats': {'type': 'B', 'text': 'Show Statstics Tables', 'def_val': True},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
+            'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
+        }
+        self.add_func(type='Spiking Frequency Correlation',
+                      name='Correlation Significance (Fixed)',
+                      func='plot_freq_corr_signifiance',
+                      para=para)
+
+        # only initialise these functions if there is free data
+        if has_free_data:
+            # retrieves the freely moving trial types
+            tt_free = dcopy(list(data.externd.free_data.t_type))
+
+            # ====> Correlation Distributions (Freely Moving)
             para = {
-                # calculation parameters
-                'n_shuffle': {
-                    'gtype': 'C', 'text': 'Trial Shuffle Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
-                },
-                'vel_bin': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
-                },
-                'n_smooth': {
-                    'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
-                },
-                'is_smooth': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
-                },
-                'n_sample': {
-                    'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
-                },
-                'equal_time': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
-                },
-                'split_vel': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
-                    'para_reset': [[None, self.reset_vel_range]]
-                },
-
-                # invisible calculation parameters
-                'freq_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
-                    'def_val': 'All', 'is_visible': False
-                },
-
                 # plotting parameters
                 'rot_filt': {
-                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer',
-                                                    'sig_type', 'free_ctype']},
-                    'def_val': dcopy(rot_filt_fm)
-                },
-                'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-                'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-                'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
-                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
-                # invisible parameters
-                'plot_scope': {
-                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
-                    'is_visible': False
-                },
-            }
-            self.add_func(type='Freely Moving Cell Types',
-                          name='Kinematic Spiking Frequency Correlation (Individual Cells)',
-                          func='plot_spike_freq_corr_indiv',
-                          para=para)
-
-            # ====> Kinematic Spiking Frequency Correlation (Distributions)
-            para = {
-                # calculation parameters
-                'n_shuffle': {
-                    'gtype': 'C', 'text': 'Trial Shuffle Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
-                },
-                'vel_bin': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
-                },
-                'n_smooth': {
-                    'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
-                },
-                'is_smooth': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
-                },
-                'n_sample': {
-                    'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
-                },
-                'equal_time': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
-                },
-                'split_vel': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
-                    'para_reset': [[None, self.reset_vel_range]]
-                },
-
-                # invisible calculation parameters
-                'freq_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
-                    'def_val': 'All', 'is_visible': False
-                },
-
-                # plotting parameters
-                'rot_filt': {
-                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'def_val': dcopy(rot_filt_fm), 'para_reset': [[None, self.reset_comb_all]],
-                    'para_gui_var': {'rmv_fields': ['match_type']}
+                    'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
+                    'def_val': np.ones(len(tt_free), dtype=bool),
                 },
                 'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
                 'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
                 'comb_all': {
-                    'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
+                    'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': True, 'is_visible': False
                 },
                 'vel_dir': {
-                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
-                    'def_val': vel_dir[0], 'is_enabled': is_split
+                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0]
                 },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -11985,135 +12200,70 @@ class AnalysisFunctions(object):
                     'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
                     'is_visible': False
                 },
+                'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Freely Moving Cell Types',
-                          name='Kinematic Spiking Frequency Correlation (Distributions)',
-                          func='plot_spike_freq_corr_hist',
+            self.add_func(type='Spiking Frequency Correlation',
+                          name='Correlation Distributions (Freely Moving)',
+                          func='plot_freq_corr_hist',
                           para=para)
 
-            # ====> Kinematic Spiking Frequency Correlation (Scatterplot)
+            # ====> Correlation Scatterplot (Freely Moving)
             para = {
-                # calculation parameters
-                'n_shuffle': {
-                    'gtype': 'C', 'text': 'Trial Shuffle Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
-                },
-                'vel_bin': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
-                },
-                'n_smooth': {
-                    'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
-                },
-                'is_smooth': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
-                },
-                'n_sample': {
-                    'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
-                },
-                'equal_time': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
-                },
-                'split_vel': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
-                    'para_reset': [[None, self.reset_vel_range]]
-                },
-
-                # invisible calculation parameters
-                'freq_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
-                    'def_val': 'All', 'is_visible': False
-                },
-
                 # plotting parameters
                 'rot_filt': {
-                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'def_val': rot_filt_kine, 'para_reset': [[None, self.reset_trial_sel]],
-                    'para_gui_var': {'rmv_fields': ['match_type']}
+                    'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
+                    'def_val': np.ones(len(tt_free), dtype=bool),
                 },
-                'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[0]},
-                'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_free, 'def_val': rt_free[1]},
+                'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': tt_free, 'def_val': tt_free[0]},
+                'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': tt_free, 'def_val': tt_free[1]},
                 'comb_all': {
                     'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
                 },
                 'vel_dir': {
-                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
-                    'def_val': vel_dir[0], 'is_enabled': is_split
+                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir, 'def_val': vel_dir[0]
                 },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
                 # invisible parameters
                 'plot_scope': {
-                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'is_visible': False
                 },
+                'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Freely Moving Cell Types',
-                          name='Kinematic Spiking Frequency Correlation (Scatterplot)',
-                          func='plot_spike_freq_corr_scatter',
+            self.add_func(type='Spiking Frequency Correlation',
+                          name='Correlation Scatterplot (Freely Moving)',
+                          func='plot_freq_corr_scatter',
                           para=para)
 
-            # ====> Kinematic Spiking Frequency Correlation (Significance)
+            # ====> Correlation Significance (Freely Moving)
             para = {
-                # calculation parameters
-                'n_shuffle': {
-                    'gtype': 'C', 'text': 'Trial Shuffle Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
-                },
-                'vel_bin': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
-                },
-                'n_smooth': {
-                    'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
-                },
-                'is_smooth': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
-                },
-                'n_sample': {
-                    'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
-                    'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
-                },
-                'equal_time': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
-                    'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
-                },
-
-                # invisible calculation parameters
-                'split_vel': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
-                },
-                'freq_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
-                    'def_val': 'All', 'is_visible': False
-                },
-
                 # plotting parameters
                 'rot_filt': {
-                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'def_val': rot_filt_kine, 'para_gui_var': {'rmv_fields': ['match_type']}
+                    'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
+                    'def_val': np.ones(len(tt_free), dtype=bool),
                 },
                 'show_stats': {'type': 'B', 'text': 'Show Statstics Tables', 'def_val': True},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
-                # invisible parameters
+                # invisible plotting parameters
                 'plot_scope': {
-                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'is_visible': False
                 },
+                'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Freely Moving Cell Types',
-                          name='Kinematic Spiking Frequency Correlation (Significance)',
-                          func='plot_spike_freq_corr_signifiance',
+            self.add_func(type='Spiking Frequency Correlation',
+                          name='Correlation Significance (Freely Moving)',
+                          func='plot_freq_corr_signifiance',
                           para=para)
 
         ##########################################
         ####    ROTATION ANALYSIS FUNCTIONS   ####
         ##########################################
+
+        if not hasattr(data.rotation, 'vel_sf_mean'):
+            data.rotation.vel_sf_mean = None
 
         # parameters
         t_phase, t_ofs = 1.0, 0.2
@@ -12136,9 +12286,9 @@ class AnalysisFunctions(object):
         comp_type = list(comp_type[comp_type != 'Black'])
         ind_comp = [x == 'Uniform' for x in comp_type]
 
-        #
-        rot_filt_all = cf.init_rotation_filter_data(False)
-        rot_filt_all['t_type'] = ['Black'] + p_cond
+        # initialises the rotation filter for
+        rot_filt_comp = cf.init_rotation_filter_data(False)
+        rot_filt_comp['t_type'] = ['Black'] + p_cond
 
         # ====> Rotation Trial Spike Rate Rasterplot/Histograms
         para = {
@@ -12916,7 +13066,7 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_all
+                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_comp
             },
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',

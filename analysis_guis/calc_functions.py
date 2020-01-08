@@ -2136,7 +2136,7 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
         sf_grad[i_cond] = np.zeros((n_cell, 2, n_grp))
         sf_corr[i_cond] = np.zeros((n_cell, n_grp))
         sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff, n_grp))
-        is_sig[i_cond] = np.zeros((n_cell, n_grp), dtype=bool)
+        is_sig[i_cond] = np.zeros((n_cell, n_grp), dtype=int)
 
     #
     for i_cell in range(n_cell):
@@ -2168,8 +2168,8 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
 
                 # calculates the cell's shuffled spiking frequency correlations and statistical significance
                 p_tile = np.percentile(sf_corr_sh[i_cond][i_cell, :, i_grp], p_value_rng)
-                is_sig[i_cond][i_cell, i_grp] = (sf_corr[i_cond][i_cell, i_grp] < p_tile[0]) or \
-                                                (sf_corr[i_cond][i_cell, i_grp] > p_tile[1])
+                is_sig[i_cond][i_cell, i_grp] = int(sf_corr[i_cond][i_cell, i_grp] > p_tile[1]) - \
+                                                int(sf_corr[i_cond][i_cell, i_grp] < p_tile[0])
 
 
 def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
@@ -3132,7 +3132,7 @@ def init_corr_para(r_data):
         else:
             r_para[pf] = def_val
 
-    #
+    # returns the parameter dictionary
     return r_para
 
 def init_clust_para(c_comp, free_exp):
