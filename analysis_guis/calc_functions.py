@@ -3469,6 +3469,11 @@ def reduce_cluster_data(data, i_expt):
     # creates a copy of the data and removes any
     data_tmp = EmptyAnalysisData()
 
+    # copies the sub-fields
+    data_tmp.rotation = scopy(data.rotation)
+    data_tmp.classify = scopy(data.classify)
+    data_tmp.comp = scopy(data.comp)
+
     # reduces down the number of
     if data.cluster is not None:
         data_tmp.cluster = [scopy(data.cluster[i_ex]) for i_ex in i_expt]

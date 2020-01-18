@@ -2939,9 +2939,9 @@ def get_table_font_size(n_grp):
     :return:
     '''
 
-    if n_grp <= 4:
+    if n_grp <= 2:
         return create_font_obj(size=10)
-    elif n_grp <= 6:
+    elif n_grp <= 4:
         return create_font_obj(size=8)
     else:
         return create_font_obj(size=6)

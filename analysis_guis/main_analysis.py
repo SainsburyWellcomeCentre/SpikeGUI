@@ -557,6 +557,10 @@ class AnalysisGUI(QMainWindow):
     def finished_thread_job(self, iw, worker_data=None, manual_exit=False, is_plot=False):
         '''
 
+        :param iw:
+        :param worker_data:
+        :param manual_exit:
+        :param is_plot:
         :return:
         '''
 
@@ -659,6 +663,12 @@ class AnalysisGUI(QMainWindow):
                             # if the loaded data correlation calculations have been made, then update that field
                             if loaded_data['ff_corr'].is_set:
                                 self.data.comp.ff_corr = loaded_data['ff_corr']
+
+                            # if the loaded data correlation calculations have been made, then update that field
+                            if 'f_data' in loaded_data:
+                                if loaded_data['f_data'] is not None:
+                                    self.data.externd.free_data = loaded_data['f_data']
+                                    has_free_data = any([len(x) > 0 for x in self.data.externd.free_data.cell_type])
 
                             for i_file in range(n_file):
                                 # retrieves the fixed/free clusters
@@ -1190,7 +1200,6 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # sets the file types
-
         file_types = ['All Files (*.*)',
                       'CSV Files (*.csv)',
                       'Text Files (*.txt)']
@@ -1234,6 +1243,7 @@ class AnalysisGUI(QMainWindow):
 
                 # updates the free experiments
                 if self.data.externd.free_data.n_file > 0:
+                    self.data.req_update = True
                     self.fcn_data.update_free_expts(self.combo_scope)
 
         elif 'CSV Files' in filt_type:
@@ -3901,6 +3911,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # initialisations
+        r_data = self.data.rotation
         is_hist = dist_type == 'Histogram'
         i_grp = ['Negative', 'Positive'].index(vel_dir)
 
@@ -3912,9 +3923,6 @@ class AnalysisGUI(QMainWindow):
             ###################################
             ####    FIXED HEAD ANALYSIS    ####
             ###################################
-
-            # initialisations
-            r_data = self.data.rotation
 
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
@@ -3952,14 +3960,20 @@ class AnalysisGUI(QMainWindow):
             ####    FREELY MOVING ANALYSIS    ####
             ######################################
 
-            #
+            # initialisations
+            i_bin = ['5', '10'].index(r_data.vel_bin_corr)
             t_type_filt = dcopy(rot_filt)
-            n_filt = len(t_type_filt)
 
-            # FINISH ME!
-            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
-            self.calc_ok = False
-            return
+            # determines the number of selected trial types
+            v_sf_sig, v_sf_corr = self.get_free_moving_data(t_type_filt, i_bin, i_grp)
+            if v_sf_sig is None:
+                # if no trial types are selected, then output an error to screen
+                e_str = 'Error! At least one trial type must be selected to run this function.'
+                cf.show_error(e_str, 'Incorrect Function Parameters')
+
+                # exits function with an error flag
+                self.calc_ok = False
+                return
 
         #####################################
         ####    DISTRIBUTION SUBPLOTS    ####
@@ -3967,9 +3981,14 @@ class AnalysisGUI(QMainWindow):
 
         # parameters
         p_wid = 0.85
+        n_filt = len(v_sf_sig)
+        sf_cdf = np.empty(n_filt, dtype=object)
 
         # sets the legend strings
-        lg_str_d0 = [', '.join(x.split('\n')) for x in r_obj_wc.lg_str] if comb_all else t_type_filt
+        if is_fixed:
+            lg_str_d0 = [', '.join(x.split('\n')) for x in r_obj_wc.lg_str] if comb_all else t_type_filt
+        else:
+            lg_str_d0 = t_type_filt
         lg_str_d = ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str_d0)]
 
         # determines the number of the trial types/groups
@@ -4020,12 +4039,16 @@ class AnalysisGUI(QMainWindow):
                 h_plt.append(ax[i_axD].plot(x_cdf, sf_cdf[i_filt], c=col[i_filt]))
 
         # sets the title strings (based on the type)
-        if ('\n' not in r_obj_wc.lg_str[0].replace('Matched Clusters\n', '')) or comb_all:
-            # case is no special filter has been applied (except for trial type) or all filters are combined
-            t_str = ['All Cells']
+        if is_fixed:
+            if ('\n' not in r_obj_wc.lg_str[0].replace('\n', '')) or comb_all:
+                # case is no special filter has been applied (except for trial type) or all filters are combined
+                t_str = ['All Cells']
+            else:
+                # case is there is some sort of additional filter being applied
+                t_str = [', '.join(x.replace('\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
         else:
-            # case is there is some sort of additional filter being applied
-            t_str = [', '.join(x.replace('Matched Clusters\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
+            # case is freely moving cells
+            t_str = ['All Cells']
 
         # sets the properties for each of the subplot axes
         for i_ax, _ax in enumerate(ax[:n_plot]):
@@ -4123,6 +4146,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # initialisations
+        r_data = self.data.rotation
         tt_plot = [x_plot, y_plot]
         i_grp = ['Negative', 'Positive'].index(vel_dir)
 
@@ -4130,9 +4154,6 @@ class AnalysisGUI(QMainWindow):
             ###################################
             ####    FIXED HEAD ANALYSIS    ####
             ###################################
-
-            # initialisations
-            r_data = self.data.rotation
 
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
@@ -4165,10 +4186,21 @@ class AnalysisGUI(QMainWindow):
             ####    FREELY MOVING ANALYSIS    ####
             ######################################
 
-            # FINISH ME!
-            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
-            self.calc_ok = False
-            return
+            # initialisations
+            i_bin = ['5', '10'].index(r_data.vel_bin_corr)
+            t_type_filt = dcopy(rot_filt)
+            n_plot_tt = 2
+
+            # determines the number of selected trial types
+            v_sf_sig, v_sf_corr = self.get_free_moving_data(t_type_filt, i_bin, i_grp, use_all_sig=False)
+            if v_sf_sig is None:
+                # if no trial types are selected, then output an error to screen
+                e_str = 'Error! At least one trial type must be selected to run this function.'
+                cf.show_error(e_str, 'Incorrect Function Parameters')
+
+                # exits function with an error flag
+                self.calc_ok = False
+                return
 
         ########################################
         ####    CORRELATION SCATTERPLOTS    ####
@@ -4195,13 +4227,18 @@ class AnalysisGUI(QMainWindow):
                    cf.convert_rgb_col(_bright_red)[0]]          # both condition significant spikes
 
         # sets the title strings (based on the type)
-        n_str = int(len(r_obj_wc.lg_str) / n_grp)
-        if ('\n' not in r_obj_wc.lg_str[0].replace('Matched Clusters\n', '')) or comb_all:
-            # case is no special filter has been applied (except for trial type) or all filters are combined
-            t_str = ['All Cells']
+        if is_fixed:
+            n_str = int(len(r_obj_wc.lg_str) / n_grp)
+            if ('\n' not in r_obj_wc.lg_str[0].replace('\n', '')) or comb_all:
+                # case is no special filter has been applied (except for trial type) or all filters are combined
+                t_str = ['All Cells']
+            else:
+                # case is there is some sort of additional filter being applied
+                t_str = [', '.join(x.replace('\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
+
         else:
-            # case is there is some sort of additional filter being applied
-            t_str = [', '.join(x.replace('Matched Clusters\n', '').split('\n')[:-1]) for x in r_obj_wc.lg_str]
+            n_str = 1
+            t_str = ['All Cells']
 
         for i_grp in range(n_grp):
             # sets the plot index
@@ -4310,13 +4347,13 @@ class AnalysisGUI(QMainWindow):
         ####    DATA PRE-PROCESSING    ####
         ###################################
 
+        # initialisations
+        r_data = self.data.rotation
+
         if is_fixed:
             ###################################
             ####    FIXED HEAD ANALYSIS    ####
             ###################################
-
-            # initialisations
-            r_data = self.data.rotation
 
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
@@ -4361,13 +4398,30 @@ class AnalysisGUI(QMainWindow):
             ######################################
 
             # initialisations
-            t_type_full = dcopy(rot_filt)
-            n_filt = len(t_type_full)
+            i_bin = ['5', '10'].index(r_data.vel_bin_corr)
+            t_type_filt = dcopy(rot_filt)
+            n_filt = len(t_type_filt)
 
-            # FINISH ME!
-            cf.show_error('This function is not yet completed!', 'Function Incomplete!')
-            self.calc_ok = False
-            return
+            # determines the number of selected trial types
+            v_sf_sig, _ = self.get_free_moving_data(t_type_filt, i_bin, 0, stack_arr=False)
+            if v_sf_sig is None:
+                # if no trial types are selected, then output an error to screen
+                e_str = 'Error! At least one trial type must be selected to run this function.'
+                cf.show_error(e_str, 'Incorrect Function Parameters')
+
+                # exits function with an error flag
+                self.calc_ok = False
+                return
+
+            # sets the number of cells per experimental data file
+            n_filt_ex = len(v_sf_sig) * np.ones(n_filt, dtype=int)
+            n_cell_ex = [repmat(np.array([np.shape(v_sf)[0] for v_sf in v_sf_sig[0]]).reshape(-1, 1), 1, 3)] * n_filt
+
+            # memory allocation
+            v_sf_sig_count = np.empty(n_filt, dtype=object)
+            for i_filt in range(n_filt):
+                v_sf_sig_ex = [x[:, 0] + 2 * x[:, 1] for x in v_sf_sig[i_filt]]
+                v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
 
         #################################################
         ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
@@ -4420,10 +4474,13 @@ class AnalysisGUI(QMainWindow):
                       edgecolor=col[i_filt], color=col[i_filt])
 
         # sets the legend string
-        lg_str0 = [', '.join(x.replace('Matched Clusters\n', '').split('\n')) for x in r_obj_wc.lg_str]
-        ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)])
+        if is_fixed:
+            lg_str0 = [', '.join(x.replace('\n', '').split('\n')) for x in r_obj_wc.lg_str]
+        else:
+            lg_str0 = t_type_filt
 
         # sets the specific axis properties
+        ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)])
         ax[0].set_xticks(np.arange(len(x_tick_lbl)))
         ax[0].set_xticklabels(x_tick_lbl)
         ax[0].set_ylabel('%age of Cells')
@@ -11404,6 +11461,64 @@ class AnalysisGUI(QMainWindow):
         else:
             return [str(clustID[x]) if y else 'N/A' for x, y in zip(i_match, is_accept)]
 
+    def get_free_moving_data(self, t_type_filt, i_bin, i_grp, stack_arr=True, use_all_sig=True):
+        '''
+
+        :param t_type_filt:
+        :param i_bin:
+        :return:
+        '''
+
+        n_filt = len(t_type_filt)
+        if n_filt == 0:
+            return None, None
+
+        # parameters
+        p_value = 0.05
+
+        # memory allocation
+        c_info = self.data.externd.free_data.c_info
+        A = np.empty(n_filt, dtype=object)
+        v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
+
+        # dataframe column names
+        pval_col = ['ahv_pearson_p_neg', 'ahv_pearson_p_pos']
+        rval_col = ['ahv_pearson_r_neg', 'ahv_pearson_r_pos']
+
+        # sets the spiking frequency significance/correlation
+        for i_filt, tt in enumerate(t_type_filt):
+            # sets the spiking frequency significance/correlation values
+            if stack_arr:
+                # case is the data values need to be stacked
+
+                # retrieves the correlation values
+                v_sf_corr[i_filt] = np.vstack([np.array(ci[i_bin][tt][[rval_col[i_grp]]]) for ci in c_info])
+
+                # sets the significance values
+                if use_all_sig:
+                    # case is using all significance values
+                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][pval_col]) < p_value for ci in c_info])
+                else:
+                    # case is using significance values for a given direction
+                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][[pval_col[i_grp]]]) < p_value for ci in c_info])
+
+            else:
+                # case is the data values don't need to be stacked
+
+                # retrieves the correlation values
+                v_sf_corr[i_filt] = [np.array(ci[i_bin][tt][[rval_col[i_grp]]]) for ci in c_info]
+
+                # sets the significance values
+                if use_all_sig:
+                    # case is using all significance values
+                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][pval_col]) < p_value for ci in c_info]
+                else:
+                    # case is using significance values for a given direction
+                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][[pval_col[i_grp]]]) < p_value for ci in c_info]
+
+        # returns the arrays
+        return v_sf_sig, v_sf_corr
+
     def setup_time_vector(self, sFreq, n_pts):
         '''
 
@@ -11918,7 +12033,10 @@ class AnalysisFunctions(object):
 
         # sets up the fixed correlation rotational filter
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
-        if data.rotation.vel_sf_mean is None:
+        if not hasattr(data.rotation, 'vel_sf_mean'):
+            data.rotation.vel_sf_mean = None
+            rot_filt_corr_fixed['t_type'] = dcopy(rt_free)
+        elif data.rotation.vel_sf_mean is None:
             rot_filt_corr_fixed['t_type'] = dcopy(rt_free)
         else:
             vel_sf_tt = list(data.rotation.vel_sf_mean.keys())
@@ -11927,6 +12045,8 @@ class AnalysisFunctions(object):
         # retrieves the correlation default parameters
         corr_def_para = cfcn.init_corr_para(data.rotation)
         rt_corr = dcopy(rot_filt_corr_fixed['t_type'])
+        if len(rt_corr) == 1:
+            rt_corr *= 2
 
         # ====> Individual Cell Correlation (Fixed)
         para = {
@@ -12180,6 +12300,12 @@ class AnalysisFunctions(object):
 
             # ====> Correlation Distributions (Freely Moving)
             para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+                },
+
                 # plotting parameters
                 'rot_filt': {
                     'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
@@ -12209,6 +12335,12 @@ class AnalysisFunctions(object):
 
             # ====> Correlation Scatterplot (Freely Moving)
             para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+                },
+
                 # plotting parameters
                 'rot_filt': {
                     'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
@@ -12238,6 +12370,12 @@ class AnalysisFunctions(object):
 
             # ====> Correlation Significance (Freely Moving)
             para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+                },
+
                 # plotting parameters
                 'rot_filt': {
                     'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,

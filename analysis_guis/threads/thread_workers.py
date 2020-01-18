@@ -189,11 +189,19 @@ class WorkerThread(QThread):
                         return
 
                 # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf'], other_para=False)
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf_fix'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
                 cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
+
+            elif ' (Freely Moving)' in self.thread_job_secondary:
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel_sf_free'], other_para=False)
+
+                # updates the bin velocity
+                data.rotation.vel_bin_corr = calc_para['vel_bin']
 
             ######################################
             ####    ROC ANALYSIS FUNCTIONS    ####
@@ -996,7 +1004,8 @@ class WorkerThread(QThread):
         data_out = {
             'data': np.empty((n_file, 2), dtype=object),
             'c_data': np.empty(n_file, dtype=object),
-            'ff_corr': data.comp.ff_corr if hasattr(data.comp, 'ff_corr') else None
+            'ff_corr': data.comp.ff_corr if hasattr(data.comp, 'ff_corr') else None,
+            'f_data': data.externd.free_data if hasattr(data.externd, 'free_data') else None
         }
 
         for i_file in range(n_file):
@@ -3712,7 +3721,7 @@ class WorkerThread(QThread):
                 return def_val
 
         # initialisations
-        r_data, ff_corr = data.rotation, data.comp.ff_corr
+        r_data, ff_corr = data.rotation, data.comp.ff_corr if hasattr(data.comp, 'ff_corr') else None
         t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
         # loops through each of the check types determining if any parameters changed
@@ -3856,7 +3865,7 @@ class WorkerThread(QThread):
                     if is_change:
                         r_data.vel_roc = None
 
-            elif ct == 'vel_sf':
+            elif ct == 'vel_sf_fix':
                 # if the spiking frequency calculation field has not been set, then force an update
                 if not hasattr(r_data, 'vel_shuffle_calc'):
                     data.force_calc = True
@@ -3879,6 +3888,17 @@ class WorkerThread(QThread):
                 if r_data.vel_shuffle_calc:
                     t_type = list(r_data.vel_sf_mean.keys())
                     r_data.vel_shuffle_calc = np.all([tt in t_type for tt in plot_para['rot_filt']['t_type']])
+
+            elif ct == 'vel_sf_free':
+                # case is the kinematic spiking frequency calculations
+                is_equal = [
+                    check_class_para_equal(r_data, 'vel_bin_corr', float(calc_para['vel_bin'])),
+                ]
+
+                # if there was a change in any of the parameters, then reset the spiking frequency fields
+                if not np.all(is_equal) or data.force_calc:
+                    r_data.vel_shuffle_calc, r_data.vel_sf_corr = False, None
+                    r_data.vel_sf, r_data.vel_sf_rs = None, None
 
             elif ct == 'lda':
                 # case is the LDA calculations
