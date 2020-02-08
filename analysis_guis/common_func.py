@@ -1241,6 +1241,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
         'match_type': None,
         'region_name': None,
         'record_layer': None,
+        'lesion_type': None,
         't_freq': {'0.5': '0.5 Hz', '2.0': '2 Hz', '4.0': '4 Hz'},
         't_freq_dir': {'-1': 'CW', '1': 'CCW'},
         't_cycle': {'15': '15 Hz', '120': '120 Hz'},
@@ -1255,6 +1256,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
             'region_name': [],
             'record_layer': [],
             'record_coord': [],
+            'lesion_type': [],
             't_freq': [],
             't_freq_dir': [],
             't_cycle': [],
@@ -1270,6 +1272,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
             'region_name': ['All'],
             'record_layer': ['All'],
             'record_coord': ['All'],
+            'lesion_type': ['All'],
             't_freq': ['All'],
             't_freq_dir': ['All'],
             't_cycle': ['All'],
@@ -1434,18 +1437,117 @@ def combine_nd_arrays(A, B, dim=1, dim_append=0):
     return np.append(A, B, axis=dim_append)
 
 
-def create_stacked_bar(ax, Y, c=None):
+def create_general_group_plot(ax, y_plt, grp_plot_type, col):
+    '''
+
+    :param ax:
+    :param y_plt:
+    :param grp_plot_type:
+    :param col:
+    :return:
+    '''
+
+    # creates the plot based on type
+    if grp_plot_type == 'Stacked Bar':
+        # case is a stacked bar plot
+        return create_stacked_bar(ax, y_plt, col)
+
+    else:
+        # initialisations
+        n_grp, n_type = len(y_plt), np.shape(y_plt[0])[1]
+        xi_type = np.arange(n_type)
+
+        if grp_plot_type == 'Violin/Swarmplot':
+            # initialisations
+            vl_col = {}
+            x1, x2, y = [], [], []
+
+            # sets the pallete colours for each type
+            for i_type in range(n_type):
+                vl_col[i_type] = col[i_type]
+
+            for i_grp in range(n_grp):
+                # sets the violin/swarmplot dictionaries
+                x1.append([i_grp] * np.prod(y_plt[0].shape))
+                x2.append(flat_list([[i] * len(y) for i, y in enumerate(y_plt[i_grp].T)]))
+                y.append(y_plt[i_grp].T.flatten())
+
+                # plots the separation line
+                if i_grp > 0:
+                    ax.plot([i_grp - 0.5] * 2, [-1e6, 1e6], 'k--')
+
+            # sets up the plot dictionary
+            x1, x2, y = flat_list(x1), flat_list(x2), flat_list(y)
+            vl_dict = setup_sns_plot_dict(ax=ax, x=x1, y=y, hue=x2, inner=None, palette=vl_col)
+            st_dict = setup_sns_plot_dict(ax=ax, x=x1, y=y, hue=x2, edgecolor='gray',
+                                          split=True, linewidth=1, palette=vl_col)
+
+            # creates the violin/swarmplot
+            sns.violinplot(**vl_dict)
+            sns.stripplot(**st_dict)
+
+            # sets the x-axis tick marks
+            ax.set_xlim(ax.get_xlim())
+            ax.set_xticks(np.arange(n_grp))
+
+        else:
+            # initialisations
+            xi_tick = np.zeros(n_grp)
+
+            for i_grp in range(n_grp):
+                # sets the x-values for the current group
+                xi = xi_type + i_grp * (n_type + 1)
+                n_ex, xi_tick[i_grp] = np.shape(y_plt[i_grp])[1], np.mean(xi)
+
+                # plots the separation line
+                if i_grp > 0:
+                    ax.plot([xi[0] - 1] * 2, [-1e6, 1e6], 'k--')
+
+                # creates the graph based on the type
+                if grp_plot_type == 'Separated Bar':
+                    # case is a separated bar graph
+
+                    # sets the mean/sem plot values
+                    y_plt_mn = np.mean(y_plt[i_grp], axis=0)
+                    y_plt_sem = np.std(y_plt[i_grp], axis=0) / (n_ex ** 0.5)
+
+                    # creates the bar graph
+                    ax.bar(xi, y_plt_mn, yerr=y_plt_sem, color=col[:n_type])
+
+                elif grp_plot_type == 'Boxplot':
+                    # case is a boxplot
+
+                    # creates the boxplot
+                    h_bbox = ax.boxplot(y_plt[i_grp], positions=xi, vert=True, patch_artist=True, widths=0.9)
+
+                    # resets the colour of the boxplot patches
+                    for i_patch, patch in enumerate(h_bbox['boxes']):
+                        patch.set_facecolor(col[i_patch])
+
+            # sets the x-axis tick marks
+            ax.set_xlim([-1, xi[-1] + 1])
+            ax.set_xticks(xi_tick)
+
+        # creates the
+        h_plt = []
+        for i_type in range(n_type):
+            h_plt.append(ax.bar(-10, 1, color=col[i_type]))
+
+        # returns the plot objects
+        return h_plt
+
+
+def create_stacked_bar(ax, Y, c):
     '''
 
     :param ax:
     :param Y:
+    :param c:
     :return:
     '''
 
     # initialisations
     h_bar, xi_ind = [], np.array(range(np.size(Y, axis=1)))
-    if c is None:
-        c = get_plot_col(len(xi_ind))
 
     # creates/appends to the stacked bar graph
     for i_type in range(np.size(Y, axis=0)):
@@ -2945,3 +3047,5 @@ def get_table_font_size(n_grp):
         return create_font_obj(size=8)
     else:
         return create_font_obj(size=6)
+
+

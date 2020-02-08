@@ -191,6 +191,7 @@ class RotationFilter(QDialog):
         region_type = np.unique(cf.flat_list([list(np.unique(x['chRegion'])) for x in d_clust]))
         record_layer = np.unique(cf.flat_list([list(np.unique(x['chLayer'])) for x in d_clust]))
         record_coord = list(np.unique([x['expInfo']['record_coord'] for x in d_clust]))
+        lesion_type = np.unique([x['expInfo']['lesion'] for x in d_clust])
 
         # sets the filter field parameter information
         self.fields = [
@@ -199,6 +200,7 @@ class RotationFilter(QDialog):
             ['Cluster Match Type', 'CheckCombo', 'match_type', match_type, self.data.comp.is_set],
             ['Region Name', 'CheckCombo', 'region_name', list(region_type), self.is_multi_cell and self.plot_all_expt],
             ['Recording Layer', 'CheckCombo', 'record_layer', list(record_layer), self.is_multi_cell and self.plot_all_expt],
+            ['Lesion Type', 'CheckCombo', 'lesion', list(lesion_type), self.is_multi_cell and self.plot_all_expt],
             ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, True],
         ]
 

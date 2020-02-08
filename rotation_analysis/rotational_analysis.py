@@ -756,9 +756,9 @@ def apply_single_rot_filter(data, d_clust, rot_filt, is_multi_cell, i_expt_match
     ############################################
 
     # sets the filter strings
-    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer']
+    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer', 'lesion_type']
     is_check = [(data.classify.class_set and is_multi_cell), (data.comp.is_set and is_multi_cell),
-                is_multi_cell, is_multi_cell]
+                is_multi_cell, is_multi_cell, is_multi_cell]
 
     # if uniform drifting, add on the ended parameter search
     if rot_filt['is_ud'][0]:
@@ -787,6 +787,9 @@ def apply_single_rot_filter(data, d_clust, rot_filt, is_multi_cell, i_expt_match
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chRegion']]
 
                     elif ccf == 'record_layer':
+                        ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chLayer']]
+
+                    elif ccf == 'lesion_type':
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chLayer']]
 
                     elif ccf == 't_freq':

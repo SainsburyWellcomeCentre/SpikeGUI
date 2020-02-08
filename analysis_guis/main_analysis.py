@@ -4544,7 +4544,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
-                                  stats_type, plot_scope, plot_trend, m_size, plot_grid):
+                                  stats_type, grp_plot_type, plot_scope, plot_trend, m_size, plot_grid):
         '''
 
         :param rot_filt:
@@ -4560,7 +4560,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, m_size)
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, grp_plot_type, stats_type, ms_prop, m_size)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
                                 mean_type, plot_scope, dt):
@@ -5412,7 +5412,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, p_value, ms_prop,
-                                 stats_type, plot_scope, plot_trend, m_size, plot_grid):
+                                 stats_type, grp_plot_type, plot_scope, plot_trend, m_size, plot_grid):
         '''
 
         :param rot_filt:
@@ -5443,7 +5443,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, grp_plot_type, stats_type, ms_prop,
                                     m_size, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
@@ -9788,12 +9788,19 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, stats_type, ms_prop, m_size,
+    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, grp_plot_type, stats_type, ms_prop, m_size,
                                ind_type=None, is_3d=False):
         '''
 
         :param r_obj:
         :param plot_grid:
+        :param plot_trend:
+        :param p_value:
+        :param grp_plot_type:
+        :param stats_type:
+        :param ms_prop:
+        :param m_size:
+        :param ind_type:
         :param is_3d:
         :return:
         '''
@@ -9918,6 +9925,7 @@ class AnalysisGUI(QMainWindow):
             self.init_plot_axes(n_row=n_row, n_col=n_sub, is_3d=is_3d)
 
         # setups up the scatterplots for each subplot phase
+        ax = self.plot_fig.ax
         for i_sub in range(n_sub):
             # loop initialisations
             sp, i1, i2 = s_plt[i_sub], 0, 1
@@ -9925,19 +9933,19 @@ class AnalysisGUI(QMainWindow):
                 # case is plotting data in 3 dimensions
 
                 # creates the plot and row label strings
-                h[0] = self.plot_fig.ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter, s=m_size)
+                h[0] = ax[0].scatter(sp[0], sp[1], sp[2], marker='o', c=c_scatter, s=m_size)
                 lbl[0] = set_stim_phase_str(r_obj, s_plt[0], sf_stats[i_sub], [0, 1, 2])
 
                 # creates the legend markers
-                h_plt = [self.plot_fig.ax[0].scatter(-1, -1, -1, marker='o', c=cc) for cc in c]
+                h_plt = [ax[0].scatter(-1, -1, -1, marker='o', c=cc) for cc in c]
 
                 # sets the title/z-axis strings
                 t_str = '{0} vs {1} vs {2}'.format(r_obj.phase_lbl[2], r_obj.phase_lbl[1], r_obj.phase_lbl[0])
-                self.plot_fig.ax[0].set_title(t_str)
-                self.plot_fig.ax[0].set_zlabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[2]))
+                ax[0].set_title(t_str)
+                ax[0].set_zlabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[2]))
 
                 # resets the z-axis so the lower limit is 0
-                cf.reset_plot_axes_limits(self.plot_fig.ax[i_sub], 0, 'z', False)
+                cf.reset_plot_axes_limits(ax[i_sub], 0, 'z', False)
             else:
                 # case is the default graph types
 
@@ -9950,26 +9958,22 @@ class AnalysisGUI(QMainWindow):
 
                 # creates the plot and row label strings
                 i1, i2 = 1 * (i_sub > 1), 1 + (i_sub > 0)
-                h[i_sub] = self.plot_fig.ax[i_sub].scatter(sp[0], sp[1], marker='o', c=c_scatter, s=m_size)
+                h[i_sub] = ax[i_sub].scatter(sp[0], sp[1], marker='o', c=c_scatter, s=m_size)
                 lbl[i_sub] = set_stim_phase_str(r_obj, sp, sf_stats[i_sub], [0, 1], [i1, i2], p_value=p_value)
 
                 # creates the legend markers (first subplot only)
                 if i_sub == 0:
-                    h_plt = [self.plot_fig.ax[0].scatter(-1, -1, marker='o', c=cc) for cc in c]
+                    h_plt = [ax[0].scatter(-1, -1, marker='o', c=cc) for cc in c]
 
             # sets the title string (non-3d plot only)
             if not is_3d:
                 t_str = '{0} vs {1}'.format(r_obj.phase_lbl[i2], r_obj.phase_lbl[i1])
-                self.plot_fig.ax[i_sub].set_title(t_str)
+                ax[i_sub].set_title(t_str)
 
             # sets the x/y-label and the grid
-            self.plot_fig.ax[i_sub].set_xlabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[i1]))
-            self.plot_fig.ax[i_sub].set_ylabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[i2]))
-            self.plot_fig.ax[i_sub].grid(plot_grid)
-
-        # # creates the cursor objects for each subplot
-        # for i_sub in range(n_sub):
-        #     datacursor(h[i_sub], formatter=formatter, point_labels=lbl[i_sub], hover=True)
+            ax[i_sub].set_xlabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[i1]))
+            ax[i_sub].set_ylabel('{0} Frequency (Hz)'.format(r_obj.phase_lbl[i2]))
+            ax[i_sub].grid(plot_grid)
 
         # creates the legend (if more than one filter type)
         if n_filt > 1 or (not r_obj.is_single_cell):
@@ -9978,24 +9982,24 @@ class AnalysisGUI(QMainWindow):
             else:
                 lg_str = ['(#{0}) - {1}'.format(i + 1, x) for i, x in enumerate(r_obj.lg_str)]
 
-            self.plot_fig.ax[0].legend(h_plt, lg_str, loc=0)
+            ax[0].legend(h_plt, lg_str, loc=0)
 
         # resets the axis limits based on the plot type
         if is_3d:
             # alters the initial orientation
-            self.plot_fig.ax[0].view_init(20, -45)
+            ax[0].view_init(20, -45)
 
             # determines the overall x/y/z axis limit maximum
-            xLnw = self.plot_fig.ax[0].get_xlim()
-            yLnw = self.plot_fig.ax[0].get_ylim()
-            zLnw = self.plot_fig.ax[0].get_zlim()
+            xLnw = ax[0].get_xlim()
+            yLnw = ax[0].get_ylim()
+            zLnw = ax[0].get_zlim()
             axL = max(xLnw[1], yLnw[1], zLnw[1])
         else:
             # otherwise, determine the overall x/y axis limit maximum
             axL = -1e6
             for i_sub in range(n_sub):
-                xLnw = self.plot_fig.ax[i_sub].get_xlim()
-                yLnw = self.plot_fig.ax[i_sub].get_ylim()
+                xLnw = ax[i_sub].get_xlim()
+                yLnw = ax[i_sub].get_ylim()
                 axL = max(xLnw[1], yLnw[1], axL)
 
                 # adds the trend-line (if selected)
@@ -10003,7 +10007,7 @@ class AnalysisGUI(QMainWindow):
                     x = np.array([0, 100 * axL])
                     for i_filt in range(n_filt):
                         y = sf_trend[i_sub][i_filt, 0] * x
-                        self.plot_fig.ax[i_sub].plot(x, y, '--', c=c[i_filt])
+                        ax[i_sub].plot(x, y, '--', c=c[i_filt])
 
         if r_obj.is_single_cell:
             #
@@ -10013,9 +10017,9 @@ class AnalysisGUI(QMainWindow):
                 'Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                 fontsize=16, fontweight='bold')
 
-            # self.plot_fig.ax[-1].plot([0,1],[0,1])
-            # self.plot_fig.ax[-1].axis('on')
-            # cf.set_axis_limits(self.plot_fig.ax[-1], [0, 1], [0, 1])
+            # ax[-1].plot([0,1],[0,1])
+            # ax[-1].axis('on')
+            # cf.set_axis_limits(ax[-1], [0, 1], [0, 1])
 
             # table initialisations
             # r_hght, table_gap, title_gap, t_wid, dy_ofs = 0.065, 0.075, 0.025, 0.8, 0.05
@@ -10025,95 +10029,137 @@ class AnalysisGUI(QMainWindow):
             t_data = np.vstack([['{:5.3f}{}'.format(y, sig_str_fcn(y, p_value)) for y in x] for x in sf_stats]).T
 
             # calculates the table dimensions
-            cf.add_plot_table(self.plot_fig, len(self.plot_fig.ax)-1, table_font, t_data, r_obj.lg_str,
+            cf.add_plot_table(self.plot_fig, len(ax)-1, table_font, t_data, r_obj.lg_str,
                               col_hdr, c, cf.get_plot_col(3, len(c)), None, n_row=2, pfig_sz=0.955)
 
         for i_sub in range(n_sub):
             # updates the the x/y axis limits
-            self.plot_fig.ax[i_sub].set_xlim(0, axL)
-            self.plot_fig.ax[i_sub].set_ylim(0, axL)
+            ax[i_sub].set_xlim(0, axL)
+            ax[i_sub].set_ylim(0, axL)
             if (is_3d):
                 # if 3d, then update the z-axis limits
-                self.plot_fig.ax[i_sub].set_zlim(0, axL)
+                ax[i_sub].set_zlim(0, axL)
             else:
                 # otherwise, draw the unity line through the data
-                self.plot_fig.ax[i_sub].plot([0, axL], [0, axL], 'k--')
+                ax[i_sub].plot([0, axL], [0, axL], 'k--')
+
+        # if a 3d plot or a single cell graph then exit the function here
+        if is_3d or r_obj.is_single_cell:
+            return
 
         ###############################################
         ####    STATISTICS CALCULATIONS/DISPLAY    ####
         ###############################################
 
-        if (not is_3d) and (not r_obj.is_single_cell):
-            # memory allocation
-            sf_type_pr, sf_type_plt = np.empty(n_sub - 1, dtype=object), np.empty(n_sub - 1, dtype=object)
-            sf_score = cf.calc_ms_scores(s_plt, sf_stats, p_value=p_value)
-            score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
+        # memory allocation
+        A = np.empty(n_sub - 1, dtype=object)
+        n_type_ex, sf_type_pr = dcopy(A), dcopy(A)
+        sf_score = cf.calc_ms_scores(s_plt, sf_stats, p_value=p_value)
+        score_min, score_sum = np.min(sf_score[:, :2], axis=1), np.sum(sf_score[:, :2], axis=1)
+        x_lbl = ['#{0}'.format(i + 1) for i in np.arange(len(i_grp[0]))]
 
-            # determines the reaction type from the score phase types
-            #   0 = None
-            #   1 = Inhibited
-            #   2 = Excited
-            #   3 = Mixed
-            sf_type = np.max(sf_score[:, :2], axis=1) + (np.sum(sf_score[:, :2], axis=1) == 3).astype(int)
-            sf_type_pr[0] = sf_type_plt[0] = np.vstack([cf.calc_rel_prop(sf_type[x], 4) for x in i_grp[0]]).T
+        # determines the reaction type from the score phase types
+        #   0 = None
+        #   1 = Inhibited
+        #   2 = Excited
+        #   3 = Mixed
+        sf_type = np.max(sf_score[:, :2], axis=1) + (np.sum(sf_score[:, :2], axis=1) == 3).astype(int)
 
-            # determines all motion sensitive cells (sf_type > 0)
-            is_mot_sens = sf_type > 0
+        # determines the direction selective cells, which must meet the following conditions:
+        #  1) one direction only produces a significant result, OR
+        #  2) both directions are significant AND the CW/CCW comparison is significant
+        one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
+        both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
+        comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
 
-            # determines the direction selective cells, which must meet the following conditions:
-            #  1) one direction only produces a significant result, OR
-            #  2) both directions are significant AND the CW/CCW comparison is significant
-            one_dir_sig = np.logical_and(score_min == 0, score_sum > 0)     # cells where one direction is significant
-            both_dir_sig = np.min(sf_score[:, :2], axis=1) > 0              # cells where both CW/CCW is significant
-            comb_dir_sig = sf_score[:, -1] > 0                              # cells where CW/CCW difference is significant
+        # determines all motion sensitive cells (sf_type > 0)
+        is_mot_sens = sf_type > 0
+        is_dir_sel = np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
+        i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
 
-            # determines which cells are direction selective (removes non-motion sensitive cells)
-            is_dir_sel = np.logical_or(one_dir_sig, np.logical_and(both_dir_sig, comb_dir_sig)).astype(int)
-            i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
-            sf_type_pr[1] = np.vstack([cf.calc_rel_prop(is_dir_sel[x], 2, return_counts=True)
-                                       for i, x in enumerate(i_grp[1])]).T
-            x_lbl = ['#{0}'.format(i + 1) for i in np.arange(len(i_grp[0]))]
+        # sets the reaction type for each filter type/experiment
+        sf_type_filt, n_filt_ex = self.group_metrics_by_expt(r_obj, sf_type, i_grp[0])
+        n_type_ex[0] = [np.vstack([cf.calc_rel_prop(x, 4, return_counts=True) for x in y]) for y in sf_type_filt]
 
-            # if not
-            if not ms_prop:
-                n_cell = np.array([len(x) for x in i_grp[0]])
-                sf_type_pr[1][0, :] += n_cell - np.sum(sf_type_pr[1], axis=0)
+        # sets the direction selectivity for each filter type/experiment
+        is_dir_sel_filt, _ = self.group_metrics_by_expt(r_obj, is_dir_sel, i_grp[1])
+        n_type_ex[1] = [np.vstack([cf.calc_rel_prop(x, 2, return_counts=True) for x in y]) for y in is_dir_sel_filt]
 
-            # sets the direction
-            sf_type_plt[1] = 100. * dcopy(sf_type_pr[1]) / repmat(np.sum(sf_type_pr[1], axis=0),2,1)
+        # if displaying the motion selectivity proportion, then
+        if not ms_prop:
+            for i_filt in range(r_obj.n_filt):
+                n_type_ex[1][i_filt][:, 0] += n_filt_ex[i_filt] - np.sum(n_type_ex[1][i_filt], axis=1)
 
-            for i in range(2):
-                # creates the bar graph
-                h_bar = cf.create_stacked_bar(self.plot_fig.ax[i + n_sub], dcopy(sf_type_plt[i]), c2)
-                if r_obj.is_ud and r_obj.n_filt == 2:
-                    self.plot_fig.ax[i + n_sub].set_xticklabels(['All Cells'])
-                else:
-                    self.plot_fig.ax[i + n_sub].set_xticklabels(x_lbl)
-                self.plot_fig.ax[i + n_sub].grid(plot_grid)
+        # calculates the proportions and total counts for each reaction type (over each filter type)
+        n_type_tot = [np.vstack([np.sum(x, axis=0) for x in xx]) for xx in n_type_ex]
+        sf_type_pr = [[100. * np.divide(x, np.sum(x, axis=1).reshape(-1, 1)) for x in xx] for xx in n_type_ex]
 
-                # sets the legend strings based on the type
-                if i == 0:
-                    lg_str = ['None', 'Inhibited', 'Excited', 'Mixed']
-                else:
-                    lg_str = ['Direction Insensitive', 'Direction Sensitive']
+        # sets the plot values based on the group plot type
+        if grp_plot_type == 'Stacked Bar':
+            # case is the stacked barplot
+            sf_type_plt = [100. * np.divide(x, np.sum(x, axis=1).reshape(-1, 1)).T for x in n_type_tot]
+        else:
+            # case is the other plot types (removes the
+            sf_type_plt = dcopy(sf_type_pr)
+            sf_type_plt[0] = [x[:, 1:] for x in sf_type_plt[0]]
 
-                # updates the y-axis limits/labels and creates the legend
-                self.plot_fig.ax[i + n_sub].set_ylim([0, 100])
-                self.plot_fig.ax[i + n_sub].set_ylabel('Population %')
-                cf.reset_axes_dim(self.plot_fig.ax[i + n_sub], 'bottom', 0.075, True)
-                self.plot_fig.ax[i + n_sub].legend([x[0] for x in h_bar], lg_str, ncol=len(lg_str),
-                                                    loc='upper center', columnspacing=0.125, bbox_to_anchor=(0.5, 1.15))
+        # creates the graphs for the motion sensitive/direction selectivity plots
+        for i in range(2):
+            # creates the graph
+            h_plt = cf.create_general_group_plot(ax[i + n_sub], sf_type_plt[i], grp_plot_type, c2)
+            # h_bar = cf.create_stacked_bar(ax[i + n_sub], dcopy(sf_type_plt[i]), c2)
 
-            # calculates the number of direction sensitive/insensitive cells (over all conditions)
-            self.plot_fig.ax[2 + n_sub].axis('off')
-            self.plot_fig.ax[2 + n_sub].axis([0, 1, 0, 1])
+            # creates the bar graph
+            if r_obj.is_ud and r_obj.n_filt == 2:
+                ax[i + n_sub].set_xticklabels(['All Cells'])
+            else:
+                ax[i + n_sub].set_xticklabels(x_lbl)
 
-            # creates the spiking frequency statstics table
-            n_DS = self.setup_stats_nvalue_array(sf_type, sf_type_pr, i_grp, stats_type)
-            self.create_spike_freq_stats_table(self.plot_fig.ax[2 + n_sub], n_DS, n_filt, stats_type)
+            # sets the legend strings based on the type
+            if i == 0:
+                lg_str = ['None', 'Inhibited', 'Excited', 'Mixed'][(grp_plot_type != 'Stacked Bar'):]
+            else:
+                lg_str = ['Direction Insensitive', 'Direction Sensitive']
 
-        # for ax in self.plot_fig.ax:
-        #     self.remove_scatterplot_spines(ax)
+            # updates the axis properties
+            ax[i + n_sub].grid(plot_grid)
+            ax[i + n_sub].set_ylabel('Population %')
+            cf.reset_axes_dim(ax[i + n_sub], 'bottom', 0.075, True)
+            ax[i + n_sub].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
+                                                                columnspacing=0.125, bbox_to_anchor=(0.5, 1.15))
+
+            if 'Bar' in grp_plot_type:
+                ax[i + n_sub].set_ylim([0, 100])
+            else:
+                ax[i + n_sub].set_ylim([-2.5, 102.5])
+
+        # calculates the number of direction sensitive/insensitive cells (over all conditions)
+        ax[2 + n_sub].axis('off')
+        ax[2 + n_sub].axis([0, 1, 0, 1])
+
+        # # creates the spiking frequency statistics table
+        # n_DS = self.setup_stats_nvalue_array(sf_type, sf_type_pr, i_grp, stats_type)
+        # self.create_spike_freq_stats_table(ax[2 + n_sub], n_DS, n_filt, stats_type)
+
+        # for _ax in ax:
+        #     self.remove_scatterplot_spines(_ax)
+
+    def group_metrics_by_expt(self, r_obj, y_metric, i_grp):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the indices of the common cells (across all experiments/filter types)
+        i_expt_all = np.array(cf.flat_list([list(x) for x in r_obj.i_expt]))
+        i_filt_ex = [[np.where(x == i)[0] for i in np.unique(x)] for x in [i_expt_all[x] for x in i_grp]]
+        n_filt_ex = [[len(xx) for xx in x] for x in i_filt_ex]
+
+        # groups the metric values by the
+        if np.ndim(y_metric) == 1:
+            return [[x[yy] for yy in y] for x, y in zip([y_metric[x] for x in i_grp], i_filt_ex)], n_filt_ex
+        else:
+            return [[x[yy, :] for yy in y] for x, y in zip([y_metric[x, :] for x in i_grp], i_filt_ex)], n_filt_ex
 
     def create_spike_heatmap(self, r_obj, dt, norm_type, mean_type):
         '''
@@ -12414,6 +12460,7 @@ class AnalysisFunctions(object):
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
+        grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Stacked Bar']
         ksig_type = ['Individual Cell', 'Correlation Histogram', 'Correlation Scatterplot', 'Correlation Significance']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
@@ -12457,7 +12504,7 @@ class AnalysisFunctions(object):
 
         # ====> Rotation Trial Spike Rate Comparison
         para = {
-            # calculation parameters
+            # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
@@ -12469,15 +12516,16 @@ class AnalysisFunctions(object):
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': False},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
+            'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'],
-                              ['plot_all_expt', 'Individual Cell'],
-                              ['p_value', 'Individual Cell'],
-                              ['ms_prop', 'Individual Cell'],
-                              ['stats_type', 'Individual Cell']]
+                'link_para': [
+                    ['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                    ['plot_all_expt', 'Individual Cell'], ['p_value', 'Individual Cell'],
+                    ['ms_prop', 'Individual Cell'], ['grp_plot_type', 'Individual Cell'],
+                    ['stats_type', 'Individual Cell']
+                ]
             },
-
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -12712,10 +12760,15 @@ class AnalysisFunctions(object):
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
             'stats_type': {'type': 'L', 'text': 'Statistics Type', 'list': s_type, 'def_val': s_type[0]},
+            'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[0]},
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell'], ['plot_all_expt', 'ms_prop']]
+                'link_para': [
+                    ['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                    ['plot_all_expt', 'Individual Cell'], ['p_value', 'Individual Cell'],
+                    ['ms_prop', 'Individual Cell'], ['grp_plot_type', 'Individual Cell'],
+                    ['stats_type', 'Individual Cell']
+                ]
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
