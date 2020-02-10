@@ -50,6 +50,7 @@ swap_array = lambda x1, x2, is_swap: np.array([x if is_sw else y for x, y, is_sw
 # combine_spike_freq = lambda sp_freq, i_dim: flat_list([list(sp_freq[i_filt][:, i_dim]) for i_filt in range(len(sp_freq))])
 calc_rel_count = lambda x, n: np.array([sum(x == i) for i in range(n)])
 convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
+sig_str_fcn = lambda x, p_value: '*' if x < p_value else ''
 
 # vectorisation function declarations
 sp_freq = lambda x, t_phase: len(x) / t_phase if x is not None else 0
@@ -1241,6 +1242,7 @@ def init_rotation_filter_data(is_ud, is_empty=False):
         'match_type': None,
         'region_name': None,
         'record_layer': None,
+        'record_coord': None,
         'lesion_type': None,
         't_freq': {'0.5': '0.5 Hz', '2.0': '2 Hz', '4.0': '4 Hz'},
         't_freq_dir': {'-1': 'CW', '1': 'CCW'},
@@ -1468,7 +1470,7 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
 
             for i_grp in range(n_grp):
                 # sets the violin/swarmplot dictionaries
-                x1.append([i_grp] * np.prod(y_plt[0].shape))
+                x1.append([i_grp] * np.prod(y_plt[i_grp].shape))
                 x2.append(flat_list([[i] * len(y) for i, y in enumerate(y_plt[i_grp].T)]))
                 y.append(y_plt[i_grp].T.flatten())
 
@@ -2133,6 +2135,8 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
     elif t_loc == 'top':
         ax_top = np.ceil(ax_pos.y1 / (1 / n_row)) / n_row
         ax_y0, ax_y1 = ax.bbox.y0, ax_top * fig_hght - (table_hght + 2 * cell_hght0)
+    elif t_loc == 'fixed':
+        ax_y0, ax_y1 = ax.bbox.y0, ax.bbox.y1
     else:
         ax_y0 = fig_hght * np.floor(ax_pos.y0 / (1 / n_row)) / n_row
         ax_y1 = fig_hght * np.ceil(ax_pos.y1 / (1 / n_row)) / n_row
@@ -2157,8 +2161,9 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
     ####################################################
 
     # resets the axis position to accomodate the table
-    ax_pos_nw = [ax_pos.x0, ax_y0 / fig_hght, ax_pos.width, ax_hght_new]
-    ax.set_position(ax_pos_nw)
+    if t_loc != 'fixed':
+        ax_pos_nw = [ax_pos.x0, ax_y0 / fig_hght, ax_pos.width, ax_hght_new]
+        ax.set_position(ax_pos_nw)
 
     # resets the position of the title object
     if h_title is not None:
@@ -3047,5 +3052,3 @@ def get_table_font_size(n_grp):
         return create_font_obj(size=8)
     else:
         return create_font_obj(size=6)
-
-

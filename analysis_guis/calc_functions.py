@@ -7,13 +7,13 @@ import copy
 import random
 import peakutils
 import math as m
-import pickle as _p
 import numpy as np
+import pickle as _p
 import quantities as pq
 from fastdtw import fastdtw
+import scikit_posthocs as sp
 from numpy.matlib import repmat
 import shapely.geometry as geom
-from fuzzywuzzy import fuzz, process
 
 # scipy module imports
 from scipy import stats
@@ -28,9 +28,11 @@ from scipy.stats.distributions import t
 # rpy2 module imports
 import rpy2.robjects as robjects
 from rpy2.robjects.methods import RS4
+from rpy2.robjects import FloatVector
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 pandas2ri.activate()
+r_stats = importr("stats")
 
 # sci-kit learn module import
 from sklearn.linear_model import LinearRegression
@@ -637,7 +639,7 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
                                 p_str_nw = '{:5.3e}*'.format(p_value[k])
                             else:
                                 # otherwise, use normal form
-                                p_str_nw = '{:5.3f}{}'.format(p_value[k], '*' if p_value[k] < p_tol else '')
+                                p_str_nw = '{:5.3f}{}'.format(p_value[k], cf.stats_suffix(p_value[k], p_tol))
 
                             # sets the final string and increments the counter
                             p_str[i_grp[k][0], i_grp[k][1]] = p_str[i_grp[k][1], i_grp[k][0]] = p_str_nw
@@ -4121,3 +4123,81 @@ def get_matching_fix_free_strings(data, exp_name):
 
     # returns the combined fixed/free cluster ID strings
     return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]
+
+
+def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
+    '''
+
+    :param y:
+    :param p_value:
+    :return:
+    '''
+
+    def calc_kw_stats(y):
+        '''
+
+        :param y:
+        :return:
+        '''
+
+        # sets the indices for the elements within each grouping
+        i_grp = cf.flat_list([[i] * len(x) for i, x in enumerate(y)])
+
+        # calculates and returns the kruskal wallis test p-value
+        kw_stats = r_stats.kruskal_test(FloatVector(cf.flat_list(y)), FloatVector(i_grp))
+        return kw_stats[kw_stats.names.index('p.value')][0]
+
+    def calc_dunn_stats(y, p_kw_stats, p_value):
+        '''
+
+        :param y:
+        :param is_sig:
+        :return:
+        '''
+
+        # memory allocation
+        n_grp = len(y)
+        d_stats = np.empty((n_grp, n_grp), dtype=object)
+        d_stats[:] = 'N/A'
+
+        # calculates the dunn posthoc test values
+        p_dunn = sp.posthoc_dunn(y, p_adjust='bonferroni')
+
+        # sets the statistics strings for each grouping
+        for i_grp in range(n_grp):
+            for j_grp in range(i_grp + 1, n_grp):
+                p_val = p_dunn[i_grp + 1][j_grp + 1]
+                p_str = '{:.3f}{}'.format(p_val, cf.sig_str_fcn(p_val, p_value))
+                d_stats[i_grp, j_grp] = d_stats[j_grp, i_grp] = p_str
+
+        # returns the stats array
+        return d_stats
+
+    # initialisations and memory allocation
+    n_filt, n_grp = len(y_orig), np.shape(y_orig[0])[1] - c_ofs
+    p_within = np.empty((n_filt, 2), dtype=object)
+
+    # calculates the within filter type statistics
+    y_within = [[list(x[:, i + c_ofs]) for i in range(n_grp)] for x in y_orig]
+
+    # calculates the within group statistics for each filter type
+    for i_filt in range(n_filt):
+        p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
+        p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
+
+    # determines if the between filter type statistics need to be calculated (n_filt > 1)
+    if n_filt > 1:
+        # memory allocation
+        p_btwn = np.empty((n_grp, 2), dtype=object)
+        y_btwn = [[list(y_orig[j][:, i]) for j in range(n_filt)] for i in range(n_grp)]
+
+        # calculates the between filter type statistics for each group type
+        for i_grp in range(n_grp):
+            p_btwn[i_grp, 0] = calc_kw_stats(y_btwn[i_grp])
+            p_btwn[i_grp, 1] = calc_dunn_stats(y_btwn[i_grp], p_btwn[i_grp, 0], p_value)
+
+        # returns the final arrays
+        return p_within, p_btwn
+    else:
+        # if not, then return a None value for the between group statistics
+        return p_within
