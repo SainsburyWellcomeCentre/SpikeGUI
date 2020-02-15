@@ -4174,16 +4174,19 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
         return d_stats
 
     # initialisations and memory allocation
+    p_within, p_btwn = None, None
     n_filt, n_grp = len(y_orig), np.shape(y_orig[0])[1] - c_ofs
-    p_within = np.empty((n_filt, 2), dtype=object)
 
-    # calculates the within filter type statistics
-    y_within = [[list(x[:, i + c_ofs]) for i in range(n_grp)] for x in y_orig]
+    # determines if the between filter type statistics need to be calculated (n_filt > 1)
+    if n_grp > 1:
+        # memory allocation
+        p_within = np.empty((n_filt, 2), dtype=object)
+        y_within = [[list(x[:, i + c_ofs]) for i in range(n_grp)] for x in y_orig]
 
-    # calculates the within group statistics for each filter type
-    for i_filt in range(n_filt):
-        p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
-        p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
+        # calculates the within filter type statistics for each group type
+        for i_filt in range(n_filt):
+            p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
+            p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
 
     # determines if the between filter type statistics need to be calculated (n_filt > 1)
     if n_filt > 1:
@@ -4196,8 +4199,5 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
             p_btwn[i_grp, 0] = calc_kw_stats(y_btwn[i_grp])
             p_btwn[i_grp, 1] = calc_dunn_stats(y_btwn[i_grp], p_btwn[i_grp, 0], p_value)
 
-        # returns the final arrays
-        return p_within, p_btwn
-    else:
-        # if not, then return a None value for the between group statistics
-        return p_within
+    # returns the
+    return [p_within, p_btwn]

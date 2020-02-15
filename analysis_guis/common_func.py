@@ -9,7 +9,7 @@ import numpy as np
 import pickle as p
 import seaborn as sns
 from numpy import ndarray
-# from skimage import measure
+from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
 from fuzzywuzzy import fuzz, process
@@ -90,7 +90,7 @@ def flat_list(l):
     else:
         return l
 
-def calc_rel_prop(x, n, N=None, return_counts=False):
+def calc_rel_prop(x, n, N=None, return_counts=False, ind=None):
     '''
 
     :param x:
@@ -99,12 +99,15 @@ def calc_rel_prop(x, n, N=None, return_counts=False):
     :return:
     '''
 
+    if ind is None:
+        ind = np.arange(n)
+
     if return_counts:
-        return np.array([sum(x == i) for i in range(n)])
+        return np.array([sum(x == i) for i in ind])
     elif N is None:
-        return 100 * np.array([sum(x == i) for i in range(n)]) / len(x)
+        return 100 * np.array([sum(x == i) for i in ind]) / len(x)
     else:
-        return 0 if (N == 0) else 100 * np.array([sum(x == i) for i in range(n)]) / N
+        return 0 if (N == 0) else 100 * np.array([sum(x == i) for i in ind]) / N
 
 class CheckableComboBox(QComboBox):
     def __init__(self, parent=None, has_all=False, first_line=None):
@@ -1126,7 +1129,7 @@ def get_index_groups(b_arr):
 
     if not any(b_arr):
         return []
-    else:
+    # else:
         labels = measure.label(b_arr)
         return [np.where(labels == (i + 1))[0] for i in range(max(labels))]
 
@@ -1459,7 +1462,7 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
         n_grp, n_type = len(y_plt), np.shape(y_plt[0])[1]
         xi_type = np.arange(n_type)
 
-        if grp_plot_type == 'Violin/Swarmplot':
+        if grp_plot_type in ['Violin/Swarmplot', 'Violinplot']:
             # initialisations
             vl_col = {}
             x1, x2, y = [], [], []
@@ -1479,14 +1482,33 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
                     ax.plot([i_grp - 0.5] * 2, [-1e6, 1e6], 'k--')
 
             # sets up the plot dictionary
-            x1, x2, y = flat_list(x1), flat_list(x2), flat_list(y)
-            vl_dict = setup_sns_plot_dict(ax=ax, x=x1, y=y, hue=x2, inner=None, palette=vl_col)
-            st_dict = setup_sns_plot_dict(ax=ax, x=x1, y=y, hue=x2, edgecolor='gray',
-                                          split=True, linewidth=1, palette=vl_col)
+            _x1, _x2, y = flat_list(x1), flat_list(x2), flat_list(y)
+            if grp_plot_type == 'Violin/Swarmplot':
+                # sets up the violin/swarmplot dictionary
+                vl_dict = setup_sns_plot_dict(ax=ax, x=_x1, y=y, inner=None, hue=_x2, palette=vl_col)
+                st_dict = setup_sns_plot_dict(ax=ax, x=_x1, y=y, edgecolor='gray', hue=_x2,
+                                                     split=True, linewidth=1, palette=vl_col)
 
-            # creates the violin/swarmplot
-            sns.violinplot(**vl_dict)
-            sns.stripplot(**st_dict)
+                # creates the violin/swarmplot
+                h_vl = sns.violinplot(**vl_dict)
+                h_st = sns.stripplot(**st_dict)
+
+                # removes the legend (if only one group)
+                if n_type == 1:
+                    h_vl._remove_legend(h_vl.get_legend())
+                    h_st._remove_legend(h_st.get_legend())
+            else:
+                # sets up the violinplot dictionary
+                vl_dict = setup_sns_plot_dict(ax=ax, x=_x1, y=y, palette=vl_col)
+                if n_type > 1:
+                    vl_dict['hue'] = _x2
+
+                # creates the violin/swarmplot
+                h_vl = sns.violinplot(**vl_dict)
+
+                # removes the legend (if only one group)
+                if n_type == 1:
+                    h_vl._remove_legend(h_vl.get_legend())
 
             # sets the x-axis tick marks
             ax.set_xlim(ax.get_xlim())
@@ -1526,14 +1548,18 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
                     for i_patch, patch in enumerate(h_bbox['boxes']):
                         patch.set_facecolor(col[i_patch])
 
+                    for h_md in h_bbox['medians']:
+                        h_md.set_color('k')
+
             # sets the x-axis tick marks
             ax.set_xlim([-1, xi[-1] + 1])
             ax.set_xticks(xi_tick)
 
         # creates the
         h_plt = []
-        for i_type in range(n_type):
-            h_plt.append(ax.bar(-10, 1, color=col[i_type]))
+        if n_type > 1:
+            for i_type in range(n_type):
+                h_plt.append(ax.bar(-10, 1, color=col[i_type]))
 
         # returns the plot objects
         return h_plt

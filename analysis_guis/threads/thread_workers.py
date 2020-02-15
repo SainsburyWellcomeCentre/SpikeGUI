@@ -974,8 +974,13 @@ class WorkerThread(QThread):
         # updates the progressbar
         self.work_progress.emit('Saving Data To File...', 50.0)
 
+        # sets the file extension (based on the data type)
+        if hasattr(data.comp, 'data'):
+            f_extn = 'mdata' if len(data.comp.data) == 0 else 'mcomp'
+        else:
+            f_extn = 'mdata'
+
         # sets the output file name
-        f_extn = 'mdata' if len(data.comp.data) == 0 else 'mcomp'
         out_file = os.path.join(out_info['inputDir'], '{0}.{1}'.format(out_info['dataName'], f_extn))
 
         # outputs the data to file

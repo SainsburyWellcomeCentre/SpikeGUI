@@ -138,14 +138,14 @@ class RotationFilter(QDialog):
             else:
                 title = "Rotational Exclusion Filter"
         else:
-            if self.grp_type == 'Rotation Analysis':
-                title = "Rotational Analysis Plot Filter"
+            if self.grp_type == 'UniformDrift Analysis':
+                title = "UniformDrift Analysis Plot Filter"
             elif self.grp_type == 'ROC Analysis':
                 title = "ROC Analysis"
             elif self.grp_type == 'Combined Analysis':
                 title = "Combined Analysis Plot Filter"
             else:
-                title = "UniformDrift Analysis Plot Filter"
+                title = "Rotational Analysis Plot Filter"
 
         self.setObjectName("RotationFilter")
         self.setWindowTitle(title)
@@ -170,10 +170,11 @@ class RotationFilter(QDialog):
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
         # determines the valid group/function types for displaying the trial type field
-        valid_grp = (self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
-                                       'Miscellaneous Functions', 'Depth-Based Analysis'])
-        valid_fcn = (self.grp_type == 'Freely Moving Cell Types') and \
-                    (self.curr_fcn != 'Freely Moving Cell Type Statistics')
+        valid_grp = self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
+                                      'Miscellaneous Functions', 'Depth-Based Analysis',
+                                      'Spiking Frequency Correlation']
+        valid_fcn = self.grp_type == 'Freely Moving Cell Types' and \
+                    self.curr_fcn != 'Freely Moving Cell Type Statistics'
 
         # retrieves the trial-types from each experiment
         if (valid_grp or valid_fcn) or (self.is_exc and (not self.is_ud)):

@@ -152,6 +152,7 @@ class AnalysisGUI(QMainWindow):
         self.initialising = True
         self.analysis_scope = 'Unprocessed'
         self.file_type = -1
+        self.func_data = None
 
         # determines if the default data file has been set
         if os.path.isfile(cf.default_dir_file):
@@ -1470,7 +1471,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # REMOVE ME LATER!
-        pass
+        a = 1
 
         # # determines which flags have been set
         # is_set = np.array([self.data.comp.is_set, self.data.classify.is_set, self.data.rotation.is_set])
@@ -1873,7 +1874,8 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         self.calc_ok = True
-        calc_para, plot_para = self.split_func_para()
+        self.func_data = None
+        calc_para, plot_para, self.output_var = self.split_func_para()
 
         # retrieves the currently selected function
         current_fcn = self.list_funcsel.selectedItems()[0].text()
@@ -1925,15 +1927,18 @@ class AnalysisGUI(QMainWindow):
         except:
             a = 1
 
-        # if the calculation/plotting when successfully, then show the figure
         if self.calc_ok:
+            # if the calculation/plotting when successfully, then show the figure
             self.plot_fig.draw()
             self.plot_fig.fig.canvas.update()
             self.menu_save_figure.setEnabled(True)
+            self.menu_save_data.setEnabled(self.func_data is not None)
             self.update_thread_job('Plot Figure Complete!', 100.0)
         else:
+            # otherwise,
             self.plot_fig.hide()
             self.menu_save_figure.setEnabled(False)
+            self.menu_save_data.setEnabled(False)
             self.update_thread_job('Plot Figure Error!', 100.0)
 
         # updates te progress bar to indicate the plot has finished being created
@@ -4278,7 +4283,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
-    def plot_freq_corr_signifiance(self, rot_filt, show_stats, plot_grid, plot_scope, is_fixed):
+    def plot_freq_corr_signifiance(self, rot_filt, plot_grid, grp_plot_type, p_value, show_stats, plot_scope, is_fixed):
         '''
 
         :param rot_filt:
@@ -4289,32 +4294,32 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axes(plot_fig, show_stats):
-            '''
-
-            :param plot_fig:
-            :param n_filt:
-            :return:
-            '''
-
-            # sets up the axes dimensions
-            nR, nC, i_ofs = 4, 4, 1
-            top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
-
-            # creates the gridspec object
-            gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
-                                   bottom=bottom, top=top)
-
-            # creates the subplots
-            plot_fig.ax = np.empty(1 + nC * show_stats, dtype=object)
-            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:(nR-show_stats), :])
-
-            # sets up the statistics tables
-            if show_stats:
-                for iC in range(nC):
-                    plot_fig.ax[iC + i_ofs] = plot_fig.figure.add_subplot(gs[-1, iC])
-                    plot_fig.ax[iC + i_ofs].axis('off')
+        # def setup_plot_axes(plot_fig, show_stats):
+        #     '''
+        #
+        #     :param plot_fig:
+        #     :param n_filt:
+        #     :return:
+        #     '''
+        #
+        #     # sets up the axes dimensions
+        #     nR, nC, i_ofs = 4, 4, 1
+        #     top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
+        #
+        #     # creates the gridspec object
+        #     gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
+        #                            figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
+        #                            bottom=bottom, top=top)
+        #
+        #     # creates the subplots
+        #     plot_fig.ax = np.empty(1 + nC * show_stats, dtype=object)
+        #     plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:(nR-show_stats), :])
+        #
+        #     # sets up the statistics tables
+        #     if show_stats:
+        #         for iC in range(nC):
+        #             plot_fig.ax[iC + i_ofs] = plot_fig.figure.add_subplot(gs[-1, iC])
+        #             plot_fig.ax[iC + i_ofs].axis('off')
 
         def calc_kw_stats(p_sig, n_filt):
             '''
@@ -4348,7 +4353,11 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # initialisations
+        n_grp = [4]
         r_data = self.data.rotation
+
+        # applies the rotation filter to the dataset
+        r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
 
         if is_fixed:
             ###################################
@@ -4369,19 +4378,20 @@ class AnalysisGUI(QMainWindow):
 
             # memory allocation
             n_filt_ex = np.zeros(n_filt, dtype=int)
-            n_cell_ex = np.empty(n_filt, dtype=object)
-            v_sf_sig_count = np.empty(n_filt, dtype=object)
+            n_cell_ex0 = np.empty(n_filt, dtype=object)
+            n_type_ex0 = np.empty(n_filt, dtype=object)
 
             # sets the spiking frequency significance values
             for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
                 # retrieves the indices of the cells within each experiment
-                i_ex = [np.where(r_obj_wc.i_expt[i_filt] == ii)[0] for ii in np.unique(r_obj_wc.i_expt[i_filt])]
+                i_cell_inter = np.unique(r_obj_wc.i_expt[i_filt][i_cell_b[i_filt]])
+                i_ex = [np.where(r_obj_wc.i_expt[i_filt] == ii)[0] for ii in i_cell_inter]
                 n_filt_ex[i_filt] = len(i_ex)
-                v_sf_sig_count[i_filt] = np.zeros((n_filt_ex[i_filt], 3))
-                n_cell_ex[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
+                # v_sf_sig_count[i_filt] = np.zeros((n_filt_ex[i_filt], 3))
+                n_cell_ex0[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
 
                 # retrieves the significance flags for the current filter type
-                v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+                v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]]
 
                 # determines the number of cells for each significance type:
                 #   =0 - No direction is significance
@@ -4390,7 +4400,7 @@ class AnalysisGUI(QMainWindow):
                 #   =3 - Both directions are significance
                 v_sf_sig_score = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
                 v_sf_sig_ex = [v_sf_sig_score[_i_ex] for _i_ex in i_ex]
-                v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+                n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
 
         else:
             ######################################
@@ -4415,117 +4425,187 @@ class AnalysisGUI(QMainWindow):
 
             # sets the number of cells per experimental data file
             n_filt_ex = len(v_sf_sig) * np.ones(n_filt, dtype=int)
-            n_cell_ex = [repmat(np.array([np.shape(v_sf)[0] for v_sf in v_sf_sig[0]]).reshape(-1, 1), 1, 3)] * n_filt
+            n_cell_ex0 = [repmat(np.array([np.shape(v_sf)[0] for v_sf in v_sf_sig[0]]).reshape(-1, 1), 1, 3)] * n_filt
 
             # memory allocation
-            v_sf_sig_count = np.empty(n_filt, dtype=object)
+            n_type_ex0 = np.empty(n_filt, dtype=object)
             for i_filt in range(n_filt):
                 v_sf_sig_ex = [x[:, 0] + 2 * x[:, 1] for x in v_sf_sig[i_filt]]
-                v_sf_sig_count[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+                n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+
+        # includes the any significant column within the data
+        for i_filt in range(n_filt):
+            n_type_ex0[i_filt] = np.hstack((n_type_ex0[i_filt], np.sum(n_type_ex0[i_filt], axis=1).reshape(-1, 1)))
+            n_cell_ex0[i_filt] = np.hstack((n_cell_ex0[i_filt], n_cell_ex0[i_filt][:, 0].reshape(-1, 1)))
+
+        # reshapes the array so it has the correct form
+        n_cell_ex = [np.moveaxis(np.dstack(n_cell_ex0), 1, 0)]
+        n_type_ex = [np.moveaxis(np.dstack(n_type_ex0), 1, 0)]
+
+        # calculates the proportions of the groups over each experiment/filter type
+        sf_type_pr = 100. * np.divide(n_type_ex, n_cell_ex)
+
+        # calculates the group posthoc statistics
+        stats_ph = self.calc_group_posthoc_stats(sf_type_pr, n_filt, n_grp)
 
         #################################################
         ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
         #################################################
 
-        # parameters and other initialisations
-        p_wid = 0.85
-        x_bar = np.arange(3)
-        col = cf.get_plot_col(n_filt)
-        x_tick_lbl = ['Negative', 'Positive', 'Both', 'Any Significant']
+        # # parameters and other initialisations
+        # p_wid = 0.85
+        # x_bar = np.arange(3)
+        # col = cf.get_plot_col(n_filt)
+        # x_tick_lbl = ['Negative', 'Positive', 'Both', 'Any Significant']
+        #
+        # # memory allocation
+        # h_plt = []
+        # p_sig = np.empty((n_filt, 3), dtype=object)
+        # p_sig_f = np.empty(n_filt, dtype=object)
 
-        # memory allocation
-        h_plt = []
-        p_sig = np.empty((n_filt, 3), dtype=object)
-        p_sig_f = np.empty(n_filt, dtype=object)
+        # sets the legend strings based on the type
+        tt_str = ['Negative', 'Positive', 'Both', 'Any Significant']
+        lg_str = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(r_obj.lg_str)]
 
-        # creates the subplot axis
-        setup_plot_axes(self.plot_fig, show_stats)
-        ax = self.plot_fig.ax
+        if show_stats:
+            ##########################################################
+            ####    CORRELATION SIGNIFICANCE STATISTICS TABLES    ####
+            ##########################################################
 
-        # sets the spiking frequency significance/correlation
-        for i_filt in range(n_filt):
-            # sets the bar graph offsets
-            if i_filt == 0:
-                dx = np.linspace(-1, 1, 2 * n_filt + 1)[1::2]
-                b_wid = p_wid * (x_bar[1] - x_bar[0]) / 2
+            # sets up the plot axes
+            main_title = ['Correlation Significance']
+            col_table = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
+            self.setup_posthoc_stats_table_axes(self.plot_fig, main_title, n_filt, n_grp)
 
-            # calculates the significance percentages for each type
-            p_sig0 = 100. * v_sf_sig_count[i_filt] / n_cell_ex[i_filt]
-            p_sig_mn = np.mean(p_sig0, axis=0)
-            p_sig_sem = np.std(p_sig0, axis=0) / np.sqrt(n_filt_ex[i_filt])
+            # sets the table header strings
+            i0 = int(n_filt == 1)
+            hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
+            hdr_str = [hdr_filt, ['Neg.', 'Pos.', 'Both', 'Any']][i0: 2 * (1 - i0)]
 
-            for i_type in range(3):
-                p_sig[i_filt, i_type] = p_sig0[:, i_type]
+            # sets the base title string
+            t_str = [tt_str, lg_str][i0: 2 * (1 - i0)]
 
-            # case is the significant values so normalise using the provided value
-            x_bar_tt = x_bar + dx[i_filt] * b_wid
-            ax[0].bar(x_bar_tt, p_sig_mn, width=2 * b_wid / n_filt, yerr=p_sig_sem,
-                      edgecolor=col[i_filt], color=col[i_filt])
-            h_plt.append(ax[0].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
+            # creates the posthoc statistics table
+            self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
 
-            # calculates the significance percentages (either/or)
-            p_sig_f[i_filt] = 100. * np.sum(v_sf_sig_count[i_filt], axis=1) / n_cell_ex[i_filt][:, 0]
-            p_sig_f_mn = np.mean(p_sig_f[i_filt])
-            p_sig_f_sem = np.std(p_sig_f[i_filt]) / np.sqrt(n_filt_ex[i_filt])
-
-            # case is the significant values so normalise using the provided value
-            x_bar_f = 3 + dx[i_filt] * b_wid
-            ax[0].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
-                      edgecolor=col[i_filt], color=col[i_filt])
-
-        # sets the legend string
-        if is_fixed:
-            lg_str0 = [', '.join(x.replace('\n', '').split('\n')) for x in r_obj_wc.lg_str]
         else:
-            lg_str0 = t_type_filt
+            # creates the subplot axis
+            self.init_plot_axes(n_plot=1)
+            ax = self.plot_fig.ax[0]
 
-        # sets the specific axis properties
-        ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)])
-        ax[0].set_xticks(np.arange(len(x_tick_lbl)))
-        ax[0].set_xticklabels(x_tick_lbl)
-        ax[0].set_ylabel('%age of Cells')
-        ax[0].set_xlim([-0.5, 3.5])
-        ax[0].set_ylim([-0.1, 100.1])
-        ax[0].grid(plot_grid)
+            # creates the graph
+            c = cf.get_plot_col(np.max([n_filt, max(n_grp)]))
+            h_plt = cf.create_general_group_plot(ax, sf_type_pr[0], grp_plot_type, c)
 
-        if not show_stats:
-            return
-
-        ###################################################
-        ####    CORRELATION SIGNIFICANCE STATISTICS    ####
-        ###################################################
-
-        # initialisations
-        n_grp, dt_ofs, i_ofs = 4, 20, 1
-        f_rend = self.plot_fig.get_renderer()
-        rw_hdr = cl_hdr = ['#{0}'.format(i + 1) for i in range(n_filt)]
-        _table_font = cf.get_table_font_size(n_filt)
-
-        # calculates the statistics for each significance group
-        for i_grp in range(n_grp):
-            if (i_grp + 1) == n_grp:
-                # case is the combined significance
-                kw_stats = calc_kw_stats(p_sig_f, n_filt)
+            # creates the xticklabels
+            if n_filt == 1:
+                ax.set_xticklabels(['All Cells'])
             else:
-                # case is the individual significance
-                kw_stats = calc_kw_stats(p_sig[:, i_grp], n_filt)
+                ax.set_xticklabels(tt_str)
 
-            # copies the original axes dimensions
-            bbox0 = ax[i_ofs + i_grp].bbox._bbox
-            ax_hght_0 = dcopy(bbox0.height)
-            ax_hght_abs_0 = dcopy(ax[i_ofs + i_grp].get_tightbbox(f_rend).height)
+            # updates the axis properties
+            ax.grid(plot_grid)
+            ax.set_ylabel('Population %')
+            ax.legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
+                                 columnspacing=0.125, bbox_to_anchor=(0.5, 1.05))
 
-            # creates the new plot table and retrieves the table height
-            t_props = cf.add_plot_table(self.plot_fig, ax[i_ofs + i_grp], _table_font, kw_stats,
-                                             rw_hdr, cl_hdr, col, col, 'top')
-            t_props[0].draw(f_rend)
-            t_hght_abs_0 = dcopy(t_props[0].get_tightbbox(f_rend).height)
+            # sets the y-axis limits based on type
+            if 'Bar' in grp_plot_type:
+                ax.set_ylim([0, 100])
+            else:
+                ax.set_ylim([-2.5, 102.5])
 
-            # resets the axes height
-            ax_hght_nw = ax_hght_abs_0 - (t_hght_abs_0 + dt_ofs)
-            ax_hght_bb_nw = ax_hght_0 * ax_hght_nw / ax_hght_abs_0
-            ax[i_ofs + i_grp].set_position([bbox0.x0, bbox0.y0, bbox0.width, ax_hght_bb_nw])
-            t_props[0]._bbox[3] *= t_hght_abs_0 / t_props[0].get_tightbbox(f_rend).height
+        # # creates the subplot axis
+        # setup_plot_axes(self.plot_fig, show_stats and (n_filt > 1))
+        # ax = self.plot_fig.ax
+
+        # # sets the spiking frequency significance/correlation
+        # for i_filt in range(n_filt):
+        #     # sets the bar graph offsets
+        #     if i_filt == 0:
+        #         dx = np.linspace(-1, 1, 2 * n_filt + 1)[1::2]
+        #         b_wid = p_wid * (x_bar[1] - x_bar[0]) / 2
+        #
+        #     # calculates the significance percentages for each type
+        #     p_sig0 = 100. * n_type_ex0[i_filt] / n_cell_ex0[i_filt]
+        #     p_sig_mn = np.mean(p_sig0, axis=0)
+        #     p_sig_sem = np.std(p_sig0, axis=0) / np.sqrt(n_filt_ex[i_filt])
+        #
+        #     for i_type in range(3):
+        #         p_sig[i_filt, i_type] = p_sig0[:, i_type]
+        #
+        #     # case is the significant values so normalise using the provided value
+        #     x_bar_tt = x_bar + dx[i_filt] * b_wid
+        #     ax[0].bar(x_bar_tt, p_sig_mn, width=2 * b_wid / n_filt, yerr=p_sig_sem,
+        #               edgecolor=col[i_filt], color=col[i_filt])
+        #     h_plt.append(ax[0].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
+        #
+        #     # calculates the significance percentages (either/or)
+        #     p_sig_f[i_filt] = 100. * np.sum(n_type_ex0[i_filt], axis=1) / n_cell_ex0[i_filt][:, 0]
+        #     p_sig_f_mn = np.mean(p_sig_f[i_filt])
+        #     p_sig_f_sem = np.std(p_sig_f[i_filt]) / np.sqrt(n_filt_ex[i_filt])
+        #
+        #     # case is the significant values so normalise using the provided value
+        #     x_bar_f = 3 + dx[i_filt] * b_wid
+        #     ax[0].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
+        #               edgecolor=col[i_filt], color=col[i_filt])
+        #
+        # # sets the legend string
+        # if is_fixed:
+        #     lg_str0 = ['\\'.join(x.split('\n')) for x in r_obj_wc.lg_str]
+        # else:
+        #     lg_str0 = t_type_filt
+        #
+        # # creates the legend
+        # ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)], loc=2)
+        #
+        # # sets the specific axis properties
+        # ax[0].set_xticks(np.arange(len(x_tick_lbl)))
+        # ax[0].set_xticklabels(x_tick_lbl)
+        # ax[0].set_ylabel('%age of Cells')
+        # ax[0].set_xlim([-0.5, 3.5])
+        # ax[0].set_ylim([-0.1, 100.1])
+        # ax[0].grid(plot_grid)
+        #
+        # # if not showing stats (or only one filter type) then exit the function here
+        # if not show_stats or (n_filt == 1):
+        #     return
+        #
+        # ###################################################
+        # ####    CORRELATION SIGNIFICANCE STATISTICS    ####
+        # ###################################################
+        #
+        # # initialisations
+        # n_grp, dt_ofs, i_ofs = 4, 20, 1
+        # f_rend = self.plot_fig.get_renderer()
+        # rw_hdr = cl_hdr = ['#{0}'.format(i + 1) for i in range(n_filt)]
+        # _table_font = cf.get_table_font_size(n_filt)
+        #
+        # # calculates the statistics for each significance group
+        # for i_grp in range(n_grp):
+        #     if (i_grp + 1) == n_grp:
+        #         # case is the combined significance
+        #         kw_stats = calc_kw_stats(p_sig_f, n_filt)
+        #     else:
+        #         # case is the individual significance
+        #         kw_stats = calc_kw_stats(p_sig[:, i_grp], n_filt)
+        #
+        #     # copies the original axes dimensions
+        #     bbox0 = ax[i_ofs + i_grp].bbox._bbox
+        #     ax_hght_0 = dcopy(bbox0.height)
+        #     ax_hght_abs_0 = dcopy(ax[i_ofs + i_grp].get_tightbbox(f_rend).height)
+        #
+        #     # creates the new plot table and retrieves the table height
+        #     t_props = cf.add_plot_table(self.plot_fig, ax[i_ofs + i_grp], _table_font, kw_stats,
+        #                                      rw_hdr, cl_hdr, col, col, 'top')
+        #     t_props[0].draw(f_rend)
+        #     t_hght_abs_0 = dcopy(t_props[0].get_tightbbox(f_rend).height)
+        #
+        #     # resets the axes height
+        #     ax_hght_nw = ax_hght_abs_0 - (t_hght_abs_0 + dt_ofs)
+        #     ax_hght_bb_nw = ax_hght_0 * ax_hght_nw / ax_hght_abs_0
+        #     ax[i_ofs + i_grp].set_position([bbox0.x0, bbox0.y0, bbox0.width, ax_hght_bb_nw])
+        #     t_props[0]._bbox[3] *= t_hght_abs_0 / t_props[0].get_tightbbox(f_rend).height
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -9902,7 +9982,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # initialisations
-        n_sub = 3
+        n_sub, n_grp = 3, [3, 1]
         n_filt = int(r_obj.n_filt / 2) if r_obj.is_ud else r_obj.n_filt
         c, c2 = cf.get_plot_col(n_filt), cf.get_plot_col(4, n_filt)
 
@@ -9962,12 +10042,15 @@ class AnalysisGUI(QMainWindow):
             i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
 
             # sets the reaction type for each filter type/experiment
+            ind = [0, 2, 1, 3]
             sf_type_filt, _ = self.group_metrics_by_expt(r_obj, sf_type, i_grp[0])
-            n_type_ex[0] = [np.vstack([cf.calc_rel_prop(x, 4, return_counts=True) for x in y]) for y in sf_type_filt]
+            n_type_ex[0] = [np.vstack(
+                    [cf.calc_rel_prop(x, 4, return_counts=True, ind=ind) for x in y]) for y in sf_type_filt]
 
             # sets the direction selectivity for each filter type/experiment
             is_dir_sel_filt, n_filt_ex = self.group_metrics_by_expt(r_obj, is_dir_sel, i_grp[1])
-            n_type_ex[1] = [np.vstack([cf.calc_rel_prop(x, 2, return_counts=True) for x in y]) for y in is_dir_sel_filt]
+            n_type_ex[1] = [np.vstack([
+                    cf.calc_rel_prop(x, 2, return_counts=True) for x in y]) for y in is_dir_sel_filt]
 
             # if displaying the motion selectivity proportion, then
             if not ms_prop:
@@ -9986,24 +10069,10 @@ class AnalysisGUI(QMainWindow):
                 # case is the other plot types (removes the
                 sf_type_plt = dcopy(sf_type_pr)
                 sf_type_plt[0] = [x[:, 1:] for x in sf_type_plt[0]]
+                sf_type_plt[1] = [x[:, 1:] for x in sf_type_plt[1]]
 
-            # calculates the within/between filter type statistics
-            n_r, n_c = 1 if n_filt == 1 else max(3, n_filt), 1 + int(n_filt > 1)
-            stats_ph = np.empty((n_r, 2 * n_c, 2), dtype=object)
-
-            for i in range(len(sf_type_pr)):
-                # calculates the new stats values
-                sf_stats_nw = cfcn.calc_posthoc_stats(sf_type_pr[i], c_ofs=int(i == 0))
-
-                # places the values into the overall stats array
-                for j in range(len(sf_stats_nw)):
-                    if n_filt == 1:
-                        stats_ph[0, i * n_c + j, 0] = sf_stats_nw[j][0]
-                        stats_ph[0, i * n_c + j, 1] = sf_stats_nw[j][1]
-                    else:
-                        n_row = np.shape(sf_stats_nw[j])[0]
-                        stats_ph[:n_row, i * n_c + j, 0] = sf_stats_nw[j][:, 0]
-                        stats_ph[:n_row, i * n_c + j, 1] = sf_stats_nw[j][:, 1]
+            # calculates the group posthoc statistics
+            stats_ph = self.calc_group_posthoc_stats(sf_type_pr, n_filt, n_grp, c_ofs=1)
 
         if show_stats:
             ##########################################################################
@@ -10011,41 +10080,21 @@ class AnalysisGUI(QMainWindow):
             ##########################################################################
 
             # sets up the plot axes
-            col_table = cf.get_plot_col(max([3, n_filt]), 1)
-            n_r, n_c, ax_main, ax_sub = self.setup_stats_table_axes(self.plot_fig, n_filt, 3, n_comp=2)
-            ax = self.plot_fig.ax
-
-            # sets the main grouping titles
-            for _ax, tt in zip(ax_main, ['Reaction Type', 'Direction Selectivity']):
-                _ax.set_title(tt, fontsize=20)
+            main_title = ['Reaction Type', 'Direction Selectivity']
+            col_table = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
+            self.setup_posthoc_stats_table_axes(self.plot_fig, main_title, n_filt, n_grp)
 
             # sets the table header strings
+            i0 = int(n_filt == 1)
             hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
-            hdr_str = [['Inh.', 'Exc.', 'Mixed'], hdr_filt, ['DI', 'DS'], hdr_filt][0::(2 - (n_filt > 1))]
+            hdr_str = [hdr_filt, ['Exc.', 'Inh.', 'Mixed'], hdr_filt][i0: 2 * (2 - i0)]
 
             # sets the base title string
-            tt_str = ['#{0} - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(r_obj.lg_str)]
-            t_str_base = [tt_str, ['Inhibited', 'Excited', 'Mixed'],
-                          tt_str, ['Direction Insensitive', 'Direction Sensitive']][0::(2 - (n_filt > 1))]
+            tt_str = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(r_obj.lg_str)]
+            t_str = [['Excited', 'Inhibited', 'Mixed'], tt_str, ['Direction Selective']][i0: 2 * (2 - i0)]
 
-            #
-            for i_r in range(n_r):
-                for i_c in range(n_c):
-                    # if there is no stats values, then continue
-                    if stats_ph[i_r, i_c, 0] is None:
-                        continue
-
-                    # creates the subplot axes
-                    i_plot = i_c * n_r + i_r
-                    stats_nw = stats_ph[i_r, i_c, 1]
-                    nr_nw = np.shape(stats_nw)[0]
-
-                    # creates the table
-                    suf_str = cf.sig_str_fcn(stats_ph[i_r, i_c, 0], p_value)
-                    t_str = '{}\n(KW Stats = {:.3e}{})'.format(t_str_base[i_c][i_r], stats_ph[i_r, i_c, 0], suf_str)
-                    h_title = ax[i_plot].text(0.5, 1, t_str, fontsize=14, horizontalalignment='center')
-                    cf.add_plot_table(self.plot_fig, ax[i_plot], table_font, stats_nw, hdr_str[i_c],
-                                      hdr_str[i_c], col_table[:nr_nw], col_table[:nr_nw], 'fixed', h_title=h_title)
+            # creates the posthoc statistics table
+            self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
 
         else:
 
@@ -10120,19 +10169,21 @@ class AnalysisGUI(QMainWindow):
                         y = sf_trend[i_sub][i_filt, 0] * x
                         ax[i_sub].plot(x, y, '--', c=c[i_filt])
 
+            # updates the the x/y axis limits
             for i_sub in range(n_sub):
-                # updates the the x/y axis limits
                 ax[i_sub].set_xlim(0, axL)
                 ax[i_sub].set_ylim(0, axL)
                 ax[i_sub].plot([0, axL], [0, axL], 'k--')
 
             if r_obj.is_single_cell:
+                # resets the axis properties
                 self.plot_fig.fig.set_tight_layout(False)
                 self.plot_fig.fig.tight_layout(rect=[0.0, 0.01, 1, 0.955])
                 self.plot_fig.fig.suptitle(
                     'Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                     fontsize=16, fontweight='bold')
 
+                # sets up the statistics table values
                 col_hdr = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
                 t_data = np.vstack([['{:5.3f}{}'.format(y, cf.sig_str_fcn(y, p_value)) for y in x] for x in sf_stats]).T
 
@@ -10151,7 +10202,6 @@ class AnalysisGUI(QMainWindow):
             for i in range(2):
                 # creates the graph
                 h_plt = cf.create_general_group_plot(ax[i + n_sub], sf_type_plt[i], grp_plot_type, c2)
-                # h_bar = cf.create_stacked_bar(ax[i + n_sub], dcopy(sf_type_plt[i]), c2)
 
                 # creates the bar graph
                 if r_obj.is_ud and r_obj.n_filt == 2:
@@ -10161,15 +10211,19 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the legend strings based on the type
                 if i == 0:
-                    lg_str = ['None', 'Inhibited', 'Excited', 'Mixed'][(grp_plot_type != 'Stacked Bar'):]
+                    lg_str = ['None', 'Excited', 'Inhibited', 'Mixed'][(grp_plot_type != 'Stacked Bar'):]
                 else:
-                    lg_str = ['Direction Insensitive', 'Direction Sensitive']
+                    lg_str = ['Direction Insensitive', 'Direction Sensitive'][(grp_plot_type != 'Stacked Bar'):]
 
                 # updates the axis properties
                 ax[i + n_sub].grid(plot_grid)
                 cf.reset_axes_dim(ax[i + n_sub], 'bottom', 0.075, True)
-                ax[i + n_sub].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
-                                                                    columnspacing=0.125, bbox_to_anchor=(0.5, 1.15))
+
+                if len(h_plt):
+                    ax[i + n_sub].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
+                                                                        columnspacing=0.125, bbox_to_anchor=(0.5, 1.11))
+                else:
+                    ax[i + n_sub].set_title('Direction Sensitivity Proportion', fontsize=16, fontweight='bold')
 
                 # only set the y-axis label for the first subplot
                 if i == 0:
@@ -10180,6 +10234,9 @@ class AnalysisGUI(QMainWindow):
                     ax[i + n_sub].set_ylim([0, 100])
                 else:
                     ax[i + n_sub].set_ylim([-2.5, 102.5])
+
+        # retrieves the function data values
+        self.func_data = self.set_output_data(locals())
 
     def group_metrics_by_expt(self, r_obj, y_metric, i_grp):
         '''
@@ -10999,6 +11056,158 @@ class AnalysisGUI(QMainWindow):
             t_pos[1] = t_props_2[0]._bbox[1] + t_props_2[0]._bbox[3] + dh_title
             h_title_2.set_position(tuple(t_pos))
 
+    ############################################
+    ####    POSTHOC STATISTICS FUNCTIONS    ####
+    ############################################
+
+    def setup_posthoc_stats_table_axes(self, plot_fig, main_title, n_filt, n_grp):
+        '''
+
+        :param plot_fig:
+        :return:
+        '''
+
+        def create_title_axes(gs, i_c, main_title, sub_title):
+            '''
+
+            :param gs:
+            :return:
+            '''
+
+            # creates the main title axis
+            ax_main = plot_fig.figure.add_subplot(gs[0, i_c])
+            ax_main.set_title(main_title, fontsize=20)
+            ax_main.axis('off')
+
+            # creates the sub-title axis
+            ax_sub = plot_fig.figure.add_subplot(gs[1, i_c])
+            ax_sub.set_title(sub_title, fontsize=17)
+            ax_sub.axis('off')
+
+            # returns the axis objects
+            return ax_main, ax_sub
+
+        # ensures the grouping count is a list
+        if not isinstance(n_grp, list):
+            n_grp = [n_grp]
+
+        # ensures the main title is a list
+        if not isinstance(main_title, list):
+            main_title = [main_title]
+
+        # axes dimensions
+        hght_title = 0.01
+        top, bottom, left, right, pH, wspace, hspace = 0.95, 0.02, 0.075, 0.98, 0.01, 0.25, 0.15
+
+        # other initialisations
+        n_grp_max = max(n_grp)
+        n_r = 1 if n_filt == 1 else np.max([n_filt, n_grp_max])
+        n_c = np.sum(np.array(n_grp) > 1) + len(n_grp) * (n_filt > 1)
+
+        # memory allocation
+        plot_fig.ax = np.empty(n_r * n_c, dtype=object)
+
+        # calculates the axes height ratios (based on the row count and whether there are main/sub titles)
+        t_str = [hght_title] * 2
+        height_ratios = t_str + [(1 - sum(t_str)) / n_r] * n_r
+
+        # creates the gridspec object
+        gs = gridspec.GridSpec(n_r + 2, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
+                               figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=left, right=right,
+                               bottom=bottom, top=top)
+
+        # creates the main title axes (if more than one comparison type)
+        i_c, i_ofs = 0, 2
+        ax_main, ax_sub = np.empty(n_c, dtype=object), np.empty(n_c, dtype=object)
+        for m_t, n_g in zip(main_title, n_grp):
+            # creates the within group stats axis
+            if n_g > 1:
+                ax_main[i_c], ax_sub[i_c] = create_title_axes(gs, i_c, m_t, 'Within Group Stats')
+                i_c += 1
+
+            # creates the between group stats axis
+            if n_filt > 1:
+                ax_main[i_c], ax_sub[i_c] = create_title_axes(gs, i_c, m_t, 'Between Group Stats')
+                i_c += 1
+
+        # creates the plot axes
+        for i_r in range(n_r):
+            for i_c in range(n_c):
+                # creates the subplot axes
+                i_plot = i_c * n_r + i_r
+                plot_fig.ax[i_plot] = plot_fig.figure.add_subplot(gs[i_r + i_ofs, i_c])
+
+                # disables the plot axes (enables when being used)
+                plot_fig.ax[i_plot].axis('off')
+
+    def calc_group_posthoc_stats(self, y, n_filt, n_grp, c_ofs=0):
+        '''
+
+        :param sf_type_pr:
+        :param n_filt:
+        :param n_grp:
+        :return:
+        '''
+
+        # ensures the group counts is a list object
+        if not isinstance(n_grp, list):
+            n_grp = [n_grp]
+
+        # calculates the within/between filter type statistics
+        i_c = 0
+        n_r = 1 if n_filt == 1 else np.max([n_filt, max(n_grp)])
+        n_c = np.sum(np.array(n_grp) > 1) + len(n_grp) * (n_filt > 1)
+        stats_ph = np.empty((n_r, n_c, 2), dtype=object)
+
+        #
+        for i in range(len(n_grp)):
+            # calculates the within/between group statistics
+            p_stats = cfcn.calc_posthoc_stats(y[i], c_ofs=c_ofs)
+
+            # places the values into the overall stats array
+            for j in range(len(p_stats)):
+                # if there are no stats, then continue
+                if p_stats[j] is None:
+                    continue
+
+                # sets the stats based on the filter count
+                n_row = np.shape(p_stats[j])[0]
+                stats_ph[:n_row, i_c, 0] = p_stats[j][:, 0]
+                stats_ph[:n_row, i_c, 1] = p_stats[j][:, 1]
+
+                # increments the counter
+                i_c += 1
+
+        # returns the stats array
+        return stats_ph
+
+    def create_posthoc_stats_table(self, y, hdr_str, t_str0, col, p_value=0.05):
+
+        # initialisations
+        ax = self.plot_fig.ax
+        if np.ndim(y) == 1:
+            n_r = n_c = 1
+        else:
+            n_r, n_c = np.shape(y)[0], np.shape(y)[1]
+
+        for i_r in range(n_r):
+            for i_c in range(n_c):
+                # if there is no stats values, then continue
+                if y[i_r, i_c, 0] is None:
+                    continue
+
+                # creates the subplot axes
+                i_plot = i_c * n_r + i_r
+                stats_nw = y[i_r, i_c, 1]
+                nr_nw = np.shape(stats_nw)[0]
+
+                # creates the table
+                suf_str = cf.sig_str_fcn(y[i_r, i_c, 0], p_value)
+                t_str = '{}\n(KW Stats = {:.3e}{})'.format(t_str0[i_c][i_r], y[i_r, i_c, 0], suf_str)
+                h_title = ax[i_plot].text(0.5, 1, t_str, fontsize=14, horizontalalignment='center')
+                cf.add_plot_table(self.plot_fig, ax[i_plot], table_font, stats_nw, hdr_str[i_c],
+                                  hdr_str[i_c], col[:nr_nw], col[:nr_nw], 'fixed', h_title=h_title)
+
     ###############################################
     ####    GENERAL ANALYSIS PLOT FUNCTIONS    ####
     ###############################################
@@ -11105,7 +11314,8 @@ class AnalysisGUI(QMainWindow):
 
         # returns the
         return dict([(x, self.fcn_data.curr_para[x]) for x in cf.get_para_dict(fcn_para, 'C')]), \
-               dict([(x, self.fcn_data.curr_para[x]) for x in cf.get_para_dict(fcn_para, 'P')])
+               dict([(x, self.fcn_data.curr_para[x]) for x in cf.get_para_dict(fcn_para, 'P')]), \
+               dict([(x, self.fcn_data.curr_para[x]) for x in cf.get_para_dict(fcn_para, 'O')])
 
     def get_rotation_names(self, f_perm, f_key, t_key):
         '''
@@ -11209,70 +11419,6 @@ class AnalysisGUI(QMainWindow):
 
         # returns the all auc values, group match type and the inter-condition index arrays
         return x_auc, y_auc, g_type_m, x_sig + 2 * y_sig, i_cell_b
-
-    def setup_stats_table_axes(self, plot_fig, n_filt, n_grp, n_comp=1):
-        '''
-
-        :param plot_fig:
-        :return:
-        '''
-
-        # axes dimensions
-        hght_title = 0.01
-        top, bottom, left, right, pH, wspace, hspace = 0.95, 0.02, 0.075, 0.98, 0.01, 0.25, 0.2
-
-        # other initialisations
-        ax_main, ax_sub = None, None
-        has_main_title, has_sub_title = n_comp > 1, n_filt > 1
-        i_ofs = int(has_main_title) + int(has_sub_title)
-
-        # sets the row/column count based on the number of filter types
-        if has_sub_title:
-            # more than one filter type
-            n_r, n_c = np.max([n_filt, n_grp]), 2 * n_comp
-        else:
-            # only one filter type
-            n_r, n_c = 1, n_comp
-
-        # memory allocation
-        plot_fig.ax = np.empty(n_r * n_c, dtype=object)
-
-        # calculates the axes height ratios (based on the row count and whether there are main/sub titles)
-        t_str = ([hght_title] if has_main_title else []) + ([hght_title] if has_sub_title else [])
-        height_ratios = t_str + [(1 - sum(t_str)) / n_r] * n_r
-
-        # creates the gridspec object
-        gs = gridspec.GridSpec(n_r + len(t_str), n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
-                               figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=left, right=right,
-                               bottom=bottom, top=top)
-
-        # creates the main title axes (if more than one comparison type)
-        if has_main_title:
-            ax_main = np.empty(n_comp, dtype=object)
-            for i_comp in range(n_comp):
-                ax_main[i_comp] = plot_fig.figure.add_subplot(gs[0, (2 * i_comp):(2 * (i_comp + 1))])
-                ax_main[i_comp].axis('off')
-
-        # creates the subtitle axes (if more than one filter type)
-        if has_sub_title:
-            ax_sub = np.empty(n_c, dtype=object)
-            for i_c in range(n_c):
-                ax_sub[i_c] = plot_fig.figure.add_subplot(gs[int(has_main_title), i_c])
-                ax_sub[i_c].set_title(['Within Group Stats', 'Between Group Stats'][i_c % 2], fontsize=17)
-                ax_sub[i_c].axis('off')
-
-        # creates the plot axes
-        for i_r in range(n_r):
-            for i_c in range(n_c):
-                # creates the subplot axes
-                i_plot = i_c * n_r + i_r
-                plot_fig.ax[i_plot] = plot_fig.figure.add_subplot(gs[i_r + i_ofs, i_c])
-
-                # disables the plot axes (enables when being used)
-                plot_fig.ax[i_plot].axis('off')
-
-        # returns the axes dimensions
-        return n_r, n_c, ax_main, ax_sub
 
     ####################################################################################################################
     ####                                           DATA OUTPUT FUNCTIONS                                            ####
@@ -11812,6 +11958,19 @@ class AnalysisGUI(QMainWindow):
         # if no match, then return a false value
         return False
 
+    def set_output_data(self, local_data):
+        '''
+
+        :return:
+        '''
+
+        # initialisations
+        func_data = {}
+
+        # sets the function data (if any variables matched)
+        if len(func_data.keys()):
+            self.func_data = func_data
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -12177,6 +12336,7 @@ class AnalysisFunctions(object):
         # initialisations
         sig_vel_bin = ['5', '10']
         dist_type = ['Cumulative Distribution', 'Histogram']
+        grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Violinplot', 'Stacked Bar']
 
         # sets up the fixed correlation rotational filter
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
@@ -12234,10 +12394,9 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'def_val': None, 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer',
                                                 'sig_type', 'free_ctype']},
-                'def_val': dcopy(rot_filt_corr_fixed)
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -12294,9 +12453,8 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': dcopy(rot_filt_corr_fixed), 'para_reset': [[None, self.reset_comb_all]],
-                'para_gui_var': {'rmv_fields': ['match_type']}
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [[None, self.reset_comb_all]], 'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
             'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
@@ -12359,9 +12517,8 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': rot_filt_corr_fixed, 'para_reset': [[None, self.reset_trial_sel]],
-                'para_gui_var': {'rmv_fields': ['match_type']}
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [[None, self.reset_trial_sel]], 'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[0]},
             'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[1]},
@@ -12424,10 +12581,15 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': rot_filt_corr_fixed, 'para_gui_var': {'rmv_fields': ['match_type']}
+                'def_val': None, 'para_gui_var': {'rmv_fields': ['match_type']}
             },
-            'show_stats': {'type': 'B', 'text': 'Show Statstics Tables', 'def_val': True},
+            'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False]]
+            },
 
             # invisible parameters
             'plot_scope': {
@@ -12528,8 +12690,15 @@ class AnalysisFunctions(object):
                     'type': 'CL', 'text': 'Plot Conditions', 'list': tt_free,
                     'def_val': np.ones(len(tt_free), dtype=bool),
                 },
-                'show_stats': {'type': 'B', 'text': 'Show Statstics Tables', 'def_val': True},
+                'grp_plot_type': {
+                    'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]
+                },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+                'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+                'show_stats': {
+                    'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                    'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False]]
+                },
 
                 # invisible plotting parameters
                 'plot_scope': {
@@ -12561,7 +12730,6 @@ class AnalysisFunctions(object):
         s_type = ['Direction Selectivity', 'Motion Sensitivity']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
-        grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Stacked Bar']
         ksig_type = ['Individual Cell', 'Correlation Histogram', 'Correlation Scatterplot', 'Correlation Significance']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
@@ -12628,9 +12796,11 @@ class AnalysisFunctions(object):
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
+
+            # output variables
+
         }
         self.add_func(type='Rotation Analysis',
                       name='Phase Spiking Rate Comparison (Individual Cell)',
