@@ -4287,39 +4287,14 @@ class AnalysisGUI(QMainWindow):
         '''
 
         :param rot_filt:
-        :param show_stats:
         :param plot_grid:
+        :param grp_plot_type:
+        :param p_value:
+        :param show_stats:
         :param plot_scope:
         :param is_fixed:
         :return:
         '''
-
-        # def setup_plot_axes(plot_fig, show_stats):
-        #     '''
-        #
-        #     :param plot_fig:
-        #     :param n_filt:
-        #     :return:
-        #     '''
-        #
-        #     # sets up the axes dimensions
-        #     nR, nC, i_ofs = 4, 4, 1
-        #     top, bottom, pH, wspace, hspace = 0.97, 0.06, 0.01, 0.25, 0.2
-        #
-        #     # creates the gridspec object
-        #     gs = gridspec.GridSpec(nR, nC, width_ratios=[1 / nC] * nC, height_ratios=[1 / nR] * nR,
-        #                            figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.98,
-        #                            bottom=bottom, top=top)
-        #
-        #     # creates the subplots
-        #     plot_fig.ax = np.empty(1 + nC * show_stats, dtype=object)
-        #     plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:(nR-show_stats), :])
-        #
-        #     # sets up the statistics tables
-        #     if show_stats:
-        #         for iC in range(nC):
-        #             plot_fig.ax[iC + i_ofs] = plot_fig.figure.add_subplot(gs[-1, iC])
-        #             plot_fig.ax[iC + i_ofs].axis('off')
 
         def calc_kw_stats(p_sig, n_filt):
             '''
@@ -4452,17 +4427,6 @@ class AnalysisGUI(QMainWindow):
         ####    CORRELATION SIGNIFICANCE SUBPLOTS    ####
         #################################################
 
-        # # parameters and other initialisations
-        # p_wid = 0.85
-        # x_bar = np.arange(3)
-        # col = cf.get_plot_col(n_filt)
-        # x_tick_lbl = ['Negative', 'Positive', 'Both', 'Any Significant']
-        #
-        # # memory allocation
-        # h_plt = []
-        # p_sig = np.empty((n_filt, 3), dtype=object)
-        # p_sig_f = np.empty(n_filt, dtype=object)
-
         # sets the legend strings based on the type
         tt_str = ['Negative', 'Positive', 'Both', 'Any Significant']
         lg_str = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(r_obj.lg_str)]
@@ -4514,98 +4478,6 @@ class AnalysisGUI(QMainWindow):
                 ax.set_ylim([0, 100])
             else:
                 ax.set_ylim([-2.5, 102.5])
-
-        # # creates the subplot axis
-        # setup_plot_axes(self.plot_fig, show_stats and (n_filt > 1))
-        # ax = self.plot_fig.ax
-
-        # # sets the spiking frequency significance/correlation
-        # for i_filt in range(n_filt):
-        #     # sets the bar graph offsets
-        #     if i_filt == 0:
-        #         dx = np.linspace(-1, 1, 2 * n_filt + 1)[1::2]
-        #         b_wid = p_wid * (x_bar[1] - x_bar[0]) / 2
-        #
-        #     # calculates the significance percentages for each type
-        #     p_sig0 = 100. * n_type_ex0[i_filt] / n_cell_ex0[i_filt]
-        #     p_sig_mn = np.mean(p_sig0, axis=0)
-        #     p_sig_sem = np.std(p_sig0, axis=0) / np.sqrt(n_filt_ex[i_filt])
-        #
-        #     for i_type in range(3):
-        #         p_sig[i_filt, i_type] = p_sig0[:, i_type]
-        #
-        #     # case is the significant values so normalise using the provided value
-        #     x_bar_tt = x_bar + dx[i_filt] * b_wid
-        #     ax[0].bar(x_bar_tt, p_sig_mn, width=2 * b_wid / n_filt, yerr=p_sig_sem,
-        #               edgecolor=col[i_filt], color=col[i_filt])
-        #     h_plt.append(ax[0].bar(-10, 0.01, edgecolor=col[i_filt], color=col[i_filt]))
-        #
-        #     # calculates the significance percentages (either/or)
-        #     p_sig_f[i_filt] = 100. * np.sum(n_type_ex0[i_filt], axis=1) / n_cell_ex0[i_filt][:, 0]
-        #     p_sig_f_mn = np.mean(p_sig_f[i_filt])
-        #     p_sig_f_sem = np.std(p_sig_f[i_filt]) / np.sqrt(n_filt_ex[i_filt])
-        #
-        #     # case is the significant values so normalise using the provided value
-        #     x_bar_f = 3 + dx[i_filt] * b_wid
-        #     ax[0].bar(x_bar_f, p_sig_f_mn, width=2 * b_wid / n_filt, yerr=p_sig_f_sem,
-        #               edgecolor=col[i_filt], color=col[i_filt])
-        #
-        # # sets the legend string
-        # if is_fixed:
-        #     lg_str0 = ['\\'.join(x.split('\n')) for x in r_obj_wc.lg_str]
-        # else:
-        #     lg_str0 = t_type_filt
-        #
-        # # creates the legend
-        # ax[0].legend(h_plt, ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(lg_str0)], loc=2)
-        #
-        # # sets the specific axis properties
-        # ax[0].set_xticks(np.arange(len(x_tick_lbl)))
-        # ax[0].set_xticklabels(x_tick_lbl)
-        # ax[0].set_ylabel('%age of Cells')
-        # ax[0].set_xlim([-0.5, 3.5])
-        # ax[0].set_ylim([-0.1, 100.1])
-        # ax[0].grid(plot_grid)
-        #
-        # # if not showing stats (or only one filter type) then exit the function here
-        # if not show_stats or (n_filt == 1):
-        #     return
-        #
-        # ###################################################
-        # ####    CORRELATION SIGNIFICANCE STATISTICS    ####
-        # ###################################################
-        #
-        # # initialisations
-        # n_grp, dt_ofs, i_ofs = 4, 20, 1
-        # f_rend = self.plot_fig.get_renderer()
-        # rw_hdr = cl_hdr = ['#{0}'.format(i + 1) for i in range(n_filt)]
-        # _table_font = cf.get_table_font_size(n_filt)
-        #
-        # # calculates the statistics for each significance group
-        # for i_grp in range(n_grp):
-        #     if (i_grp + 1) == n_grp:
-        #         # case is the combined significance
-        #         kw_stats = calc_kw_stats(p_sig_f, n_filt)
-        #     else:
-        #         # case is the individual significance
-        #         kw_stats = calc_kw_stats(p_sig[:, i_grp], n_filt)
-        #
-        #     # copies the original axes dimensions
-        #     bbox0 = ax[i_ofs + i_grp].bbox._bbox
-        #     ax_hght_0 = dcopy(bbox0.height)
-        #     ax_hght_abs_0 = dcopy(ax[i_ofs + i_grp].get_tightbbox(f_rend).height)
-        #
-        #     # creates the new plot table and retrieves the table height
-        #     t_props = cf.add_plot_table(self.plot_fig, ax[i_ofs + i_grp], _table_font, kw_stats,
-        #                                      rw_hdr, cl_hdr, col, col, 'top')
-        #     t_props[0].draw(f_rend)
-        #     t_hght_abs_0 = dcopy(t_props[0].get_tightbbox(f_rend).height)
-        #
-        #     # resets the axes height
-        #     ax_hght_nw = ax_hght_abs_0 - (t_hght_abs_0 + dt_ofs)
-        #     ax_hght_bb_nw = ax_hght_0 * ax_hght_nw / ax_hght_abs_0
-        #     ax[i_ofs + i_grp].set_position([bbox0.x0, bbox0.y0, bbox0.width, ax_hght_bb_nw])
-        #     t_props[0]._bbox[3] *= t_hght_abs_0 / t_props[0].get_tightbbox(f_rend).height
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -7183,8 +7055,10 @@ class AnalysisGUI(QMainWindow):
             plt_vals, i_grp = dcopy(r_data.pd_type_pr), 2
             lg_str = ['Congruent', 'Incongruent']
 
-        # creates the plot outlay and titles
+        #
         self.init_plot_axes(n_row=1, n_col=2)
+
+        # creates the plot outlay and titles
         if r_data.r_obj_rot_ds.n_filt == 1:
             x_ticklbl = ['#1 - All Cells']
         else:
@@ -9960,11 +9834,11 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             n_r, n_c = 2, 6
-            top, bottom, wspace, hspace = 0.95, 0.04, 0.425, 0.30
+            top, bottom, wspace, hspace = 0.95, 0.04, 0.7, 0.30
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
                                    bottom=bottom, top=top)
 
             # creates the subplots
@@ -10087,11 +9961,11 @@ class AnalysisGUI(QMainWindow):
             # sets the table header strings
             i0 = int(n_filt == 1)
             hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
-            hdr_str = [hdr_filt, ['Exc.', 'Inh.', 'Mixed'], hdr_filt][i0: 2 * (2 - i0)]
+            hdr_str = [['Exc.', 'Inh.', 'Mixed'], hdr_filt, hdr_filt][i0: 2 * (2 - i0)]
 
             # sets the base title string
             tt_str = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(r_obj.lg_str)]
-            t_str = [['Excited', 'Inhibited', 'Mixed'], tt_str, ['Direction Selective']][i0: 2 * (2 - i0)]
+            t_str = [tt_str, ['Excited', 'Inhibited', 'Mixed'], ['Direction Selective']][i0: 2 * (2 - i0)]
 
             # creates the posthoc statistics table
             self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
@@ -11076,12 +10950,12 @@ class AnalysisGUI(QMainWindow):
 
             # creates the main title axis
             ax_main = plot_fig.figure.add_subplot(gs[0, i_c])
-            ax_main.set_title(main_title, fontsize=20)
+            ax_main.set_title(main_title, fontsize=18, fontweight='bold')
             ax_main.axis('off')
 
             # creates the sub-title axis
             ax_sub = plot_fig.figure.add_subplot(gs[1, i_c])
-            ax_sub.set_title(sub_title, fontsize=17)
+            ax_sub.set_title(sub_title, fontsize=15)
             ax_sub.axis('off')
 
             # returns the axis objects
@@ -11190,6 +11064,9 @@ class AnalysisGUI(QMainWindow):
         else:
             n_r, n_c = np.shape(y)[0], np.shape(y)[1]
 
+        f_size = [14, 12, 10, 8][int(n_r >= 2) + int(n_r >= 4) + int(n_r >= 6)]
+        t_font = cf.get_table_font_size(n_r)
+
         for i_r in range(n_r):
             for i_c in range(n_c):
                 # if there is no stats values, then continue
@@ -11204,8 +11081,8 @@ class AnalysisGUI(QMainWindow):
                 # creates the table
                 suf_str = cf.sig_str_fcn(y[i_r, i_c, 0], p_value)
                 t_str = '{}\n(KW Stats = {:.3e}{})'.format(t_str0[i_c][i_r], y[i_r, i_c, 0], suf_str)
-                h_title = ax[i_plot].text(0.5, 1, t_str, fontsize=14, horizontalalignment='center')
-                cf.add_plot_table(self.plot_fig, ax[i_plot], table_font, stats_nw, hdr_str[i_c],
+                h_title = ax[i_plot].text(0.5, 1, t_str, fontsize=f_size, horizontalalignment='center')
+                cf.add_plot_table(self.plot_fig, ax[i_plot], t_font, stats_nw, hdr_str[i_c],
                                   hdr_str[i_c], col[:nr_nw], col[:nr_nw], 'fixed', h_title=h_title)
 
     ###############################################
@@ -12725,11 +12602,11 @@ class AnalysisFunctions(object):
         vel_bin = [str(x) for x in [4, 5, 8, 10, 16, 20, 40]]
 
         # type lists
-        norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
         mean_type = ['Mean', 'Median']
-        s_type = ['Direction Selectivity', 'Motion Sensitivity']
+        norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
+        s_type = ['Direction Selectivity', 'Motion Sensitivity']
         ksig_type = ['Individual Cell', 'Correlation Histogram', 'Correlation Scatterplot', 'Correlation Significance']
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
@@ -12778,7 +12655,9 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'
+            },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': False, 'is_visible': False
             },
@@ -12814,9 +12693,12 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments', 'is_visible': False
+            },
             'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
+                'is_visible': False
             },
             'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': False},
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
@@ -12830,9 +12712,8 @@ class AnalysisFunctions(object):
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['ms_prop', True],
-                              ['grp_plot_type', True], ['plot_trend', True], ['m_size', True], ['plot_grid', True],
-                              ['p_value', False]]
+                'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
+                              ['m_size', True], ['plot_grid', True], ['p_value', False]]
             },
         }
         self.add_func(type='Rotation Analysis',
@@ -13101,9 +12982,12 @@ class AnalysisFunctions(object):
                 'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_invisible': False},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperimentUD'},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperimentUD', 'is_visible': False
+            },
             'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
+                'is_visible': False
             },
             'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
@@ -13117,9 +13001,8 @@ class AnalysisFunctions(object):
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['ms_prop', True],
-                              ['grp_plot_type', True], ['plot_trend', True], ['m_size', True], ['plot_grid', True],
-                              ['p_value', False]]
+                'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
+                              ['m_size', True], ['plot_grid', True], ['p_value', False]]
             },
         }
         self.add_func(type='UniformDrift Analysis',
@@ -15313,11 +15196,8 @@ class AnalysisFunctions(object):
                 link_para = [link_para]
 
             for lp in link_para:
-                try:
-                    h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox], lp[0])
-                    h_obj[0].setEnabled(bool(state) != lp[1])
-                except:
-                    a = 1
+                h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox], lp[0])
+                h_obj[0].setEnabled(bool(state) != lp[1])
 
         # resets the parameters based on the
         if para_reset is not None:
