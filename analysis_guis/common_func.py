@@ -1521,7 +1521,7 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
             for i_grp in range(n_grp):
                 # sets the x-values for the current group
                 xi = xi_type + i_grp * (n_type + 1)
-                n_ex, xi_tick[i_grp] = np.shape(y_plt[i_grp])[1], np.mean(xi)
+                n_ex, xi_tick[i_grp] = np.shape(y_plt[i_grp])[0], np.mean(xi)
 
                 # plots the separation line
                 if i_grp > 0:

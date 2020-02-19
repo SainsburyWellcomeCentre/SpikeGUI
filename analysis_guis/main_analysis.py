@@ -7034,114 +7034,310 @@ class AnalysisGUI(QMainWindow):
     ####    COMBINED ANALYSIS FUNCTIONS    ####
     ###########################################
 
-    def plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, plot_grid, plot_scope, plot_type):
+    def plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, plot_scope, plot_type,
+                                    grp_plot_type, plot_grid, p_value, show_stats):
         '''
 
         :return:
         '''
 
+        def setup_plot_axes(plot_fig, n_plot):
+            '''
+
+            :param plot_fig:
+            :param n_plot:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            n_r, n_c = 2, n_plot
+            top, bottom, wspace, hspace = 0.90, 0.04, 0.25, 0.01
+            height_ratios = [0.8, 0.1]
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_r * n_c, dtype=object)
+            for i_r in range(n_r):
+                for i_c in range(n_c):
+                    # adds the subplot
+                    i_plt = i_r * n_c + i_c
+                    plot_fig.ax[i_plt] = plot_fig.figure.add_subplot(gs[i_r, i_c])
+
+                    # turns off axis for the table row
+                    if i_r == 1:
+                        plot_fig.ax[i_plt].axis('off')
+
         # initialisations and memory allocation
-        n_grp, r_data = [2, 4, 2], self.data.rotation
-        stats_type = ['Rotation Motion Sensitivity', 'Rotation/Visual Direction Selectivity', 'Congruency']
+        r_data = self.data.rotation
+        lg_str_f = r_data.r_obj_rot_ds.lg_str
+        n_grp0, n_filt = [3, 3, 1], r_data.r_obj_rot_ds.n_filt
 
-        #
-        if plot_type == 'Motion Sensitivity':
-            plt_vals, i_grp = dcopy(r_data.ms_gtype_pr), 0
-            lg_str = ['None', 'Rotation', 'Visual', 'Both']
-        elif plot_type == 'Direction Selectivity':
-            plt_vals, i_grp = dcopy(r_data.ds_gtype_pr), 1
-            lg_str = ['None', 'Rotation', 'Visual', 'Both']
-        else:
-            plt_vals, i_grp = dcopy(r_data.pd_type_pr), 2
-            lg_str = ['Congruent', 'Incongruent']
+        # determines the indices of the metric that are being plotted
+        plot_type0 = ['Motion Sensitivity', 'Direction Selectivity', 'Congruency']
+        i_grp = np.arange(len(plot_type0)) if show_stats else [i for i, pt in enumerate(plot_type) if pt in plot_type0]
+        n_plt, n_grp = len(i_grp), list(np.array(n_grp0)[i_grp])
 
-        #
-        self.init_plot_axes(n_row=1, n_col=2)
+        # sets the main titles (based on the plot types)
+        stats_type = ['Rotation MS', 'Rotation/Visual DS', 'Congruency']
+        main_title = list(np.array(stats_type)[i_grp])
 
-        # creates the plot outlay and titles
-        if r_data.r_obj_rot_ds.n_filt == 1:
-            x_ticklbl = ['#1 - All Cells']
-        else:
-            x_ticklbl = ['#{0} - {1}'.format(i+1, x) for i, x in enumerate(dcopy(r_data.r_obj_rot_ds.lg_str))]
+        # retrieves the plot values
+        type_pr_ex0 = [dcopy(r_data.ms_gtype_ex), dcopy(r_data.ds_gtype_ex), dcopy(r_data.pd_type_ex)]
+        type_pr_ex = [[x[:, 1:] for x in y] for y in np.array(type_pr_ex0)[i_grp]]
 
-        # creates the bar graph
-        c = cf.get_plot_col(len(lg_str))
-        h_bar = cf.create_stacked_bar(self.plot_fig.ax[0], plt_vals, c)
-        self.plot_fig.ax[0].set_xticklabels(x_ticklbl)
-        self.plot_fig.ax[0].grid(plot_grid)
+        if show_stats:
+            #################################
+            ####    STATISTICS TABLES    ####
+            #################################
 
-        # updates the y-axis limits/labels and creates the legend
-        self.plot_fig.ax[0].set_ylim([0, 100])
-        self.plot_fig.ax[0].set_ylabel('Population %')
-        cf.reset_axes_dim(self.plot_fig.ax[0], 'bottom', 0.0375, True)
+            # calculates the group posthoc statistics
+            stats_ph = self.calc_group_posthoc_stats(type_pr_ex, n_filt, n_grp, c_ofs=0)
 
-        # creates the bar graph
-        self.plot_fig.ax[0].legend([x[0] for x in h_bar], lg_str, ncol=len(lg_str), loc='upper center',
-                                   columnspacing=0.125, bbox_to_anchor=(0.5, 1.05))
+            # sets up the plot axes
+            col_table = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
+            self.setup_posthoc_stats_table_axes(self.plot_fig, main_title, n_filt, n_grp)
 
-        #######################################
-        ####    STATISTICS TABLE OUTPUT    ####
-        #######################################
+            # sets the table header strings
+            i0 = int(n_filt == 1)
+            hdr_type = ['Rot.', 'Vis.', 'Both']
+            hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
 
-        # enforces tight layout format
-        self.plot_fig.fig.tight_layout()
+            # sets the base title string
+            tt_type = ['Rot.', 'Vis.', 'Both']
+            tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(lg_str_f)]
 
-        # calculates the number of direction sensitive/insensitive cells (over all conditions)
-        ax = self.plot_fig.ax[1]
-        ax.axis('off')
-        ax.axis([0, 1, 0, 1])
-
-        # sets the initial motion sensitivity/congruency table values
-        n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
-
-        # sets the final table values
-        n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
-        n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
-        n_PD = np.vstack(r_data.pd_type_N)
-
-        # creates the title text object
-        cT = cf.get_plot_col(max(n_grp), n_grp[i_grp])
-        t_str = ['{0} N-Values'.format(x) for x in stats_type]
-        row_hdr = ['#{0}'.format(x + 1) for x in range(r_data.r_obj_rot_ds.n_filt)] + ['Total']
-        col_hdr = [['Insensitive', 'Sensitive', 'Total'],
-                   ['None', 'Rotation', 'Visual', 'Both', 'Total'],
-                   ['Congruent', 'Incongruent', 'Total']]
-        h_title = [ax.text(0.5, 1, x, fontsize=15, horizontalalignment='center') for x in t_str]
-
-        # initialisations
-        t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
-        t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
-        ax_pos_tbb = dcopy(ax.get_tightbbox(self.plot_fig.get_renderer()).bounds)
-
-        # sets up the n-value table
-        for i in range(len(t_props)):
-            # creates the new table
-            nT = n_grp[i]
-            t_props[i] = cf.add_plot_table(self.plot_fig, ax, table_font, t_data[i].astype(int), row_hdr, col_hdr[i],
-                                           cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT]  + [(0.75, 0.75, 0.75)],
-                                           None, n_row=1, n_col=2, ax_pos_tbb=ax_pos_tbb)
-
-            # calculates the height between the title and the top of the table
-            if i == 0:
-                dh_title = h_title[0].get_position()[1] - (t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3])
-                c_hght = t_props[i][0]._bbox[3] / (n_filt + 1)
+            # sets the final header/title strings
+            if n_filt == 1:
+                hdr_str, t_str = [hdr_type, hdr_type], [tt_filt, tt_filt]
             else:
-                # resets the bottom location of the upper table
-                t_props[i][0]._bbox[1] = t_props[i - 1][0]._bbox[1] - (t_props[i - 1][0]._bbox[3] + 2 * c_hght)
+                hdr_str = [hdr_type, hdr_filt, hdr_type, hdr_filt, hdr_filt]
+                t_str = [tt_filt, tt_type, tt_filt, tt_type, ['Congruency']]
 
-                # resets the titla position
-                t_pos = list(h_title[i].get_position())
-                t_pos[1] = t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3] + dh_title
-                h_title[i].set_position(tuple(t_pos))
+            # creates the posthoc statistics table
+            self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
 
+        else:
+            #############################
+            ####    METRIC GRAPHS    ####
+            #############################
 
-            # # resets the bottom location of the upper table
-            # t_props_pd[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + 2 * c_hght)
+            # initialisations
+            not_stacked = int((grp_plot_type != 'Stacked Bar') and (not show_stats))
+            c = cf.get_plot_col(max([n_filt, max(n_grp) + (1 - not_stacked)]))
+
+            # sets the legend string
+            lg_str0 = [['None', 'Rotation', 'Visual', 'Both']] * 2 + [['Congruent', 'Incongruent']]
+            lg_str = [x[not_stacked:] for x in np.array(lg_str0)[i_grp]]
+
+            # sets up the plot axes
+            setup_plot_axes(self.plot_fig, len(n_grp))
+            ax = self.plot_fig.ax
+
+            # sets the plot values (based on the plot types)
+            if not_stacked:
+                # case is the non-stacked bar graphs
+                plt_type = dcopy(type_pr_ex)
+            else:
+                # case is the stacked bar graphs
+                plt_type0 = dcopy([r_data.ms_gtype_pr, r_data.ds_gtype_pr, r_data.pd_type_pr])
+                plt_type = np.array(plt_type0)[i_grp]
+
+            # creates the graphs for the motion sensitive/direction selectivity plots
+            for i in range(n_plt):
+                # creates the graph
+                h_plt = cf.create_general_group_plot(ax[i], plt_type[i], grp_plot_type, c)
+
+                # updates the axis properties
+                ax[i].grid(plot_grid)
+                cf.reset_axes_dim(ax[i], 'bottom', 0.075, True)
+
+                # creates the legend (if more than one bar)
+                if len(h_plt):
+                    ax[i].legend([x[0] for x in h_plt], lg_str[i], ncol=len(lg_str[i]), loc='upper center',
+                                                                   columnspacing=0.125, bbox_to_anchor=(0.5, 1.11))
+
+                # only set the y-axis label for the first subplot
+                if i == 0:
+                    ax[i].set_ylabel('Population %')
+
+                # sets the y-axis limits based on type
+                if 'Bar' in grp_plot_type:
+                    ax[i].set_ylim([0, 100])
+                else:
+                    ax[i].set_ylim([-2.5, 102.5])
+
+                # creates the plot outlay and titles
+                if n_filt == 1:
+                    x_ticklbl = ['#1 - All Cells']
+                else:
+                    x_ticklbl = ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(dcopy(lg_str_f))]
+
+                # updates the axis properties
+                ax[i].set_title(main_title[i], fontsize=16, fontweight='bold')
+                ax[i].set_xticklabels(x_ticklbl)
+                ax[i].grid(plot_grid)
+
+            ###################################
+            ####    METRIC COUNT TABLES    ####
+            ###################################
+
+            # # enforces tight layout format
+            # self.plot_fig.fig.tight_layout()
+
+            # sets the initial motion sensitivity/congruency table values
+            n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
+
+            # sets the final table values
+            n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
+            n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
+            n_PD = np.vstack(r_data.pd_type_N)
+            t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
+
+            # creates the title text object
+
+            t_str = ['{0} N-Values'.format(x) for x in stats_type]
+            row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+            col_hdr = [['Insensitive', 'Sensitive', 'Total'],
+                       ['None', 'Rotation', 'Visual', 'Both', 'Total'],
+                       ['Congruent', 'Incongruent', 'Total']]
+            t_font = cf.get_table_font_size(3)
+
+            # creates the graphs for the motion sensitive/direction selectivity plots
+            for i in range(n_plt):
+                # creates the new table
+                j, nT = i + n_plt, len(col_hdr[i])
+                cT = cf.get_plot_col(max(n_filt, nT), max(n_grp))
+                cf.add_plot_table(self.plot_fig, ax[j], t_font, t_data[i].astype(int), row_hdr, col_hdr[i],
+                                  cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
+                                  'bottom', n_row=2, n_col=n_plt)
+
+            # # initialisations
+            # t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
+            # t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
+            # ax_pos_tbb = dcopy(ax[1].get_tightbbox(self.plot_fig.get_renderer()).bounds)
             #
-            # # resets the titla position
-            # t_pos = list(h_title_pd.get_position())
-            # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
-            # h_title_pd.set_position(tuple(t_pos))
+            # # sets up the n-value table
+            # for i in range(len(t_props)):
+            #     # creates the new table
+            #     nT = n_grp[i]
+            #     t_props[i] = cf.add_plot_table(self.plot_fig, ax[1], table_font, t_data[i].astype(int), row_hdr, col_hdr[i],
+            #                                    cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT]  + [(0.75, 0.75, 0.75)],
+            #                                    None, n_row=1, n_col=2, ax_pos_tbb=ax_pos_tbb)
+            #
+            #     # calculates the height between the title and the top of the table
+            #     if i == 0:
+            #         dh_title = h_title[0].get_position()[1] - (t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3])
+            #         c_hght = t_props[i][0]._bbox[3] / (n_filt + 1)
+            #     else:
+            #         # resets the bottom location of the upper table
+            #         t_props[i][0]._bbox[1] = t_props[i - 1][0]._bbox[1] - (t_props[i - 1][0]._bbox[3] + 2 * c_hght)
+            #
+            #         # resets the titla position
+            #         t_pos = list(h_title[i].get_position())
+            #         t_pos[1] = t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3] + dh_title
+            #         h_title[i].set_position(tuple(t_pos))
+            #
+            #
+            #     # # resets the bottom location of the upper table
+            #     # t_props_pd[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + 2 * c_hght)
+            #     #
+            #     # # resets the titla position
+            #     # t_pos = list(h_title_pd.get_position())
+            #     # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
+            #     # h_title_pd.set_position(tuple(t_pos))
+
+        # if plot_type == 'Motion Sensitivity':
+        #     # motion sensitivity
+        #     plt_vals, i_grp = dcopy(r_data.ms_gtype_pr), 0
+        #     lg_str = ['None', 'Rotation', 'Visual', 'Both']
+        # elif plot_type == 'Direction Selectivity':
+        #     plt_vals, i_grp = dcopy(r_data.ds_gtype_pr), 1
+        #     lg_str = ['None', 'Rotation', 'Visual', 'Both']
+        # else:
+        #     plt_vals, i_grp = dcopy(r_data.pd_type_pr), 2
+        #     lg_str = ['Incongruent', 'Congruent']
+
+        # # creates the bar graph
+        # c = cf.get_plot_col(len(lg_str))
+        # h_bar = cf.create_stacked_bar(ax[0], plt_vals, c)
+        # ax[0].set_xticklabels(x_ticklbl)
+        # ax[0].grid(plot_grid)
+        #
+        # # updates the y-axis limits/labels and creates the legend
+        # ax[0].set_ylim([0, 100])
+        # ax[0].set_ylabel('Population %')
+        # cf.reset_axes_dim(ax[0], 'bottom', 0.0375, True)
+        #
+        # # creates the bar graph
+        # ax[0].legend([x[0] for x in h_bar], lg_str, ncol=len(lg_str), loc='upper center',
+        #               columnspacing=0.125, bbox_to_anchor=(0.5, 1.05))
+        #
+        # #######################################
+        # ####    STATISTICS TABLE OUTPUT    ####
+        # #######################################
+        #
+        # # enforces tight layout format
+        # self.plot_fig.fig.tight_layout()
+        #
+        # # calculates the number of direction sensitive/insensitive cells (over all conditions)
+        # ax[1].axis('off')
+        # ax[1].axis([0, 1, 0, 1])
+        #
+        # # sets the initial motion sensitivity/congruency table values
+        # n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
+        #
+        # # sets the final table values
+        # n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
+        # n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
+        # n_PD = np.vstack(r_data.pd_type_N)
+        #
+        # # creates the title text object
+        # cT = cf.get_plot_col(max(n_grp), n_grp[i_grp])
+        # t_str = ['{0} N-Values'.format(x) for x in stats_type]
+        # row_hdr = ['#{0}'.format(x + 1) for x in range(r_data.r_obj_rot_ds.n_filt)] + ['Total']
+        # col_hdr = [['Insensitive', 'Sensitive', 'Total'],
+        #            ['None', 'Rotation', 'Visual', 'Both', 'Total'],
+        #            ['Incongruent', 'Congruent', 'Total']]
+        # h_title = [ax[1].text(0.5, 1, x, fontsize=15, horizontalalignment='center') for x in t_str]
+        #
+        # # initialisations
+        # t_props, n_filt = np.empty(len(t_str), dtype=object), r_data.r_obj_rot_ds.n_filt
+        # t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
+        # ax_pos_tbb = dcopy(ax[1].get_tightbbox(self.plot_fig.get_renderer()).bounds)
+        #
+        # # sets up the n-value table
+        # for i in range(len(t_props)):
+        #     # creates the new table
+        #     nT = n_grp[i]
+        #     t_props[i] = cf.add_plot_table(self.plot_fig, ax[1], table_font, t_data[i].astype(int), row_hdr, col_hdr[i],
+        #                                    cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT]  + [(0.75, 0.75, 0.75)],
+        #                                    None, n_row=1, n_col=2, ax_pos_tbb=ax_pos_tbb)
+        #
+        #     # calculates the height between the title and the top of the table
+        #     if i == 0:
+        #         dh_title = h_title[0].get_position()[1] - (t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3])
+        #         c_hght = t_props[i][0]._bbox[3] / (n_filt + 1)
+        #     else:
+        #         # resets the bottom location of the upper table
+        #         t_props[i][0]._bbox[1] = t_props[i - 1][0]._bbox[1] - (t_props[i - 1][0]._bbox[3] + 2 * c_hght)
+        #
+        #         # resets the titla position
+        #         t_pos = list(h_title[i].get_position())
+        #         t_pos[1] = t_props[i][0]._bbox[1] + t_props[i][0]._bbox[3] + dh_title
+        #         h_title[i].set_position(tuple(t_pos))
+        #
+        #
+        #     # # resets the bottom location of the upper table
+        #     # t_props_pd[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + 2 * c_hght)
+        #     #
+        #     # # resets the titla position
+        #     # t_pos = list(h_title_pd.get_position())
+        #     # t_pos[1] = t_props_pd[0]._bbox[1] + t_props_pd[0]._bbox[3] + dh_title
+        #     # h_title_pd.set_position(tuple(t_pos))
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, m_size,
                                            violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
@@ -10941,7 +11137,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_title_axes(gs, i_c, main_title, sub_title):
+        def create_title_axes(gs, i_cs, i_cm, main_title, sub_title, has_main):
             '''
 
             :param gs:
@@ -10949,17 +11145,16 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # creates the main title axis
-            ax_main = plot_fig.figure.add_subplot(gs[0, i_c])
-            ax_main.set_title(main_title, fontsize=18, fontweight='bold')
-            ax_main.axis('off')
+            if has_main:
+                n_col = int(('Within' in sub_title) and (n_filt > 1)) + 1
+                ax_main = plot_fig.figure.add_subplot(gs[0, i_cm:(i_cm + n_col)])
+                ax_main.set_title(main_title, fontsize=18, fontweight='bold')
+                ax_main.axis('off')
 
             # creates the sub-title axis
-            ax_sub = plot_fig.figure.add_subplot(gs[1, i_c])
+            ax_sub = plot_fig.figure.add_subplot(gs[1, i_cs])
             ax_sub.set_title(sub_title, fontsize=15)
             ax_sub.axis('off')
-
-            # returns the axis objects
-            return ax_main, ax_sub
 
         # ensures the grouping count is a list
         if not isinstance(n_grp, list):
@@ -10991,18 +11186,20 @@ class AnalysisGUI(QMainWindow):
                                bottom=bottom, top=top)
 
         # creates the main title axes (if more than one comparison type)
-        i_c, i_ofs = 0, 2
-        ax_main, ax_sub = np.empty(n_c, dtype=object), np.empty(n_c, dtype=object)
+        i_cs, i_cm, i_ofs = 0, 0, 2
+        # ax_main, ax_sub = np.empty(n_c, dtype=object), np.empty(n_c, dtype=object)
         for m_t, n_g in zip(main_title, n_grp):
             # creates the within group stats axis
             if n_g > 1:
-                ax_main[i_c], ax_sub[i_c] = create_title_axes(gs, i_c, m_t, 'Within Group Stats')
-                i_c += 1
+                create_title_axes(gs, i_cs, i_cm, m_t, 'Within Group Stats', True)
+                i_cs += 1
+                i_cm += 1 + int(n_filt > 1)
 
             # creates the between group stats axis
             if n_filt > 1:
-                ax_main[i_c], ax_sub[i_c] = create_title_axes(gs, i_c, m_t, 'Between Group Stats')
-                i_c += 1
+                create_title_axes(gs, i_cs, i_cm, m_t, 'Between Group Stats', n_g == 1)
+                i_cs += 1
+                i_cm += int(n_g == 1)
 
         # creates the plot axes
         for i_r in range(n_r):
@@ -13625,15 +13822,26 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
                 'para_gui_var': {'rmv_fields': ['t_freq_dir', 't_type', 't_cycle']}
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments', 'is_visible': False
             },
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False
+            },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': comb_type, 'def_val': comb_type[-1]}
+            'plot_type': {
+                'type': 'CL', 'text': 'Plot Metrics', 'list': comb_type, 'def_val': np.ones(len(comb_type), dtype=bool),
+                'other_para': '--- Select Plot Metrics ---'
+            },
+            'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                'link_para': [['plot_type', True], ['grp_plot_type', True], ['plot_grid', True], ['p_value', False]]
+            },
         }
         self.add_func(type='Combined Analysis',
                       name='Rotation/Visual Stimuli Response Statistics',
@@ -16488,13 +16696,13 @@ class RotationData(object):
 
         # direction selection group type parameters
         self.r_obj_rot_ds = None                #
-        self.ms_gtype = None
+        self.ms_gtype_ex = None
         self.ms_gtype_pr = None
         self.ms_gtype_N = None
-        self.ds_gtype = None
+        self.ds_gtype_ex = None
         self.ds_gtype_pr = None
         self.ds_gtype_N = None
-        self.pd_type = None
+        self.pd_type_ex = None
         self.pd_type_pr = None
         self.pd_type_N = None
         self.ds_p_value = -1

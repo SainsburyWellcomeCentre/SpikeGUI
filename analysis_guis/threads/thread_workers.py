@@ -37,6 +37,7 @@ default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
 interp_arr = lambda xi, y: np.vstack([interp1d(np.linspace(0, 1, len(x)), x, kind='nearest')(xi) for x in y])
 cell_perm_ind = lambda n_cell_tot, n_cell: np.sort(np.random.permutation(n_cell_tot)[:n_cell])
 set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
+grp_expt_indices = lambda i_expt0: [np.where(i_expt0 == i)[0] for i in np.unique(i_expt0)]
 
 ########################################################################################################################
 ########################################################################################################################
@@ -3107,8 +3108,8 @@ class WorkerThread(QThread):
         # memory allocation
         ds_type_tmp, ms_type_tmp, pd_type_tmp = [], [], []
         r_data.ms_gtype_N, r_data.ds_gtype_N, r_data.pd_type_N = [], [], []
-        A = -np.ones(np.size(r_obj_black.t_spike[0], axis=0), dtype=int)
-        r_data.ds_gtype, r_data.ms_gtype, r_data.pd_type = dcopy(A), dcopy(A), dcopy(A)
+        A = np.empty(len(i_grp_rot), dtype=object)
+        r_data.ds_gtype_ex, r_data.ms_gtype_ex, r_data.pd_type_ex = dcopy(A), dcopy(A), dcopy(A)
 
         # reduces the arrays to the matching cells
         for i in range(len(i_grp_rot)):
@@ -3145,10 +3146,10 @@ class WorkerThread(QThread):
                                            r_CCW_CW_vis[i_grp_vis[i][ind_vis]][is_both_ds])).T
 
                 # determines the preferred direction type (for clusters which have BOTH rotation and visual significance)
-                #   0 = Congruent (preferred direction is different)
-                #   1 = Incongruent (preferred direction is the same)
-                pd_type = np.ones(sum(is_both_ds), dtype=int)
-                pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 0
+                #   0 = Incongruent (preferred direction is the same)
+                #   1 = Congruent (preferred direction is different)
+                pd_type = np.zeros(sum(is_both_ds), dtype=int)
+                pd_type[np.sum(r_CCW_CW_comb > 1, axis=1) == 1] = 1
 
                 # calculates the preferred direction type count/proportions
                 r_data.pd_type_N.append(cf.calc_rel_count(pd_type, 2))
@@ -3158,10 +3159,14 @@ class WorkerThread(QThread):
                 ind_bl, ind_bl_rot = cf.det_cell_match_indices(r_obj_black, [0, i], r_data.r_obj_rot_ds)
                 ind_comb = ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]
 
+                # sets the indices for each experiment
+                i_expt0 = r_obj_vis.i_expt[i][ind_vis]
+                i_expt, i_expt_cong = grp_expt_indices(i_expt0), grp_expt_indices(i_expt0[is_both_ds])
+
                 # sets the final motion sensitivity, direction selectivity and congruency values
-                r_data.ms_gtype[ind_comb] = ms_gtype
-                r_data.ds_gtype[ind_comb] = ds_gtype
-                r_data.pd_type[ind_comb[is_both_ds]] = pd_type
+                r_data.ms_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ms_gtype[x], 4) for x in i_expt])
+                r_data.ds_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ds_gtype[x], 4) for x in i_expt])
+                r_data.pd_type_ex[i] = np.vstack([cf.calc_rel_prop(pd_type[x], 2) for x in i_expt_cong])
             else:
                 # appends the counts to the motion sensitive/direction selectivity arrays
                 r_data.ms_gtype_N.append(0)
