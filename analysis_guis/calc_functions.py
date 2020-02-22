@@ -76,6 +76,7 @@ class EmptyAnalysisData(object):
         # field initialisation
         self._cluster = []
         self.cluster = None
+        self.rotation = None
 
         # exclusion filter fields
         self.exc_gen_filt = None

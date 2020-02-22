@@ -4454,7 +4454,10 @@ class AnalysisGUI(QMainWindow):
 
         # sets the legend strings based on the type
         tt_class = ['Negative', 'Positive', 'Both', 'Any Significant']
-        tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str)]
+        if n_filt == 1:
+            tt_filt = ['(#1) - All Cells']
+        else:
+            tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str)]
 
         # sets the table/plot colours
         col_table = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
@@ -4520,7 +4523,7 @@ class AnalysisGUI(QMainWindow):
             ####################################################
 
             # table parameters
-            tt_filt_N = ['(#{0})'.format(i + 1) for i in range(len(lg_str))]
+            tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr, row_hdr = ['None'] + tt_class + ['Total Cell Count'], tt_filt_N + ['Total Count']
 
@@ -5388,7 +5391,10 @@ class AnalysisGUI(QMainWindow):
         stats_ph = self.calc_group_posthoc_stats(p_pref_dir, n_filt, [1])
 
         # sets the legend strings based on the type
-        tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
+        if n_filt == 1:
+            tt_filt = ['(#1) - All Cells']
+        else:
+            tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
 
         if show_stats:
             #################################
@@ -5450,7 +5456,7 @@ class AnalysisGUI(QMainWindow):
             ####    PREFERRED DIRECTION COUNT TABLE    ####
             ###############################################
 
-            # table parametersp
+            # table parameter
             tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr, row_hdr = ['CW Preferred', 'CCW Preferred', 'Total Cell Count'], tt_filt_N + ['Total Count']
