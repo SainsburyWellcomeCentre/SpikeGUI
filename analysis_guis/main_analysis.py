@@ -4509,7 +4509,7 @@ class AnalysisGUI(QMainWindow):
             # updates the axis properties
             ax[0].grid(plot_grid)
             ax[0].set_ylabel('Population %')
-            ax[0].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
+            ax[0].legend([x[0] for x in h_plt], lg_str, ncol=max([2, int(len(lg_str) / 2)]), loc='upper center',
                                  columnspacing=0.125, bbox_to_anchor=(0.5, 1.075))
 
             # sets the y-axis limits based on type
@@ -5441,8 +5441,8 @@ class AnalysisGUI(QMainWindow):
             ax[0].set_ylabel('Population %')
 
             if len(lg_str) > 1:
-                ax[0].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
-                                       columnspacing=0.125, bbox_to_anchor=(0.5, 1.075))
+                ax[0].legend([x[0] for x in h_plt], lg_str, ncol=max([2, int(len(lg_str) / 2)]), loc='upper center',
+                                     columnspacing=0.125, bbox_to_anchor=(0.5, 1.075))
             else:
                 ax[0].set_title('Preferred CCW Direction Proportion', fontsize=18, fontweight='bold')
 
