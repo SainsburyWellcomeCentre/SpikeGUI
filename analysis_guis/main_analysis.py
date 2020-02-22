@@ -4473,7 +4473,10 @@ class AnalysisGUI(QMainWindow):
 
             # sets the table header strings
             hdr_class = ['Neg.', 'Pos.', 'Both', 'Any']
-            hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
+            if (n_filt == 1) and (lg_str[0] == 'Black'):
+                hdr_filt = ['All Cells']
+            else:
+                hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
 
             # sets the base title string
             if n_filt == 1:
@@ -7301,9 +7304,9 @@ class AnalysisGUI(QMainWindow):
             class_str = [x[not_stacked:] for x in np.array(class_str0)[i_grp]]
 
             # creates filter group strings
-            if n_filt == 1:
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
                 # no filter applied, so all cells are used
-                filt_str = ['#1 - All Cells']
+                filt_str = ['(#1) - All Cells']
             else:
                 # otherwise, set the filter grouping strings
                 filt_str = ['#{0} - {1}'.format(i + 1, x) for i, x in enumerate(dcopy(lg_str_f))]
@@ -10209,11 +10212,15 @@ class AnalysisGUI(QMainWindow):
 
             # sets the table header strings
             hdr_class = ['Exc.', 'Inh.', 'Mixed']
-            hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
+            tt_class = ['Excited', 'Inhibited', 'Mixed']
 
             # sets the base title string
-            tt_class = ['Excited', 'Inhibited', 'Mixed']
-            tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
+                tt_filt = ['(#1) - All Cells']
+                hdr_filt = ['All Cells']
+            else:
+                tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
+                hdr_filt = ['(#{0})'.format(i + 1) for i in range(n_filt)]
 
             # sets the final header/title strings
             if n_filt == 1:
