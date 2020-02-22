@@ -4459,13 +4459,13 @@ class AnalysisGUI(QMainWindow):
         else:
             tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str)]
 
-        # sets the table/plot colours
-        col_table = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
-
         if show_stats:
             ##########################################################
             ####    CORRELATION SIGNIFICANCE STATISTICS TABLES    ####
             ##########################################################
+
+            # sets the table/plot colours
+            col = cf.get_plot_col(max([max(n_grp), n_filt]), 1)
 
             # sets up the plot axes
             main_title = ['Correlation Significance']
@@ -4487,7 +4487,7 @@ class AnalysisGUI(QMainWindow):
                 t_str, hdr_str = [tt_filt, tt_class], [hdr_class, hdr_filt]
 
             # creates the posthoc statistics table
-            self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
+            self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col, p_value)
 
         else:
             ##########################################################
@@ -4533,6 +4533,7 @@ class AnalysisGUI(QMainWindow):
             # table parameters
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr, row_hdr = ['None'] + tt_class + ['Total Cell Count'], tt_filt_N + ['Total Count']
+            col_table = cf.get_plot_col(max([len(col_hdr), len(row_hdr)]))
 
             # calculates the total cell counts (over all filter types/classification groups)
             sf_type_N0 = np.vstack([np.concatenate((np.sum(n_t, axis=0), [np.sum(n_ex[:, 0])]))
