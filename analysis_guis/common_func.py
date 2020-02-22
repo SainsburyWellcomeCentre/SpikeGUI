@@ -1532,8 +1532,9 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
                     # case is a separated bar graph
 
                     # sets the mean/sem plot values
-                    y_plt_mn = np.mean(y_plt[i_grp], axis=0)
-                    y_plt_sem = np.std(y_plt[i_grp], axis=0) / (n_ex ** 0.5)
+                    n_ex = np.sum(~np.isnan(y_plt[i_grp]), axis=0) ** 0.5
+                    y_plt_mn = np.nanmean(y_plt[i_grp], axis=0)
+                    y_plt_sem = np.nanstd(y_plt[i_grp], axis=0) / n_ex
 
                     # creates the bar graph
                     ax.bar(xi, y_plt_mn, yerr=y_plt_sem, color=col[:n_type])
@@ -1542,7 +1543,12 @@ def create_general_group_plot(ax, y_plt, grp_plot_type, col):
                     # case is a boxplot
 
                     # creates the boxplot
-                    h_bbox = ax.boxplot(y_plt[i_grp], positions=xi, vert=True, patch_artist=True, widths=0.9)
+                    if np.ndim(y_plt[i_grp]) == 1:
+                        ii = ~np.isnan(y_plt[i_grp])
+                        h_bbox = ax.boxplot(y_plt[i_grp][ii], positions=xi, vert=True, patch_artist=True, widths=0.9)
+                    else:
+                        y_plt_g = [y[~np.isnan(y)] for y in y_plt[i_grp].T]
+                        h_bbox = ax.boxplot(y_plt_g, positions=xi, vert=True, patch_artist=True, widths=0.9)
 
                     # resets the colour of the boxplot patches
                     for i_patch, patch in enumerate(h_bbox['boxes']):
@@ -2437,7 +2443,7 @@ def det_cell_match_indices(r_obj, ind, r_obj2=None):
 
     if r_obj2 is None:
         # determines the cell id's which overlap each other
-        cell_id = [1000 * r_obj.i_expt[i] + np.array(flat_list(r_obj.clust_ind[i])) for i in ind]
+        cell_id = [10000 * r_obj.i_expt[i] + np.array(flat_list(r_obj.clust_ind[i])) for i in ind]
         id_match = np.array(list(set(cell_id[0]).intersection(set(cell_id[1]))))
 
         # returns the indices of the matching
@@ -2445,11 +2451,11 @@ def det_cell_match_indices(r_obj, ind, r_obj2=None):
     else:
         #
         if isinstance(ind, int):
-            cell_id_1 = 1000 * r_obj.i_expt[ind] + np.array(flat_list(r_obj.clust_ind[ind]))
-            cell_id_2 = 1000 * r_obj2.i_expt[ind] + np.array(flat_list(r_obj2.clust_ind[ind]))
+            cell_id_1 = 10000 * r_obj.i_expt[ind] + np.array(flat_list(r_obj.clust_ind[ind]))
+            cell_id_2 = 10000 * r_obj2.i_expt[ind] + np.array(flat_list(r_obj2.clust_ind[ind]))
         else:
-            cell_id_1 = 1000 * r_obj.i_expt[ind[0]] + np.array(flat_list(r_obj.clust_ind[ind[0]]))
-            cell_id_2 = 1000 * r_obj2.i_expt[ind[1]] + np.array(flat_list(r_obj2.clust_ind[ind[1]]))
+            cell_id_1 = 10000 * r_obj.i_expt[ind[0]] + np.array(flat_list(r_obj.clust_ind[ind[0]]))
+            cell_id_2 = 10000 * r_obj2.i_expt[ind[1]] + np.array(flat_list(r_obj2.clust_ind[ind[1]]))
 
         # returns the indices of the matching cells
         id_match = np.sort(np.array(list(set(cell_id_1).intersection(set(cell_id_2)))))
@@ -2579,6 +2585,30 @@ def convert_trial_type(tt_str):
 
     # if no matches are made, then return the original strings
     return tt_str
+
+
+def pad_array_with_nans(y, n_row=0, n_col=0):
+    '''
+
+    :param y:
+    :param n_row:
+    :param n_col:
+    :return:
+    '''
+
+    # creates a copy of the array
+    yy = dcopy(y)
+
+    # expands the rows (if required)
+    if n_row > 0:
+        yy = np.lib.pad(yy, ((0, n_row), (0, 0)), 'constant', constant_values=np.NaN)
+
+    # expands the columns (if required)
+    if n_col > 0:
+        yy = np.lib.pad(yy, ((0, 0), (0, n_col)), 'constant', constant_values=np.NaN)
+
+    # returns the final array
+    return yy
 
 
 def calc_pointwise_diff(x1, x2):
@@ -3078,3 +3108,67 @@ def get_table_font_size(n_grp):
         return create_font_obj(size=8)
     else:
         return create_font_obj(size=6)
+
+
+def get_cluster_id_flag(cl_id, i_expt=None):
+
+    if i_expt is None:
+        # case is the experiment index is not provided
+        return [(i * 10000) + np.array(y) for i, y in enumerate(cl_id)]
+    else:
+        # case is the experiment index is provided
+        return [(i * 10000) + y for i, y in zip(i_expt, cl_id)]
+
+
+def get_array_lengths(Y, fld_key=None):
+    '''
+
+    :param Y:
+    :param fld_key:
+    :return:
+    '''
+
+    if fld_key is None:
+        return np.array([len(x) for x in Y])
+    else:
+        return np.array([eval('x["{0}"]'.format(fld_key)) for x in Y])
+
+
+def get_global_index_arr(r_obj, return_all=True, i_expt_int=None):
+    '''
+
+    :param r_obj:
+    :return:
+    '''
+
+    def setup_global_index_arr(nC, i_expt_int, i_expt0, return_all):
+        '''
+
+        :param nC:
+        :param i_expt0:
+        :return:
+        '''
+
+        ii = np.append(0, np.cumsum(nC))
+        if return_all:
+            return [np.arange(ii[i], ii[i + 1]) if (i_expt0[i] in i_expt_int)
+                                                    and (ii[i + 1] - ii[i]) > 0 else [] for i in range(len(ii) - 1)]
+        else:
+            return [np.arange(ii[i], ii[i + 1]) for i in range(len(ii) - 1)
+                                                    if (i_expt0[i] in i_expt_int) and (ii[i + 1] - ii[i]) > 0]
+
+    # determines the indices of the experiments that are common to all trial types
+    if i_expt_int is None:
+        i_expt_int = set(r_obj.i_expt0[0])
+        for i_ex in r_obj.i_expt0[1:]:
+            i_expt_int = i_expt_int.intersection(set(i_ex))
+
+        # retrieves the global indices of the cells wrt to the filtered spiking frequency values
+        return [setup_global_index_arr(get_array_lengths(cl_id), i_expt_int, i_ex, return_all)
+                               for cl_id, i_ex in zip(r_obj.clust_ind, r_obj.i_expt0)], np.array(list(i_expt_int))
+    else:
+        # retrieves the global indices of the cells wrt to the filtered spiking frequency values
+        cl_id = [[x for i, x in zip(i_ex0, cl_id) if i in i_expt_int] for i_ex0, cl_id in
+                 zip(r_obj.i_expt0, r_obj.clust_ind)]
+        return [setup_global_index_arr(get_array_lengths(_cl_id), i_expt_int, i_expt_int, return_all)
+                               for _cl_id in cl_id]

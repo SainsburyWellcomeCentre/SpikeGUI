@@ -65,6 +65,9 @@ n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
 n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
 lda_trial_type = None
 
+# lambda functions
+rmv_nan_elements = lambda y: [[np.array(xx)[~np.isnan(xx)] for xx in yy] for yy in y]
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -4175,13 +4178,13 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
     # initialisations and memory allocation
     p_within, p_btwn = None, None
-    n_filt, n_grp = len(y_orig), np.shape(y_orig[0])[1] - c_ofs
+    n_grp, n_filt = len(y_orig) - c_ofs, np.shape(y_orig[0])[1]
 
     # determines if the between filter type statistics need to be calculated (n_filt > 1)
     if n_grp > 1:
         # memory allocation
         p_within = np.empty((n_filt, 2), dtype=object)
-        y_within = [[list(x[:, i + c_ofs]) for i in range(n_grp)] for x in y_orig]
+        y_within = rmv_nan_elements([[list(x[:, i_f]) for x in y_orig[c_ofs:]] for i_f in range(n_filt)])
 
         # calculates the within filter type statistics for each group type
         for i_filt in range(n_filt):
@@ -4192,7 +4195,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
     if n_filt > 1:
         # memory allocation
         p_btwn = np.empty((n_grp, 2), dtype=object)
-        y_btwn = [[list(y_orig[j][:, i]) for j in range(n_filt)] for i in range(n_grp)]
+        y_btwn = rmv_nan_elements([[list(y_orig[i + c_ofs][:, j]) for j in range(n_filt)] for i in range(n_grp)])
 
         # calculates the between filter type statistics for each group type
         for i_grp in range(n_grp):
