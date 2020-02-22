@@ -4454,7 +4454,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the legend strings based on the type
         tt_class = ['Negative', 'Positive', 'Both', 'Any Significant']
-        if n_filt == 1:
+        if (n_filt == 1) and (lg_str[0] == 'Black'):
             tt_filt = ['(#1) - All Cells']
         else:
             tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str)]
@@ -4522,7 +4522,7 @@ class AnalysisGUI(QMainWindow):
             ####    CORRELATION SIGNIFICANCE COUNT TABLE    ####
             ####################################################
 
-            if n_filt == 1:
+            if (n_filt == 1) and (lg_str[0] == 'Black'):
                 tt_filt_N = ['All Cells']
             else:
                 tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
@@ -5395,7 +5395,7 @@ class AnalysisGUI(QMainWindow):
         stats_ph = self.calc_group_posthoc_stats(p_pref_dir, n_filt, [1])
 
         # sets the legend strings based on the type
-        if n_filt == 1:
+        if (n_filt == 1) and (lg_str_f[0] == 'Black'):
             tt_filt = ['(#1) - All Cells']
         else:
             tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
@@ -5460,7 +5460,7 @@ class AnalysisGUI(QMainWindow):
             ####    PREFERRED DIRECTION COUNT TABLE    ####
             ###############################################
 
-            if n_filt == 1:
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
                 tt_filt_N = ['All Cells']
             else:
                 tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
@@ -7269,7 +7269,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the base title string
             tt_class = ['Rotation', 'Visual', 'Both']
-            if n_filt == 1:
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
                 tt_filt = ['(#1) - All Cells']
             else:
                 tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
@@ -7376,7 +7376,7 @@ class AnalysisGUI(QMainWindow):
                        ['Incongruent', 'Congruent', 'Total']]
             t_font = cf.get_table_font_size(3)
 
-            if n_filt == 1:
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
                 row_hdr = ['All Cells', 'Total']
             else:
                 row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
