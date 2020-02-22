@@ -4522,8 +4522,12 @@ class AnalysisGUI(QMainWindow):
             ####    CORRELATION SIGNIFICANCE COUNT TABLE    ####
             ####################################################
 
+            if n_filt == 1:
+                tt_filt_N = ['All Cells']
+            else:
+                tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
+
             # table parameters
-            tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr, row_hdr = ['None'] + tt_class + ['Total Cell Count'], tt_filt_N + ['Total Count']
 
@@ -5456,8 +5460,12 @@ class AnalysisGUI(QMainWindow):
             ####    PREFERRED DIRECTION COUNT TABLE    ####
             ###############################################
 
+            if n_filt == 1:
+                tt_filt_N = ['All Cells']
+            else:
+                tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
+
             # table parameter
-            tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr, row_hdr = ['CW Preferred', 'CCW Preferred', 'Total Cell Count'], tt_filt_N + ['Total Count']
             col_table = cf.get_plot_col(max([n_filt, len(col_hdr) - 1]))
@@ -7261,7 +7269,10 @@ class AnalysisGUI(QMainWindow):
 
             # sets the base title string
             tt_class = ['Rotation', 'Visual', 'Both']
-            tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg_str.split('\n'))) for i, lg_str in enumerate(lg_str_f)]
+            if n_filt == 1:
+                tt_filt = ['(#1) - All Cells']
+            else:
+                tt_filt = ['(#{0}) - {1}'.format(i + 1, '/'.join(lg.split('\n'))) for i, lg in enumerate(lg_str_f)]
 
             # sets the final header/title strings
             if n_filt == 1:
@@ -7330,8 +7341,7 @@ class AnalysisGUI(QMainWindow):
                     ax[i].set_ylabel('Population %')
 
                 # only set the x-tick labels if there is more than one label
-                if len(x_ticklbl) > 1:
-                    ax[i].set_xticklabels(x_ticklbl)
+                ax[i].set_xticklabels(x_ticklbl)
 
                 # sets the y-axis limits based on type
                 if 'Bar' in grp_plot_type:
@@ -7361,11 +7371,15 @@ class AnalysisGUI(QMainWindow):
 
             # creates the title text object
             t_str = ['{0} N-Values'.format(x) for x in stats_type]
-            row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
             col_hdr = [['Insensitive', 'Sensitive', 'Total'],
                        ['None', 'Rotation', 'Visual', 'Both', 'Total'],
                        ['Incongruent', 'Congruent', 'Total']]
             t_font = cf.get_table_font_size(3)
+
+            if n_filt == 1:
+                row_hdr = ['All Cells', 'Total']
+            else:
+                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
 
             # creates the graphs for the motion sensitive/direction selectivity plots
             for i in range(n_plt):
@@ -7374,7 +7388,7 @@ class AnalysisGUI(QMainWindow):
                 cT = cf.get_plot_col(max(n_filt, nT), max(n_grp))
                 cf.add_plot_table(self.plot_fig, ax[j], t_font, t_data[i].astype(int), row_hdr, col_hdr[i],
                                   cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
-                                  'bottom', n_row=2, n_col=n_plt)
+                                  'fixed', n_col=n_plt)
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, m_size,
                                            violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
