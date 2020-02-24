@@ -1221,6 +1221,14 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
                 cl_inc[c['chRegion'] == ex_gt] = False
             elif exc_gen == 'record_layer':
                 cl_inc[c['chLayer'] == ex_gt] = False
+            elif exc_gen == 'lesion':
+                cl_inc = np.logical_and(cl_inc, c['expInfo']['lesion'] != ex_gt)
+            elif exc_gen == 'record_state':
+                cl_inc = np.logical_and(cl_inc, c['expInfo']['record_state'] != ex_gt)
+
+            # if there are no valid cells, then exit the function
+            if not np.any(cl_inc):
+                return cl_inc
 
     # returns the cluster inclusion index array
     return cl_inc

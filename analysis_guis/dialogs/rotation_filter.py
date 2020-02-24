@@ -100,6 +100,20 @@ class RotationFilter(QDialog):
         else:
             self.f_data = init_data
 
+        # ensures any missing fields are added to the exclusion filter
+        f_fld = ['lesion', 'record_state']
+        for ff in f_fld:
+            if self.rmv_fields is None:
+                cont = True
+            else:
+                cont = ff not in self.rmv_fields
+
+            if (ff not in self.f_data) and cont:
+                if (not self.is_exc) and (not self.is_gen):
+                    self.f_data[ff] = ['All']
+                else:
+                    self.f_data[ff] = []
+
         # determines the feasible filter fields
         self.init_filter_fields()
         if self.n_grp == 0:
@@ -193,6 +207,7 @@ class RotationFilter(QDialog):
         record_layer = np.unique(cf.flat_list([list(np.unique(x['chLayer'])) for x in d_clust]))
         record_coord = list(np.unique([x['expInfo']['record_coord'] for x in d_clust]))
         lesion_type = np.unique([x['expInfo']['lesion'] for x in d_clust])
+        record_state = np.unique([x['expInfo']['record_state'] for x in d_clust])
 
         # sets the filter field parameter information
         self.fields = [
@@ -202,6 +217,7 @@ class RotationFilter(QDialog):
             ['Region Name', 'CheckCombo', 'region_name', list(region_type), self.is_multi_cell and self.plot_all_expt],
             ['Recording Layer', 'CheckCombo', 'record_layer', list(record_layer), self.is_multi_cell and self.plot_all_expt],
             ['Lesion Type', 'CheckCombo', 'lesion', list(lesion_type), self.is_multi_cell and self.plot_all_expt],
+            ['Recording State', 'CheckCombo', 'record_state', list(record_state), self.is_multi_cell and self.plot_all_expt],
             ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, True],
         ]
 
@@ -259,15 +275,26 @@ class RotationFilter(QDialog):
                 # case is rotation analysis
                 exc_filt = self.data.exc_rot_filt
 
-            # loops through each of the filter keys removing any
+            # loops through each of the filter keys removing any matching exclusion fields
             for fk in exc_filt.keys():
                 if len(exc_filt[fk]) and (fk in f_str):
-                    # retrieves the field that the filter key corresponds to
-                    i_field = f_str.index(fk)
-
                     # removes the fields values that have been excluded
+                    i_field = f_str.index(fk)
                     for fv in exc_filt[fk]:
-                        self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
+                        # if the field value is in the list, then remove it
+                        if fv in self.fields[i_field][3]:
+                            self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
+
+            # if not running the general exclusion filter, then remove any fields included in the general filter
+            if not self.is_gen:
+                for fk in self.data.exc_gen_filt:
+                    if len(self.data.exc_gen_filt[fk]) and (fk in f_str):
+                        # removes the fields values that have been excluded
+                        i_field = f_str.index(fk)
+                        for fv in self.data.exc_gen_filt[fk]:
+                            # if the field value is in the list, then remove it
+                            if fv in self.fields[i_field][3]:
+                                self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
 
         # removes any groups that don't have more than one query value
         for i_row in reversed(range(len(self.fields))):

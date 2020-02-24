@@ -815,9 +815,11 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     ############################################
 
     # sets the filter strings
-    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer']
+    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer', 'lesion', 'record_state']
     is_check = [(data.classify.class_set and (expt_filter_lvl > 0)),    # signal type must be calculated and not single cell
                 (data.comp.is_set and (expt_filter_lvl > 0)),           # comparison type must be calculated and not single cell
+                (expt_filter_lvl > 0),                                  # not single cell
+                (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0)]                                  # not single cell
 
@@ -845,10 +847,17 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
             for iccf, ccf in enumerate(cc_filt_str):
                 ind_cl_nw, ind_tr_nw = None, None
 
+                # continue is field key is not in dictionary
+                if ccf not in rot_filt:
+                    rot_filt[ccf] = ['All']
+
                 if (rot_filt[ccf][0] == 'All'):
+                    if ccf not in exc_filt:
+                        exc_filt[ccf] = []
+
                     if len(exc_filt[ccf]):
                         # initialisations
-                        is_cl, is_tr, is_free = False, False, False
+                        is_cl, is_tr, is_calc = False, False, True
 
                         if ccf == 'sig_type':
                             # case is the signal type (wide or narrow spikes)
@@ -876,6 +885,18 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # case is the recording layer
                             cv, is_cl = d_clust[i_expt]['chLayer'], True
 
+                        elif ccf == 'lesion':
+                            # case is the lesion type
+                            is_cl = True
+                            ind_cl_nw = [d_clust[i_expt]['expInfo']['lesion']
+                                                            not in exc_filt[ccf]] * d_clust[i_expt]['nC']
+
+                        elif ccf == 'record_state':
+                            # case is the lesion type
+                            is_cl = True
+                            ind_cl_nw = [d_clust[i_expt]['expInfo']['record_state']
+                                                            not in exc_filt[ccf]] * d_clust[i_expt]['nC']
+
                         elif ccf == 't_freq':
                             # case is the temporal frequency
                             cv, is_tr = [str(x) for x in wfm_para[i_expt]['tFreq']], True
@@ -890,7 +911,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                         elif ccf == 'free_ctype':
                             # case is the freely moving cell types
-                            is_free, is_cl = True, True
+                            is_calc, is_cl = False, True
                             ind_cl_nw = np.ones(len(ind_cl), dtype=bool)
 
                             # retrieves the free-to-fixed cell indices
@@ -917,8 +938,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             ind_cl_ff = ~np.any(np.array(cell_type[exc_filt[ccf]]), axis=1)
                             ind_cl_nw[is_match] = ind_cl_ff[i_f2f[is_match]]
 
-                        # sets the new cluster/trial acceptance flags (based on type)
-                        if not is_free:
+                        # sets the new cluster/trial acceptance flags (based on type and if not already calculated)
+                        if is_calc:
                             if is_cl:
                                 # case is the filter type is cluster based
                                 ind_cl_nw = np.logical_and.reduce(
@@ -943,6 +964,14 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                     elif ccf == 'record_layer':
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chLayer']]
+
+                    elif ccf == 'lesion':
+                        ind_cl_nw = [d_clust[i_expt]['expInfo']['lesion'] ==
+                                                                rot_filt[ccf][0]] * d_clust[i_expt]['nC']
+
+                    elif ccf == 'record_state':
+                        ind_cl_nw = [d_clust[i_expt]['expInfo']['record_state'] ==
+                                                                rot_filt[ccf][0]] * d_clust[i_expt]['nC']
 
                     elif ccf == 't_freq':
                         ind_tr_nw = np.abs(wfm_para[i_expt]['tFreq'] - float(rot_filt[ccf][0])) < 1e-6

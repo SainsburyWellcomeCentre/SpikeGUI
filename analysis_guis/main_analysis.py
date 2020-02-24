@@ -760,6 +760,12 @@ class AnalysisGUI(QMainWindow):
                     if not has_free_data:
                         new_func_types = new_func_types[new_func_types != 'Freely Moving Cell Types']
 
+                # ensures any missing fields are added to the exclusion filter
+                f_fld = ['lesion', 'record_state']
+                for ff in f_fld:
+                    if ff not in self.data.exc_gen_filt:
+                        self.data.exc_gen_filt[ff] = []
+
                 # otherwise, enable the cluster matching comparison menu item
                 self.menu_set_compare.setEnabled(self.file_type == 1)
                 self.menu_init_filt.setEnabled(has_rot_expt)
@@ -10075,7 +10081,7 @@ class AnalysisGUI(QMainWindow):
             # sets the final combined label strings
             return ['\n'.join(list(lbl_str[i_row, :])) for i_row in range(np.size(lbl_str, axis=0))]
 
-        def setup_plot_axes(plot_fig):
+        def setup_plot_axes(plot_fig, n_filt):
             '''
 
             :param plot_fig:
@@ -10084,22 +10090,30 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # sets up the axes dimensions
-            n_r, n_c = 2, 6
-            top, bottom, wspace, hspace = 0.95, 0.04, 0.7, 0.30
+            n_r1, n_c1, n_r2, n_c2 = 2, 6, 1, 2
+            tbl_hght = 0.05 + 0.02 * n_filt
+            top, bottom, wspace, hspace, ax_gap = 0.95, 0.025, 0.7, 0.3 + (0.025 * (n_filt - 1)), 0.025
 
             # creates the gridspec object
-            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
-                                   bottom=bottom, top=top)
+            gs1 = gridspec.GridSpec(n_r1, n_c1, width_ratios=[1 / n_c1] * n_c1, height_ratios=[1 / n_r1] * n_r1,
+                                    figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                    bottom=bottom+(tbl_hght+ax_gap), top=top)
+            gs2 = gridspec.GridSpec(n_r2, n_c2, width_ratios=[1 / n_c2] * n_c2, figure=plot_fig.fig, left=0.075,
+                                    right=0.98, bottom=bottom, top=bottom+tbl_hght)
 
             # creates the subplots
-            plot_fig.ax = np.empty(5, dtype=object)
+            plot_fig.ax = np.empty(7, dtype=object)
             for i_c in range(3):
-                plot_fig.ax[i_c] = plot_fig.figure.add_subplot(gs[0, (2 * i_c):(2 * (i_c + 1))])
+                plot_fig.ax[i_c] = plot_fig.figure.add_subplot(gs1[0, (2 * i_c):(2 * (i_c + 1))])
 
-            # sets up the other axes
-            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs[1, :3])
-            plot_fig.ax[4] = plot_fig.figure.add_subplot(gs[1, 3:])
+            # creates the subplots for each column
+            plot_fig.ax[3] = plot_fig.figure.add_subplot(gs1[1, :3])
+            plot_fig.ax[4] = plot_fig.figure.add_subplot(gs1[1, 3:])
+
+            # if the count table row, then disable the axis
+            for i_c in range(2):
+                plot_fig.ax[5 + i_c] = plot_fig.figure.add_subplot(gs2[0, i_c])
+                plot_fig.ax[5 + i_c].axis('off')
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
         if not r_obj.is_ok:
@@ -10253,7 +10267,7 @@ class AnalysisGUI(QMainWindow):
                 self.plot_fig.ax[3].axis('off')
             else:
                 # case is whole experiment
-                setup_plot_axes(self.plot_fig)
+                setup_plot_axes(self.plot_fig, n_filt)
 
             # setups up the scatterplots for each subplot phase
             ax = self.plot_fig.ax
@@ -10361,8 +10375,9 @@ class AnalysisGUI(QMainWindow):
                 x_ticklbl = filt_str if grp_by_filt else class_str[i]
 
                 if len(h_plt):
+                    y_hg = 1.1 + 0.01 * n_filt
                     ax[i + n_sub].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
-                                                                        columnspacing=0.125, bbox_to_anchor=(0.5, 1.11))
+                                                                        columnspacing=0.125, bbox_to_anchor=(0.5, y_hg))
                 else:
                     ax[i + n_sub].set_title('Direction Sensitivity Proportion', fontsize=16, fontweight='bold')
 
@@ -10379,7 +10394,31 @@ class AnalysisGUI(QMainWindow):
                 # updates the axis properties
                 ax[i + n_sub].grid(plot_grid)
                 ax[i + n_sub].set_xticklabels(x_ticklbl)
-                # ax[i].set_title(main_title[i], fontsize=16, fontweight='bold')
+
+            ###################################
+            ####    METRIC COUNT TABLES    ####
+            ###################################
+
+            # sets the
+            n_type_N0 = [np.hstack((x, np.sum(x, axis=1).reshape(-1, 1))) for x in n_type_tot]
+            n_type_N = [np.vstack((x, np.sum(x, axis=0))) for x in n_type_N0]
+            col_hdr = [x + ['Total Cells'] for x in class_str0]
+
+            # creates the title text object
+            t_font = cf.get_table_font_size(3)
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
+                row_hdr = ['All Cells', 'Total']
+            else:
+                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+
+            # creates the graphs for the motion sensitive/direction selectivity plots
+            for i in range(len(class_str0)):
+                # creates the new table
+                j, nT = i + 5, len(col_hdr[i])
+                cT = cf.get_plot_col(max(n_filt, nT), max(n_grp))
+                cf.add_plot_table(self.plot_fig, ax[j], t_font, n_type_N[i].astype(int), row_hdr, col_hdr[i],
+                                  cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
+                                  'fixed', n_col=len(class_str0[i]))
 
         # retrieves the function data values
         self.func_data = self.set_output_data(locals())
