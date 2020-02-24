@@ -816,12 +816,14 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
     # sets the filter strings
     cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer', 'lesion', 'record_state']
-    is_check = [(data.classify.class_set and (expt_filter_lvl > 0)),    # signal type must be calculated and not single cell
-                (data.comp.is_set and (expt_filter_lvl > 0)),           # comparison type must be calculated and not single cell
+    is_check = [False,                                                  # signal type must be calculated and not single cell
+                False,                                                  # comparison type must be calculated and not single cell
                 (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0)]                                  # not single cell
+    is_check[0] = False if not hasattr(data, 'classify') else (data.classify.class_set and (expt_filter_lvl > 0))
+    is_check[1] = False if not hasattr(data, 'comp') else (data.comp.is_set and (expt_filter_lvl > 0))
 
     # if uniform drifting, add on the visual stimuli parameters to the filter conditions
     if rot_filt['is_ud'][0]:
