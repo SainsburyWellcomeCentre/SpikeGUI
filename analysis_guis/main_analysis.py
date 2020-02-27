@@ -761,10 +761,11 @@ class AnalysisGUI(QMainWindow):
                         new_func_types = new_func_types[new_func_types != 'Freely Moving Cell Types']
 
                 # ensures any missing fields are added to the exclusion filter
-                f_fld = ['lesion', 'record_state']
-                for ff in f_fld:
-                    if ff not in self.data.exc_gen_filt:
-                        self.data.exc_gen_filt[ff] = []
+                if self.data.exc_gen_filt is not None:
+                    f_fld = ['lesion', 'record_state']
+                    for ff in f_fld:
+                        if ff not in self.data.exc_gen_filt:
+                            self.data.exc_gen_filt[ff] = []
 
                 # otherwise, enable the cluster matching comparison menu item
                 self.menu_set_compare.setEnabled(self.file_type == 1)
