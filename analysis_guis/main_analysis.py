@@ -3,7 +3,6 @@ import os
 import re
 import time
 import copy
-import pprint
 import warnings
 import datetime
 import functools
@@ -61,6 +60,7 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
 from scipy.stats import linregress, bartlett, ks_2samp, kruskal
+from scipy.signal import find_peaks
 
 # sklearn module imports
 from sklearn.cluster import KMeans
@@ -119,10 +119,11 @@ formatter = lambda **kwargs: ', '.join(kwargs['point_label'])
 formatter_lbl = lambda **kwargs: kwargs['label']
 setup_heatmap_bins = lambda t_stim, dt: np.arange(t_stim + dt / 1000, step=dt / 1000.0)
 txt_fcn = lambda l, t: np.any([t in ll for ll in l])
+remove_uscore = lambda x: x.replace('_', '').lower()
 
 # other initialisations
 dcopy = copy.deepcopy
-func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types',
+func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types', 'Eye Tracking',
                        'Spiking Frequency Correlation', 'Rotation Analysis', 'UniformDrift Analysis', 'ROC Analysis',
                        'Combined Analysis', 'Depth-Based Analysis', 'Direction LDA', 'Speed LDA',
                        'Single Experiment Analysis', 'Miscellaneous Functions'])
@@ -368,8 +369,7 @@ class AnalysisGUI(QMainWindow):
         # creates the file menu/menu-items
         self.menu_cluster_data = cf.create_menu(self.menu_file, "Cluster Datasets", "cluster_data")
         self.menu_output_data = cf.create_menu(self.menu_file, "Output Datasets", "save_data")
-        self.menu_load_general = cf.create_menuitem(self, "Load General File", "menu_load_general",
-                                                    self.load_general_file, s_cut='Ctrl+Z')
+        self.menu_load_general = cf.create_menu(self.menu_file, "Load General File/Directory", "load_general")
         self.menu_default = cf.create_menuitem(self, "Set Default Directories", "menu_default", self.set_default,
                                                s_cut='Ctrl+D')
         self.menu_global_para = cf.create_menuitem(self, "Global Parameters", "global_para", self.update_glob_para,
@@ -379,7 +379,7 @@ class AnalysisGUI(QMainWindow):
         # adds the menu items to the file menu
         self.menu_file.addAction(self.menu_cluster_data.menuAction())
         self.menu_file.addAction(self.menu_output_data.menuAction())
-        self.menu_file.addAction(self.menu_load_general)
+        self.menu_file.addAction(self.menu_load_general.menuAction())
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.menu_default)
         self.menu_file.addAction(self.menu_global_para)
@@ -424,6 +424,20 @@ class AnalysisGUI(QMainWindow):
         self.menu_output_data.addAction(self.menu_save_data)
         self.menu_output_data.addSeparator()
         self.menu_output_data.addAction(self.menu_save_file)
+
+        ###############################################
+        ###    GENERAL FILE/DIRECTORY MENU ITEMS    ###
+        ###############################################
+
+        # creates the menu items
+        self.menu_gen_dir = cf.create_menuitem(self, 'Load Directories', 'load_gen_dir',
+                                               self.load_general_dir, s_cut='Ctrl+Q')
+        self.menu_gen_file = cf.create_menuitem(self, 'Load Files', 'load_gen_file',
+                                                self.load_general_file, s_cut='Ctrl+Z')
+
+        # adds the menu items to the data output menu
+        self.menu_load_general.addAction(self.menu_gen_dir)
+        self.menu_load_general.addAction(self.menu_gen_file)
 
         #############################
         ###    DATA MENU ITEMS    ###
@@ -600,7 +614,8 @@ class AnalysisGUI(QMainWindow):
                 # case is loading the data files
 
                 # initialisations
-                init_data, has_free_data, init_comp = True, False, len(self.data.comp.data) == 0
+                init_data, init_comp = True, len(self.data.comp.data) == 0
+                has_free_data, has_eyetrack_data = False, False
 
                 # sets the file data type
                 _, f_extn = os.path.splitext(self.worker[iw].thread_job_para[0].exp_files[0])
@@ -646,6 +661,9 @@ class AnalysisGUI(QMainWindow):
 
                             if (self.file_type == 4) and hasattr(self.data.externd, 'free_data'):
                                 has_free_data = any([len(x)>0 for x in self.data.externd.free_data.cell_type])
+
+                            if hasattr(self.data, 'externd'):
+                                has_eyetrack_data = hasattr(self.data.externd, 'eye_track')
 
                             # initialises the multi file data field (if not provided)
                             if not hasattr(loaded_data, 'multi'):
@@ -701,7 +719,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets up the analysis functions and resets the trial type strings
                 self.reset_trial_type_strings()
-                self.fcn_data.init_all_func(has_free_data)
+                self.fcn_data.init_all_func()
 
                 # updates the cluster parameters (if loading comparison data file types)
                 if self.file_type in [2, 4]:
@@ -750,15 +768,35 @@ class AnalysisGUI(QMainWindow):
                 has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
                 has_both = has_vis_expt and has_rot_expt
 
+
                 # if single experiments are loaded, then determine the function types
                 new_func_types = dcopy(func_types)
                 if not self.is_multi:
-                    is_keep = [True, True, False, has_rot_expt, has_rot_expt, has_ud_expt, has_rot_expt, has_both,
-                               has_both, has_rot_expt, has_rot_expt, True, has_rot_expt]
+                    is_keep = [
+                        True,               # Cluster Matching
+                        True,               # Cluster Classification
+                        False,              # Freely Moving Cell Types
+                        False,              # Eye Tracking
+                        has_rot_expt,       # Spiking Frequency Correlation
+                        has_rot_expt,       # Rotation Analysis
+                        has_ud_expt,        # UniformDrift Analysis
+                        has_rot_expt,       # ROC Analysis
+                        has_both,           # Combined Analysis
+                        has_both,           # Depth-Based Analysis
+                        has_rot_expt,       # Direction LDA
+                        has_rot_expt,       # Speed LDA
+                        True,               # Single Experiment Analysis
+                        has_rot_expt        # Miscellaneous Functions
+                    ]
                     new_func_types = func_types[np.array(is_keep)]
                 else:
+                    # if the free-data is not set, then the function types from the list
                     if not has_free_data:
                         new_func_types = new_func_types[new_func_types != 'Freely Moving Cell Types']
+
+                    # if the eye-tracking data is not set, then the function types from the list
+                    if not has_eyetrack_data:
+                        new_func_types = new_func_types[new_func_types != 'Eye Tracking']
 
                 # ensures any missing fields are added to the exclusion filter
                 if self.data.exc_gen_filt is not None:
@@ -1201,6 +1239,59 @@ class AnalysisGUI(QMainWindow):
             self.worker[iw].set_worker_func_type('load_data_files', thread_job_para=[load_dlg, loaded_exp, self.is_multi])
             self.worker[iw].start()
 
+    def load_general_dir(self):
+        '''
+
+        :return:
+        '''
+
+        # runs the directory open dialog
+        file_dlg = FileDialogModal(caption='Select General File Directories To Search',
+                                   directory=cfcn.get_dir_para('inputDir'),
+                                   dir_only=True)
+
+        # determines if the user selected a valid file
+        if (file_dlg.exec() == QDialog.Accepted):
+            # otherwise, set the output file name
+            input_dir = file_dlg.selectedFiles()
+            input_file0 = cf.flat_list([cf.flat_list([
+                [os.path.join(x[0], z) for z in x[2]] for x in os.walk(y) if len(x[2])]) for y in input_dir])
+        else:
+            # if the user cancelled then exit
+            return
+
+        # determines the number of unique file extensions from each of the files, and returns the input files that have
+        # the most likely filetype extension
+        f_extn0, n_extn = np.unique([cf.extract_file_extn(x) for x in input_file0], return_counts=True)
+        f_extn = f_extn0[np.argmax(n_extn)]
+        input_file = [x for x in input_file0 if f_extn in x]
+
+        if f_extn == '.csv':
+            # case is the input data files are csv files
+
+            # reads and extracts the eye-tracking features from each csv file
+            for i_f, in_f in enumerate(input_file):
+                # updates the progress bar
+                w_str = 'Loading File {0} of {1}'.format(i_f + 1, len(input_file))
+                self.update_thread_job(w_str, 100. * (i_f + 1) / (len(input_file) + 1))
+
+                if hasattr(self.data.externd, 'eye_track'):
+                    # if the eye tracking field has been set in the external data field, then append the new data
+                    self.data.externd.eye_track.append_data(self.data, in_f)
+                else:
+                    # otherwise, create a new field to store the eye tracking data
+                    setattr(self.data.externd, 'eye_track', EyeTrackingData(self.data, in_f))
+
+            # updates the free experiments
+            if self.data.externd.eye_track.n_file > 0:
+                self.data.req_update = True
+                self.fcn_data.update_extern_expts(self.combo_scope, 'Eye Tracking')
+
+        # updates the progressbar
+        self.update_thread_job('File Load Complete!', 100.)
+        time.sleep(0.5)
+        self.update_thread_job('Waiting For Process...', 0.)
+
     def load_general_file(self):
         '''
 
@@ -1212,8 +1303,8 @@ class AnalysisGUI(QMainWindow):
                       'CSV Files (*.csv)',
                       'Text Files (*.txt)']
 
-        # runs the file dialog
-        file_dlg = FileDialogModal(caption='Select General File To Open',
+        # runs the file open dialog
+        file_dlg = FileDialogModal(caption='Select General File(s) To Open',
                                    filter=';;'.join(file_types),
                                    directory=cfcn.get_dir_para('inputDir'))
         file_dlg.setFileMode(QFileDialog.ExistingFiles)
@@ -1252,7 +1343,7 @@ class AnalysisGUI(QMainWindow):
                 # updates the free experiments
                 if self.data.externd.free_data.n_file > 0:
                     self.data.req_update = True
-                    self.fcn_data.update_free_expts(self.combo_scope)
+                    self.fcn_data.update_extern_expts(self.combo_scope, 'Freely Moving Cell Types')
 
         elif 'CSV Files' in filt_type:
             # PUT CODE IN HERE DEPENDING ON FILE TYPE
@@ -3685,6 +3776,101 @@ class AnalysisGUI(QMainWindow):
         t_props_2[0]._bbox[0] = max(t_props_2[0]._bbox[0], l_min)
         t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
         t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
+
+    ######################################
+    ####    EYE TRACKING FUNCTIONS    ####
+    ######################################
+
+    def plot_eye_movement_signals(self, etrack_exp_name, plot_all, etrack_tt, plot_mean, plot_grid):
+        '''
+
+        :param etrack_exp_name:
+        :param etrack_tt:
+        :param plot_all:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        n_sd, dp_ax = 3, 10
+        extn_data = self.data.externd.eye_track
+        et_tt = [x.lower() for x in etrack_tt]
+        t_str0 = ['Medial to Temporal', 'Temporal to Medial']
+
+        # memory allocation
+        n_expt, n_tt, n_evnt = len(extn_data.et_data) if plot_all else 1, len(etrack_tt), 2
+        y_sig = np.empty((n_tt, n_evnt), dtype=object)
+
+        # retrieves the eye-tracking data based on the plot type
+        if plot_all:
+            # case is plotting all the experiments
+            et_data, y_evnt = extn_data.et_data, extn_data.y_evnt
+        else:
+            # case is plotting a single experiment
+            i_expt = extn_data.exp_name.index(etrack_exp_name)
+            et_data, y_evnt = [extn_data.et_data[i_expt]], [extn_data.y_evnt[i_expt]]
+
+        # retrieves the signal values over all experiments/trial types
+        for i_tt in range(len(et_tt)):
+            for i_evnt in range(n_evnt):
+                # retrieves the signal values over all experiments (for the current trial type/eye-movement type)
+                y_sig_tmp, is_ok = np.empty(n_expt, dtype=object), np.ones(n_expt, dtype=bool)
+                for i_exp, et_d in enumerate(et_data):
+                    if et_tt[i_tt] in et_d.t_type:
+                        i = et_d.t_type.index(et_tt[i_tt])
+                        if len(y_evnt[i_exp][i][i_evnt]):
+                            y_sig_tmp[i_exp] = y_evnt[i_exp][i][i_evnt]
+                        else:
+                            is_ok[i_exp] = False
+                    else:
+                        is_ok[i_exp] = False
+
+                # combines the data over all experiments into a single array
+                if np.any(is_ok):
+                    y_sig[i_tt, i_evnt] = np.vstack(y_sig_tmp[is_ok])
+                else:
+                    y_sig[i_tt, i_evnt] = None
+
+                    # initialises the plot axes
+        self.init_plot_axes(n_row=n_tt, n_col=n_evnt)
+        ax = self.plot_fig.ax
+
+        # sets the time signal
+        dt_sig = 1000 / extn_data.fps
+        t_sig = np.arange(-extn_data.t_pre, extn_data.t_post + dt_sig, dt_sig)
+
+        #
+        for i_tt in range(n_tt):
+            for i_evnt in range(n_evnt):
+                # sets the plot index
+                i_plt = i_tt * n_evnt + i_evnt
+
+                # creates the signal plot
+                if y_sig[i_tt, i_evnt] is not None:
+                    # sets the plot values and calculates the min/max, mean/std dev values
+                    y_sig_plt = y_sig[i_tt, i_evnt]
+
+                    # plots the all the sub-signals 
+                    ax[i_plt].plot(t_sig, y_sig_plt.T, 'b', linewidth=1, alpha=0.2)
+                    if plot_mean:
+                        # plots the mean sub-signal (if required)
+                        ax[i_plt].plot(t_sig, np.mean(y_sig_plt, axis=0), 'k', linewidth=3)
+
+                # sets the x-axis label (last row only)
+                if (i_tt + 1) == n_tt:
+                    ax[i_plt].set_xlabel('Time (ms)')
+
+                # sets the y-axis label (first column only)
+                if i_evnt == 0:
+                    ax[i_plt].set_ylabel('Relative Position (um)')
+
+                # sets the other axis properties
+                ax[i_plt].set_xlim([t_sig[0], t_sig[-1]])
+                ax[i_plt].grid(plot_grid)
+                ax[i_plt].set_title('{0} ({1})'.format(t_str0[i_evnt], etrack_tt[i_tt]))
+
+        # FINISH ME!
+        a = 1
 
     #######################################################
     ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
@@ -12228,12 +12414,16 @@ class AnalysisFunctions(object):
     ####    ANALYSIS FUNCTION INITALISATIONS    ####
     ################################################
 
-    def init_all_func(self, has_free_data):
+    def init_all_func(self):
 
         # overall declarations
         data, get_gp = self.get_data_fcn(), cfcn.get_glob_para
         has_multi_expt = len(data._cluster) > 1
         init_lda_para, init_def_class_para = cfcn.init_lda_para, cfcn.init_def_class_para
+
+        # determines if the external data fields have been set
+        has_free_data = hasattr(data.externd, 'free_data')
+        has_eyetrack_data = hasattr(data.externd, 'eye_track')
 
         # re-initialises the current parameter fields
         self.reset_curr_para_fields()
@@ -12561,6 +12751,53 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Cell Types',
                           name='Freely Moving Cell Type Statistics',
                           func='plot_free_cell_stats',
+                          para=para)
+
+        ######################################
+        ####    EYE TRACKING FUNCTIONS    ####
+        ######################################
+
+        if has_eyetrack_data:
+            # initialisations
+            fld_data = data.externd.eye_track
+            etrack_exp = fld_data.exp_name
+            etrack_tt = list(np.unique(cf.flat_list([[y.capitalize() for y in x.t_type] for x in fld_data.et_data])))
+
+            # retrieves the eye-tracking parameter
+            et_para = cfcn.get_eyetrack_para(fld_data)
+
+            # ====> Eye Movement Event Signals
+            para = {
+                # calculation parameters
+                'use_med_filt': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Median Filtering', 'def_val': et_para['use_med_filt']
+                },
+                'rmv_baseline': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Remove Derivative Baseline',
+                    'def_val': et_para['rmv_baseline']
+                },
+                'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
+                'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
+                't_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['t_pre']},
+                't_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['t_post']},
+
+                # plotting parameters
+                'etrack_exp_name': {
+                    'type': 'L', 'text': 'Eye Tracking Experiment', 'def_val': etrack_exp[0], 'list': etrack_exp
+                },
+                'plot_all': {
+                    'type': 'B', 'text': 'Plot All Experiments', 'def_val': True, 'link_para': ['etrack_exp_name', True]
+                },
+                'etrack_tt': {
+                    'type': 'CL', 'text': 'Experiment Trial Types', 'list': etrack_tt,
+                    'def_val': np.ones(len(etrack_tt), dtype=bool),
+                },
+                'plot_mean': {'type': 'B', 'text': 'Plot Mean Event Signal', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Eye Tracking',
+                          name='Eye Movement Event Signals',
+                          func='plot_eye_movement_signals',
                           para=para)
 
         ######################################################
@@ -14997,7 +15234,7 @@ class AnalysisFunctions(object):
                             h_list[0].setCurrentIndex(i_sel0)
                             h_list[0].setEnabled(len(ex_name[i_pp]) > 1)
 
-    def update_free_expts(self, h_combo):
+    def update_extern_expts(self, h_combo, fcn_str):
         '''
 
         :return:
@@ -15005,11 +15242,9 @@ class AnalysisFunctions(object):
 
         # initialisations
         data = self.get_data_fcn()
-        f_data = data.externd.free_data
-        pp, fcn_str = 'free_exp_name', 'Freely Moving Cell Types'
-
-        # determines if the freely moving cell types is in the function list
         h_combo_list = [h_combo.itemText(i) for i in range(h_combo.count())]
+
+        # determines if the function type is in the function dropdown list. if not, then add it in
         if fcn_str not in h_combo_list:
             # appends the function list the freely moving cell types
             h_combo_list.insert(np.where(func_types == fcn_str)[0][0], fcn_str)
@@ -15026,37 +15261,60 @@ class AnalysisFunctions(object):
             # resets the current index
             h_combo.setCurrentIndex(i_sel0)
 
-        # updates the functions parameter/default value fields
-        fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
-        fcn_d['para'][pp]['list'] = f_data.exp_name
-        if 'No Fixed/Free' in fcn_d['para'][pp]['def_val']:
-            fcn_d['para'][pp]['def_val'] = f_data.exp_name[0]
+        #
+        if fcn_str == 'Freely Moving Cell Types':
+            # retrieves the external data field and corresponding parameter name
+            f_data, pp = data.externd.free_data, 'free_exp_name'
 
-        # if the current experiment
-        if fcn_d['name'] == self.curr_fcn:
-            # retrieves the list object
-            h_list = self.find_obj_handle([QComboBox], pp)[0]
-            i_sel0 = h_list.currentIndex()
+            # retrieves the function data sub-dictionary
+            fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
+            if 'No Fixed/Free' in fcn_d['para'][pp]['def_val']:
+                # if there are experiments set, then reset the default value
+                fcn_d['para'][pp]['def_val'] = f_data.exp_name[0]
 
-            # removes the existing items
-            for i in range(h_list.count()):
-                h_list.removeItem(0)
+        elif fcn_str == 'Eye Tracking':
+            # retrieves the external data field and corresponding parameter name
+            f_data, pp = data.externd.eye_track, 'etrack_exp_name'
 
-            # adds the new range
-            for txt in f_data.exp_name:
-                h_list.addItem(txt)
+            # retrieves the function data sub-dictionary
+            if 'Eye Tracking' in self.details.keys():
+                # retrieves the sub-dictionary if the eye-tracking data field has been setup
+                fcn_d = next(d for d in self.details['Eye Tracking'] if 'Eye Movement Event Signals' in d['name'])
+            else:
+                # otherwise, set an empty sub-dictionary
+                fcn_d = None
 
-            # updates the selected index
-            h_list.setCurrentIndex(i_sel0)
-        else:
-            # sets the initial selection value to zero
-            i_sel0 = 0
+        if fcn_d is not None:
+            # updates the functions parameter/default value fields
+            fcn_d['para'][pp]['list'] = f_data.exp_name
 
-        # resets the matching indices
-        self.reset_matched_index('ff_cluster', f_data.exp_name[i_sel0])
+            # if the currently selected experiment is the function corresponding to the loaded data, then update the
+            # list fields with the new experiment names
+            if fcn_d['name'] == self.curr_fcn:
+                # retrieves the list object
+                h_list = self.find_obj_handle([QComboBox], pp)[0]
+                i_sel0 = h_list.currentIndex()
+
+                # removes the existing items
+                for i in range(h_list.count()):
+                    h_list.removeItem(0)
+
+                # adds the new range
+                for txt in f_data.exp_name:
+                    h_list.addItem(txt)
+
+                # updates the selected index
+                h_list.setCurrentIndex(i_sel0)
+            else:
+                # sets the initial selection value to zero
+                i_sel0 = 0
+
+            # resets the matching indices
+            if fcn_str == 'Freely Moving Cell Types':
+                self.reset_matched_index('ff_cluster', f_data.exp_name[i_sel0])
 
         # re-initalises all the function data
-        self.init_all_func(True)
+        self.init_all_func()
 
     ##################################################
     ####    OBJECT CREATION/DELETION FUNCTIONS    ####
@@ -17265,6 +17523,129 @@ class FreelyMovingData(object):
         else:
             self.cell_type.append(cell_type)
             self.ahv_score.append(ahv_score)
+
+
+class EyeTrackingData(object):
+    def __init__(self, data, f_file):
+
+        # initialises the static object fields
+        self.fps = 40
+        self.n_file = 0
+
+        # calculation parameters
+        self.use_med_filt = True
+        self.rmv_baseline = True
+        self.dp_max = 1.0
+        self.n_sd = 2.5
+        self.t_pre = 50
+        self.t_post = 150
+
+        # initialises the other fields
+        self.exp_name = []
+        self.et_data = []
+        self.cl_data = []
+
+        # initialises the calculation fields
+        self.t_evnt = []
+        self.y_evnt = []
+
+        # creates the objects for each experiment
+        self.append_data(data, f_file)
+
+    def append_data(self, data, f_file):
+        '''
+
+        :param data:
+        :param f_data:
+        :return:
+        '''
+
+        # resets the set flag
+        self.is_set = False
+
+        # reads the csv file
+        f_data = pd.read_csv(f_file)
+        f_name = cf.extract_file_name(f_file)
+        exp_name_nw, t_type_nw = '_'.join(f_name.split('_')[:-1]), f_name.split('_')[-1]
+        _exp_name_nw = remove_uscore(exp_name_nw)
+
+        #
+        exp_name_cluster = [cf.extract_file_name(c['expFile']) for c in data._cluster]
+        _exp_name_cluster = [remove_uscore(x) for x in exp_name_cluster]
+
+        # determines if the experiment matching the eye-tracking data file has been loaded
+        if _exp_name_nw in _exp_name_cluster:
+            # if so, then append the experiment data to experiment data
+            i_expt = _exp_name_cluster.index(_exp_name_nw)
+            if exp_name_cluster[i_expt] in self.exp_name:
+                # if the experiment is set, then determine the index counter
+                self.et_data[self.exp_name.index(exp_name_cluster[i_expt])].append_data(f_data, t_type_nw)
+
+            else:
+                # if the experiment is not set, then increment the file counter and appends the experiment name
+                i_expt = _exp_name_cluster.index(_exp_name_nw)
+                self.exp_name.append(exp_name_cluster[i_expt])
+                cl_data = data._cluster[i_expt]
+                self.et_data.append(EyeTrackingDataSub(cl_data, f_data, t_type_nw))
+
+                # increments the experiment counter
+                self.n_file += 1
+
+class EyeTrackingDataSub(object):
+    def __init__(self, cl_data, f_data, t_type):
+
+        # # sets the pre/post event duration
+        # n_pre = int((self.t_pre / 1000.) * self.fps)
+        # n_post = int((self.t_post / 1000.) * self.fps)
+        # n_event_win = n_pre + n_post
+
+        # sets/initialises the static object fields
+        self.nt_type = 0
+        self.c = cl_data
+
+        # other field initialisations
+        self.t_type = []
+        self.p_pos = []
+
+        # appends the data to the
+        self.append_data(f_data, t_type)
+
+    def append_data(self, f_data, t_type):
+        '''
+
+        :param f_data:
+        :param t_type:
+        :return:
+        '''
+
+        if t_type in self.t_type:
+            # if the trial type is already set, then exit the function
+            return
+        else:
+            # otherwise, append the data to the class object
+            self.nt_type += 1
+            self.t_type.append(t_type)
+
+        # retrieves the position/diameter locations
+        col_str = list(f_data.ix[0, :])
+        p_pos = self.get_metric_values(f_data, col_str, 'pupil position')
+        # p_dia = self.get_metric_values(f_data, col_str, 'pupil diameter')
+
+        # adds the position/position derivatives to the overall storage arrays
+        self.p_pos.append(p_pos)
+
+    def get_metric_values(self, f_data, col_str, met_str):
+        '''
+
+        :param f_data:
+        :param col_str:
+        :param met_str:)
+        :return:
+        '''
+
+        # retrieves the index of the column of interest
+        ind = next(i for i in range(len(col_str)) if met_str in col_str[i])
+        return f_data.ix[1:, ind]
 
 ########################################################################################################################
 ########################################################################################################################

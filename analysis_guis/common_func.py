@@ -1129,10 +1129,25 @@ def get_index_groups(b_arr):
 
     if not any(b_arr):
         return []
-    # else:
+    else:
         labels = measure.label(b_arr)
         return [np.where(labels == (i + 1))[0] for i in range(max(labels))]
 
+
+def expand_index_groups(i_grp, n_exp, n_max):
+    '''
+
+    :param i_grp:
+    :param n_exp:
+    :param n_max:
+    :return:
+    '''
+
+    if len(i_grp):
+        for i in range(len(i_grp)):
+            i_grp[i] = np.arange(max(0, i_grp[i][0] - n_exp), min(n_max, i_grp[i][-1] + (n_exp + 1)))
+
+    return i_grp
 
 def det_largest_index_group(b_arr):
     '''
@@ -1173,9 +1188,24 @@ def extract_file_name(f_file):
     :return:
     '''
 
-    #
-    f_name = os.path.basename(f_file)
-    return f_name[:f_name.rfind('.')]
+    if '.' in f_file:
+        f_name = os.path.basename(f_file)
+        return f_name[:f_name.rfind('.')]
+    else:
+        return f_file
+
+def extract_file_extn(f_file):
+    '''
+
+    :param f_name:
+    :return:
+    '''
+
+    if '.' in f_file:
+        f_name = os.path.basename(f_file)
+        return f_name[f_name.rfind('.'):]
+    else:
+        return ''
 
 def get_expt_index(exp_name, cluster, ind_arr=None):
     '''

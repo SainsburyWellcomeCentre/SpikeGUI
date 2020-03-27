@@ -3429,6 +3429,26 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
     return lda_para, def_para
 
 
+def get_eyetrack_para(et_data):
+    '''
+
+    :param et_data:
+    :return:
+    '''
+
+    # memory allocation and parameters
+    c_para = {}
+
+    # sets the parameter fields to be retrieved (based on type)
+    para_flds = ['use_med_filt', 'rmv_baseline', 'dp_max', 'n_sd', 't_pre', 't_post']
+
+    # retrieves the parameter values
+    for pf in para_flds:
+        c_para[pf] = getattr(et_data, pf)
+
+    # returns the parameter dictionary
+    return c_para
+
 def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
     '''
 

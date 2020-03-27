@@ -20,6 +20,9 @@ from scipy.interpolate import interp1d
 # sklearn module imports
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
+# statsmodels module imports
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
 # pyqt5 module import
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -203,6 +206,18 @@ class WorkerThread(QThread):
 
                 # updates the bin velocity
                 data.rotation.vel_bin_corr = calc_para['vel_bin']
+
+            ######################################
+            ####    EYE TRACKING FUNCTIONS    ####
+            ######################################
+
+            elif self.thread_job_secondary in ['Eye Movement Event Signals']:
+
+                # check to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['eye_track'])
+
+                # calculates the eye-tracking metrics
+                self.calc_eye_track_metrics(data, calc_para, w_prog)
 
             ######################################
             ####    ROC ANALYSIS FUNCTIONS    ####
@@ -1676,6 +1691,214 @@ class WorkerThread(QThread):
         ff_corr.n_shuffle_corr = calc_para['n_shuffle']
         ff_corr.split_vel = int(calc_para['split_vel'])
         ff_corr.is_set = True
+
+    ######################################
+    ####    EYE TRACKING FUNCTIONS    ####
+    ######################################
+
+    def calc_eye_track_metrics(self, data, calc_para, w_prog):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param w_prog:
+        :return:
+        '''
+
+        def calc_position_diff(p0, dt, calc_para):
+            '''
+
+            :param p:
+            :param dt:
+            :param calc_para:
+            :return:
+            '''
+
+            # retrieves the position values and calculates the rolling difference
+            is_ok, n_frm = ~p0.isna(), p0.shape[0]
+
+            # calculates the mid-point derivative values
+            dp0 = p0.rolling(window=3, center=True).apply(lambda x: (x[2] - x[0]) / 2)
+
+            # calculates the end-point derivative values (for the first/last valid values)
+            i_ok = np.where(is_ok)[0]
+            i0, i1 = i_ok[0], i_ok[-1]
+            dp0.iloc[i0] = sum(np.multiply([-3,  4, -1], np.array(p0.iloc[i0:i0+3]).astype(float))) / 2
+            dp0.iloc[i1] = sum(np.multiply([ 3, -4,  1], np.array(p0.iloc[i1-3:i1]).astype(float))) / 2
+
+            # else:
+            #     # calculates the forward derivative values (sets the first value to zero)
+            #     dp0 = p.rolling(window=2).apply(lambda x: x[1] - x[0])
+            #     dp0.iloc[0] = 0
+
+            # calculates the rolling median
+            if calc_para['use_med_filt']:
+                dp0_med = dp0.rolling(window=3, center=True).median()
+            else:
+                dp0_med = dp0
+
+            # converts pd dataframes to float np-arrays (sets any NaN derivative values to zero)
+            p = np.array(p0).astype(float)
+            dp = np.array(dp0_med).astype(float) / (1000. * dt)
+            dp[~is_ok] = 0
+
+            # removes any outliers (regions where the derivative is greater than dp_max)
+            i_grp = cf.get_index_groups(np.abs(dp) > calc_para['dp_max'])
+            for ig in cf.expand_index_groups(i_grp, 2, n_frm):
+                dp[ig], p[ig] = 0, np.nan
+
+            # removes the baseline component (if required)
+            if calc_para['rmv_baseline']:
+                w_frm = 70 / n_frm
+                dp_bl = lowess(dp, np.arange(n_frm), w_frm, return_sorted=False)
+                dp -= dp_bl
+
+            # returns the derivative array
+            return dp - np.nanmean(dp), p
+
+        def det_movement_events(p_pos, dp_pos, calc_para, n_pre, n_post, t_frm):
+            '''
+
+            :param dp_pos:
+            :return:
+            '''
+
+            def get_event_sig_seg(p_pos, i_grp0, n_pre, n_post, n_frm):
+                '''
+
+                :param p_pos:
+                :param i_grp0:
+                :param n_frm:
+                :return:
+                '''
+
+                def get_sig_seg(y_sig, i_grp0, n_pp, n_frm=None):
+                    '''
+
+                    :param dp_pos:
+                    :param i_grp0:
+                    :param n_frm:
+                    :return:
+                    '''
+
+                    if n_frm is None:
+                        # case is the signal values preceding the onset point
+                        return list(y_sig[max(0, (i_grp0 - n_pp)):(i_grp0 + 1)])
+                    else:
+                        # case is the signal values proceding the onset point
+                        return list(y_sig[(i_grp0 + 1):min(n_frm - 1, i_grp0 + (1 + n_pp))])
+
+                return np.array(get_sig_seg(p_pos, i_grp0, n_pre) + get_sig_seg(p_pos, i_grp0, n_post, n_frm))
+
+            # initialisations
+            n_frm, i_ofs = len(t_frm), 1
+            t_evnt, y_evnt = [], []
+            n_sd, dp_max, n_event_win = calc_para['n_sd'], calc_para['dp_max'], n_pre + n_post + 1
+
+            # thresholds the position derivative values
+            b_arr, sgn_arr = np.abs(dp_pos) >= np.nanstd(dp_pos) * n_sd, np.sign(dp_pos)
+            if np.any(b_arr):
+                # if there are any derivative values greater than threshold, then determine the index groups of the
+                # continguous points that are greater than threshold. from this determine the max absolute amplitudes within
+                # these groups and the start indices of each group
+                i_grp = cf.get_index_groups(b_arr)
+                grp_mx, i_grp0 = [np.max(np.abs(dp_pos[x])) for x in i_grp], np.array([(x[0] - i_ofs) for x in i_grp])
+
+                # determines the groups that are within the event window (and have a position derivative less than the
+                # maximum derivative parameter value, dp_max)
+                di_grp0 = np.diff(i_grp0)
+                is_ok = np.array([(x >= n_pre) and (x <= (n_frm - n_post)) for x in i_grp0])
+                for ig in np.where(di_grp0 < n_event_win)[0]:
+                    if sgn_arr[i_grp0[ig]] * sgn_arr[i_grp0[ig + 1]] < 0:
+                        # if the thresholded groups have differing derivative signs, then ignore both groups
+                        is_ok[ig:ig+2] = False
+                    else:
+                        # otherwise, remove the thresholded group with the lower amplitude peak
+                        is_ok[1 + (grp_mx[ig] > grp_mx[ig + 1])] = False
+
+                # memory allocation
+                n_evnt = len(is_ok)
+                t_evnt0, y_evnt0 = np.zeros(n_evnt), np.zeros((n_evnt, n_event_win))
+
+                # removes the ignored contiguous groups
+                for i in range(n_evnt):
+                    if is_ok[i]:
+                        y_evnt_nw = get_event_sig_seg(p_pos, i_grp0[i], n_pre, n_post, n_frm)
+                        if not np.any(np.isnan(y_evnt_nw)):
+                            y_evnt0[i, :], t_evnt0[i] = y_evnt_nw, t_frm[i_grp0[i]]
+                        else:
+                            is_ok[i] = False
+
+                # removes the
+                t_evnt0, y_evnt0 = t_evnt0[is_ok], y_evnt0[is_ok]
+
+                # appends the time stamps of the events for both eye movement types
+                i_sgn = np.array([int(sgn_arr[x + i_ofs] > 0) for x in i_grp0[is_ok]])
+                t_evnt.append([t_evnt0[i_sgn == i] for i in range(2)])
+
+                # sets the sub-signal/mean sub-signal values for both eye movement types
+                y_evnt_tmp = [y_evnt0[i_sgn == i, :] for i in range(2)]
+                y_evnt.append([np.subtract(x, x[:, n_pre][:, None]) if len(x) else [] for x in y_evnt_tmp])
+
+            else:
+                # if no event, then set empty time/signal events for both types
+                t_evnt.append([[], []])
+                y_evnt.append([[], []])
+
+            # returns the event time/signal arrays
+            return t_evnt, y_evnt
+
+        # retrieves the eye-tracking class object
+        et_class = data.externd.eye_track
+        n_file = len(et_class.et_data)
+
+        # sets the pre/post event duration
+        n_pre = int((calc_para['t_pre'] / 1000.) * et_class.fps)
+        n_post = int((calc_para['t_post'] / 1000.) * et_class.fps)
+
+        # memory allocation
+        dt = 1 / et_class.fps
+        A = np.empty(n_file, dtype=object)
+        et_class.t_evnt, et_class.y_evnt = dcopy(A), dcopy(A)
+
+        # loops through each of the file calculating the eye-movement events
+        for i_file, et_d in enumerate(et_class.et_data):
+            # updates the progress bar string
+            w_str = 'Duration LDA Calculations (Expt {0} of {1})'.format(i_file + 1, n_file)
+
+            # memory allocation
+            n_tt = len(et_d.t_type)
+            B = np.empty(n_tt, dtype=object)
+            et_class.t_evnt[i_file], et_class.y_evnt[i_file] = dcopy(B), dcopy(B)
+
+            # loops through each of the trial types calculate the eye-movement events
+            for i_tt in range(n_tt):
+                # updates the progress-bar
+                w_prog.emit(w_str, 100. * ((i_file * n_tt + i_tt) / (n_tt * n_file)))
+
+                # retrieves the position values
+                p0 = dcopy(et_d.p_pos[i_tt])
+                # p = np.array(p0).astype(float)
+
+                # calculates the position difference values
+                dp, p = calc_position_diff(p0, dt, calc_para)
+
+                # calculates the events/signal sub-segments for all events
+                t_frm = np.arange(len(p0)) / et_class.fps
+                tt, yy = det_movement_events(p, dp, calc_para, n_pre, n_post, t_frm)
+                et_class.t_evnt[i_file][i_tt], et_class.y_evnt[i_file][i_tt] = tt[0], yy[0]
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # updates the calculation parameters
+        et_class.use_med_filt = calc_para['use_med_filt']
+        et_class.rmv_baseline = calc_para['rmv_baseline']
+        et_class.dp_max = calc_para['dp_max']
+        et_class.n_sd = calc_para['n_sd']
+        et_class.t_pre = calc_para['t_pre']
+        et_class.t_post = calc_para['t_post']
 
     #########################################
     ####    ROTATION LDA CALCULATIONS    ####
@@ -3806,6 +4029,29 @@ class WorkerThread(QThread):
                 ff_corr.is_set = np.all(is_equal)
                 if not ff_corr.is_set:
                     data.force_calc = True
+
+            elif ct == 'eye_track':
+
+                # case is the eye tracking data
+                et_data = data.externd.eye_track
+
+                # if the calculations have not been made, then exit the function
+                if not et_data.is_set:
+                    continue
+
+                # case is the fixed/freely moving spiking frequency correlation analysis
+                is_equal = [
+                    check_class_para_equal(et_data, 'is_3point_diff', calc_para['is_3point_diff']),
+                    check_class_para_equal(et_data, 'n_win', int(calc_para['n_win'])),
+                    check_class_para_equal(et_data, 'n_sd', float(calc_para['n_sd'])),
+                    check_class_para_equal(et_data, 't_pre', int(calc_para['t_pre'])),
+                    check_class_para_equal(et_data, 't_post', int(calc_para['t_post'])),
+                ]
+
+                # determines if recalculation is required
+                et_data.is_set = np.all(is_equal)
+                if not ff_corr.is_set:
+                    et_data.t_evnt, et_data.y_evnt = [], []
 
             elif ct == 'phase':
                 # case is the phase ROC calculations
