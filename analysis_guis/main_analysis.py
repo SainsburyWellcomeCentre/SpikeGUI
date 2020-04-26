@@ -3872,6 +3872,159 @@ class AnalysisGUI(QMainWindow):
         # FINISH ME!
         a = 1
 
+    def plot_eye_movement_correlation(self, etrack_exp_name, plot_all, i_cell, plot_mean, etrack_tt,
+                                      corr_type, plot_markers, plot_grid):
+        '''
+
+        :param etrack_exp_name:
+        :param plot_all:
+        :param etrack_tt:
+        :param plot_grid:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig, n_tt):
+            '''
+
+            :param plot_fig:
+            :param n_plot:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            n_r, n_c = n_tt, 4
+            top, bottom, wspace, hspace = 0.94, 0.075, 0.35, 0.20
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_tt] * n_tt,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # memory allocation
+            plot_fig.ax = np.empty(1 + n_tt, dtype=object)
+
+            # creates the subplots
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, 0])
+            for i_tt in range(n_tt):
+                plot_fig.ax[i_tt + 1] = plot_fig.figure.add_subplot(gs[i_tt, 1:])
+
+        # initialisations
+        n_tt = len(etrack_tt)
+        et_d = self.data.externd.eye_track
+        i_exp = et_d.exp_name.index(etrack_exp_name)
+
+        # determines the indices of the trial types over each experiment
+        etrack_tt_lo = [x.lower() for x in etrack_tt]
+        ind_tt = [np.array([x.index(y) for y in etrack_tt_lo]) for x in [x.t_type for x in et_d.et_data]]
+
+        # initialises the plot axes
+        setup_plot_axes(self.plot_fig, n_tt)
+        ax = self.plot_fig.ax
+
+        # sets the correlation values
+        if plot_all:
+            # case is plotting all the experiment values
+            y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.y_corr)])
+            y_corr = [np.hstack(y_corr0[:, i]) for i in range(n_tt)]
+
+        else:
+            # case is a single experiment
+            y_corr = et_d.y_corr[i_exp][ind_tt[i_exp]]
+
+        # retrieves the plot values
+        t_sp_plt = et_d.t_sp_h[i_exp][ind_tt[i_exp]]
+        et_sig = et_d.et_sig[i_exp][ind_tt[i_exp]]
+
+        ###################################
+        ####    CORRELATION SUBPLOT    ####
+        ###################################
+
+        if corr_type == 'Boxplot':
+            # case is the correlation plot type is a boxplot
+
+            # sets up the plot values
+            xi = np.arange(n_tt)
+            y_plt_g = [y[~np.isnan(y)] for y in y_corr]
+            ax[0].boxplot(y_plt_g, positions=xi, vert=True, patch_artist=True, widths=0.9)
+        else:
+            # case is the correlation plot type is a violin/swarmplot
+
+            # sets the x/y plot values
+            x_plt = cf.flat_list([[i + 1] * len(x) for i, x in enumerate(y_corr)])
+            y_plt = np.hstack(y_corr)
+
+            # sets the violin/swarmplot dictionaries
+            vl_dict = cf.setup_sns_plot_dict(ax=ax[0], x=x_plt, y=y_plt, inner=None, bw=1, cut=1)
+            sw_dict = cf.setup_sns_plot_dict(ax=ax[0], x=x_plt, y=y_plt, color='white', edgecolor='gray', size=3)
+
+            # creates the violin/swarmplot
+            sns.violinplot(**vl_dict)
+            sns.swarmplot(**sw_dict)
+
+        # sets the axis properties
+        t_str = '{0} ({1})'.format('Correlation', 'All Expt' if plot_all else etrack_exp_name)
+        # ax[0].set_xticks(np.arange(n_tt) + 0.5)
+        ax[0].set_xticklabels(etrack_tt)
+        ax[0].set_title(t_str, fontweight='bold', fontsize=16)
+        ax[0].grid(plot_grid)
+        ax[0].set_ylim([-1, 1])
+
+        # plots the zero correlation line
+        xL = ax[0].get_xlim()
+        ax[0].set_xlim(xL)
+        ax[0].plot(xL, [0, 0], 'k')
+
+        ###################################
+        ####    FIRING RATE SUBPLOT    ####
+        ###################################
+
+        #
+        xi_hist = np.arange(np.shape(t_sp_plt[0])[1]) / et_d.fps
+        c, sig_col, y_max = cf.get_plot_col(n_tt), ['r', 'g'], 0
+        lg_str = ['Medial to Temporal', 'Temporal to Medial']
+
+        for i_tt in range(n_tt):
+            # sets the histogram plot values
+            if plot_mean:
+                # case is plotting the mean values
+                sp_hist = np.mean(t_sp_plt[i_tt], axis=0)
+                t_str = '{0} ({1} - Mean Firing Rate)'.format(etrack_tt[i_tt], etrack_exp_name)
+            else:
+                # case is a specific cell cluster
+                sp_hist = t_sp_plt[i_tt][i_cell, :]
+                cID = self.data.cluster[i_exp]['clustID'][i_cell]
+                t_str = '{0} ({1} - Cluster ID #{2})'.format(etrack_tt[i_tt], etrack_exp_name, cID)
+
+            # case is the step-histogram is being used
+            ax[1 + i_tt].plot(xi_hist, sp_hist, color=c[i_tt], zorder=1)
+
+            if plot_markers:
+                # plots the eye-movement events (if required)
+                h_plt = []
+                for i, i_sgn in enumerate([-1, 1]):
+                    xi_plt = np.where(et_sig[i_tt] == i_sgn)[0]
+                    h_plt.append(ax[1 + i_tt].plot(xi_hist[xi_plt], sp_hist[xi_plt], 'o', color=sig_col[i], zorder=10))
+
+                # creates the legend
+                ax[1 + i_tt].legend([x[0] for x in h_plt], lg_str, loc=1)
+
+            # sets the overall maximum limits
+            y_max = np.max([1.2 * y_max, ax[1 + i_tt].get_ylim()[1]])
+
+            # sets the axis properties
+            ax[1 + i_tt].set_title(t_str, fontweight='bold', fontsize=16)
+            ax[1 + i_tt].grid(plot_grid)
+            ax[1 + i_tt].set_ylabel('Spike Count')
+            ax[1 + i_tt].set_xlim([0, xi_hist[-1]])
+
+            # sets the x-axis label (bottom row only)
+            if (i_tt + 1) == n_tt:
+                ax[1 + i_tt].set_xlabel('Time (s)')
+
+        # resets the axis limits
+        for _ax in ax[1:]:
+            _ax.set_ylim([0, y_max])
+
     #######################################################
     ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
     #######################################################
@@ -4477,7 +4630,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
     def plot_freq_corr_significance(self, rot_filt, grp_plot_type, plot_grid, p_value, grp_by_filt,
-                                   show_stats, plot_scope, is_fixed):
+                                    show_stats, plot_scope, is_fixed):
         '''
 
         :param rot_filt:
@@ -10028,12 +10181,15 @@ class AnalysisGUI(QMainWindow):
 
             # memory allocation
             n_hist = np.empty(np.size(t_spike, axis=0), dtype=object)
+            A = np.empty(np.size(t_spike, axis=0), dtype=object)
             dxi = xi[1] - xi[0]
 
             # calculates the histograms for each of the trial over all cells
             for i_hist in range(len(n_hist)):
                 ind_trial = np.array([(t_spike[i_hist, i] is not None) for i in range(n_trial)])
                 n_hist[i_hist] = np.vstack([np.histogram(x, bins=xi)[0] / dxi for x in t_spike[i_hist, ind_trial]])
+
+                A[i_hist] = np.vstack([np.histogram(x, bins=xi)[0] for x in t_spike[i_hist, ind_trial]])
 
             # returns the array
             if is_single_cell:
@@ -12757,6 +12913,9 @@ class AnalysisFunctions(object):
         ####    EYE TRACKING FUNCTIONS    ####
         ######################################
 
+        # correlation plot type
+        corr_type = ['Violin/Swarmplot', 'Boxplot']
+
         if has_eyetrack_data:
             # initialisations
             fld_data = data.externd.eye_track
@@ -12798,6 +12957,45 @@ class AnalysisFunctions(object):
             self.add_func(type='Eye Tracking',
                           name='Eye Movement Event Signals',
                           func='plot_eye_movement_signals',
+                          para=para)
+
+            # ====> Eye Movement Event Signals
+            para = {
+                # calculation parameters
+                'use_med_filt': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Median Filtering', 'def_val': et_para['use_med_filt']
+                },
+                'rmv_baseline': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Remove Derivative Baseline',
+                    'def_val': et_para['rmv_baseline']
+                },
+                'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
+                'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
+                't_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['t_pre']},
+                't_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['t_post']},
+
+                # plotting parameters
+                'etrack_exp_name': {
+                    'type': 'L', 'text': 'Eye Tracking Experiment', 'def_val': etrack_exp[0], 'list': etrack_exp
+                },
+                'plot_all': {'type': 'B', 'text': 'Plot All Experiments', 'def_val': True},
+                'i_cell': {'text': 'Firing Rate Cell Number', 'def_val': 1, 'min_val': 1},
+                'plot_mean': {
+                    'type': 'B', 'text': 'Plot Mean Firing Rate', 'def_val': False, 'link_para': ['i_cell', True, 1]
+                },
+                'etrack_tt': {
+                    'type': 'CL', 'text': 'Experiment Trial Types', 'list': etrack_tt,
+                    'def_val': np.ones(len(etrack_tt), dtype=bool),
+                },
+                'corr_type': {
+                    'type': 'L', 'text': 'Correlation Plot Type', 'list': corr_type, 'def_val': corr_type[0],
+                },
+                'plot_markers': {'type': 'B', 'text': 'Show Eye-Movement Events', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Eye Tracking',
+                          name='Eye Movement Correlation',
+                          func='plot_eye_movement_correlation',
                           para=para)
 
         ######################################################
@@ -15837,7 +16035,11 @@ class AnalysisFunctions(object):
                 link_para = [link_para]
 
             for lp in link_para:
+                # retrieves the object handle of the parameter (continue if not found)
                 h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox], lp[0])
+                if len(h_obj) == 0:
+                    continue
+
                 h_obj[0].setEnabled(bool(state) != lp[1])
 
         # resets the parameters based on the
@@ -15876,14 +16078,33 @@ class AnalysisFunctions(object):
                 link_para = [link_para]
 
             for lp in link_para:
+                # retrieves the object handle of the parameter (continue if not found)
                 h_obj = self.find_obj_handle([QLineEdit, QCheckBox, QComboBox, QPushButton], lp[0])
                 if len(h_obj) == 0:
                     continue
 
+                # self.get_para_details(lp[0])
                 if isinstance(lp[1], list):
-                    h_obj[0].setEnabled(p_list[index] not in lp[1])
+                    is_enabled = p_list[index] not in lp[1]
                 else:
-                    h_obj[0].setEnabled(p_list[index] != lp[1])
+                    is_enabled = p_list[index] != lp[1]
+
+                # updates the enabled properties of the object
+                h_obj[0].setEnabled(is_enabled)
+
+                # checks to see if the link parameter is a checkbox and is being disabled
+                if isinstance(h_obj[0],QCheckBox) and (not is_enabled):
+                    # if so, then uncheck the checkbox
+                    self.is_updating = True
+                    h_obj[0].setCheckState(False)
+                    self.is_updating = False
+
+                    # determines if the checkbox has any other link parameters
+                    para_d = self.get_para_details(lp[0])
+                    if para_d['link_para'] is not None:
+                        # if so, then update the link parameter of the link parameter
+                        if len(para_d['link_para']) == 2:
+                            self.update_bool_para(lp[0], para_d['link_para'], None, False)
 
         # resets the parameters based on the
         if para_reset is not None:
@@ -16668,6 +16889,19 @@ class AnalysisFunctions(object):
         d_grp = self.details[self.get_plot_grp_fcn()]
         i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
         d_grp[i_grp]['para']['comb_all']['is_enabled'] = multi_sel
+
+    def get_para_details(self, p_name):
+        '''
+
+        :return:
+        '''
+
+        # determines the index of the current function
+        fcn_d = self.details[self.get_plot_grp_fcn()]
+        i_fcn = next(i for i, x in enumerate(fcn_d) if x['name'] == self.get_plot_fcn())
+
+        # returns the parameter dictionary for the current parameter
+        return fcn_d[i_fcn]['para'][p_name]
 
     @staticmethod
     def set_missing_para_field(para):
@@ -17548,6 +17782,9 @@ class EyeTrackingData(object):
         # initialises the calculation fields
         self.t_evnt = []
         self.y_evnt = []
+        self.y_corr = []
+        self.t_sp_h = []
+        self.et_sig = []
 
         # creates the objects for each experiment
         self.append_data(data, f_file)
