@@ -4083,53 +4083,6 @@ class AnalysisGUI(QMainWindow):
                               cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
                               'fixed', n_col=len(class_str0))
 
-        # #
-        # xi_hist = np.arange(np.shape(t_sp_plt[0])[1]) / et_d.fps
-        # c, sig_col, y_max = cf.get_plot_col(n_tt), ['r', 'g'], 0
-        # lg_str = ['Medial to Temporal', 'Temporal to Medial']
-        #
-        # for i_tt in range(n_tt):
-        #     # sets the histogram plot values
-        #     if plot_mean:
-        #         # case is plotting the mean values
-        #         sp_hist = np.mean(t_sp_plt[i_tt], axis=0)
-        #         t_str = '{0} ({1} - Mean Firing Rate)'.format(etrack_tt[i_tt], etrack_exp_name)
-        #     else:
-        #         # case is a specific cell cluster
-        #         sp_hist = t_sp_plt[i_tt][i_cell, :]
-        #         cID = self.data.cluster[i_exp]['clustID'][i_cell]
-        #         t_str = '{0} ({1} - Cluster ID #{2})'.format(etrack_tt[i_tt], etrack_exp_name, cID)
-        #
-        #     # case is the step-histogram is being used
-        #     ax[1 + i_tt].plot(xi_hist, sp_hist, color=c[i_tt], zorder=1)
-        #
-        #     if plot_markers:
-        #         # plots the eye-movement events (if required)
-        #         h_plt = []
-        #         for i, i_sgn in enumerate([-1, 1]):
-        #             xi_plt = np.where(et_sig[i_tt] == i_sgn)[0]
-        #             h_plt.append(ax[1 + i_tt].plot(xi_hist[xi_plt], sp_hist[xi_plt], 'o', color=sig_col[i], zorder=10))
-        #
-        #         # creates the legend
-        #         ax[1 + i_tt].legend([x[0] for x in h_plt], lg_str, loc=1)
-        #
-        #     # sets the overall maximum limits
-        #     y_max = np.max([1.2 * y_max, ax[1 + i_tt].get_ylim()[1]])
-        #
-        #     # sets the axis properties
-        #     ax[1 + i_tt].set_title(t_str, fontweight='bold', fontsize=16)
-        #     ax[1 + i_tt].grid(plot_grid)
-        #     ax[1 + i_tt].set_ylabel('Spike Count')
-        #     ax[1 + i_tt].set_xlim([0, xi_hist[-1]])
-        #
-        #     # sets the x-axis label (bottom row only)
-        #     if (i_tt + 1) == n_tt:
-        #         ax[1 + i_tt].set_xlabel('Time (s)')
-        #
-        # # resets the axis limits
-        # for _ax in ax[1:]:
-        #     _ax.set_ylim([0, y_max])
-
     #######################################################
     ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
     #######################################################
