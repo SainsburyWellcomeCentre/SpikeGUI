@@ -11,7 +11,7 @@ import multiprocessing as mp
 from numpy.matlib import repmat
 
 # scipy module imports
-from scipy.stats import norm
+from scipy.stats import norm, pearsonr
 from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
@@ -1860,8 +1860,7 @@ class WorkerThread(QThread):
         n_file = len(et_class.et_data)
 
         # sets the pre/post event duration
-        n_pre = int((calc_para['t_pre'] / 1000.) * et_class.fps)
-        n_post = int((calc_para['t_post'] / 1000.) * et_class.fps)
+        n_pre, n_post = calc_para['n_pre'], calc_para['n_post']
 
         # memory allocation
         dt = 1 / et_class.fps
@@ -1871,7 +1870,7 @@ class WorkerThread(QThread):
         # loops through each of the file calculating the eye-movement events
         for i_file, et_d in enumerate(et_class.et_data):
             # updates the progress bar string
-            w_str = 'Duration LDA Calculations (Expt {0} of {1})'.format(i_file + 1, n_file)
+            w_str = 'Detecting Movement Events (Expt {0} of {1})'.format(i_file + 1, n_file)
 
             # memory allocation
             n_tt = len(et_d.t_type)
@@ -1906,8 +1905,9 @@ class WorkerThread(QThread):
         et_class.rmv_baseline = calc_para['rmv_baseline']
         et_class.dp_max = calc_para['dp_max']
         et_class.n_sd = calc_para['n_sd']
-        et_class.t_pre = calc_para['t_pre']
-        et_class.t_post = calc_para['t_post']
+        et_class.n_pre = calc_para['n_pre']
+        et_class.n_post = calc_para['n_post']
+        et_class.is_set = True
 
     def calc_eye_track_corr(self, data, calc_para, w_prog):
         '''
@@ -1977,7 +1977,42 @@ class WorkerThread(QThread):
             # returns the histogram arrays
             return t_sp_h
 
-        def calc_event_correlation(t_sp_h, t_evnt, dt_et, et_sig=None):
+        def get_event_spike_times(t_sp_h, t_evnt, dt_et, calc_para):
+            '''
+
+            :param t_sp_h:
+            :param t_evnt:
+            :param calc_para:
+            :return:
+            '''
+
+            # memory allocation
+            n_cell, n_frm = np.shape(t_sp_h)
+            sp_evnt = np.empty(len(t_evnt), dtype=object)
+
+            # sets the pre/post event duration
+            n_pre, n_post = calc_para['n_pre'], calc_para['n_post']
+            n_pts = n_pre + n_post + 1
+
+            # retrieves the spike time events for each eye-movement type
+            for i in range(len(t_evnt)):
+                # sets the indices of the events (ensures all frames are within that of the eye-tracking analysis)
+                i_evnt = np.round(t_evnt[i] / dt_et).astype(int)
+                i_evnt = i_evnt[np.logical_and((i_evnt - n_pre) >= 0, (i_evnt + n_post) < n_frm)]
+
+                # memory allocation for eye-movement type
+                n_evnt = len(t_evnt[i])
+                sp_evnt[i] = np.zeros((n_evnt, n_pts, n_cell))
+
+                # retrieves the spike time histogram values over each cell/eye-movement event
+                for j in range(n_evnt):
+                    i_rng = np.arange(i_evnt[j] - n_pre, i_evnt[j] + n_post + 1)
+                    sp_evnt[i][j, :, :] = t_sp_h[:, i_rng].T
+
+            # returns the array
+            return sp_evnt
+
+        def calc_event_correlation(y_evnt, sp_evnt):
             '''
 
             :param t_sp_h:
@@ -1987,40 +2022,45 @@ class WorkerThread(QThread):
             '''
 
             # initialisations and memory allocation
-            n_cell, n_pts = np.shape(t_sp_h)
-            y_corr = np.zeros(n_cell)
-
-            # sets up the eye-movement event signal (if not provided)
-            if et_sig is None:
-                # memory allocation
-                et_sig, y_mlt = np.zeros(n_pts), [-1, 1]
-
-                # creates the eye-movement event signal
-                for t_ev, y in zip(t_evnt, y_mlt):
-                    et_sig[(t_ev / dt_et).astype(int)] = y
+            n_cell = np.shape(sp_evnt[1])[2]
+            A = np.ones((n_cell, len(y_evnt)))
+            y_corr, p_corr = dcopy(A), dcopy(A)
 
             # calculates the correlations between the eye-movement event and spike-time signals (for each cell)
-            for i_cell in range(n_cell):
-                y_corr[i_cell] = np.corrcoef(et_sig, t_sp_h[i_cell, :])[0, 1]
+            for i_type in range(len(y_evnt)):
+                # calculates the mean eye-position sub-signal
+                y_evnt_mn = np.mean(y_evnt[i_type], axis=0)
 
-            # # calculates the correlation between the
-            # y_corr[-1] = np.corrcoef(et_sig, np.mean(t_sp_h, axis=0))[0, 1]
+                # calculates the correlation/significance over each cell
+                for i_cell in range(n_cell):
+                    # calculates the correlation between the mean spiking rate and mean eye-movement event position
+                    sp_evnt_mn = np.mean(sp_evnt[i_type][:, :, i_cell], axis=0)
+                    if np.all(sp_evnt_mn == 0):
+                        # if the mean spiking rate is all zeros, then set the correlation to zero
+                        y_corr[i_cell, i_type] = 0
+                    else:
+                        # otherwise, calculate the correlation/significance
+                        y_corr[i_cell, i_type], p_corr[i_cell, i_type] = pearsonr(y_evnt_mn, sp_evnt_mn)
 
             # returns the final array
-            return y_corr, et_sig
+            return y_corr, p_corr
 
         # initialisations and memory allocation
         exp_file = [cf.extract_file_name(x['expFile']) for x in data.cluster]
-        n_exp = data.externd.eye_track.n_file
-        dt_et, A = 1. / data.externd.eye_track.fps, np.empty(n_exp, dtype=object)
-        t_sp_h, y_corr, et_sig = dcopy(A), dcopy(A), dcopy(A)
+        n_exp, dt_et = data.externd.eye_track.n_file, 1. / data.externd.eye_track.fps
+
+        # memory allocation
+        A = np.empty(n_exp, dtype=object)
+        t_sp_h, sp_evnt, y_corr, p_corr = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
 
         # loops through each experiment calculating the spiking rate/eye movement correlations
         for i_exp, et_d in enumerate(data.externd.eye_track.et_data):
-            # initialisations and memory allocation (for the current expt)
-            n_tt = len(et_d.t_type)
-            pw0, B = 1 / n_exp, np.empty(n_tt, dtype=object)
-            t_sp_h[i_exp], y_corr[i_exp], et_sig[i_exp] = dcopy(B), dcopy(B), dcopy(B)
+            # initialisations
+            n_tt, pw0 = len(et_d.t_type), 1 / n_exp
+
+            # memory allocation
+            B = np.empty(n_tt, dtype=object)
+            t_sp_h[i_exp], sp_evnt[i_exp], y_corr[i_exp], p_corr[i_exp] = dcopy(B), dcopy(B), dcopy(B), dcopy(B)
 
             # retrieves the rotation info of the corresponding expt
             c = data.cluster[cf.det_likely_filename_match(exp_file, data.externd.eye_track.exp_name[i_exp])]
@@ -2040,9 +2080,13 @@ class WorkerThread(QThread):
                 t0 = get_trial_group_start_time(r_info, tt_c) * dt_c
                 t_sp_h[i_exp][i_tt] = get_grouping_spike_times(t_sp_c, t_exp, t0)
 
-                # calculates the correlation between the eye-movement events and spiking rates
+                # retrieves the spike times traces surrounding the times of the eye movement
                 t_evnt = data.externd.eye_track.t_evnt[i_exp][i_tt]
-                y_corr[i_exp][i_tt], et_sig[i_exp][i_tt] = calc_event_correlation(t_sp_h[i_exp][i_tt], t_evnt, dt_et)
+                sp_evnt[i_exp][i_tt] = get_event_spike_times(t_sp_h[i_exp][i_tt], t_evnt, dt_et, calc_para)
+
+                # calculates the correlations between each cell and the eye movement events
+                y_evnt = data.externd.eye_track.y_evnt[i_exp][i_tt]
+                y_corr[i_exp][i_tt], p_corr[i_exp][i_tt] = calc_event_correlation(y_evnt, sp_evnt[i_exp][i_tt])
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####
@@ -2050,8 +2094,9 @@ class WorkerThread(QThread):
 
         # sets the arrays into the eye-tracking class object
         data.externd.eye_track.t_sp_h = t_sp_h
+        data.externd.eye_track.sp_evnt = sp_evnt
         data.externd.eye_track.y_corr = y_corr
-        data.externd.eye_track.et_sig = et_sig
+        data.externd.eye_track.p_corr = p_corr
 
         # final update of the progressbar
         w_prog.emit('Correlation Calculations Complete!', 100.)
@@ -4193,21 +4238,20 @@ class WorkerThread(QThread):
 
                 # if the calculations have not been made, then exit the function
                 if not et_data.is_set:
-                    continue
+                    return
 
                 # case is the fixed/freely moving spiking frequency correlation analysis
                 is_equal = [
-                    check_class_para_equal(et_data, 'is_3point_diff', calc_para['is_3point_diff']),
-                    check_class_para_equal(et_data, 'n_win', int(calc_para['n_win'])),
+                    check_class_para_equal(et_data, 'dp_max', float(calc_para['dp_max'])),
                     check_class_para_equal(et_data, 'n_sd', float(calc_para['n_sd'])),
-                    check_class_para_equal(et_data, 't_pre', int(calc_para['t_pre'])),
-                    check_class_para_equal(et_data, 't_post', int(calc_para['t_post'])),
+                    check_class_para_equal(et_data, 'n_pre', int(calc_para['n_pre'])),
+                    check_class_para_equal(et_data, 'n_post', int(calc_para['n_post'])),
                 ]
 
                 # determines if recalculation is required
                 et_data.is_set = np.all(is_equal)
-                if not ff_corr.is_set:
-                    et_data.t_evnt, et_data.y_evnt = [], []
+                if not et_data.is_set:
+                    et_data.t_evnt, et_data.y_evnt, et_data.sp_evnt = [], [], []
                     et_data.y_corr, et_data.t_sp_h = [], []
 
             elif ct == 'phase':

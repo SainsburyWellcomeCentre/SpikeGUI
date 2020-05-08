@@ -3440,7 +3440,7 @@ def get_eyetrack_para(et_data):
     c_para = {}
 
     # sets the parameter fields to be retrieved (based on type)
-    para_flds = ['use_med_filt', 'rmv_baseline', 'dp_max', 'n_sd', 't_pre', 't_post']
+    para_flds = ['use_med_filt', 'rmv_baseline', 'dp_max', 'n_sd', 'n_pre', 'n_post']
 
     # retrieves the parameter values
     for pf in para_flds:

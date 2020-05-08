@@ -3837,7 +3837,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the time signal
         dt_sig = 1000 / extn_data.fps
-        t_sig = np.arange(-extn_data.t_pre, extn_data.t_post + dt_sig, dt_sig)
+        t_sig = np.arange(-extn_data.n_pre, extn_data.n_post + 1) * dt_sig
 
         #
         for i_tt in range(n_tt):
@@ -3869,11 +3869,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plt].grid(plot_grid)
                 ax[i_plt].set_title('{0} ({1})'.format(t_str0[i_evnt], etrack_tt[i_tt]))
 
-        # FINISH ME!
-        a = 1
-
-    def plot_eye_movement_correlation(self, etrack_exp_name, plot_all, i_cell, plot_mean, etrack_tt,
-                                      corr_type, plot_markers, plot_grid):
+    def plot_eye_movement_correlation(self, etrack_tt, corr_type, pr_type, plot_grid):
         '''
 
         :param etrack_exp_name:
@@ -3883,147 +3879,256 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axes(plot_fig, n_tt):
+        def setup_plot_axes(plot_fig, n_filt):
             '''
 
             :param plot_fig:
-            :param n_plot:
+            :param n_filt:
             :return:
             '''
 
             # sets up the axes dimensions
-            n_r, n_c = n_tt, 4
-            top, bottom, wspace, hspace = 0.94, 0.075, 0.35, 0.20
+            n_r1, n_r2, n_c = 2, 1, 2
+            tbl_hght = 0.05 + 0.02 * n_filt
+            top, bottom, wspace, hspace, ax_gap = 0.95, 0.025, 0.15, 0.3 + (0.025 * (n_filt - 1)), 0.025
 
             # creates the gridspec object
-            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_tt] * n_tt,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
-                                   bottom=bottom, top=top)
+            gs1 = gridspec.GridSpec(n_r1, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r1] * n_r1,
+                                    figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                    bottom=bottom + (tbl_hght + ax_gap), top=top)
+            gs2 = gridspec.GridSpec(n_r2, n_c, width_ratios=[1 / n_c] * n_c, figure=plot_fig.fig, left=0.075,
+                                    right=0.98, bottom=bottom, top=bottom + tbl_hght)
 
-            # memory allocation
-            plot_fig.ax = np.empty(1 + n_tt, dtype=object)
+            # creates the correlation/significance proportion subplots
+            plot_fig.ax = np.empty(6, dtype=object)
+            for i_r in range(2):
+                for i_c in range(2):
+                    plot_fig.ax[2 * i_r + i_c] = plot_fig.figure.add_subplot(gs1[i_r, i_c])
 
-            # creates the subplots
-            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[:, 0])
-            for i_tt in range(n_tt):
-                plot_fig.ax[i_tt + 1] = plot_fig.figure.add_subplot(gs[i_tt, 1:])
+            # if the count table row, then disable the axis
+            for i_c in range(2):
+                plot_fig.ax[4 + i_c] = plot_fig.figure.add_subplot(gs2[0, i_c])
+                plot_fig.ax[4 + i_c].axis('off')
+
+        def split_data_by_event_type(y0, is_comb=False):
+            '''
+
+            :param y_data:
+            :return:
+            '''
+
+            # array dimensioning
+            n_evnt = 2
+            n_exp, n_filt = np.shape(y0)
+            y_evnt = np.empty((n_exp, n_evnt), dtype=object)
+
+            # combines the data by event type (over each experiment)
+            for i_exp in range(n_exp):
+                # combines the data for the current experiment
+                y0_exp = np.hstack(y0[i_exp, :])
+                for i_evnt in range(n_evnt):
+                    y_evnt[i_exp, i_evnt] = y0_exp[:, i_evnt::n_evnt]
+
+            # combines the data over all experiment (if required)
+            if is_comb:
+                y_evnt = [np.vstack(y_evnt[:, i_evnt]) for i_evnt in range(n_evnt)]
+
+            # returns the array
+            return y_evnt
 
         # initialisations
-        n_tt = len(etrack_tt)
+        p_value = 0.05
+        n_filt, n_evnt = len(etrack_tt), 2
         et_d = self.data.externd.eye_track
-        i_exp = et_d.exp_name.index(etrack_exp_name)
 
         # determines the indices of the trial types over each experiment
         etrack_tt_lo = [x.lower() for x in etrack_tt]
         ind_tt = [np.array([x.index(y) for y in etrack_tt_lo]) for x in [x.t_type for x in et_d.et_data]]
 
         # initialises the plot axes
-        setup_plot_axes(self.plot_fig, n_tt)
+        setup_plot_axes(self.plot_fig, n_filt)
         ax = self.plot_fig.ax
 
-        # sets the correlation values
-        if plot_all:
-            # case is plotting all the experiment values
-            y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.y_corr)])
-            y_corr = [np.hstack(y_corr0[:, i]) for i in range(n_tt)]
-
-        else:
-            # case is a single experiment
-            y_corr = et_d.y_corr[i_exp][ind_tt[i_exp]]
-
-        # retrieves the plot values
-        t_sp_plt = et_d.t_sp_h[i_exp][ind_tt[i_exp]]
-        et_sig = et_d.et_sig[i_exp][ind_tt[i_exp]]
+        # sets the event string
+        evnt_str = ['M-to-T', 'T-to-M']
 
         ###################################
         ####    CORRELATION SUBPLOT    ####
         ###################################
 
-        if corr_type == 'Boxplot':
-            # case is the correlation plot type is a boxplot
+        # creates the graph
+        c = cf.get_plot_col(n_filt)
 
-            # sets up the plot values
-            xi = np.arange(n_tt)
-            y_plt_g = [y[~np.isnan(y)] for y in y_corr]
-            ax[0].boxplot(y_plt_g, positions=xi, vert=True, patch_artist=True, widths=0.9)
-        else:
-            # case is the correlation plot type is a violin/swarmplot
+        # retrieves the correlation values (set only for the selected trial types and split by the event types)
+        y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.y_corr)])
+        y_corr = split_data_by_event_type(y_corr0, True)
 
-            # sets the x/y plot values
-            x_plt = cf.flat_list([[i + 1] * len(x) for i, x in enumerate(y_corr)])
-            y_plt = np.hstack(y_corr)
+        for i_evnt in range(n_evnt):
+            if corr_type == 'Boxplot':
+                # case is the correlation plot type is a boxplot
 
-            # sets the violin/swarmplot dictionaries
-            vl_dict = cf.setup_sns_plot_dict(ax=ax[0], x=x_plt, y=y_plt, inner=None, bw=1, cut=1)
-            sw_dict = cf.setup_sns_plot_dict(ax=ax[0], x=x_plt, y=y_plt, color='white', edgecolor='gray', size=3)
+                # sets up the plot values
+                xi = np.arange(n_filt)
+                y_plt_g = [y for y in y_corr[i_evnt].T]
+                ax[i_evnt].boxplot(y_plt_g, positions=xi, vert=True, patch_artist=True, widths=0.9)
 
-            # creates the violin/swarmplot
-            sns.violinplot(**vl_dict)
-            sns.swarmplot(**sw_dict)
-
-        # sets the axis properties
-        t_str = '{0} ({1})'.format('Correlation', 'All Expt' if plot_all else etrack_exp_name)
-        # ax[0].set_xticks(np.arange(n_tt) + 0.5)
-        ax[0].set_xticklabels(etrack_tt)
-        ax[0].set_title(t_str, fontweight='bold', fontsize=16)
-        ax[0].grid(plot_grid)
-        ax[0].set_ylim([-1, 1])
-
-        # plots the zero correlation line
-        xL = ax[0].get_xlim()
-        ax[0].set_xlim(xL)
-        ax[0].plot(xL, [0, 0], 'k')
-
-        ###################################
-        ####    FIRING RATE SUBPLOT    ####
-        ###################################
-
-        #
-        xi_hist = np.arange(np.shape(t_sp_plt[0])[1]) / et_d.fps
-        c, sig_col, y_max = cf.get_plot_col(n_tt), ['r', 'g'], 0
-        lg_str = ['Medial to Temporal', 'Temporal to Medial']
-
-        for i_tt in range(n_tt):
-            # sets the histogram plot values
-            if plot_mean:
-                # case is plotting the mean values
-                sp_hist = np.mean(t_sp_plt[i_tt], axis=0)
-                t_str = '{0} ({1} - Mean Firing Rate)'.format(etrack_tt[i_tt], etrack_exp_name)
             else:
-                # case is a specific cell cluster
-                sp_hist = t_sp_plt[i_tt][i_cell, :]
-                cID = self.data.cluster[i_exp]['clustID'][i_cell]
-                t_str = '{0} ({1} - Cluster ID #{2})'.format(etrack_tt[i_tt], etrack_exp_name, cID)
+                # case is the correlation plot type is a violin/swarmplot
 
-            # case is the step-histogram is being used
-            ax[1 + i_tt].plot(xi_hist, sp_hist, color=c[i_tt], zorder=1)
+                # sets the x/y plot values
+                x_plt = cf.flat_list([[j + 1] * len(x) for j, x in enumerate(y_corr[i_evnt].T)])
+                y_plt = np.hstack(y_corr[i_evnt].T)
 
-            if plot_markers:
-                # plots the eye-movement events (if required)
-                h_plt = []
-                for i, i_sgn in enumerate([-1, 1]):
-                    xi_plt = np.where(et_sig[i_tt] == i_sgn)[0]
-                    h_plt.append(ax[1 + i_tt].plot(xi_hist[xi_plt], sp_hist[xi_plt], 'o', color=sig_col[i], zorder=10))
+                # sets the violin/swarmplot dictionaries
+                vl_dict = cf.setup_sns_plot_dict(ax=ax[i_evnt], x=x_plt, y=y_plt, inner=None, bw=1, cut=1)
+                sw_dict = cf.setup_sns_plot_dict(ax=ax[i_evnt], x=x_plt, y=y_plt, color='white', edgecolor='gray', size=3)
 
-                # creates the legend
-                ax[1 + i_tt].legend([x[0] for x in h_plt], lg_str, loc=1)
-
-            # sets the overall maximum limits
-            y_max = np.max([1.2 * y_max, ax[1 + i_tt].get_ylim()[1]])
+                # creates the violin/swarmplot
+                sns.violinplot(**vl_dict)
+                sns.swarmplot(**sw_dict)
 
             # sets the axis properties
-            ax[1 + i_tt].set_title(t_str, fontweight='bold', fontsize=16)
-            ax[1 + i_tt].grid(plot_grid)
-            ax[1 + i_tt].set_ylabel('Spike Count')
-            ax[1 + i_tt].set_xlim([0, xi_hist[-1]])
+            t_str = '{0} ({1})'.format('Correlation', evnt_str[i_evnt])
+            ax[i_evnt].set_xticklabels(etrack_tt)
+            ax[i_evnt].set_title(t_str, fontweight='bold', fontsize=16)
+            ax[i_evnt].grid(plot_grid)
+            ax[i_evnt].set_ylim([-1, 1])
 
-            # sets the x-axis label (bottom row only)
-            if (i_tt + 1) == n_tt:
-                ax[1 + i_tt].set_xlabel('Time (s)')
+            # sets the y-axis label (first column only)
+            if i_evnt == 0:
+                ax[i_evnt].set_ylabel('Correlation')
 
-        # resets the axis limits
-        for _ax in ax[1:]:
-            _ax.set_ylim([0, y_max])
+            # sets the separation line (only if more than one filter type)
+            if n_filt > 1:
+                ax[i_evnt].plot([0.5, 0.5], [-1, 1], 'k--')
+
+        ###############################################
+        ####    SIGNIFICANCE PROPORTION SUBPLOT    ####
+        ###############################################
+
+        # creates the graph
+        c2 = cf.get_plot_col(n_filt)
+
+        # retrieves the correlation values (set only for the selected trial types and split by the event types)
+        p_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.p_corr)])
+        p_corr = split_data_by_event_type(p_corr0)
+
+        # calculates the number/proportion of significant cells over each experiment
+        n_cell = [np.size(x[0], axis=0) for x in p_corr]
+        n_sig = [np.vstack([np.sum(pp < p_value, axis=0) for pp in p_corr[:, i_evnt]]) for i_evnt in range(n_evnt)]
+
+        #
+        if pr_type == 'Stacked Bar':
+            #
+            p_sig0 = [(100. * np.sum(ns, axis=0) / sum(n_cell)).reshape(1, -1) for ns in n_sig]
+            p_sig = [np.vstack((ps, 100 - ps)) for ps in p_sig0]
+        else:
+            # calculates the significance proportions for each experiment
+            p_sig0 = [100. * np.divide(ns, repmat(n_cell, 2, 1).T) for ns in n_sig]
+            p_sig = [np.reshape(ps.T, [n_filt, np.size(ps, axis=0), 1], 'A') for ps in p_sig0]
+
+        # creates the graphs for the motion sensitive/direction selectivity plots
+        for i in range(n_evnt):
+            # creates the graph
+            h_plt = cf.create_general_group_plot(ax[i + n_evnt], p_sig[i], pr_type, c2)
+            cf.reset_axes_dim(ax[i + n_evnt], 'bottom', 0.075, True)
+
+            # sets the legend/x-ticklabels based on the grouping type
+            t_str = 'Significance Proportion ({0})'.format(evnt_str[i])
+            ax[i + n_evnt].set_title(t_str, fontsize=16, fontweight='bold')
+
+            # only set the y-axis label for the first subplot
+            if i == 0:
+                ax[n_evnt].set_ylabel('Population %')
+
+            # sets the y-axis limits based on type
+            if 'Bar' in pr_type:
+                ax[i + n_evnt].set_ylim([0, 100])
+            else:
+                ax[i + n_evnt].set_ylim([-2.5, 102.5])
+
+            # updates the axis properties
+            ax[i + n_evnt].grid(plot_grid)
+            ax[i + n_evnt].set_xticklabels(etrack_tt)
+
+        #########################################
+        ####    SIGNIFICANCE COUNT TABLES    ####
+        #########################################
+
+        # class strings
+        class_str0 = ['Significant', 'Insignificant']
+        cT = cf.get_plot_col(max(n_filt, 2), 2 * n_evnt)
+
+        # calculates the
+        n_sig_tot0 = [np.sum(ns, axis=0).reshape(-1, 1) for ns in n_sig]
+        n_sig_tot = [np.hstack((ns_tot, (sum(n_cell) - ns_tot))) for ns_tot in n_sig_tot0]
+
+        # sets the
+        n_sig_N0 = [np.hstack((x, np.sum(x, axis=1).reshape(-1, 1))) for x in n_sig_tot]
+        n_sig_N = [np.vstack((x, np.sum(x, axis=0))) for x in n_sig_N0]
+        col_hdr = class_str0 + ['Total Cells']
+
+        # creates the title text object
+        t_font = cf.get_table_font_size(3)
+        if (n_filt == 1) and (etrack_tt[0] == 'Black'):
+            row_hdr = ['All Cells', 'Total']
+        else:
+            row_hdr = etrack_tt + ['Total']
+
+        # creates the graphs for the motion sensitive/direction selectivity plots
+        for i in range(2):
+            # creates the new table
+            j, nT = i + 2 * n_evnt, len(col_hdr)
+            cf.add_plot_table(self.plot_fig, ax[j], t_font, n_sig_N[i].astype(int), row_hdr, col_hdr,
+                              cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
+                              'fixed', n_col=len(class_str0))
+
+        # #
+        # xi_hist = np.arange(np.shape(t_sp_plt[0])[1]) / et_d.fps
+        # c, sig_col, y_max = cf.get_plot_col(n_tt), ['r', 'g'], 0
+        # lg_str = ['Medial to Temporal', 'Temporal to Medial']
+        #
+        # for i_tt in range(n_tt):
+        #     # sets the histogram plot values
+        #     if plot_mean:
+        #         # case is plotting the mean values
+        #         sp_hist = np.mean(t_sp_plt[i_tt], axis=0)
+        #         t_str = '{0} ({1} - Mean Firing Rate)'.format(etrack_tt[i_tt], etrack_exp_name)
+        #     else:
+        #         # case is a specific cell cluster
+        #         sp_hist = t_sp_plt[i_tt][i_cell, :]
+        #         cID = self.data.cluster[i_exp]['clustID'][i_cell]
+        #         t_str = '{0} ({1} - Cluster ID #{2})'.format(etrack_tt[i_tt], etrack_exp_name, cID)
+        #
+        #     # case is the step-histogram is being used
+        #     ax[1 + i_tt].plot(xi_hist, sp_hist, color=c[i_tt], zorder=1)
+        #
+        #     if plot_markers:
+        #         # plots the eye-movement events (if required)
+        #         h_plt = []
+        #         for i, i_sgn in enumerate([-1, 1]):
+        #             xi_plt = np.where(et_sig[i_tt] == i_sgn)[0]
+        #             h_plt.append(ax[1 + i_tt].plot(xi_hist[xi_plt], sp_hist[xi_plt], 'o', color=sig_col[i], zorder=10))
+        #
+        #         # creates the legend
+        #         ax[1 + i_tt].legend([x[0] for x in h_plt], lg_str, loc=1)
+        #
+        #     # sets the overall maximum limits
+        #     y_max = np.max([1.2 * y_max, ax[1 + i_tt].get_ylim()[1]])
+        #
+        #     # sets the axis properties
+        #     ax[1 + i_tt].set_title(t_str, fontweight='bold', fontsize=16)
+        #     ax[1 + i_tt].grid(plot_grid)
+        #     ax[1 + i_tt].set_ylabel('Spike Count')
+        #     ax[1 + i_tt].set_xlim([0, xi_hist[-1]])
+        #
+        #     # sets the x-axis label (bottom row only)
+        #     if (i_tt + 1) == n_tt:
+        #         ax[1 + i_tt].set_xlabel('Time (s)')
+        #
+        # # resets the axis limits
+        # for _ax in ax[1:]:
+        #     _ax.set_ylim([0, y_max])
 
     #######################################################
     ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
@@ -10467,7 +10572,7 @@ class AnalysisGUI(QMainWindow):
         n_sub, n_grp = 3, [3, 1]
         main_title = ['Reaction Type', 'Direction Selectivity']
         n_filt = int(r_obj.n_filt / 2) if r_obj.is_ud else r_obj.n_filt
-        c, c2 = cf.get_plot_col(n_filt), cf.get_plot_col(max([max(n_grp),n_filt]), n_filt)
+        c, c2 = cf.get_plot_col(n_filt), cf.get_plot_col(max([max(n_grp),n_filt,4]), n_filt)
 
         # memory allocation
         lg_str_f = r_obj.lg_str
@@ -12915,6 +13020,7 @@ class AnalysisFunctions(object):
 
         # correlation plot type
         corr_type = ['Violin/Swarmplot', 'Boxplot']
+        grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Violinplot', 'Stacked Bar']
 
         if has_eyetrack_data:
             # initialisations
@@ -12937,8 +13043,8 @@ class AnalysisFunctions(object):
                 },
                 'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
                 'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
-                't_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['t_pre']},
-                't_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['t_post']},
+                'n_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['n_pre']},
+                'n_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['n_post']},
 
                 # plotting parameters
                 'etrack_exp_name': {
@@ -12971,26 +13077,21 @@ class AnalysisFunctions(object):
                 },
                 'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
                 'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
-                't_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['t_pre']},
-                't_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['t_post']},
+                'n_pre': {'gtype': 'C', 'text': 'Pre Event Signal Frame Count', 'def_val': et_para['n_pre']},
+                'n_post': {'gtype': 'C', 'text': 'Post Event Signal Frame Count', 'def_val': et_para['n_post']},
 
                 # plotting parameters
-                'etrack_exp_name': {
-                    'type': 'L', 'text': 'Eye Tracking Experiment', 'def_val': etrack_exp[0], 'list': etrack_exp
-                },
-                'plot_all': {'type': 'B', 'text': 'Plot All Experiments', 'def_val': True},
-                'i_cell': {'text': 'Firing Rate Cell Number', 'def_val': 1, 'min_val': 1},
-                'plot_mean': {
-                    'type': 'B', 'text': 'Plot Mean Firing Rate', 'def_val': False, 'link_para': ['i_cell', True, 1]
-                },
                 'etrack_tt': {
                     'type': 'CL', 'text': 'Experiment Trial Types', 'list': etrack_tt,
-                    'def_val': np.ones(len(etrack_tt), dtype=bool),
+                    'def_val': np.ones(len(etrack_tt), dtype=bool)
                 },
                 'corr_type': {
-                    'type': 'L', 'text': 'Correlation Plot Type', 'list': corr_type, 'def_val': corr_type[0],
+                    'type': 'L', 'text': 'Correlation Plot Type', 'list': corr_type, 'def_val': corr_type[0]
                 },
-                'plot_markers': {'type': 'B', 'text': 'Show Eye-Movement Events', 'def_val': True},
+                'pr_type': {
+                    'type': 'L', 'text': 'Significance Proportion Plot Type',
+                    'list': grp_plot_type, 'def_val': grp_plot_type[1]
+                },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
             self.add_func(type='Eye Tracking',
@@ -13005,7 +13106,6 @@ class AnalysisFunctions(object):
         # initialisations
         sig_vel_bin = ['5', '10']
         dist_type = ['Cumulative Distribution', 'Histogram']
-        grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Violinplot', 'Stacked Bar']
 
         # sets up the fixed correlation rotational filter
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
@@ -17771,8 +17871,8 @@ class EyeTrackingData(object):
         self.rmv_baseline = True
         self.dp_max = 1.0
         self.n_sd = 2.5
-        self.t_pre = 50
-        self.t_post = 150
+        self.n_pre = 3
+        self.n_post = 8
 
         # initialises the other fields
         self.exp_name = []
@@ -17782,9 +17882,10 @@ class EyeTrackingData(object):
         # initialises the calculation fields
         self.t_evnt = []
         self.y_evnt = []
-        self.y_corr = []
         self.t_sp_h = []
-        self.et_sig = []
+        self.sp_evnt = []
+        self.y_corr = []
+        self.p_corr = []
 
         # creates the objects for each experiment
         self.append_data(data, f_file)
@@ -17830,11 +17931,6 @@ class EyeTrackingData(object):
 
 class EyeTrackingDataSub(object):
     def __init__(self, cl_data, f_data, t_type):
-
-        # # sets the pre/post event duration
-        # n_pre = int((self.t_pre / 1000.) * self.fps)
-        # n_post = int((self.t_post / 1000.) * self.fps)
-        # n_event_win = n_pre + n_post
 
         # sets/initialises the static object fields
         self.nt_type = 0
