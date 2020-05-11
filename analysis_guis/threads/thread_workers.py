@@ -219,7 +219,7 @@ class WorkerThread(QThread):
                 # calculates the eye-tracking metrics
                 self.calc_eye_track_metrics(data, calc_para, w_prog)
 
-            elif self.thread_job_secondary in ['Eye Movement Correlation']:
+            elif 'Eye Movement Correlation' in self.thread_job_secondary:
 
                 # check to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['eye_track'])

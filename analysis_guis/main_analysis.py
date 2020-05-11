@@ -3869,7 +3869,152 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plt].grid(plot_grid)
                 ax[i_plt].set_title('{0} ({1})'.format(t_str0[i_evnt], etrack_tt[i_tt]))
 
-    def plot_eye_movement_correlation(self, etrack_tt, corr_type, pr_type, plot_grid):
+    def plot_eye_movement_correlation_indiv(self, i_cell, exp_name, etrack_tt, m_size, show_err, plot_grid):
+        '''
+
+        :param i_cell:
+        :param exp_name:
+        :param etrack_tt:
+        :param show_err:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        j_cell = i_cell - 1
+        et_d = self.data.externd.eye_track
+        i_expt = et_d.exp_name.index(exp_name)
+
+        # determines if the trial type exists for the selected experiment
+        if etrack_tt.lower() not in et_d.et_data[i_expt].t_type:
+            # if not then output an error screen
+            e_str = 'The "{0}" trial type is not present for this experiment.\n' \
+                    'Either reload the experimental data or select another experiment.'.format(etrack_tt)
+            cf.show_error(e_str, 'Missing Trial Type')
+
+            # exit flagging an error
+            self.calc_ok = False
+            return
+
+        else:
+            # determines the index of the trial type
+            i_tt = et_d.et_data[i_expt].t_type.index(etrack_tt.lower())
+            n_cell = np.shape(et_d.p_corr[i_expt][i_tt])[0]
+
+            # determines if the cluster index is valid
+            if j_cell > n_cell:
+                # if not then output an error to screen
+                e_str = 'The cell index {0} exceeds the cell count for this experiment {1}.\n' \
+                        'Re-run the function with a valid cell index.'.format(i_cell, n_cell + 1)
+                cf.show_error(e_str, 'Missing Trial Type')
+
+                # exit flagging an error
+                self.calc_ok = False
+                return
+
+        # retrieves the plot values
+        dt_et = (1000 / et_d.fps)
+        t_ex = np.arange(-et_d.n_pre, et_d.n_post + 1) * dt_et
+        y_corr, p_corr = et_d.y_corr[i_expt][i_tt][j_cell, :], et_d.p_corr[i_expt][i_tt][j_cell, :]
+        sp_evnt = [et_d.fps * sp_evnt[:, :, j_cell] for sp_evnt in et_d.sp_evnt[i_expt][i_tt]]
+
+        # calculates the mean spiking frequency/eye-movement position sub-signals
+        sp_evnt_mn = [np.mean(sp_ev, axis=0) for sp_ev in sp_evnt]
+        y_evnt_mn = [np.mean(y_evnt, axis=0) for y_evnt in et_d.y_evnt[i_expt][i_tt]]
+
+        # calculates the event spiking frequency (if plotting the signal error)
+        if show_err:
+            n_evnt = [np.shape(x)[0] for x in sp_evnt]
+            sp_evnt_sem = [np.std(sp_ev, axis=0) / np.sqrt(n) for sp_ev, n in zip(sp_evnt, n_evnt)]
+
+        # sets up the plot axes
+        self.plot_fig.setup_plot_axis(n_row=2, n_col=2)
+        ax = self.plot_fig.ax
+
+        # sets the event string
+        evnt_str = ['M-to-T', 'T-to-M']
+
+        ##############################################
+        ####    SPIKE EVENT HISTOGRAM SUBPLOTS    ####
+        ##############################################
+
+        # initialisations
+        y_lim = [1e6, -1e6]
+
+        for i_ax, _ax in enumerate(ax[:2]):
+            # plots the error area (if required)
+            if show_err:
+                cf.create_step_area_patch(_ax, t_ex, sp_evnt_mn[i_ax], sp_evnt_sem[i_ax], 'b')
+
+            # plots the mean spiking rate
+            _ax.step(t_ex, sp_evnt_mn[i_ax], color='k', where='mid')
+
+            # determines the overall axis limits
+            yL = _ax.get_ylim()
+            y_lim = [min(yL[0], y_lim[0]), max(yL[1], y_lim[1])]
+
+            # sets the axes properties
+            _ax.set_title('Firing Rate Histogram ({0})'.format(evnt_str[i_ax]))
+            _ax.set_xlabel('Time (ms)')
+            _ax.set_ylabel('Firing Rate (Hz)')
+            _ax.grid(plot_grid)
+
+        for i_ax, _ax in enumerate(ax[:2]):
+            # resets the y-axis limits
+            _ax.set_ylim(y_lim)
+
+            # resets the x-axis limits
+            if show_err:
+                _ax.set_xlim([(t_ex[0] - dt_et / 2), (t_ex[-1] + dt_et / 2)])
+            else:
+                _ax.set_xlim([t_ex[0], t_ex[-1]])
+
+        ############################################
+        ####    SPIKE RATE/POSITION SUBPLOTS    ####
+        ############################################
+
+        # initialisations
+        n_slope, p_value = 1000., 0.05
+        x_lim, y_lim = [1e6, -1e6], [1e6, -1e6]
+
+        # creates the subplots for each event type
+        for i_ax, _ax in enumerate(ax[2:]):
+            # creates the scatter-plot of values
+            _ax.scatter(y_evnt_mn[i_ax], sp_evnt_mn[i_ax], marker='o', s=m_size, facecolor='b')
+
+            # determines the overall axis limits
+            xL, yL = _ax.get_xlim(), _ax.get_ylim()
+            x_lim = [min(xL[0], x_lim[0]), max(xL[1], x_lim[1])]
+            y_lim = [min(yL[0], y_lim[0]), max(yL[1], y_lim[1])]
+
+            # sets the axes properties
+            p_str = '{:.4f}{}'.format(p_corr[i_ax], '*' if p_corr[i_ax] < p_value else '')
+            t_str = 'Firing Rate vs Eye Position - {} (c = {:.4f}, p = {})'.format(evnt_str[i_ax], y_corr[i_ax], p_str)
+            _ax.set_title(t_str)
+            _ax.set_xlabel('Relative Eye Position (um)')
+            _ax.set_ylabel('Firing Rate (Hz)')
+            _ax.grid(plot_grid)
+
+        for i_ax, _ax in enumerate(ax[2:]):
+            # resets the x/y-axis limits
+            _ax.set_xlim(x_lim)
+            _ax.set_ylim(y_lim)
+
+            # plots the best fit line
+            p = linregress(y_evnt_mn[i_ax], sp_evnt_mn[i_ax])
+            y = p.slope * n_slope * np.array(x_lim) + p.intercept
+            _ax.plot(n_slope * np.array(x_lim), y, 'r', linewidth=3)
+
+        #######################################
+        ####    OTHER FIGURE PROPERTIES    ####
+        #######################################
+
+        # resizes the figure to include the super-title
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.suptitle('Trial Type = {0}'.format(etrack_tt), fontsize=16, fontweight='bold')
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+
+    def plot_eye_movement_correlation_exp(self, etrack_tt, corr_type, pr_type, plot_grid):
         '''
 
         :param etrack_exp_name:
@@ -12972,6 +13117,7 @@ class AnalysisFunctions(object):
         ######################################
 
         # correlation plot type
+        tt_eye_track = ['Black', 'Uniform']
         corr_type = ['Violin/Swarmplot', 'Boxplot']
         grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Violinplot', 'Stacked Bar']
 
@@ -12996,8 +13142,8 @@ class AnalysisFunctions(object):
                 },
                 'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
                 'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
-                'n_pre': {'gtype': 'C', 'text': 'Pre Event Signal Duration (ms)', 'def_val': et_para['n_pre']},
-                'n_post': {'gtype': 'C', 'text': 'Post Event Signal Duration (ms)', 'def_val': et_para['n_post']},
+                'n_pre': {'gtype': 'C', 'text': 'Pre Event Signal Frame Count', 'def_val': et_para['n_pre']},
+                'n_post': {'gtype': 'C', 'text': 'Post Event Signal Frame Count', 'def_val': et_para['n_post']},
 
                 # plotting parameters
                 'etrack_exp_name': {
@@ -13034,6 +13180,36 @@ class AnalysisFunctions(object):
                 'n_post': {'gtype': 'C', 'text': 'Post Event Signal Frame Count', 'def_val': et_para['n_post']},
 
                 # plotting parameters
+                'i_cell': {'text': 'Cell Cluster Index', 'def_val': 1, 'min_val': 1},
+                'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'EyeTrackExperiments'},
+                'etrack_tt': {
+                    'type': 'L', 'text': 'Experiment Trial Type', 'list': etrack_tt, 'def_val': etrack_tt[0]
+                },
+                'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 60},
+                'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Eye Tracking',
+                          name='Eye Movement Correlation (Individual Cell)',
+                          func='plot_eye_movement_correlation_indiv',
+                          para=para)
+
+            # ====> Eye Movement Event Signals (Whole Experiment)
+            para = {
+                # calculation parameters
+                'use_med_filt': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Median Filtering', 'def_val': et_para['use_med_filt']
+                },
+                'rmv_baseline': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Remove Derivative Baseline',
+                    'def_val': et_para['rmv_baseline']
+                },
+                'dp_max': {'gtype': 'C', 'text': 'Max Derivative Threshold (mm/s)', 'def_val': et_para['dp_max']},
+                'n_sd': {'gtype': 'C', 'text': 'Event Detection Std. Dev. Threshold', 'def_val': et_para['n_sd']},
+                'n_pre': {'gtype': 'C', 'text': 'Pre Event Signal Frame Count', 'def_val': et_para['n_pre']},
+                'n_post': {'gtype': 'C', 'text': 'Post Event Signal Frame Count', 'def_val': et_para['n_post']},
+
+                # plotting parameters
                 'etrack_tt': {
                     'type': 'CL', 'text': 'Experiment Trial Types', 'list': etrack_tt,
                     'def_val': np.ones(len(etrack_tt), dtype=bool)
@@ -13048,8 +13224,8 @@ class AnalysisFunctions(object):
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
             self.add_func(type='Eye Tracking',
-                          name='Eye Movement Correlation',
-                          func='plot_eye_movement_correlation',
+                          name='Eye Movement Correlation (Whole Experiment)',
+                          func='plot_eye_movement_correlation_exp',
                           para=para)
 
         ######################################################
@@ -15858,6 +16034,10 @@ class AnalysisFunctions(object):
             t_type = ['Black', 'Uniform', 'LandmarkLeft', 'LandmarkRight']
             is_rot_expt = cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=t_type)
             list_txt = [x for x, y in zip(self.exp_name, is_rot_expt) if y]
+
+        elif list_txt == 'EyeTrackExperiments':
+            # case is the eye tracking experiment names
+            list_txt = self.get_data_fcn().externd.eye_track.exp_name
 
         else:
             recheck_list = True
