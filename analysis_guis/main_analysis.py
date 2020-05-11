@@ -3890,13 +3890,13 @@ class AnalysisGUI(QMainWindow):
             # sets up the axes dimensions
             n_r1, n_r2, n_c = 2, 1, 2
             tbl_hght = 0.05 + 0.02 * n_filt
-            top, bottom, wspace, hspace, ax_gap = 0.95, 0.025, 0.15, 0.3 + (0.025 * (n_filt - 1)), 0.025
+            left, top, bottom, wspace, hspace, ax_gap = 0.1, 0.95, 0.025, 0.15, 0.3 + (0.025 * (n_filt - 1)), 0.025
 
             # creates the gridspec object
             gs1 = gridspec.GridSpec(n_r1, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r1] * n_r1,
-                                    figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                    figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=left, right=0.98,
                                     bottom=bottom + (tbl_hght + ax_gap), top=top)
-            gs2 = gridspec.GridSpec(n_r2, n_c, width_ratios=[1 / n_c] * n_c, figure=plot_fig.fig, left=0.075,
+            gs2 = gridspec.GridSpec(n_r2, n_c, width_ratios=[1 / n_c] * n_c, figure=plot_fig.fig, left=left,
                                     right=0.98, bottom=bottom, top=bottom + tbl_hght)
 
             # creates the correlation/significance proportion subplots
@@ -17680,12 +17680,16 @@ class FreelyMovingData(object):
         '''
 
         # parameters
-        v_min_hd = 0.2              # min vec for head direction cells
-        p_tile_hd = 97.0            # min mean vec percentile for head direction cells
-        p_tile_hd_mod = 97.0        # min mean vec percentile for head direction modulated cells
-        p_tile_ahv = 95.0           # min mean vec percentile for angular head velocity cells
-        p_tile_speed = 95.0         # min mean vec percentile for speed cells
-        p_tile_place = 95.0         # min mean vec percentile for place cells
+        v_min_hd = 0.2                  # min vec for head direction cells
+        v_min_hd_mod_lo = 0.1           # min vec for head modulated direction cells (lower limit)
+        v_min_hd_mod_hi = 0.2           # min vec for head modulated direction cells (upper limit)
+        p_rayleight_hd = 0.001          # rayleigh t-test p-value for head direction cells
+        p_rayleight_hd_mod = 0.001      # rayleigh t-test p-value for head direction modulated cells
+        # p_tile_hd = 97.0                # min mean vec percentile for head direction cells
+        # p_tile_hd_mod = 97.0            # min mean vec percentile for head direction modulated cells
+        p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
+        p_tile_speed = 95.0             # min mean vec percentile for speed cells
+        p_tile_place = 95.0             # min mean vec percentile for place cells
 
         def check_data_fields(c_info):
             '''
@@ -17770,16 +17774,31 @@ class FreelyMovingData(object):
                 continue
 
             # head direction cell significance
+            #   => for BOTH light1 and light2 conditions:
+            #     * v_min_hd_mod_lo < mean_vec_length < v_min_hd_mod_hi
+            #     * rayleigh_test_p < p_rayleight_hd_mod
             hd_sig = np.logical_and(
-                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd,
-                               c_info[i_bin]['LIGHT2']['mean_vec_length'] > v_min_hd),
-                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_percentile'] > p_tile_hd,
-                               c_info[i_bin]['LIGHT2']['mean_vec_percentile'] > p_tile_hd)
+                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] >= v_min_hd,
+                               c_info[i_bin]['LIGHT2']['mean_vec_length'] >= v_min_hd),
+                np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd,
+                               c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd)
             )
 
             # head direction modulated cell significance
-            hd_mod_sig = np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_percentile'] > p_tile_hd_mod,
-                                        c_info[i_bin]['LIGHT2']['mean_vec_percentile'] > p_tile_hd_mod)
+            #   => for BOTH light1 and light2 conditions:
+            #     * mean_vec_length >= v_min_hd_mod
+            #     * rayleigh_test_p < p_rayleight_hd
+            hd_mod_sig_vec = np.logical_and(
+                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd_mod_lo,
+                               c_info[i_bin]['LIGHT2']['mean_vec_length'] > v_min_hd_mod_lo),
+                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] < v_min_hd_mod_hi,
+                               c_info[i_bin]['LIGHT2']['mean_vec_length'] < v_min_hd_mod_hi),
+            )
+            hd_mod_sig = np.logical_and(
+                np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd_mod,
+                               c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd_mod),
+                hd_mod_sig_vec
+            )
 
             # angular head velocity cell significance
             ahv_sig_pos = c_info[i_bin]['DARK1']['pearson_pos_percentile'] > p_tile_ahv
