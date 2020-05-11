@@ -229,7 +229,8 @@ class WorkerThread(QThread):
                     self.calc_eye_track_metrics(data, calc_para, w_prog)
 
                 # calculates the eye-tracking metrics
-                self.calc_eye_track_corr(data, calc_para, w_prog)
+                if len(data.externd.eye_track.t_sp_h) == 0:
+                    self.calc_eye_track_corr(data, calc_para, w_prog)
 
             ######################################
             ####    ROC ANALYSIS FUNCTIONS    ####

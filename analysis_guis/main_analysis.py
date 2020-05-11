@@ -3989,9 +3989,9 @@ class AnalysisGUI(QMainWindow):
 
             # sets the axes properties
             p_str = '{:.4f}{}'.format(p_corr[i_ax], '*' if p_corr[i_ax] < p_value else '')
-            t_str = 'Firing Rate vs Eye Position - {} (c = {:.4f}, p = {})'.format(evnt_str[i_ax], y_corr[i_ax], p_str)
+            t_str = 'Firing Rate vs Position - {} (c = {:.4f}, p = {})'.format(evnt_str[i_ax], y_corr[i_ax], p_str)
             _ax.set_title(t_str)
-            _ax.set_xlabel('Relative Eye Position (um)')
+            _ax.set_xlabel('Relative Position (um)')
             _ax.set_ylabel('Firing Rate (Hz)')
             _ax.grid(plot_grid)
 
@@ -4009,10 +4009,17 @@ class AnalysisGUI(QMainWindow):
         ####    OTHER FIGURE PROPERTIES    ####
         #######################################
 
+        # retrieves the cluster/channel ID values for the associated cell
+        i_clust = [cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)
+        cl_id, ch_id = self.data.cluster[i_clust]['clustID'][j_cell], self.data.cluster[i_clust]['chDepth'][j_cell]
+
+        # sets the title string
+        t_str = 'Trial Type = {0}\nCluster #{1} (Channel #{2})'.format(etrack_tt, cl_id, ch_id)
+
         # resizes the figure to include the super-title
         self.plot_fig.fig.set_tight_layout(False)
-        self.plot_fig.fig.suptitle('Trial Type = {0}'.format(etrack_tt), fontsize=16, fontweight='bold')
-        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+        self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
 
     def plot_eye_movement_correlation_exp(self, etrack_tt, corr_type, pr_type, plot_grid):
         '''
