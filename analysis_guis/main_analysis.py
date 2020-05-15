@@ -17870,8 +17870,8 @@ class FreelyMovingData(object):
         v_min_hd = 0.2                  # min vec for head direction cells
         v_min_hd_mod_lo = 0.1           # min vec for head modulated direction cells (lower limit)
         v_min_hd_mod_hi = 0.2           # min vec for head modulated direction cells (upper limit)
-        p_rayleight_hd = 0.001          # rayleigh t-test p-value for head direction cells
-        p_rayleight_hd_mod = 0.001      # rayleigh t-test p-value for head direction modulated cells
+        p_rayleight_hd = 0.01           # rayleigh t-test p-value for head direction cells
+        p_rayleight_hd_mod = 0.01       # rayleigh t-test p-value for head direction modulated cells
         # p_tile_hd = 97.0                # min mean vec percentile for head direction cells
         # p_tile_hd_mod = 97.0            # min mean vec percentile for head direction modulated cells
         p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
