@@ -221,7 +221,7 @@ class WorkerThread(QThread):
 
             elif 'Eye Movement Correlation' in self.thread_job_secondary:
 
-                # check to see if any parameters have been altered
+                # check to see if any parameters have been altered/
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['eye_track'])
 
                 # calculates the eye-tracking metrics (if not calculated)
@@ -1332,7 +1332,7 @@ class WorkerThread(QThread):
         c_data.w_isi = calc_para['w_isi']
 
         # retrieves the fixed/free cluster dataframes
-        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data)
+        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data, is_full=True)
 
         def det_overall_cluster_matches(is_feas, D):
             '''

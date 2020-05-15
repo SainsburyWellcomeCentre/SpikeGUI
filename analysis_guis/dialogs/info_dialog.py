@@ -331,7 +331,7 @@ class InfoDialog(QDialog):
 
                         nw_data = np.array(['N/A'] * nC)
                         nw_data[i_ref] = np.array([clustID[x] for x in i_comp])
-                        nw_data[np.logical_not(cl_inc)] = 'N/A'
+                        nw_data[np.logical_not(cl_inc)] = '---'
                     else:
                         nw_data = np.array(['---'] * nC)
 
@@ -340,6 +340,7 @@ class InfoDialog(QDialog):
                         nw_data = np.array(['N/A'] * nC)
                         if self.data.classify.grp_str[i_expt] is not None:
                             nw_data[cl_inc] = self.data.classify.grp_str[i_expt][cl_inc]
+                            nw_data[np.logical_not(cl_inc)] = '---'
                     else:
                         nw_data = np.array(['---'] * nC)
 
@@ -348,6 +349,7 @@ class InfoDialog(QDialog):
                         nw_data, act_str = np.array(['N/A'] * nC), np.array(['---', 'Inhibitory', 'Excitatory'])
                         if self.data.classify.act_type[i_expt] is not None:
                             nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt][cl_inc]]
+                            nw_data[np.logical_not(cl_inc)] = '---'
                     else:
                         nw_data = np.array(['---'] * nC)
 
