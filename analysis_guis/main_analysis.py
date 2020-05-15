@@ -22,7 +22,6 @@ import seaborn as sns
 sns.set()
 sns.set_style('whitegrid')
 sns.set_context('paper', font_scale=f_scale)
-# sns.set_context('talk', font_scale=1.2)
 
 # matplotlib module imports
 import matplotlib.pyplot as plt
@@ -12812,6 +12811,9 @@ class AnalysisFunctions(object):
         calc_comp = self.det_comp_expt_names(True)
         plot_comp = self.det_comp_expt_names(False)
 
+        # initial rotation filter class object
+        rot_filt0 = cf.init_rotation_filter_data(False)
+
         # sets up the freely moving scatterplot rotational filter
         rot_filt_free = cf.init_rotation_filter_data(False)
         rot_filt_free['t_type'] = dcopy(rt_free)
@@ -13299,9 +13301,9 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'def_val': None, 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer',
-                                                'sig_type', 'free_ctype']},
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'def_val': dcopy(rot_filt0),
+                'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer', 'sig_type', 'free_ctype']},
+                'para_gui': RotationFilter
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -13358,8 +13360,9 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
-                'para_reset': [[None, self.reset_comb_all]], 'para_gui_var': {'rmv_fields': ['match_type']}
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'para_reset': [[None, self.reset_comb_all]], 'para_gui_var': {'rmv_fields': ['match_type']},
+                'def_val': dcopy(rot_filt0),
             },
             'dist_type': {'type': 'L', 'text': 'Distribution Type', 'list': dist_type, 'def_val': dist_type[1]},
             'bin_size': {'text': 'Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'max_val': 1.00},
@@ -13422,8 +13425,9 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
-                'para_reset': [[None, self.reset_trial_sel]], 'para_gui_var': {'rmv_fields': ['match_type']}
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'para_reset': [[None, self.reset_trial_sel]], 'para_gui_var': {'rmv_fields': ['match_type']},
+                'def_val': dcopy(rot_filt0)
             },
             'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[0]},
             'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[1]},
@@ -13486,7 +13490,7 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': None, 'para_gui_var': {'rmv_fields': ['match_type']}
+                'def_val': dcopy(rot_filt0), 'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
