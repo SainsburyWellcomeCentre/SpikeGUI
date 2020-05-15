@@ -3868,7 +3868,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plt].grid(plot_grid)
                 ax[i_plt].set_title('{0} ({1})'.format(t_str0[i_evnt], etrack_tt[i_tt]))
 
-    def plot_eye_movement_correlation_indiv(self, i_cell, exp_name, etrack_tt, m_size, show_err, plot_grid):
+    def plot_eye_movement_correlation_indiv(self, i_cell, plot_avg, exp_name, etrack_tt, m_size, show_err, plot_grid):
         '''
 
         :param i_cell:
@@ -3880,7 +3880,6 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        j_cell = i_cell - 1
         et_d = self.data.externd.eye_track
         i_expt = et_d.exp_name.index(exp_name)
 
@@ -3898,18 +3897,26 @@ class AnalysisGUI(QMainWindow):
         else:
             # determines the index of the trial type
             i_tt = et_d.et_data[i_expt].t_type.index(etrack_tt.lower())
-            n_cell = np.shape(et_d.p_corr[i_expt][i_tt])[0]
+            n_cell = np.shape(et_d.p_corr[i_expt][i_tt])[0] - 1
 
-            # determines if the cluster index is valid
-            if j_cell > n_cell:
-                # if not then output an error to screen
-                e_str = 'The cell index {0} exceeds the cell count for this experiment {1}.\n' \
-                        'Re-run the function with a valid cell index.'.format(i_cell, n_cell + 1)
-                cf.show_error(e_str, 'Missing Trial Type')
+            #
+            if plot_avg:
+                # case is the experiment average
+                j_cell = n_cell
+            else:
+                # determines if the cluster index is valid
+                if i_cell > n_cell:
+                    # if not then output an error to screen
+                    e_str = 'The cell index {0} exceeds the cell count for this experiment {1}.\n' \
+                            'Re-run the function with a valid cell index.'.format(i_cell, n_cell)
+                    cf.show_error(e_str, 'Missing Trial Type')
 
-                # exit flagging an error
-                self.calc_ok = False
-                return
+                    # exit flagging an error
+                    self.calc_ok = False
+                    return
+                else:
+                    # otherwise, set the
+                    j_cell = i_cell - 1
 
         # retrieves the plot values
         dt_et = (1000 / et_d.fps)
@@ -4008,12 +4015,15 @@ class AnalysisGUI(QMainWindow):
         ####    OTHER FIGURE PROPERTIES    ####
         #######################################
 
-        # retrieves the cluster/channel ID values for the associated cell
-        i_clust = [cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)
-        cl_id, ch_id = self.data.cluster[i_clust]['clustID'][j_cell], self.data.cluster[i_clust]['chDepth'][j_cell]
-
         # sets the title string
-        t_str = 'Trial Type = {0}\nCluster #{1} (Channel #{2})'.format(etrack_tt, cl_id, ch_id)
+        if plot_avg:
+            # case is the experiment average
+            t_str = 'Trial Type = {0}\n(Experiment Average)'.format(etrack_tt)
+        else:
+            # case is for a single cell
+            i_clust = [cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)
+            cl_id, ch_id = self.data.cluster[i_clust]['clustID'][j_cell], self.data.cluster[i_clust]['chDepth'][j_cell]
+            t_str = 'Trial Type = {0}\nCluster #{1} (Channel #{2})'.format(etrack_tt, cl_id, ch_id)
 
         # resizes the figure to include the super-title
         self.plot_fig.fig.set_tight_layout(False)
@@ -13190,6 +13200,9 @@ class AnalysisFunctions(object):
 
                 # plotting parameters
                 'i_cell': {'text': 'Cell Cluster Index', 'def_val': 1, 'min_val': 1},
+                'plot_avg': {
+                    'type': 'B', 'text': 'Plot Experiment Average', 'def_val': False, 'link_para': ['i_cell', True]
+                },
                 'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'EyeTrackExperiments'},
                 'etrack_tt': {
                     'type': 'L', 'text': 'Experiment Trial Type', 'list': etrack_tt, 'def_val': etrack_tt[0]

@@ -1964,7 +1964,7 @@ class WorkerThread(QThread):
 
             # memory allocation
             n_cell = len(t_sp)
-            t_sp_h = np.zeros((n_cell, len(t_exp)))
+            t_sp_h = np.zeros((n_cell + 1, len(t_exp)))
 
             # calculates the time spiking histograms (for each cell) downsampled to that of the eye-tracking analysis
             for i_cell in range(n_cell):
@@ -1974,6 +1974,9 @@ class WorkerThread(QThread):
 
                 # calculates the spike time histogram (time bins are set for the eye-tracking analysis)
                 t_sp_h[i_cell, 1:] = np.histogram(t_sp_grp, bins=t_exp)[0]
+
+            # calculates the average histogram over all cells
+            t_sp_h[-1, :] = np.mean(t_sp_h[:-1, :], axis=0)
 
             # returns the histogram arrays
             return t_sp_h
