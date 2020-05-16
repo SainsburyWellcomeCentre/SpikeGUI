@@ -1868,6 +1868,7 @@ class WorkerThread(QThread):
         dt = 1 / et_class.fps
         A = np.empty(n_file, dtype=object)
         et_class.t_evnt, et_class.y_evnt = dcopy(A), dcopy(A)
+        et_class.t_type = list(np.unique(cf.flat_list([x.t_type for x in et_class.et_data])))
 
         # loops through each of the file calculating the eye-movement events
         for i_file, et_d in enumerate(et_class.et_data):
@@ -1876,7 +1877,7 @@ class WorkerThread(QThread):
 
             # memory allocation
             n_tt = len(et_d.t_type)
-            B = np.empty(n_tt, dtype=object)
+            B = np.empty(len(et_class.t_type), dtype=object)
             et_class.t_evnt[i_file], et_class.y_evnt[i_file] = dcopy(B), dcopy(B)
 
             # loops through each of the trial types calculate the eye-movement events
@@ -1894,9 +1895,10 @@ class WorkerThread(QThread):
                 dp, p = calc_position_diff(p0, dt, calc_para)
 
                 # calculates the events/signal sub-segments for all events
+                j_tt = et_class.t_type.index(et_class.et_data[i_file].t_type[i_tt])
                 t_frm = np.arange(len(p)) / et_class.fps
                 tt, yy = det_movement_events(p, dp, calc_para, n_pre, n_post, t_frm)
-                et_class.t_evnt[i_file][i_tt], et_class.y_evnt[i_file][i_tt] = tt[0], yy[0]
+                et_class.t_evnt[i_file][j_tt], et_class.y_evnt[i_file][j_tt] = tt[0], yy[0]
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####
@@ -2015,15 +2017,16 @@ class WorkerThread(QThread):
             return sp_evnt
 
         # initialisations and memory allocation
+        et_class = data.externd.eye_track
         exp_file = [cf.extract_file_name(x['expFile']) for x in data.cluster]
-        n_exp, dt_et = data.externd.eye_track.n_file, 1. / data.externd.eye_track.fps
+        n_exp, dt_et = et_class.n_file, 1. / et_class.fps
 
         # memory allocation
         A = np.empty(n_exp, dtype=object)
         t_sp_h, sp_evnt, y_corr, p_corr = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
 
         # loops through each experiment calculating the spiking rate/eye movement correlations
-        for i_exp, et_d in enumerate(data.externd.eye_track.et_data):
+        for i_exp, et_d in enumerate(et_class.et_data):
             # initialisations
             n_tt, pw0 = len(et_d.t_type), 1 / n_exp
 
@@ -2032,7 +2035,7 @@ class WorkerThread(QThread):
             t_sp_h[i_exp], sp_evnt[i_exp], y_corr[i_exp], p_corr[i_exp] = dcopy(B), dcopy(B), dcopy(B), dcopy(B)
 
             # retrieves the rotation info of the corresponding expt
-            c = data._cluster[cf.det_likely_filename_match(exp_file, data.externd.eye_track.exp_name[i_exp])]
+            c = data._cluster[cf.det_likely_filename_match(exp_file, et_class.exp_name[i_exp])]
             r_info, dt_c, t_sp_c = c['rotInfo'], 1. / c['sFreq'], c['tSpike']
 
             # loops through each trial type calculating the correlations
@@ -2043,19 +2046,20 @@ class WorkerThread(QThread):
                 w_prog.emit(w_str, 100. * (pw0 + (i_tt / n_tt)))
 
                 # sets the time vector over the eye-tracking analysis
-                t_exp = np.arange(len(et_d.p_pos[i_tt])) * dt_et
+                j_tt = et_class.t_type.index(et_class.et_data[i_exp].t_type[i_tt])
+                t_exp = np.arange(len(et_d.p_pos[j_tt])) * dt_et
 
                 # retrieves the spike times over the duration of the eye tracking analysis
                 t0 = get_trial_group_start_time(r_info, tt_c) * dt_c
-                t_sp_h[i_exp][i_tt] = get_grouping_spike_times(t_sp_c, t_exp, t0)
+                t_sp_h[i_exp][j_tt] = get_grouping_spike_times(t_sp_c, t_exp, t0)
 
                 # retrieves the spike times traces surrounding the times of the eye movement
-                t_evnt = data.externd.eye_track.t_evnt[i_exp][i_tt]
-                sp_evnt[i_exp][i_tt] = get_event_spike_times(t_sp_h[i_exp][i_tt], t_evnt, dt_et, calc_para)
+                t_evnt = et_class.t_evnt[i_exp][j_tt]
+                sp_evnt[i_exp][j_tt] = get_event_spike_times(t_sp_h[i_exp][j_tt], t_evnt, dt_et, calc_para)
 
                 # calculates the correlations between each cell and the eye movement events
-                y_evnt = data.externd.eye_track.y_evnt[i_exp][i_tt]
-                y_corr[i_exp][i_tt], p_corr[i_exp][i_tt] = cfcn.calc_event_correlation(y_evnt, sp_evnt[i_exp][i_tt])
+                y_evnt = et_class.y_evnt[i_exp][j_tt]
+                y_corr[i_exp][j_tt], p_corr[i_exp][j_tt] = cfcn.calc_event_correlation(y_evnt, sp_evnt[i_exp][j_tt])
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####

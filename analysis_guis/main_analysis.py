@@ -3896,8 +3896,10 @@ class AnalysisGUI(QMainWindow):
 
         else:
             # determines the index of the trial type
-            i_tt = et_d.et_data[i_expt].t_type.index(etrack_tt.lower())
-            cl_ind = cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt], self.data.exc_gen_filt)
+            i_tt = et_d.t_type.index(etrack_tt.lower())
+            exp_file = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
+            i_expt_c = exp_file.index(exp_name)
+            cl_ind = cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt_c], self.data.exc_gen_filt)
 
             if plot_type == 'Individual Cell':
                 # retrieves the correlation coefficients/p-values for the
@@ -3935,7 +3937,7 @@ class AnalysisGUI(QMainWindow):
                 # case is analysing all experiments
 
                 # determines the cells that will be included in the analysis
-                i_expt_all = [et_d.exp_name.index(cf.extract_file_name(x['expFile'])) for x in self.data._cluster]
+                i_expt_all = [exp_file.index(x) for x in et_d.exp_name]
 
                 # retrieves the indices of the clusters to be used for the analysis
                 cl_ind_all = []
@@ -3944,12 +3946,12 @@ class AnalysisGUI(QMainWindow):
 
                 # retrieves the eye-tracking position sub-strings
                 y_evnt0 = self.data.externd.eye_track.y_evnt
-                y_evnt = [np.vstack([y_evnt0[i_ex][i_tt][i] for i_ex in i_expt_all]) for i in range(2)]
+                y_evnt = [np.vstack([y_ev[i_tt][i] for y_ev in y_evnt0]) for i in range(2)]
 
                 # retrieves the eye movement spike histograms (for each experiment with the included cells)
                 sp_evnt0 = self.data.externd.eye_track.sp_evnt
-                sp_evnt = [et_d.fps * np.vstack([np.mean(sp_evnt0[i_ex][i_tt][i][:, :, i_cl], axis=2)
-                                        for i_ex, i_cl in zip(i_expt_all, cl_ind_all)]) for i in range(2)]
+                sp_evnt = [et_d.fps * np.vstack([np.mean(sp[i_tt][i][:, :, i_cl], axis=2)
+                                        for sp, i_cl in zip(sp_evnt0, cl_ind_all)]) for i in range(2)]
 
                 # calculates the correlation value/p-value over all experiments
                 y_corr, p_corr = cfcn.calc_event_correlation(y_evnt, sp_evnt, False)
@@ -18099,6 +18101,7 @@ class EyeTrackingData(object):
         self.exp_name = []
         self.et_data = []
         self.cl_data = []
+        self.t_type = []
 
         # initialises the calculation fields
         self.t_evnt = []
