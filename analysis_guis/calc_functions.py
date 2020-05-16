@@ -3983,7 +3983,8 @@ def calc_expt_roc_sig(r_obj, roc_sig, c_ofs, i_filt, calc_mean=False, i_expt=Non
 def get_all_match_cond_cells(data, t_type):
     '''
 
-    :param r_obj:
+    :param data:
+    :param t_type:
     :return:
     '''
 
@@ -4233,3 +4234,47 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
     # returns the
     return [p_within, p_btwn]
+
+
+def calc_event_correlation(y_evnt, sp_evnt, indiv_cell=True):
+    '''
+
+    :param t_sp_h:
+    :param t_evnt:
+    :param dt_et:
+    :return:
+    '''
+
+    # initialisations and memory allocation
+    n_cell = np.shape(sp_evnt[1])[2] if indiv_cell else 1
+    A = np.ones((n_cell, len(y_evnt)))
+    y_corr, p_corr = dcopy(A), dcopy(A)
+
+    # calculates the correlations between the eye-movement event and spike-time signals (for each cell)
+    for i_type in range(len(y_evnt)):
+        # calculates the mean eye-position sub-signal
+        y_evnt_mn = np.mean(y_evnt[i_type], axis=0)
+
+        # calculates the correlation/significance over each cell
+        for i_cell in range(n_cell):
+            # retrieves the mean spiking rate (depending on the calculation type)
+            if indiv_cell:
+                # case is for a single cell
+                sp_evnt_mn = np.mean(sp_evnt[i_type][:, :, i_cell], axis=0)
+            else:
+                # case is for all cells over an experiment/all experiments
+                sp_evnt_mn = np.mean(sp_evnt[i_type], axis=0)
+
+            # calculates the correlation between the mean spiking rate and mean eye-movement event position
+            if np.all(sp_evnt_mn == 0):
+                # if the mean spiking rate is all zeros, then set the correlation to zero
+                y_corr[i_cell, i_type] = 0
+            else:
+                # otherwise, calculate the correlation/significance
+                y_corr[i_cell, i_type], p_corr[i_cell, i_type] = pr(y_evnt_mn, sp_evnt_mn)
+
+    # returns the final array
+    if indiv_cell:
+        return y_corr, p_corr
+    else:
+        return y_corr[0], p_corr[0]

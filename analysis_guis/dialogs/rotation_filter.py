@@ -186,7 +186,7 @@ class RotationFilter(QDialog):
         # determines the valid group/function types for displaying the trial type field
         valid_grp = self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
                                       'Miscellaneous Functions', 'Depth-Based Analysis',
-                                      'Spiking Frequency Correlation']
+                                      'Angular Head Velocity Analysis']
         valid_fcn = self.grp_type == 'Freely Moving Cell Types' and \
                     self.curr_fcn != 'Freely Moving Cell Type Statistics'
 

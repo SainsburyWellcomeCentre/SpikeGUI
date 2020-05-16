@@ -123,8 +123,8 @@ remove_uscore = lambda x: x.replace('_', '').lower()
 # other initialisations
 dcopy = copy.deepcopy
 func_types = np.array(['Cluster Matching', 'Cluster Classification', 'Freely Moving Cell Types', 'Eye Tracking',
-                       'Spiking Frequency Correlation', 'Rotation Analysis', 'UniformDrift Analysis', 'ROC Analysis',
-                       'Combined Analysis', 'Depth-Based Analysis', 'Direction LDA', 'Speed LDA',
+                       'Angular Head Velocity Analysis', 'Rotation Analysis', 'UniformDrift Analysis',
+                       'ROC Analysis', 'Combined Analysis', 'Depth-Based Analysis', 'Direction LDA', 'Speed LDA',
                        'Single Experiment Analysis', 'Miscellaneous Functions'])
 _red, _black, _green = [140, 0, 0], [0, 0, 0], [47, 150, 0]
 _blue, _gray, _light_gray, _orange = [0, 30, 150], [90, 90, 50], [200, 200, 200], [255, 110, 0]
@@ -776,7 +776,7 @@ class AnalysisGUI(QMainWindow):
                         True,               # Cluster Classification
                         False,              # Freely Moving Cell Types
                         False,              # Eye Tracking
-                        has_rot_expt,       # Spiking Frequency Correlation
+                        has_rot_expt,       # Angular Head Velocity Analysis
                         has_rot_expt,       # Rotation Analysis
                         has_ud_expt,        # UniformDrift Analysis
                         has_rot_expt,       # ROC Analysis
@@ -2870,7 +2870,7 @@ class AnalysisGUI(QMainWindow):
             ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
             i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
 
-            # sets the spiking frequency correlation/significance values
+            # sets the angular head velocity analysis/significance values
             sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
             sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
             sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
@@ -3868,7 +3868,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plt].grid(plot_grid)
                 ax[i_plt].set_title('{0} ({1})'.format(t_str0[i_evnt], etrack_tt[i_tt]))
 
-    def plot_eye_movement_correlation_indiv(self, i_cell, plot_avg, exp_name, etrack_tt, m_size, show_err, plot_grid):
+    def plot_eye_movement_correlation_indiv(self, i_cell, exp_name, plot_type, etrack_tt, m_size, show_err, plot_grid):
         '''
 
         :param i_cell:
@@ -3897,13 +3897,13 @@ class AnalysisGUI(QMainWindow):
         else:
             # determines the index of the trial type
             i_tt = et_d.et_data[i_expt].t_type.index(etrack_tt.lower())
-            n_cell = np.shape(et_d.p_corr[i_expt][i_tt])[0] - 1
+            cl_ind = cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt], self.data.exc_gen_filt)
 
-            #
-            if plot_avg:
-                # case is the experiment average
-                j_cell = n_cell
-            else:
+            if plot_type == 'Individual Cell':
+                # retrieves the correlation coefficients/p-values for the
+                y_corr0, p_corr0 = et_d.y_corr[i_expt][i_tt][cl_ind, :], et_d.p_corr[i_expt][i_tt][cl_ind, :]
+                n_cell = np.shape(y_corr0)[0]
+
                 # determines if the cluster index is valid
                 if i_cell > n_cell:
                     # if not then output an error to screen
@@ -3917,12 +3917,46 @@ class AnalysisGUI(QMainWindow):
                 else:
                     # otherwise, set the
                     j_cell = i_cell - 1
+                    y_corr, p_corr = y_corr0[j_cell, :], p_corr0[j_cell, :]
+                    sp_evnt = [et_d.fps * sp_evnt[:, :, j_cell] for sp_evnt in et_d.sp_evnt[i_expt][i_tt]]
+
+            elif plot_type == 'Individual Experiment':
+                # retrieves the eye-tracking position sub-strings
+                y_evnt = self.data.externd.eye_track.y_evnt[i_expt][i_tt]
+
+                # retrieves the spike events
+                sp_evnt0 = self.data.externd.eye_track.sp_evnt[i_expt][i_tt]
+                sp_evnt = [et_d.fps * np.mean(x[:, :, cl_ind], axis=2) for x in sp_evnt0]
+
+                # calculates the correlation value/p-value over the current experiment
+                y_corr, p_corr = cfcn.calc_event_correlation(y_evnt, sp_evnt, False)
+
+            else:
+                # case is analysing all experiments
+
+                # determines the cells that will be included in the analysis
+                i_expt_all = [et_d.exp_name.index(cf.extract_file_name(x['expFile'])) for x in self.data._cluster]
+
+                # retrieves the indices of the clusters to be used for the analysis
+                cl_ind_all = []
+                for i_ex in i_expt_all:
+                    cl_ind_all.append(cfcn.get_inclusion_filt_indices(self.data._cluster[i_ex], self.data.exc_gen_filt))
+
+                # retrieves the eye-tracking position sub-strings
+                y_evnt0 = self.data.externd.eye_track.y_evnt
+                y_evnt = [np.vstack([y_evnt0[i_ex][i_tt][i] for i_ex in i_expt_all]) for i in range(2)]
+
+                # retrieves the eye movement spike histograms (for each experiment with the included cells)
+                sp_evnt0 = self.data.externd.eye_track.sp_evnt
+                sp_evnt = [et_d.fps * np.vstack([np.mean(sp_evnt0[i_ex][i_tt][i][:, :, i_cl], axis=2)
+                                        for i_ex, i_cl in zip(i_expt_all, cl_ind_all)]) for i in range(2)]
+
+                # calculates the correlation value/p-value over all experiments
+                y_corr, p_corr = cfcn.calc_event_correlation(y_evnt, sp_evnt, False)
 
         # retrieves the plot values
         dt_et = (1000 / et_d.fps)
         t_ex = np.arange(-et_d.n_pre, et_d.n_post + 1) * dt_et
-        y_corr, p_corr = et_d.y_corr[i_expt][i_tt][j_cell, :], et_d.p_corr[i_expt][i_tt][j_cell, :]
-        sp_evnt = [et_d.fps * sp_evnt[:, :, j_cell] for sp_evnt in et_d.sp_evnt[i_expt][i_tt]]
 
         # calculates the mean spiking frequency/eye-movement position sub-signals
         sp_evnt_mn = [np.mean(sp_ev, axis=0) for sp_ev in sp_evnt]
@@ -4016,14 +4050,17 @@ class AnalysisGUI(QMainWindow):
         #######################################
 
         # sets the title string
-        if plot_avg:
-            # case is the experiment average
-            t_str = 'Trial Type = {0}\n(Experiment Average)'.format(etrack_tt)
-        else:
+        if plot_type == 'Individual Cell':
             # case is for a single cell
-            i_clust = [cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)
-            cl_id, ch_id = self.data.cluster[i_clust]['clustID'][j_cell], self.data.cluster[i_clust]['chDepth'][j_cell]
-            t_str = 'Trial Type = {0}\nCluster #{1} (Channel #{2})'.format(etrack_tt, cl_id, ch_id)
+            c = self.data.cluster[[cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)]
+            cl_id, ch_id, ch_reg = c['clustID'][j_cell], c['chDepth'][j_cell], c['chRegion'][j_cell]
+            t_str = 'Trial Type = {0}\nCluster #{1}/Channel #{2} ({3})'.format(etrack_tt, cl_id, ch_id, ch_reg)
+        elif plot_type == 'Individual Experiment':
+            # case is the individual experiment average
+            t_str = 'Trial Type = {0}\n({1})'.format(etrack_tt, exp_name)
+        else:
+            # case is the average over all experiments
+            t_str = 'Trial Type = {0}\n(All Experiments)'.format(etrack_tt)
 
         # resizes the figure to include the super-title
         self.plot_fig.fig.set_tight_layout(False)
@@ -4071,7 +4108,7 @@ class AnalysisGUI(QMainWindow):
                 plot_fig.ax[4 + i_c] = plot_fig.figure.add_subplot(gs2[0, i_c])
                 plot_fig.ax[4 + i_c].axis('off')
 
-        def split_data_by_event_type(y0, is_comb=False):
+        def split_data_by_event_type(y0, cl_ind, is_comb=False):
             '''
 
             :param y_data:
@@ -4085,8 +4122,8 @@ class AnalysisGUI(QMainWindow):
 
             # combines the data by event type (over each experiment)
             for i_exp in range(n_exp):
-                # combines the data for the current experiment
-                y0_exp = np.hstack(y0[i_exp, :])
+                # combines the data for the current experiment (removes the non-accepted cells here)
+                y0_exp = np.hstack(y0[i_exp, :])[cl_ind[i_exp], :]
                 for i_evnt in range(n_evnt):
                     y_evnt[i_exp, i_evnt] = y0_exp[:, i_evnt::n_evnt]
 
@@ -4099,6 +4136,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         p_value = 0.05
+        cl_ind = []
         n_filt, n_evnt = len(etrack_tt), 2
         et_d = self.data.externd.eye_track
 
@@ -4113,6 +4151,11 @@ class AnalysisGUI(QMainWindow):
         # sets the event string
         evnt_str = ['M-to-T', 'T-to-M']
 
+        # determines the cells that will be included in the analysis
+        i_expt = [et_d.exp_name.index(cf.extract_file_name(x['expFile'])) for x in self.data._cluster]
+        for i_ex in i_expt:
+            cl_ind.append(cfcn.get_inclusion_filt_indices(self.data._cluster[i_ex], self.data.exc_gen_filt))
+
         ###################################
         ####    CORRELATION SUBPLOT    ####
         ###################################
@@ -4122,7 +4165,7 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the correlation values (set only for the selected trial types and split by the event types)
         y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.y_corr)])
-        y_corr = split_data_by_event_type(y_corr0, True)
+        y_corr = split_data_by_event_type(y_corr0, cl_ind, True)
 
         for i_evnt in range(n_evnt):
             if corr_type == 'Boxplot':
@@ -4172,7 +4215,7 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the correlation values (set only for the selected trial types and split by the event types)
         p_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.p_corr)])
-        p_corr = split_data_by_event_type(p_corr0)
+        p_corr = split_data_by_event_type(p_corr0, cl_ind)
 
         # calculates the number/proportion of significant cells over each experiment
         n_cell = [np.size(x[0], axis=0) for x in p_corr]
@@ -4244,9 +4287,9 @@ class AnalysisGUI(QMainWindow):
                               cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
                               'fixed', n_col=len(class_str0))
 
-    #######################################################
-    ####    SPIKING FREQUENCY CORRELATION FUNCTIONS    ####
-    #######################################################
+    ########################################################
+    ####    ANGULAR HEAD VELOCITY ANALYSIS FUNCTIONS    ####
+    ########################################################
 
     def plot_freq_corr_indiv(self, rot_filt, i_cluster, plot_exp_name, plot_shuffle, plot_grid, plot_scope):
         '''
@@ -12012,7 +12055,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # mandatory update plot scope list
-        plot_scope_chk = ['Spiking Frequency Correlation',
+        plot_scope_chk = ['Angular Head Velocity Analysis',
                           'ROC Analysis',
                           'Combined Analysis',
                           'Depth-Based Analysis',
@@ -13144,6 +13187,7 @@ class AnalysisFunctions(object):
             # initialisations
             fld_data = data.externd.eye_track
             etrack_exp = fld_data.exp_name
+            icorr_type = ['Individual Cell', 'Individual Experiment', 'All Experiments']
             etrack_tt = list(np.unique(cf.flat_list([[y.capitalize() for y in x.t_type] for x in fld_data.et_data])))
 
             # retrieves the eye-tracking parameter
@@ -13200,10 +13244,11 @@ class AnalysisFunctions(object):
 
                 # plotting parameters
                 'i_cell': {'text': 'Cell Cluster Index', 'def_val': 1, 'min_val': 1},
-                'plot_avg': {
-                    'type': 'B', 'text': 'Plot Experiment Average', 'def_val': False, 'link_para': ['i_cell', True]
-                },
                 'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'EyeTrackExperiments'},
+                'plot_type': {
+                    'type': 'L', 'text': 'Correlation Plot Type', 'list': icorr_type, 'def_val': icorr_type[0],
+                    'link_para': [['i_cell', icorr_type[1:]], ['exp_name', icorr_type[2]]]
+                },
                 'etrack_tt': {
                     'type': 'L', 'text': 'Experiment Trial Type', 'list': etrack_tt, 'def_val': etrack_tt[0]
                 },
@@ -13250,9 +13295,9 @@ class AnalysisFunctions(object):
                           func='plot_eye_movement_correlation_exp',
                           para=para)
 
-        ######################################################
-        ####    SPIKING FREQUENCY CORRELATION FUNCTIONS   ####
-        ######################################################
+        #######################################################
+        ####    ANGULAR HEAD VELOCITY ANALYSIS FUNCTIONS   ####
+        #######################################################
 
         # initialisations
         sig_vel_bin = ['5', '10']
@@ -13329,7 +13374,7 @@ class AnalysisFunctions(object):
                 'is_visible': False
             },
         }
-        self.add_func(type='Spiking Frequency Correlation',
+        self.add_func(type='Angular Head Velocity Analysis',
                       name='Individual Cell Correlation (Fixed)',
                       func='plot_freq_corr_indiv',
                       para=para)
@@ -13394,7 +13439,7 @@ class AnalysisFunctions(object):
             },
             'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
         }
-        self.add_func(type='Spiking Frequency Correlation',
+        self.add_func(type='Angular Head Velocity Analysis',
                       name='Correlation Distributions (Fixed)',
                       func='plot_freq_corr_hist',
                       para=para)
@@ -13458,7 +13503,7 @@ class AnalysisFunctions(object):
             },
             'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
         }
-        self.add_func(type='Spiking Frequency Correlation',
+        self.add_func(type='Angular Head Velocity Analysis',
                       name='Correlation Scatterplot (Fixed)',
                       func='plot_freq_corr_scatter',
                       para=para)
@@ -13520,7 +13565,7 @@ class AnalysisFunctions(object):
             },
             'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': True, 'is_visible': False},
         }
-        self.add_func(type='Spiking Frequency Correlation',
+        self.add_func(type='Angular Head Velocity Analysis',
                       name='Correlation Significance (Fixed)',
                       func='plot_freq_corr_significance',
                       para=para)
@@ -13560,7 +13605,7 @@ class AnalysisFunctions(object):
                 },
                 'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Spiking Frequency Correlation',
+            self.add_func(type='Angular Head Velocity Analysis',
                           name='Correlation Distributions (Freely Moving)',
                           func='plot_freq_corr_hist',
                           para=para)
@@ -13595,7 +13640,7 @@ class AnalysisFunctions(object):
                 },
                 'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Spiking Frequency Correlation',
+            self.add_func(type='Angular Head Velocity Analysis',
                           name='Correlation Scatterplot (Freely Moving)',
                           func='plot_freq_corr_scatter',
                           para=para)
@@ -13631,7 +13676,7 @@ class AnalysisFunctions(object):
                 },
                 'is_fixed': {'type': 'B', 'text': 'Fixed Expt Setup', 'def_val': False, 'is_visible': False},
             }
-            self.add_func(type='Spiking Frequency Correlation',
+            self.add_func(type='Angular Head Velocity Analysis',
                           name='Correlation Significance (Freely Moving)',
                           func='plot_freq_corr_significance',
                           para=para)
