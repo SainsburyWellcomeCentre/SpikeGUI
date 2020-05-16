@@ -18058,7 +18058,10 @@ class FreelyMovingData(object):
             ahv_sig = ahv_score[i_bin] > 0
 
             # speed cell significance
-            spd_sig = c_info[i_bin]['DARK1']['pearson_percentile'] > p_tile_speed
+            spd_sig = np.logical_or(
+                c_info[i_bin]['DARK1']['pearson_percentile'] > p_tile_speed,
+                c_info[i_bin]['DARK1']['pearson_percentile'] < (100. - p_tile_speed)
+            )
 
             # # place cell significance
             # pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,
