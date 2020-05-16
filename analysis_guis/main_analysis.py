@@ -17951,7 +17951,7 @@ class FreelyMovingData(object):
 
             # cell information field keys
             ci_key = ['mean_vec_length', 'mean_vec_percentile', 'pearson_neg_percentile',
-                      'pearson_pos_percentile', 'pearson_percentile', 'peak_percentile']
+                      'pearson_pos_percentile', 'pearson_percentile']
 
             # checks that all the fields (for all trial types) are not empty
             for tt in c_info.keys():
@@ -18060,12 +18060,13 @@ class FreelyMovingData(object):
             # speed cell significance
             spd_sig = c_info[i_bin]['DARK1']['pearson_percentile'] > p_tile_speed
 
-            # place cell significance
-            pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,
-                                    c_info[i_bin]['LIGHT2']['peak_percentile'] > p_tile_place)
+            # # place cell significance
+            # pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,
+            #                         c_info[i_bin]['LIGHT2']['peak_percentile'] > p_tile_place)
 
             # combines the significance arrays into a single dataframe
-            cell_type[i_bin] = pd.DataFrame(np.vstack((hd_sig, hd_mod_sig, ahv_sig, spd_sig, pl_sig)).T, columns=c_type)
+            # cell_type[i_bin] = pd.DataFrame(np.vstack((hd_sig, hd_mod_sig, ahv_sig, spd_sig, pl_sig)).T, columns=c_type)
+            cell_type[i_bin] = pd.DataFrame(np.vstack((hd_sig, hd_mod_sig, ahv_sig, spd_sig)).T, columns=c_type)
 
         # appends the new fields to the class object
         self.s_freq.append(s_freq)
