@@ -187,7 +187,7 @@ class RotationFilter(QDialog):
         valid_grp = self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
                                       'Miscellaneous Functions', 'Depth-Based Analysis',
                                       'Angular Head Velocity Analysis']
-        valid_fcn = self.grp_type == 'Freely Moving Cell Types' and \
+        valid_fcn = self.grp_type == 'Freely Moving Analysis' and \
                     self.curr_fcn != 'Freely Moving Cell Type Statistics'
 
         # retrieves the trial-types from each experiment
@@ -249,7 +249,7 @@ class RotationFilter(QDialog):
                 # if there are any significant cell types, then add them to the filter type
                 if len(c_type):
                     self.fields += [
-                        ['Freely Moving Cell Types', 'CheckCombo', 'free_ctype', c_type, True]
+                        ['Freely Moving Analysis', 'CheckCombo', 'free_ctype', c_type, True]
                     ]
 
         # removes any other fields (if specified)

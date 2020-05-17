@@ -174,9 +174,9 @@ class WorkerThread(QThread):
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-            #################################################
-            ####    FREELY MOVING CELL TYPE FUNCTIONS    ####
-            #################################################
+            ################################################
+            ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
+            ################################################
 
             elif ' (Fixed)' in self.thread_job_secondary:
 
