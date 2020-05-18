@@ -119,6 +119,7 @@ formatter_lbl = lambda **kwargs: kwargs['label']
 setup_heatmap_bins = lambda t_stim, dt: np.arange(t_stim + dt / 1000, step=dt / 1000.0)
 txt_fcn = lambda l, t: np.any([t in ll for ll in l])
 remove_uscore = lambda x: x.replace('_', '').lower()
+collapse_arr = lambda y, i_c: np.array(cf.flat_list([x[i_c] for x in y]))
 
 # other initialisations
 dcopy = copy.deepcopy
@@ -1797,15 +1798,23 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        # initialisations
+        reset_fcn = ['Fixed/Free Spiking Correlation (Individual Cell)']
+
         # runs the general filter in exclusion mode
         r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_gen_filt, is_gen=True, is_exc=True)
 
         # determines if the gui was updated correctly
         if r_filt.is_ok:
-            # updates the current parameter value
+            # updates the general exclusion filter
             self.data.exc_gen_filt = r_filt.get_info()
-            self.data.req_update = True
-            self.data.force_calc = True
+
+            # other flag setting/initialisations
+            if self.fcn_data.curr_fcn in reset_fcn:
+                self.fcn_data.reset_matched_index('ff_cluster', None)
+            else:
+                self.data.req_update = True
+                self.data.force_calc = True
 
     def init_rotfilt(self):
         '''
@@ -3359,53 +3368,183 @@ class AnalysisGUI(QMainWindow):
         t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
         t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
 
-    def plot_fix_free_corr(self, rot_filt, ff_cluster, free_exp_name, show_trend, bin_sz, lcond_type, plot_type,
-                                 vel_dir, plot_grid, plot_scope):
+    def plot_fix_free_corr_indiv(self, rot_filt, ff_cluster, free_exp_name, show_trend, vel_dir, plot_grid, plot_scope):
         '''
 
-        :param rot_filt:
         :param ff_cluster:
         :param free_exp_name:
         :param show_trend:
-        :param bin_sz:
-        :param lcond_type:
-        :param plot_type:
         :param vel_dir:
         :param plot_grid:
         :param plot_scope:
         :return:
         '''
 
-        def det_reverse_indices(i_cell_b, ind_gff):
-            '''
+        ####################################
+        ####    PLOT INITIALISATIONS    ####
+        ####################################
 
-            :param i_cell_b:
-            :param ind_gff:
-            :return:
-            '''
+        # checks to see if there are any valid cells
+        if ff_cluster == 'No Valid Cells':
+            # if there are no valid cells then output an error to screen
+            e_str = 'The current general filter configuration has no valid cells.\n' \
+                    'You will need to alter the general filter before running this function again.'
+            cf.show_error(e_str, 'No Valid Cells')
 
-            _, _, ind_rev = np.intersect1d(i_cell_b, ind_gff, return_indices=True)
-            return ind_rev
+            # exits the function flagging an error
+            self.calc_ok = False
+            return
 
-        def det_expt_index(ind_gfilt, ind_corr):
-            '''
+        elif rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
 
-            :param ind_gfilt:
-            :param ind_corr:
-            :return:
-            '''
+        # initialisations
+        ff_corr = self.data.comp.ff_corr
+        f_data = self.data.externd.free_data
+        tt_key = {'DARK1': 'Black', 'DARK': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
+        n_bin_h = int(80 / ff_corr.vel_bin)
 
-            # memory allocation
-            ind_ex = -np.ones(len(ind_gfilt), dtype=int)
+        # sets the grouping index
+        if ff_corr.split_vel:
+            i_grp = ['Negative', 'Positive'].index(vel_dir)
+            ind_grp = [np.arange(n_bin_h), np.arange(n_bin_h, 2 * n_bin_h)][i_grp]
+        else:
+            i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
 
+        ################################################
+        ####    DATA PRE-CALCULATIONS & GROUPING    ####
+        ################################################
+
+        # determines the matching cells against the freely moving experiment file
+        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
+
+        # calculates the number of time bins
+        axLmx = [1e10, -1e10]
+        p_value = 2.5
+        n_tt = len(f_data.t_type)
+
+        # sets the cdf xi-values
+        xi_cdf = np.linspace(-1, 1, 201)
+        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+
+        # retrieves the fixed/free mapping indices
+        i_expt = f_data.exp_name.index(free_exp_name)
+        is_ok = np.where(f2f_map[0][:, 1] > 0)[0]
+
+        # determines the index of the selected cluster
+        clust_id = np.array(re.findall(r'\d+', ff_cluster)).astype(int)
+        i_clust = is_ok[np.where(np.logical_and(ff_corr.clust_id[i_expt][:, 0] == clust_id[0],
+                                                ff_corr.clust_id[i_expt][:, 1] == clust_id[1]))[0][0]]
+
+        # retrieves the fixed/free spiking frequencies (across all the group types)
+        sf_fix = [x[i_clust, ind_grp] for x in ff_corr.sf_fix[i_expt, :]]
+        sf_free = [x[i_clust, ind_grp] for x in ff_corr.sf_free[i_expt, :]]
+        sf_corr = [sf_c[i_clust, i_grp] for sf_c in ff_corr.sf_corr[i_expt]]
+        sf_grad = [sf_g[i_clust, :, i_grp] for sf_g in ff_corr.sf_grad[i_expt]]
+        sf_corr_sh = [sf_sh[i_clust, :, i_grp] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
+        sf_sig = [(sf_s[i_clust, i_grp] != 0) for sf_s in ff_corr.sf_corr_sig[i_expt]]
+
+        ###############################
+        ####    FIGURE CREATION    ####
+        ###############################
+
+        # initialises the plot axes
+        self.init_plot_axes(n_row=n_tt, n_col=2)
+        ax = self.plot_fig.ax
+
+        # creates the subplots for each condition type
+        for i_tt in range(n_tt):
+            # sets the left/right axis indices
+            iL, iR = 2 * i_tt, 2 * i_tt + 1
+
+            # creates the scatterplot (ensures free spiking frequencies are reversed)
+            ax[iL].plot(sf_fix[i_tt], dcopy(sf_free[i_tt]), 'o')
+
+            # resets the axis limits
+            axLmx = [min(axLmx[0], min(ax[iL].get_xlim()[0], ax[iL].get_ylim()[0])),
+                     max(axLmx[1], max(ax[iL].get_xlim()[1], ax[iL].get_ylim()[1]))]
+
+            # sets the axis properties
+            tt_nw = f_data.t_type[i_tt]
+            ax[iL].set_title('Spiking Frequency Relation ({0}/{1})'.format(tt_nw, tt_key[tt_nw]))
+            ax[iL].set_ylabel('Free Spiking Frequency (Hz)')
+            ax[iL].grid(plot_grid)
+
+            # calculates the cumulative distribution values
+            sf_corr_hist = np.histogram(sf_corr_sh[i_tt], bins=xi_cdf, normed=False)[0]
+            sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
+            i_cdf_bin = np.where(x_cdf > sf_corr[i_tt])[0][0]
+            t_str = 'Correlation = {:5.3f}{}'.format(sf_corr[i_tt], '*' if sf_sig[i_tt] else '')
+
+            # plots the cumulative distribution traces
+            ax[iR].plot(x_cdf, sf_corr_cdf, 'k')
+            ax[iR].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], 'r--')
+            ax[iR].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2), 'r--')
+            ax[iR].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
+            ax[iR].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
+
+            # sets the axis properties
+            ax[iR].set_title(t_str)
+            ax[iR].set_xlim([-1, 1])
+            ax[iR].set_ylim([0, 100])
+            ax[iR].set_ylabel('Percentage')
+            ax[iR].grid(plot_grid)
+
+        for i_tt in range(n_tt):
+            _ax = ax[2 * i_tt]
+            cf.set_axis_limits(_ax, axLmx, axLmx)
+
+        # adds in the trendline (if required)
+        if show_trend:
             #
-            for i_expt in range(len(ind_corr)):
-                ind_ex[np.in1d(ind_gfilt, ind_corr[i_expt])] = i_expt
+            for i_tt in range(n_tt):
+                # sets the lower limit coordinates
+                p0 = np.vstack([
+                    [axLmx[0], sf_grad[i_tt][0] * axLmx[0] + sf_grad[i_tt][1]],
+                    [(axLmx[0] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[0]],
+                ])
 
-            # returns the index array
-            return ind_ex
+                # sets the upper limit coordinates
+                p1 = np.vstack([
+                    [axLmx[1], sf_grad[i_tt][0] * axLmx[1] + sf_grad[i_tt][1]],
+                    [(axLmx[1] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[1]],
+                ])
 
-        def setup_plot_axes(plot_fig, n_filt):
+                # determines which points are to be plotted
+                i0 = np.where(np.all(np.logical_and(p0 >= axLmx[0], p0 <= axLmx[1]), axis=1))[0][0]
+                i1 = np.where(np.all(np.logical_and(p1 >= axLmx[0], p1 <= axLmx[1]), axis=1))[0][0]
+
+                # sets the coordinates of the trendline's second point
+                ax[2 * i_tt].plot([p0[i0, 0], p1[i1, 0]], [p0[i0, 1], p1[i1, 1]], 'r--', linewidth=2)
+
+        # sets the axis properties
+        ax[-2].set_xlabel('Fixed Spiking Frequency (Hz)')
+        ax[-1].set_xlabel('Correlation')
+
+        # sets the figure super title
+        exp_file = [cf.extract_file_name(x['expFile']) for x in self.data.cluster]
+        c = self.data.cluster[next(i for i, x in enumerate(exp_file) if free_exp_name in x)]
+        ii = (c['clustID'] == clust_id[1]) if (c['rotInfo'] is None) else (c['clustID'] == clust_id[0])
+        t_str = 'Fixed #{0}/Free #{1}\n({2})'.format(clust_id[0], clust_id[1], c['chRegion'][ii][0])
+
+        # resizes the figure to include the super-title
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
+
+    def plot_fix_free_corr_hist(self, rot_filt, bin_sz, vel_dir, lcond_type, plot_grid, disp_met, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param bin_sz:
+        :param vel_dir:
+        :param lcond_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        def setup_plot_axes(plot_fig, n_filt, y_top, y_bottom):
             '''
 
             :param plot_fig:
@@ -3415,12 +3554,12 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             n_r, n_c = n_filt, 7
-            top, bottom, pH, wspace, hspace = 0.95, 0.06, 0.01, 0.30, 0.20
+            pH, wspace, hspace = 0.01, 0.30, 0.20
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
                                    figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
-                                   bottom=bottom, top=top)
+                                   bottom=y_bottom, top=y_top)
 
             # creates the subplots
             plot_fig.ax = np.empty(n_filt + 2, dtype=object)
@@ -3435,6 +3574,244 @@ class AnalysisGUI(QMainWindow):
             plot_fig.ax[n_filt].plot([-2, -1], [-2, -1], 'w')
             plot_fig.ax[n_filt].axis('off')
 
+        ####################################
+        ####    PLOT INITIALISATIONS    ####
+        ####################################
+
+        # initialises the rotation filter (if not set)
+        if rot_filt is None:
+            rot_filt = cf.init_rotation_filter_data(False)
+
+        # initialisations
+        y_top, y_bottom = 0.9, 0.06
+        ff_corr = self.data.comp.ff_corr
+        f_data = self.data.externd.free_data
+        n_bin_h = int(80 / ff_corr.vel_bin)
+
+        # sets the grouping index
+        if ff_corr.split_vel:
+            i_grp = ['Negative', 'Positive'].index(vel_dir)
+            v_str = '{0} Velocities'.format(vel_dir)
+        else:
+            i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
+            v_str = 'All Velocities'
+
+        if disp_met == 'Fixed/Free Matched Cells':
+            met_title, col_hdr0, is_matched = '%age Matched', ['Matched', 'Unmatched'], True
+        else:
+            met_title, col_hdr0, is_matched = '%age Significant', ['Sig.', 'Not Sig.'], False
+
+        # sets the reverse trial type condition dictionary key
+        tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
+        if 'DARK1' not in f_data.t_type:
+            tt_key_rev['Black'] = 'DARK'
+
+        ################################################
+        ####    DATA PRE-CALCULATIONS & GROUPING    ####
+        ################################################
+
+        # determines the matching cells against the freely moving experiment file
+        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
+        is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
+        is_ok = np.array(cf.flat_list(is_ok0))
+
+        # retrieves the common filtered indices
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+
+        # sets the global-to-local and trial condition indices
+        ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+        ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+        ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+        i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+
+        # sets the angular head velocity analysis/significance values
+        sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+        sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
+        # sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
+        #               for i_c, i_g in zip(i_cond, ind_gfilt)]
+
+        # sets the indices for each free/fix match over all experiments
+        n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
+        n_cell_grp = [len(x) for x in ind_gfilt0]
+        ind_ex = np.array(cf.flat_list([[i] * len(x) for i, x in enumerate(ff_corr.ind_g)]))
+
+        ###############################
+        ####    FIGURE CREATION    ####
+        ###############################
+
+        # REMOVE ME LATER
+        is_norm = False
+
+        # initialisations
+        yLmx, n_filt = 0, r_obj_wc.n_filt
+        col = cf.get_plot_col(n_filt)
+        p_sig_tot, tab_str = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
+
+        # sets the cdf xi-values
+        xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
+        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+        b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
+
+        # initialises the plot axes
+        setup_plot_axes(self.plot_fig, n_filt, y_top, y_bottom)
+        ax = self.plot_fig.ax
+
+        # sets the super-title string
+        t_str = 'Spiking Correlations ({0})\n(Light Condition = {1})'.format(v_str, lcond_type)
+
+        # resizes the figure to include the super-title
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
+
+        # creates the histograms for each filter option
+        for i_filt in range(n_filt):
+            #############################################
+            ####    CORRELATION HISTOGRAM SUBPLOT    ####
+            #############################################
+
+            # sets the index of the column to be analysed
+            t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
+
+            if len(sf_corr[i_filt]):
+                # calculates the histogram of the significant cells
+                sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
+                sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
+
+                # calculates the proportions
+                if is_norm:
+                    sf_corr_hist_sum = np.sum(sf_corr_hist)
+                    p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
+                    p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
+                else:
+                    p_sig = sf_corr_hist_sig
+                    p_nsig = sf_corr_hist - sf_corr_hist_sig
+
+                # case is the significant values so normalise using the provided value
+                ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
+                ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
+
+            # sets the axis properties
+            ax[i_filt].set_title('{0} (#{1})'.format(t_str, i_filt + 1))
+            ax[i_filt].set_xlim([-1, 1])
+            ax[i_filt].grid(plot_grid)
+
+            if (i_filt + 1) < n_filt:
+                ax[i_filt].set_xticklabels([])
+
+            # sets the y-axis limits
+            yLmx = max(yLmx, ax[i_filt].get_ylim()[1])
+
+            ##############################################
+            ####    CELL SIGNIFICANCE CALCULATIONS    ####
+            ##############################################
+
+            # calculates mean significance (removes any experiments where there are no valid cells)
+            i_ex_gf = ind_ex[ind_gfilt[i_filt]]
+            n_cell_ex = [sum(ind_ex[i_cell_b[i_filt]] == i) for i in range(n_free)]
+            if is_matched:
+                # calculates the number of matched cells
+                n_sig, n_tot = np.sum(is_ok[ind_gfilt0[i_filt]]), n_cell_grp[i_filt]
+
+                # calculates the proportion of matched cells over each experiment
+                p_sig_tot0 = [np.sum(i_ex_gf == i) / n for i, n in enumerate(n_cell_ex)]
+            else:
+                # calculates the number of significant cells (over all experiments)
+                n_sig, n_tot = np.sum(sf_sig[i_filt]), n_cell[i_filt]
+
+                # calculates the proportion of significant cells over each experiment
+                p_sig_tot0 = [np.mean(sf_sig[i_filt][i_ex_gf == i]) for i in range(n_free)]
+
+            # p_sig_tot0 = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
+
+            # removes any NaN values
+            p_sig_tot[i_filt] = [x for x in p_sig_tot0 if not np.isnan(x)]
+
+            # sets up the table values
+            n_sig_tab = np.array([n_sig, n_tot - n_sig, n_tot])
+            p_sig_tab = ['{:.1f}'.format(100 * x / n_tot) for x in n_sig_tab]
+            tab_str[i_filt] = np.vstack((n_sig_tab, p_sig_tab))
+
+        ############################################
+        ####    FINAL FIGURE PROPERTY UPDATE    ####
+        ############################################
+
+        # sets the axis properties
+        for i_ax, _ax in enumerate(ax[:n_filt]):
+            # resets the overall y-axis limit
+            _ax.set_ylim([0, yLmx])
+
+            # sets the x-axis labels (last row only)
+            if (i_ax + 1) == n_filt:
+                _ax.set_xlabel('Correlation')
+
+            # sets the y-axis labels
+            _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
+
+        ################################################
+        ####    CELL SIGNIFICANCE SUBPLOT/TABLES    ####
+        ################################################
+
+        # initialisations
+        xi = np.arange(n_filt) + 1
+        n_table = n_filt
+        col_sig, col_row = cf.get_plot_col(n_filt + 1, n_filt), cf.get_plot_col(2, 2 * n_filt + 1)
+        t_props = np.empty(n_filt, dtype=object)
+        col_hdr, row_hdr = col_hdr0 + ['Total'], ['Count', '%age']
+
+        # calculates the mean/sem percentages
+        n_free_final = len(p_sig_tot[0])
+        p_sig_mu = 100. * np.mean(np.vstack(p_sig_tot).T, axis=0)
+        p_sig_sem = 100. * np.std(np.vstack(p_sig_tot).T, axis=0) / np.sqrt(n_free_final)
+
+        # creates the bar graph
+        for i in range(len(xi)):
+            ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col[i], yerr=p_sig_sem[i])
+
+        # updates the axis properties
+        ax[-1].set_title(met_title)
+        ax[-1].set_xticks(xi)
+        ax[-1].set_xticklabels(['#{0}'.format(x) for x in xi])
+        ax[-1].grid(plot_grid)
+        cf.set_axis_limits(ax[-1], [0.5, xi[-1] + 0.5], [-1, 101])
+
+        # creates the statistics tables for each filter type
+        for i in range(n_table):
+            # creates the table
+            t_props[i] = cf.add_plot_table(self.plot_fig, ax[n_filt], table_font_small, tab_str[i], row_hdr,
+                                           col_hdr, col_row, col_sig, 'top')
+
+        # resets the table axis position
+        p_pos = ax[n_filt].get_position()
+        p = p_pos.get_points()
+        p[0, 1], p[1, 1] = 0, 1
+        p_pos.set_points(p)
+        ax[n_filt].set_position(p_pos)
+
+        # resets the table dimensions
+        for i in range(n_table):
+            t_props[i][0]._bbox[0] = max(t_props[i][0]._bbox[0], -0.05)
+            t_props[i][0]._bbox[3] *= 0.8
+            t_props[i][0]._bbox[1] = ax[i].get_position().y1 - t_props[i][0]._bbox[3]
+            t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 1.0)
+
+    def plot_fix_free_corr_scatter(self, rot_filt, vel_dir, lcond_type, plot_grid, plot_scope):
+        '''
+
+        :param rot_filt:
+        :param vel_dir:
+        :param lcond_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        ####################################
+        ####    PLOT INITIALISATIONS    ####
+        ####################################
+
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
@@ -3442,340 +3819,111 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
-        tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
-        collapse_arr = lambda y, i_c: np.array(cf.flat_list([x[i_c] for x in y]))
         n_bin_h = int(80 / ff_corr.vel_bin)
 
         # sets the grouping index
         if ff_corr.split_vel:
             i_grp = ['Negative', 'Positive'].index(vel_dir)
-            ind_grp = [np.arange(n_bin_h), np.arange(n_bin_h, 2 * n_bin_h)][i_grp]
+            v_str = '{0} Velocities'.format(vel_dir)
         else:
             i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
-
-        if plot_type == 'Individual Cell Correlation':
-            ############################################
-            ####    INDIVIDUAL CELL CORRELATIONS    ####
-            ############################################
-
-            # determines the matching cells against the freely moving experiment file
-            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=[free_exp_name])
-
-            # calculates the number of time bins
-            axLmx = [1e10, -1e10]
-            p_value = 2.5
-            n_tt = len(f_data.t_type)
-
-            # sets the cdf xi-values
-            xi_cdf = np.linspace(-1, 1, 201)
-            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-
-            # retrieves the fixed/free mapping indices
-            i_expt = f_data.exp_name.index(free_exp_name)
-            is_ok = np.where(f2f_map[0][:, 1] > 0)[0]
-
-            # determines the index of the selected cluster
-            clust_id = np.array(re.findall(r'\d+', ff_cluster)).astype(int)
-            i_clust = is_ok[np.where(np.logical_and(ff_corr.clust_id[i_expt][:, 0] == clust_id[0],
-                                                    ff_corr.clust_id[i_expt][:, 1] == clust_id[1]))[0][0]]
-
-            # retrieves the fixed/free spiking frequencies (across all the group types)
-            sf_fix = [x[i_clust, ind_grp] for x in ff_corr.sf_fix[i_expt, :]]
-            sf_free = [x[i_clust, ind_grp] for x in ff_corr.sf_free[i_expt, :]]
-            sf_corr = [sf_c[i_clust, i_grp] for sf_c in ff_corr.sf_corr[i_expt]]
-            sf_grad = [sf_g[i_clust, :, i_grp] for sf_g in ff_corr.sf_grad[i_expt]]
-            sf_corr_sh = [sf_sh[i_clust, :, i_grp] for sf_sh in ff_corr.sf_corr_sh[i_expt]]
-            sf_sig = [(sf_s[i_clust, i_grp] != 0) for sf_s in ff_corr.sf_corr_sig[i_expt]]
-
-            # initialises the plot axes
-            self.init_plot_axes(n_row=n_tt, n_col=2)
-            ax = self.plot_fig.ax
-
-            # creates the subplots for each condition type
-            for i_tt in range(n_tt):
-                # sets the left/right axis indices
-                iL, iR = 2 * i_tt, 2 * i_tt + 1
-
-                # creates the scatterplot (ensures free spiking frequencies are reversed)
-                ax[iL].plot(sf_fix[i_tt], dcopy(sf_free[i_tt]), 'o')
-
-                # resets the axis limits
-                axLmx = [min(axLmx[0], min(ax[iL].get_xlim()[0], ax[iL].get_ylim()[0])),
-                         max(axLmx[1], max(ax[iL].get_xlim()[1], ax[iL].get_ylim()[1]))]
-
-                # sets the axis properties
-                tt_nw = f_data.t_type[i_tt]
-                ax[iL].set_title('Spiking Frequency Relation ({0}/{1})'.format(tt_nw, tt_key[tt_nw]))
-                ax[iL].set_ylabel('Free Spiking Frequency (Hz)')
-                ax[iL].grid(plot_grid)
-
-                # calculates the cumulative distribution values
-                sf_corr_hist = np.histogram(sf_corr_sh[i_tt], bins=xi_cdf, normed=False)[0]
-                sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
-                i_cdf_bin = np.where(x_cdf > sf_corr[i_tt])[0][0]
-                t_str = 'Correlation = {:5.3f}{}'.format(sf_corr[i_tt], '*' if sf_sig[i_tt] else '')
-
-                # plots the cumulative distribution traces
-                ax[iR].plot(x_cdf, sf_corr_cdf, 'k')
-                ax[iR].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], 'r--')
-                ax[iR].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2), 'r--')
-                ax[iR].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
-                ax[iR].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
-
-                # sets the axis properties
-                ax[iR].set_title(t_str)
-                ax[iR].set_xlim([-1, 1])
-                ax[iR].set_ylim([0, 100])
-                ax[iR].set_ylabel('Percentage')
-                ax[iR].grid(plot_grid)
-
-            for i_tt in range(n_tt):
-                _ax = ax[2 * i_tt]
-                cf.set_axis_limits(_ax, axLmx, axLmx)
-
-            # adds in the trendline (if required)
-            if show_trend:
-                #
-                for i_tt in range(n_tt):
-                    # sets the lower limit coordinates
-                    p0 = np.vstack([
-                        [axLmx[0], sf_grad[i_tt][0] * axLmx[0] + sf_grad[i_tt][1]],
-                        [(axLmx[0] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[0]],
-                    ])
-
-                    # sets the upper limit coordinates
-                    p1 = np.vstack([
-                        [axLmx[1], sf_grad[i_tt][0] * axLmx[1] + sf_grad[i_tt][1]],
-                        [(axLmx[1] - sf_grad[i_tt][1]) / sf_grad[i_tt][0], axLmx[1]],
-                    ])
-
-                    # determines which points are to be plotted
-                    i0 = np.where(np.all(np.logical_and(p0 >= axLmx[0], p0 <= axLmx[1]), axis=1))[0][0]
-                    i1 = np.where(np.all(np.logical_and(p1 >= axLmx[0], p1 <= axLmx[1]), axis=1))[0][0]
-
-                    # sets the coordinates of the trendline's second point
-                    ax[2 * i_tt].plot([p0[i0, 0], p1[i1, 0]], [p0[i0, 1], p1[i1, 1]], 'r--', linewidth=2)
-
-            # sets the axis properties
-            ax[-2].set_xlabel('Fixed Spiking Frequency (Hz)')
-            ax[-1].set_xlabel('Correlation')
-
-        else:
-            # sets the reverse trial type condition dictionary key
-            tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
-
-            # determines the matching cells against the freely moving experiment file
-            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
-            is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
-            is_ok = np.array(cf.flat_list(is_ok0))
-
-            # retrieves the common filtered indices
-            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-
-            # sets the global-to-local and trial condition indices
-            ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-            ind_gfilt0 = [det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-            ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-            i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
-
-            # sets the angular head velocity analysis/significance values
-            sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
-            sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
-                                                                        for i_c, i_g in zip(i_cond, ind_gfilt)]
-
-            #
-            n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
-            ind_ex = np.array(cf.flat_list([[i] * len(x) for i, x in enumerate(ff_corr.ind_g)]))
-
-            if plot_type == 'Correlation Histogram':
-                #####################################
-                ####    CORRELATION HISTOGRAM    ####
-                #####################################
-
-                # REMOVE ME LATER
-                is_norm = False
-
-                # initialisations
-                yLmx, n_filt = 0, r_obj_wc.n_filt
-                col = cf.get_plot_col(n_filt)
-                p_sig_tot, tab_str = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
-
-                # sets the cdf xi-values
-                xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
-                x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-                b_wid = 0.85 * (x_cdf[1] - x_cdf[0])
-
-                # initialises the plot axes
-                # n_col, n_row = cf.det_subplot_dim(n_filt)
-                setup_plot_axes(self.plot_fig, n_filt)
-                ax = self.plot_fig.ax
-
-                # creates the histograms for each filter option
-                for i_filt in range(n_filt):
-                    #############################################
-                    ####    CORRELATION HISTOGRAM SUBPLOT    ####
-                    #############################################
-
-                    # sets the index of the column to be analysed
-                    t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
-
-                    if len(sf_corr[i_filt]):
-                        # calculates the histogram of the significant cells
-                        sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
-                        sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
-
-                        # calculates the proportions
-                        if is_norm:
-                            sf_corr_hist_sum = np.sum(sf_corr_hist)
-                            p_sig = 100. * sf_corr_hist_sig / sf_corr_hist_sum
-                            p_nsig = 100. * (sf_corr_hist - sf_corr_hist_sig) / sf_corr_hist_sum
-                        else:
-                            p_sig = sf_corr_hist_sig
-                            p_nsig = sf_corr_hist - sf_corr_hist_sig
-
-                        # case is the significant values so normalise using the provided value
-                        ax[i_filt].bar(x_cdf, p_sig, width=b_wid, edgecolor=col[i_filt], color=col[i_filt])
-                        ax[i_filt].bar(x_cdf, p_nsig, width=b_wid, bottom=p_sig, edgecolor=col[i_filt], color='None')
-
-                    # sets the axis properties
-                    ax[i_filt].set_title('{0} (#{1})'.format(t_str, i_filt + 1))
-                    ax[i_filt].set_xlim([-1, 1])
-                    ax[i_filt].grid(plot_grid)
-
-                    if (i_filt + 1) < n_filt:
-                        ax[i_filt].set_xticklabels([])
-
-                    # sets the y-axis limits
-                    yLmx = max(yLmx, ax[i_filt].get_ylim()[1])
-
-                    ##############################################
-                    ####    CELL SIGNIFICANCE CALCULATIONS    ####
-                    ##############################################
-
-                    # calculates the percentage of significant cells (over all experiments)
-                    i_ex_gf = ind_ex[ind_gfilt[i_filt]]
-                    n_sig = sum([np.sum(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)])
-                    p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
-
-                    # sets up the table values
-                    n_sig_tab = np.array([n_sig, n_cell[i_filt] - n_sig, n_cell[i_filt]])
-                    p_sig_tab = ['{:.1f}'.format(100 * x / n_cell[i_filt]) for x in n_sig_tab]
-                    tab_str[i_filt] = np.vstack((n_sig_tab, p_sig_tab))
-
-                ############################################
-                ####    FINAL FIGURE PROPERTY UPDATE    ####
-                ############################################
-
-                # sets the axis properties
-                for i_ax, _ax in enumerate(ax[:n_filt]):
-                    # resets the overall y-axis limit
-                    _ax.set_ylim([0, yLmx])
-
-                    # sets the x-axis labels (last row only)
-                    if (i_ax + 1) == n_filt:
-                        _ax.set_xlabel('Correlation')
-
-                    # sets the y-axis labels
-                    _ax.set_ylabel('Percentage' if is_norm else 'Cell Count')
-
-                ################################################
-                ####    CELL SIGNIFICANCE SUBPLOT/TABLES    ####
-                ################################################
-
-                # initialisations
-                xi = np.arange(n_filt) + 1
-                col_sig, col_row = cf.get_plot_col(n_filt + 1, n_filt), cf.get_plot_col(2, 2 * n_filt + 1)
-                t_props = np.empty(n_filt, dtype=object)
-                col_hdr, row_hdr = ['Matched', 'Unmatched', 'Total'], ['Count', '%age']
-
-                # calculates the mean/sem percentages
-                p_sig_mu = 100. * np.mean(np.vstack(p_sig_tot).T, axis=0)
-                p_sig_sem = 100. * np.std(np.vstack(p_sig_tot).T, axis=0) / np.sqrt(n_free)
-
-                # creates the bar graph
-                for i in range(len(xi)):
-                    ax[-1].bar(xi[i], p_sig_mu[i], width=0.9, color=col[i], yerr=p_sig_sem[i])
-
-                # updates the axis properties
-                ax[-1].set_title('%age Matched')
-                ax[-1].set_xticks(xi)
-                ax[-1].set_xticklabels(['#{0}'.format(x) for x in xi])
-                ax[-1].grid(plot_grid)
-                cf.set_axis_limits(ax[-1], [0.5, xi[-1]+0.5], [-1, 101])
-
-                # creates the statistics tables for each filter type
-                for i in range(n_filt):
-                    # creates the table
-                    t_props[i] = cf.add_plot_table(self.plot_fig, ax[n_filt], table_font_small, tab_str[i], row_hdr,
-                                                   col_hdr, col_row, col_sig, 'top')
-
-                    # resets the table dimensions
-                    t_props[i][0]._bbox[0] = max(t_props[i][0]._bbox[0], -0.05)
-                    t_props[i][0]._bbox[1] = 1 - (i / n_filt) * (1 + 1.25 * t_props[i][0]._bbox[3])
-                    t_props[i][0]._bbox[2] = min(t_props[i][0]._bbox[2], 1.0)
-
-            elif plot_type == 'Correlation Scatterplot':
-                #######################################
-                ####    CORRELATION SCATTERPLOT    ####
-                #######################################
-
-                # parameters
-                h_sig = []
-                m_size, mlt = 20, 3
-
-                # significance colours
-                sig_col = [cf.convert_rgb_col([147, 149, 152])[0],      # non-significant markers
-                           cf.convert_rgb_col(_green)[0],               # black-only significant markers
-                           cf.convert_rgb_col(_bright_purple)[0],       # uniform-only significant markers
-                           cf.convert_rgb_col(_bright_red)[0]]          # both condition significant spikes
-
-                # initialises the plot axes
-                n_plot = int(r_obj_wc.n_filt / 2)
-                n_col, n_row = cf.det_subplot_dim(n_plot)
-                self.init_plot_axes(n_plot=n_plot, n_row=n_row, n_col=n_col)
-                ax = self.plot_fig.ax
-
-                #
-                for i_plot in range(n_plot):
-                    # calculates the significance scores
-                    ii = 2 * i_plot + np.array([0, 1])
-                    sig_score = sf_sig[ii[0]] + 2 * sf_sig[ii[1]]
-                    sf_x, sf_y = sf_corr[ii[0]], sf_corr[ii[1]]
-
-                    # plots the significant values
-                    for i_sig in range(1, 4):
-                        # creates the legend markers (first subplot only)
-                        if i_plot == 0:
-                            h_sig.append(ax[i_plot].scatter(-2, -2, marker='o', s=mlt*m_size, facecolor=sig_col[i_sig]))
-
-                        # determines if there are any significant cells
-                        is_sig = sig_score == i_sig
-                        if np.any(is_sig):
-                            # if there are significant cells, then
-                            ax[i_plot].scatter(sf_x[is_sig], sf_y[is_sig], marker='o',
-                                               s=mlt*m_size, facecolor=sig_col[i_sig])
-
-                    # plots the scatterplot values
-                    ax[i_plot].scatter(sf_x, sf_y, marker='o', s=m_size, facecolor=sig_col[0])
-                    ax[i_plot].plot([-1, 1], [0, 0], 'r--')
-                    ax[i_plot].plot([0, 0], [-1, 1], 'r--')
-                    cf.set_axis_limits(ax[i_plot], [-1, 1], [-1, 1])
-
-                    # sets the subplot title
-                    t_str = ', '.join(r_obj_wc.lg_str[ii[0]].split()[:-1]) if '\n' in r_obj_wc.lg_str[0] else 'All Cells'
-                    ax[i_plot].set_title(t_str)
-
-                    # sets the other axis properties
-                    ax[i_plot].grid(plot_grid)
-                    ax[i_plot].set_xlabel('Black Correlation')
-                    ax[i_plot].set_ylabel('Uniform Correlation')
-
-                    # creates the legend (first subplot only)
-                    if i_plot == 0:
-                        ax[i_plot].legend(h_sig, ['Black Sig.', 'Uniform Sig.', 'Both Sig.'])
+            v_str = 'All Velocities'
+
+        # sets the reverse trial type condition dictionary key
+        tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
+        if 'DARK1' not in f_data.t_type:
+            tt_key_rev['Black'] = 'DARK'
+
+        ################################################
+        ####    DATA PRE-CALCULATIONS & GROUPING    ####
+        ################################################
+
+        # determines the matching cells against the freely moving experiment file
+        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
+        is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
+        is_ok = np.array(cf.flat_list(is_ok0))
+
+        # retrieves the common filtered indices
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+
+        # sets the global-to-local and trial condition indices
+        ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+        ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+        ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+        i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+
+        # sets the angular head velocity analysis/significance values
+        sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+        sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
+
+        ###############################
+        ####    FIGURE CREATION    ####
+        ###############################
+
+        # parameters
+        h_sig = []
+        m_size, mlt = 20, 3
+
+        # significance colours
+        sig_col = [cf.convert_rgb_col([147, 149, 152])[0],  # non-significant markers
+                   cf.convert_rgb_col(_green)[0],  # black-only significant markers
+                   cf.convert_rgb_col(_bright_purple)[0],  # uniform-only significant markers
+                   cf.convert_rgb_col(_bright_red)[0]]  # both condition significant spikes
+
+        # initialises the plot axes
+        n_plot = int(r_obj_wc.n_filt / 2)
+        n_col, n_row = cf.det_subplot_dim(n_plot)
+        self.init_plot_axes(n_plot=n_plot, n_row=n_row, n_col=n_col)
+        ax = self.plot_fig.ax
+
+        #
+        for i_plot in range(n_plot):
+            # calculates the significance scores
+            ii = 2 * i_plot + np.array([0, 1])
+            sig_score = sf_sig[ii[0]] + 2 * sf_sig[ii[1]]
+            sf_x, sf_y = sf_corr[ii[0]], sf_corr[ii[1]]
+
+            # plots the significant values
+            for i_sig in range(1, 4):
+                # creates the legend markers (first subplot only)
+                if i_plot == 0:
+                    h_sig.append(ax[i_plot].scatter(-2, -2, marker='o', s=mlt * m_size, facecolor=sig_col[i_sig]))
+
+                # determines if there are any significant cells
+                is_sig = sig_score == i_sig
+                if np.any(is_sig):
+                    # if there are significant cells, then
+                    ax[i_plot].scatter(sf_x[is_sig], sf_y[is_sig], marker='o',
+                                       s=mlt * m_size, facecolor=sig_col[i_sig])
+
+            # plots the scatterplot values
+            ax[i_plot].scatter(sf_x, sf_y, marker='o', s=m_size, facecolor=sig_col[0])
+            ax[i_plot].plot([-1, 1], [0, 0], 'r--')
+            ax[i_plot].plot([0, 0], [-1, 1], 'r--')
+            cf.set_axis_limits(ax[i_plot], [-1, 1], [-1, 1])
+
+            # sets the subplot title
+            t_str = ', '.join(r_obj_wc.lg_str[ii[0]].split()[:-1]) if '\n' in r_obj_wc.lg_str[0] else 'All Cells'
+            ax[i_plot].set_title(t_str)
+
+            # sets the other axis properties
+            ax[i_plot].grid(plot_grid)
+            ax[i_plot].set_xlabel('Black Correlation')
+            ax[i_plot].set_ylabel('Uniform Correlation')
+
+            # creates the legend (first subplot only)
+            if i_plot == 0:
+                ax[i_plot].legend(h_sig, ['Black Sig.', 'Uniform Sig.', 'Both Sig.'])
+
+        # sets the super-title string
+        t_str = 'Black/Uniform Correlations ({0})\n(Light Condition = {1})'.format(v_str, lcond_type)
+
+        # resizes the figure to include the super-title
+        self.plot_fig.fig.set_tight_layout(False)
+        self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
+        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
@@ -13097,6 +13245,9 @@ class AnalysisFunctions(object):
 
         # only initialise these functions if there is free data
         if has_free_data:
+            # list initialisations
+            disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
+
             # ====> Freely Moving Cell Type Statistics
             para = {
                 # plotting parameters
@@ -13113,7 +13264,7 @@ class AnalysisFunctions(object):
                           func='plot_free_cell_stats',
                           para=para)
 
-            # ====> Fixed/Freely Moving Spiking Frequency Correlation
+            # ====> Fixed/Free Spiking Correlation (Individual Cell)
             para = {
                 # calculation parameters
                 'n_shuffle': {'gtype': 'C', 'text': 'Correlation Shuffle Count', 'def_val': 100},
@@ -13147,22 +13298,9 @@ class AnalysisFunctions(object):
                     'para_reset': [['ff_cluster', self.reset_matched_index]]
                 },
                 'show_trend': {'type': 'B', 'text': 'Show Regression Trendlines', 'def_val': True},
-                'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
                 'vel_dir': {
                     'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
                     'def_val': vel_dir[0], 'is_enabled': is_split
-                },
-                'lcond_type': {
-                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
-                },
-                'plot_type': {
-                    'type': 'L', 'text': 'Plot Type', 'list': ff_plot_type, 'def_val': ff_plot_type[0],
-                    'link_para': [['ff_cluster', ['Correlation Histogram', 'Correlation Scatterplot']],
-                                  ['free_exp_name', ['Correlation Histogram', 'Correlation Scatterplot']],
-                                  ['show_trend', ['Correlation Histogram', 'Correlation Scatterplot']],
-                                  ['bin_sz', ['Individual Cell Correlation', 'Correlation Scatterplot']],
-                                  ['lcond_type', 'Individual Cell Correlation'],
-                                  ['rot_filt', 'Individual Cell Correlation']]
                 },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -13172,8 +13310,104 @@ class AnalysisFunctions(object):
                 },
             }
             self.add_func(type='Freely Moving Analysis',
-                          name='Fixed/Freely Moving Spiking Frequency Correlation',
-                          func='plot_fix_free_corr',
+                          name='Fixed/Free Spiking Correlation (Individual Cell)',
+                          func='plot_fix_free_corr_indiv',
+                          para=para)
+
+            # ====> Fixed/Free Spiking Correlation (Histogram)
+            para = {
+                # calculation parameters
+                'n_shuffle': {'gtype': 'C', 'text': 'Correlation Shuffle Count', 'def_val': 100},
+                'vel_bin': {
+                    'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+                },
+                'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+                'equal_time': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                    'link_para': ['n_sample', False]
+                },
+                'split_vel': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                    'para_reset': [[None, self.reset_vel_range]]
+                },
+
+                # invisible calculation parameters
+                'freq_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                    'def_val': 'All', 'is_visible': False
+                },
+
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
+                },
+                'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
+                'vel_dir': {
+                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
+                    'def_val': vel_dir[0], 'is_enabled': is_split
+                },
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+                'disp_met': {'type': 'L', 'text': 'Display Metric Type', 'list': disp_met, 'def_val': disp_met[0]},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+                # invisible parameters
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+                },
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='Fixed/Free Spiking Correlation (Histogram)',
+                          func='plot_fix_free_corr_hist',
+                          para=para)
+
+            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            para = {
+                # calculation parameters
+                'n_shuffle': {'gtype': 'C', 'text': 'Correlation Shuffle Count', 'def_val': 100},
+                'vel_bin': {
+                    'gtype': 'C','type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+                },
+                'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+                'equal_time': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                    'link_para': ['n_sample', False]
+                },
+                'split_vel': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'def_val': is_split,
+                    'para_reset': [[None, self.reset_vel_range]]
+                },
+
+                # invisible calculation parameters
+                'freq_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                    'def_val': 'All', 'is_visible': False
+                },
+
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
+                },
+                'vel_dir': {
+                    'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,
+                    'def_val': vel_dir[0], 'is_enabled': is_split
+                },
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+                # invisible parameters
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+                },
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='Fixed/Free Spiking Correlation (Scatterplot)',
+                          func='plot_fix_free_corr_scatter',
                           para=para)
 
         ######################################
@@ -15739,6 +15973,7 @@ class AnalysisFunctions(object):
         '''
 
         # initialisations
+        fcn_d = None
         data = self.get_data_fcn()
         h_combo_list = [h_combo.itemText(i) for i in range(h_combo.count())]
 
@@ -15765,10 +16000,12 @@ class AnalysisFunctions(object):
             f_data, pp = data.externd.free_data, 'free_exp_name'
 
             # retrieves the function data sub-dictionary
-            fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
-            if 'No Fixed/Free' in fcn_d['para'][pp]['def_val']:
-                # if there are experiments set, then reset the default value
-                fcn_d['para'][pp]['def_val'] = f_data.exp_name[0]
+            if 'Freely Moving Analysis' in self.details:
+                fcn_name = 'Fixed/Free Spiking Correlation (Individual'
+                fcn_d = next(d for d in self.details['Freely Moving Analysis'] if fcn_name in d['name'])
+                if 'No Fixed/Free' in fcn_d['para'][pp]['def_val']:
+                    # if there are experiments set, then reset the default value
+                    fcn_d['para'][pp]['def_val'] = f_data.exp_name[0]
 
         elif fcn_str == 'Eye Tracking':
             # retrieves the external data field and corresponding parameter name
@@ -15778,9 +16015,6 @@ class AnalysisFunctions(object):
             if 'Eye Tracking' in self.details.keys():
                 # retrieves the sub-dictionary if the eye-tracking data field has been setup
                 fcn_d = next(d for d in self.details['Eye Tracking'] if 'Eye Movement Event Signals' in d['name'])
-            else:
-                # otherwise, set an empty sub-dictionary
-                fcn_d = None
 
         if fcn_d is not None:
             # updates the functions parameter/default value fields
@@ -16856,7 +17090,8 @@ class AnalysisFunctions(object):
         data = self.get_data_fcn()
 
         # retrieves the list object corresponding to the parameter
-        fcn_d = next(d for d in self.details['Cluster Matching'] if 'Fixed/Freely Moving Spiking' in d['name'])
+        fcn_name = 'Fixed/Free Spiking Correlation (Individual'
+        fcn_d = next(d for d in self.details['Freely Moving Analysis'] if fcn_name in d['name'])
 
         # retrieves the experiment names and the currently selected index
         exp_name = fcn_d['para']['free_exp_name']['list']
@@ -16869,7 +17104,7 @@ class AnalysisFunctions(object):
             i_sel_exp = exp_name.index(fcn_d['para']['free_exp_name']['def_val'])
 
         # updates the parameter with the new values
-        nw_txt = cfcn.get_matching_fix_free_strings(data, exp_name[i_sel_exp])
+        nw_txt = cfcn.get_matching_fix_free_strings(data, [exp_name[i_sel_exp]])
         fcn_d['para'][p_name]['list'] = nw_txt
         fcn_d['para'][p_name]['def_val'] = nw_txt[0]
 

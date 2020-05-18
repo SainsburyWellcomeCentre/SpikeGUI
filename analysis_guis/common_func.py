@@ -3026,29 +3026,32 @@ def has_free_ctype(data):
         return False
 
 
-def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False):
+def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=False):
     '''
 
     :param data:
     :return:
     '''
 
+    import analysis_guis.calc_functions as cfcn
     from analysis_guis.dialogs.rotation_filter import RotationFilteredData
 
+    # sets the experiment file names
     if exp_name is None:
         exp_name = data.externd.free_data.exp_name
     elif not isinstance(exp_name, list):
         exp_name = list(exp_name)
 
+    # initialisations
+    free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
+    i_file_free = [free_data.exp_name.index(ex_name) for ex_name in exp_name]
+
     # retrieves the cluster indices
     if cl_ind is None:
         r_filt = init_rotation_filter_data(False)
         r_filt['t_type'] += ['Uniform']
-        r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+        r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False, use_raw=True)
         cl_ind = r_obj.clust_ind[0]
-
-    # initialisations
-    free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
 
     # memory allocation
     n_file = len(exp_name)
@@ -3056,16 +3059,16 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False)
     i_expt = -np.ones(n_file, dtype=int)
     f2f_map = np.empty(n_file, dtype=object)
 
-    for i_file, exp_name in enumerate(exp_name):
+    for i_file, ex_name in enumerate(exp_name):
         # determines if there is a match between the freely moving experiment file and that stored within the
         # freely moving data field
-        if det_likely_filename_match(free_data.exp_name, exp_name) is None:
+        if det_likely_filename_match(free_data.exp_name, ex_name) is None:
             # if not, then flag the file as being invalid and continue
             is_ok[i_file] = False
             continue
         else:
             # otherwise, determine if there is a match within the comparison dataset freely moving data files
-            i_expt_nw = det_likely_filename_match(free_file, exp_name)
+            i_expt_nw = det_likely_filename_match(free_file, ex_name)
             if i_expt_nw is None:
                 # if not, then flag the file as being invalid and continue
                 is_ok[i_file] = False
@@ -3074,16 +3077,21 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False)
         # retrieves the fixed/free datasets
         i_expt[i_file] = i_expt_nw
         c_data = data.comp.data[i_expt_nw]
-        data_fix, data_free = get_comp_datasets(data, c_data=c_data, is_full=is_full)
+        data_fix, data_free = get_comp_datasets(data, c_data=c_data, is_full=True)
 
         # sets the match array (removes non-inclusion cells and non-accepted matched cells)
         cl_ind_nw = cl_ind[i_expt_nw]
         i_match = c_data.i_match[cl_ind_nw]
         i_match[~c_data.is_accept[cl_ind_nw]] = -1
 
+        # removes any cells that are excluded by the general filter
+        if apply_filter:
+            cl_inc_fix = cfcn.get_inclusion_filt_indices(data_fix, data.exc_gen_filt)
+            i_match[np.logical_not(cl_inc_fix)] = -1
+
         # determines the overlapping cell indices between the free dataset and those from the cdata file
         _, i_cell_free_f, i_cell_free = \
-                np.intersect1d(dcopy(free_data.cell_id[i_file]), dcopy(data_free['clustID']),
+                np.intersect1d(dcopy(free_data.cell_id[i_file_free[i_file]]), dcopy(data_free['clustID']),
                                assume_unique=True, return_indices=True)
 
         # determines the fixed-to-free mapping index arrays
@@ -3094,6 +3102,18 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, is_full=False)
 
     # returns the experiment index/fixed-to-free mapping indices
     return i_expt, f2f_map
+
+
+def det_reverse_indices(i_cell_b, ind_gff):
+    '''
+
+    :param i_cell_b:
+    :param ind_gff:
+    :return:
+    '''
+
+    _, _, ind_rev = np.intersect1d(i_cell_b, ind_gff, return_indices=True)
+    return ind_rev
 
 
 def reset_table_pos(fig, ax_t, t_props):

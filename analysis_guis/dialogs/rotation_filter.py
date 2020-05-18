@@ -590,7 +590,7 @@ class RotationFilter(QDialog):
 
 class RotationFilteredData(object):
     def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud,
-                 t_ofs=None, t_phase=None):
+                 t_ofs=None, t_phase=None, use_raw=False):
 
         # initialisations
         self.e_str = None
@@ -601,6 +601,7 @@ class RotationFilteredData(object):
         self.plot_exp_name = plot_exp_name
         self.plot_all_expt = plot_all_expt
         self.plot_scope = plot_scope
+        self.use_raw = use_raw
 
         # sets the phase labels based on the experiment stimuli type
         if self.is_ud:
@@ -620,7 +621,7 @@ class RotationFilteredData(object):
         self.is_single_cell = plot_scope == 'Individual Cell'
 
         #
-        if cf.use_raw_clust(data):
+        if cf.use_raw_clust(data) or self.use_raw:
             self.n_expt = 1 + plot_all_expt * (len(data._cluster) - 1)
         else:
             self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
@@ -658,7 +659,7 @@ class RotationFilteredData(object):
 
         # applies all unique filters to the loaded experiments
         self.t_spike0, self.wvm_para, self.trial_ind, self.clust_ind, self.i_expt0, self.f_perm, self.f_key, \
-                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name)
+                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name, self.use_raw)
 
         # determines the number of plots to be displayed
         self.n_filt = len(self.rot_filt_tot)
@@ -674,6 +675,11 @@ class RotationFilteredData(object):
         # sets the experiment indices
         clust_ind, trial_ind, e_str = self.clust_ind, self.trial_ind, None
 
+        if self.use_raw:
+            cluster = data._cluster
+        else:
+            cluster = data.cluster
+
         if len(clust_ind) == 0:
             # if the cluster index is not valid, then output an error to screen
             e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
@@ -687,7 +693,7 @@ class RotationFilteredData(object):
             else:
                 # otherwise, set the cluster index value for the given experiment
                 clust_ind = [[np.array([i_cluster-1], dtype=int)] for _ in range(self.n_filt)]
-                i_expt0 = cf.get_expt_index(self.plot_exp_name, data.cluster, cf.det_valid_rotation_expt(data))
+                i_expt0 = cf.get_expt_index(self.plot_exp_name, cluster, cf.det_valid_rotation_expt(data))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
 
         # if there was an error then output a message to screen and exit the function
@@ -696,7 +702,7 @@ class RotationFilteredData(object):
             self.is_ok = False
             return
 
-        if cf.use_raw_clust(data):
+        if cf.use_raw_clust(data) or self.use_raw:
             s_freq = [[data._cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
         else:
             s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
@@ -720,7 +726,7 @@ class RotationFilteredData(object):
             ]
 
         # sets the cluster/channel ID flags
-        if cf.use_raw_clust(data):
+        if cf.use_raw_clust(data) or self.use_raw:
             self.cl_id = [sum([list(np.array(data._cluster[x]['clustID'])[y])
                             for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
             self.ch_id = [sum([list(np.array(data._cluster[x]['chDepth'])[y])

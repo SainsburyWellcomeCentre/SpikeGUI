@@ -675,7 +675,7 @@ def setup_filter_permutations(d_clust, rot_filt):
     return rot_filt_ex, f_perm, f_key
 
 
-def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
+def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw):
     '''
 
     :param data:
@@ -690,13 +690,13 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
     if exp_name is None:
         # case is filtering multiple experiments
         i_expt_match = np.where(is_rot_expt)[0]
-        if cf.use_raw_clust(data):
+        if cf.use_raw_clust(data) or use_raw:
             d_clust = [data._cluster[x] for x in i_expt_match]
         else:
             d_clust = [data.cluster[x] for x in i_expt_match]
     else:
         # case is filtering on a single experiment level
-        if cf.use_raw_clust(data):
+        if cf.use_raw_clust(data) or use_raw:
             i_expt_match = [cf.get_expt_index(exp_name, data._cluster)]
             d_clust = [data._cluster[i_expt_match[0]]]
         else:

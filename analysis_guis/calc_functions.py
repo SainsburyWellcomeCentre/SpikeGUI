@@ -1830,7 +1830,8 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
 ####    KINEMATIC LDA FUNCTIONS    ####
 #######################################
 
-def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True, r_data=None):
+def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True,
+                                     r_data=None, use_raw=False):
     '''
 
     :param calc_para:
@@ -1853,7 +1854,7 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
             r_filt_base['t_type'] = list(np.unique(r_filt_base['t_type'] + plot_para['rot_filt']['t_type']))
 
     # sets up the black phase data filter and returns the time spikes
-    r_data.r_obj_kine = RotationFilteredData(data, r_filt_base, 0, None, True, 'Whole Experiment', False)
+    r_data.r_obj_kine = RotationFilteredData(data, r_filt_base, 0, None, True, 'Whole Experiment', False, use_raw=use_raw)
 
     # memory allocation
     if equal_time:
@@ -4138,8 +4139,12 @@ def get_matching_fix_free_strings(data, exp_name):
     '''
 
     # retrieves the experiment index and mapping values
-    i_expt, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=[exp_name])
+    i_expt, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=exp_name, apply_filter=True)
     is_ok = f2f_map[0][:, 1] > 0
+
+    # if there are no valid cells then return an error list
+    if not np.any(is_ok):
+        return ['No Valid Cells']
 
     # retrieves the cluster indices
     i_ex = cf.get_global_expt_index(data, data.comp.data[i_expt[0]])
@@ -4148,11 +4153,16 @@ def get_matching_fix_free_strings(data, exp_name):
     # retrieves the fixed cluster ID#'s
     r_filt = cf.init_rotation_filter_data(False)
     r_filt['t_type'] += ['Uniform']
-    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False, use_raw=True)
     clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[0]][is_ok]]
 
+    if isinstance(exp_name, list):
+        i_free = data.externd.free_data.exp_name.index(exp_name[0])
+    else:
+        i_free = data.externd.free_data.exp_name.index(exp_name)
+
     # retrieves the free cluster ID#'s
-    clust_id_free = np.array(data.externd.free_data.cell_id[0])[f2f_map[0][is_ok, 1]]
+    clust_id_free = np.array(data.externd.free_data.cell_id[i_free])[f2f_map[0][is_ok, 1]]
 
     # returns the combined fixed/free cluster ID strings
     return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]

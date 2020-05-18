@@ -149,27 +149,6 @@ class WorkerThread(QThread):
                 # case is determining the cluster matches
                 self.det_cluster_matches(data, calc_para, w_prog)
 
-            elif self.thread_job_secondary == 'Fixed/Freely Moving Spiking Frequency Correlation':
-
-                # determines if the freely moving data file has been loaded
-                if not hasattr(data.externd, 'free_data'):
-                    # if the data-file has not been loaded then output an error to screen and exit
-                    e_str = 'The freely moving spiking frequency/statistics data file must be loaded ' \
-                            'before being able to run this function.\n\nPlease load this data file and try again.'
-                    w_err.emit(e_str, 'Freely Moving Data Missing?')
-
-                    # exits the function with an error flag
-                    self.is_ok = False
-                    self.work_finished.emit(thread_data)
-                    return
-
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, plot_para, g_para, ['ff_corr', 'vel'], other_para=False)
-
-                # calculates the shuffled kinematic spiking frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
-                self.calc_fix_free_correlation(data, calc_para, w_prog)
-
             elif self.thread_job_secondary == 'Cluster Cross-Correlogram':
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
@@ -206,6 +185,30 @@ class WorkerThread(QThread):
 
                 # updates the bin velocity
                 data.rotation.vel_bin_corr = calc_para['vel_bin']
+
+            elif 'Fixed/Free Spiking Correlation' in self.thread_job_secondary:
+
+                # determines if the freely moving data file has been loaded
+                if not hasattr(data.externd, 'free_data'):
+                    # if the data-file has not been loaded then output an error to screen and exit
+                    e_str = 'The freely moving spiking frequency/statistics data file must be loaded ' \
+                            'before being able to run this function.\n\nPlease load this data file and try again.'
+                    w_err.emit(e_str, 'Freely Moving Data Missing?')
+
+                    # exits the function with an error flag
+                    self.is_ok = False
+                    self.work_finished.emit(thread_data)
+                    return
+
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['ff_corr', 'vel'], other_para=False)
+
+                # calculates the shuffled kinematic spiking frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False, use_raw=True)
+
+                # calculates the fixed/free correlations (if not already set)
+                if not data.comp.ff_corr.is_set:
+                    self.calc_fix_free_correlation(data, calc_para, w_prog)
 
             ######################################
             ####    EYE TRACKING FUNCTIONS    ####
@@ -1641,12 +1644,12 @@ class WorkerThread(QThread):
 
         # initialisations
         i_bin = ['5', '10'].index(calc_para['vel_bin'])
-        tt_key = {'DARK1': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
+        tt_key = {'DARK1': 'Black', 'DARK': 'Black', 'LIGHT1': 'Uniform', 'LIGHT2': 'Uniform'}
         f_data, r_data, ff_corr = data.externd.free_data, data.rotation, data.comp.ff_corr
         n_bin = 2 * int(f_data.v_max / float(calc_para['vel_bin']))
 
         # determines matching experiment index and fix-to-free cell index arrays
-        i_expt, f2f_map = cf.det_matching_fix_free_cells(data)
+        i_expt, f2f_map = cf.det_matching_fix_free_cells(data, apply_filter=False)
 
         # determines the global indices for each file
         nC = [len(x) for x in r_data.r_obj_kine.clust_ind[0]]
@@ -1689,7 +1692,7 @@ class WorkerThread(QThread):
             # sets the cluster ID values
             is_ok = i_f2f > 0
             i_expt_fix = cf.get_global_expt_index(data, data.comp.data[i_expt[i_file]])
-            fix_clust_id = np.array(data.cluster[i_expt_fix]['clustID'])[is_ok]
+            fix_clust_id = np.array(data._cluster[i_expt_fix]['clustID'])[is_ok]
             free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
             ff_corr.clust_id[i_file] = np.vstack((fix_clust_id, free_clust_id)).T
             ff_corr.ind_g[i_file] = ind_nw
