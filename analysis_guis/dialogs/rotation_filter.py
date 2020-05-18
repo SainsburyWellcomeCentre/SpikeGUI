@@ -590,7 +590,7 @@ class RotationFilter(QDialog):
 
 class RotationFilteredData(object):
     def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud,
-                 t_ofs=None, t_phase=None, use_raw=False):
+                 t_ofs=None, t_phase=None, use_raw=False, rmv_empty=True):
 
         # initialisations
         self.e_str = None
@@ -602,6 +602,7 @@ class RotationFilteredData(object):
         self.plot_all_expt = plot_all_expt
         self.plot_scope = plot_scope
         self.use_raw = use_raw
+        self.rmv_empty = rmv_empty
 
         # sets the phase labels based on the experiment stimuli type
         if self.is_ud:
@@ -802,7 +803,7 @@ class RotationFilteredData(object):
 
         # determines if each filter has at least one cell
         is_ok = np.array([np.size(x, axis=0) for x in self.t_spike]) > 0
-        if any(np.logical_not(is_ok)):
+        if any(np.logical_not(is_ok)) and self.rmv_empty:
             # if there are any filters with no cells, then reduce the class arrays
             self.n_filt = sum(is_ok)
 

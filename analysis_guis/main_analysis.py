@@ -3558,7 +3558,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=[1 / n_r] * n_r,
-                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.05, right=0.98,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.065, right=0.965,
                                    bottom=y_bottom, top=y_top)
 
             # creates the subplots
@@ -3583,7 +3583,7 @@ class AnalysisGUI(QMainWindow):
             rot_filt = cf.init_rotation_filter_data(False)
 
         # initialisations
-        y_top, y_bottom = 0.9, 0.06
+        y_top, y_bottom = 0.875, 0.06
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
         n_bin_h = int(80 / ff_corr.vel_bin)
@@ -3616,7 +3616,7 @@ class AnalysisGUI(QMainWindow):
         is_ok = np.array(cf.flat_list(is_ok0))
 
         # retrieves the common filtered indices
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False, rmv_empty=0)
         t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
         i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
 
@@ -3716,18 +3716,24 @@ class AnalysisGUI(QMainWindow):
                 n_sig, n_tot = np.sum(is_ok[ind_gfilt0[i_filt]]), n_cell_grp[i_filt]
 
                 # calculates the proportion of matched cells over each experiment
-                p_sig_tot0 = [np.sum(i_ex_gf == i) / n for i, n in enumerate(n_cell_ex)]
+                if np.sum(n_cell_ex) == 0:
+                    p_sig_tot[i_filt] = [0] * n_free
+                else:
+                    p_sig_tot[i_filt] = [np.sum(i_ex_gf == i) / n for i, n in enumerate(n_cell_ex)]
             else:
                 # calculates the number of significant cells (over all experiments)
                 n_sig, n_tot = np.sum(sf_sig[i_filt]), n_cell[i_filt]
 
                 # calculates the proportion of significant cells over each experiment
-                p_sig_tot0 = [np.mean(sf_sig[i_filt][i_ex_gf == i]) for i in range(n_free)]
+                if n_tot == 0:
+                    p_sig_tot[i_filt] = [0] * n_free
+                else:
+                    p_sig_tot[i_filt] = [np.mean(sf_sig[i_filt][i_ex_gf == i]) for i in range(n_free)]
 
             # p_sig_tot0 = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
 
-            # removes any NaN values
-            p_sig_tot[i_filt] = [x for x in p_sig_tot0 if not np.isnan(x)]
+            # # removes any NaN values
+            # p_sig_tot[i_filt] = [x for x in p_sig_tot0 if not np.isnan(x)]
 
             # sets up the table values
             n_sig_tab = np.array([n_sig, n_tot - n_sig, n_tot])
@@ -3742,6 +3748,7 @@ class AnalysisGUI(QMainWindow):
         for i_ax, _ax in enumerate(ax[:n_filt]):
             # resets the overall y-axis limit
             _ax.set_ylim([0, yLmx])
+            cf.reset_integer_tick(_ax, 'y')
 
             # sets the x-axis labels (last row only)
             if (i_ax + 1) == n_filt:
@@ -3763,8 +3770,8 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the mean/sem percentages
         n_free_final = len(p_sig_tot[0])
-        p_sig_mu = 100. * np.mean(np.vstack(p_sig_tot).T, axis=0)
-        p_sig_sem = 100. * np.std(np.vstack(p_sig_tot).T, axis=0) / np.sqrt(n_free_final)
+        p_sig_mu = 100. * np.nanmean(np.vstack(p_sig_tot).T, axis=0)
+        p_sig_sem = 100. * np.nanstd(np.vstack(p_sig_tot).T, axis=0) / np.sqrt(n_free_final)
 
         # creates the bar graph
         for i in range(len(xi)):

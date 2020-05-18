@@ -13,7 +13,10 @@ from skimage import measure
 from numpy.matlib import repmat
 import matplotlib.pyplot as plt
 from fuzzywuzzy import fuzz, process
+
+# matplotlib module import
 from matplotlib.patches import Polygon
+from matplotlib.text import Annotation
 
 # pyqt5 module import
 from PyQt5.QtGui import QFont, QFontMetrics, QColor
@@ -3228,3 +3231,26 @@ def get_global_index_arr(r_obj, return_all=True, i_expt_int=None):
                  zip(r_obj.i_expt0, r_obj.clust_ind)]
         return [setup_global_index_arr(get_array_lengths(_cl_id), i_expt_int, i_expt_int, return_all)
                                for _cl_id in cl_id]
+
+
+def reset_integer_tick(ax, ax_type):
+    '''
+
+    :param ax:
+    :param ax_type:
+    :return:
+    '''
+
+    if ax_type == 'x':
+        get_tick_fcn, set_tick_fcn, set_lbl_fcn = ax.get_xticks, ax.set_xticks, ax.set_xticklabels
+    else:
+        get_tick_fcn, set_tick_fcn, set_lbl_fcn = ax.get_yticks, ax.set_yticks, ax.set_yticklabels
+
+    # retrieves the tick values and determines if they are integers
+    t_vals = get_tick_fcn()
+    is_ok = t_vals % 1 == 0
+
+    # if there are any non-integer values then remove them
+    if np.any(~is_ok):
+        set_tick_fcn(t_vals[is_ok])
+        set_lbl_fcn([Annotation('{:d}'.format(int(y)),[0, y]) for y in t_vals[is_ok]])
