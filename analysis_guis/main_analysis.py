@@ -3368,7 +3368,7 @@ class AnalysisGUI(QMainWindow):
         t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
         t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
 
-    def plot_fix_free_corr_indiv(self, rot_filt, ff_cluster, free_exp_name, show_trend, vel_dir, plot_grid, plot_scope):
+    def plot_fix_free_corr_indiv(self, ff_cluster, free_exp_name, show_trend, vel_dir, plot_grid, rot_filt, plot_scope):
         '''
 
         :param ff_cluster:
@@ -3394,9 +3394,6 @@ class AnalysisGUI(QMainWindow):
             # exits the function flagging an error
             self.calc_ok = False
             return
-
-        elif rot_filt is None:
-            rot_filt = cf.init_rotation_filter_data(False)
 
         # initialisations
         ff_corr = self.data.comp.ff_corr
@@ -13295,10 +13292,6 @@ class AnalysisFunctions(object):
                 },
 
                 # plotting parameters
-                'rot_filt': {
-                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
-                },
                 'ff_cluster': {'type': 'L', 'text': 'Matched Index', 'def_val': ff_cluster[0], 'list': ff_cluster},
                 'free_exp_name': {
                     'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
@@ -13312,6 +13305,11 @@ class AnalysisFunctions(object):
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
                 # invisible parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free,
+                    'is_visible': False
+                },
                 'plot_scope': {
                     'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
                 },
