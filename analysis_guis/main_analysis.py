@@ -3229,7 +3229,7 @@ class AnalysisGUI(QMainWindow):
         c_key = list(cell_type_all[0][0].columns)
 
         # retrieves the indices of the free experiments that match the external data files
-        c_free = [c for c in self.data.cluster if c['rotInfo'] is None]
+        c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
         exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
         i_expt_free = [next(i for i, ff in enumerate(exp_free) if f in ff) for f in f_data.exp_name]
 
@@ -3266,8 +3266,8 @@ class AnalysisGUI(QMainWindow):
 
         # other initialisations
         n_expt = len(cell_type)
-        n_plot = len(c_key) - 1
         n_cell = [np.shape(x)[0] for x in cell_type]
+        n_plot = len(c_key)
 
         # sets the bar graph colours
         col_b = cf.get_plot_col(n_plot+1)
@@ -3280,9 +3280,8 @@ class AnalysisGUI(QMainWindow):
         # calculates the freely moving cell types
         n_type_cell = np.vstack([np.array(np.sum(x, axis=0)) for x in cell_type])
         p_type_cell = 100. * np.vstack([np.array(np.mean(x, axis=0)) for x in cell_type])
-        p_type_mu = np.mean(p_type_cell, axis=0)[1:]
-        p_type_sem = np.std(p_type_cell, axis=0)[1:] / np.sqrt(n_expt)
-        x_lbl = c_key[1:(n_plot+1)]
+        p_type_mu = np.mean(p_type_cell, axis=0)
+        p_type_sem = np.std(p_type_cell, axis=0) / np.sqrt(n_expt)
 
         # creates the bar graphs for each cell type
         for i_type in range(n_plot):
@@ -3293,17 +3292,17 @@ class AnalysisGUI(QMainWindow):
 
         # sets the axis properties
         ax[0].set_xticks(np.arange(n_plot))
-        ax[0].set_xticklabels(x_lbl)
+        ax[0].set_xticklabels(c_key)
         ax[0].set_ylabel('Percentage of Cells')
         ax[0].set_ylim([-1, 101])
         ax[0].grid(plot_grid)
 
         # creates the output table
-        p_type_str = np.vstack([np.sum(n_type_cell, axis=0)[1:(n_plot+1)],
-                                np.array(['{:.1f}'.format(pt) for pt in p_type_mu[:n_plot]])])
+        p_type_str = np.vstack([np.sum(n_type_cell, axis=0),
+                                np.array(['{:.1f}'.format(pt) for pt in p_type_mu])])
         p_type_str = np.hstack(([p_type_str, np.array([str(sum(n_cell)), '100.0']).reshape(-1, 1)]))
         cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['Count', '%age'],
-                                         x_lbl + ['Total Cells'], col_pp, col_b, 'bottom')
+                                         c_key + ['Total Cells'], col_pp, col_b, 'bottom')
 
         ####################################
         ####    VENN DIAGRAM SUBPLOT    ####
@@ -3314,9 +3313,16 @@ class AnalysisGUI(QMainWindow):
 
         # sets the type matches over all experiments/cell types
         for i_ct, ct in enumerate(cell_type):
-            for ck in x_lbl:
+            for ck in c_key[1:]:
+                # determines the matches based on the cell type
+                if ck == 'HDMod':
+                    # case is HDMod, so include both HDMod and HD
+                    n_match = np.concatenate((np.where(ct['HD'])[0], np.where(ct['HDMod'])[0]))
+                else:
+                    # case is the other cell type
+                    n_match = np.where(ct[ck])[0]
+
                 # determines the number of matches with the current cell-type
-                n_match = np.where(ct[ck])[0]
                 if len(n_match) > 0:
                     # if there are any matches, then add it to the match dictionary
                     nw_match = set(['{0}|{1}'.format(i_ct+1, x) for x in n_match])
@@ -3325,56 +3331,32 @@ class AnalysisGUI(QMainWindow):
                     else:
                         ct_dict[ck] = nw_match
 
-        # creates the venn diagram
-        if len(list(ct_dict.keys())) == 4:
-            # case is 4 cell-types groups have been found
-            if use_pcent:
-                # case is using percentages to represent venn diagram set regions
-                venn(ct_dict, fmt="{percentage:.1f}%", fontsize=8, legend_loc="upper left", cmap=col_b, ax=ax[1])
+        # case is less than 4 groups have been found
+        ct_lbl = ['HD+HDMod' if x == 'HDMod' else x for x in c_key if x in ct_dict]
+        ct_set = [set(ct_dict[ct]) for ct in c_key[1:]]
+        col_venn = [col_b[c_key.index(ct)] for ct in c_key[1:]]
+
+        # creates the venn diagrams based on the type group count
+        if use_pcent:
+            n_total = sum(n_cell)
+            lbl_fmt = lambda x: '{:.1%}'.format(x/n_total)
+
+            if len(ct_lbl) == 3:
+                venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
             else:
-                # case is using counts to represent venn diagram set regions
-                venn(ct_dict, fontsize=8, legend_loc="upper left", ax=ax[1], cmap=col_b)
+                venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
         else:
-            # case is less than 4 groups have been found
-            ct_lbl = set([x for x in x_lbl if x in ct_dict])
-            ct_set = [set(ct_dict[ct]) for ct in ct_lbl]
-            col_venn = [col_b[x_lbl.index(ct)] for ct in ct_lbl]
-
-            # creates the venn diagrams based on the type group count
-            if use_pcent:
-                n_total = sum(n_cell)
-                lbl_fmt = lambda x: '{:.1%}'.format(x/n_total)
-
-                if len(ct_lbl) == 3:
-                    venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
-                else:
-                    venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn, subset_label_formatter=lbl_fmt)
+            if len(ct_lbl) == 3:
+                venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
             else:
-                if len(ct_lbl) == 3:
-                    venn3(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
-                else:
-                    venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
+                venn2(ct_set, ct_lbl, ax=ax[1], set_colors=col_venn)
 
         ###########################################
         ####    AHV TYPE PERCENTAGE SUBPLOT    ####
         ###########################################
 
-        # calculates the head direction cells
-        n_hd = sum([sum(ct['HD']) for ct in cell_type])
-        n_hdmod = sum([sum(ct['HDMod']) for ct in cell_type])
-
-        # creates the output table
-        n_hd_str = np.array([str(x) for x in [n_hd, n_hdmod]]).reshape(1, -1)
-        t_props_1 = cf.add_plot_table(self.plot_fig, ax[2], table_font, n_hd_str, ['Count'],
-                                      ['HD Cells', 'HDMod Cells'], [col_pp[0]], col_b[:2], 'top')
-
+        # parameters
         l_min = 0.025
-        t_props_1[0]._bbox[0] = max(t_props_1[0]._bbox[0], l_min)
-        t_props_1[0]._bbox[2] = min(t_props_1[0]._bbox[2], 1 - 2 * l_min)
-
-        ########################################
-        ####    HDMOD PERCENTAGE SUBPLOT    ####
-        ########################################
 
         # calculates the total/symmetric ahv cell counts
         n_ahv_sig = sum([sum(x > 0) for x in ahv_score])
@@ -3382,14 +3364,12 @@ class AnalysisGUI(QMainWindow):
 
         # creates the output table
         n_ahv_str = np.array([str(x) for x in [n_ahv_sym, n_ahv_sig - n_ahv_sym, n_ahv_sig]]).reshape(1, -1)
-        t_props_2 = cf.add_plot_table(self.plot_fig, ax[2], table_font, n_ahv_str, ['Count'],
-                                      ['Symmetric', 'Asymmetric', 'Total'], [col_pp[0]], col_b[:3], 'top')
+        t_props = cf.add_plot_table(self.plot_fig, ax[2], table_font, n_ahv_str, ['Count'],
+                                    ['Symmetric', 'Asymmetric', 'Total'], [col_pp[0]], col_b[:3], 'top')
 
-        # resets the bottom location of the upper table
-        c_hght = t_props_1[0]._bbox[3] / (np.size(n_hd_str, axis=0) + 1)
-        t_props_2[0]._bbox[0] = max(t_props_2[0]._bbox[0], l_min)
-        t_props_2[0]._bbox[1] = t_props_1[0]._bbox[1] - (t_props_1[0]._bbox[3] + c_hght)
-        t_props_2[0]._bbox[2] = min(t_props_2[0]._bbox[2], 1 - 2 * l_min)
+        # resets the dimensions of the table
+        t_props[0]._bbox[0] = max(t_props[0]._bbox[0], l_min)
+        t_props[0]._bbox[2] = min(t_props[0]._bbox[2], 1 - 2 * l_min)
 
     def plot_fix_free_corr_indiv(self, ff_cluster, free_exp_name, show_trend, vel_dir, plot_grid, rot_filt, plot_scope):
         '''
