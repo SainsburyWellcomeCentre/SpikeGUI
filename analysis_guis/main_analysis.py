@@ -3187,7 +3187,7 @@ class AnalysisGUI(QMainWindow):
     ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
     ################################################
 
-    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, use_pcent, plot_grid):
+    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, rmv_nmatch, use_pcent, plot_grid):
         '''
 
         :param free_exp_name:
@@ -3224,18 +3224,41 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         i_bin = ['5', '10'].index(vel_bin)
-        cell_type_all = self.data.externd.free_data.cell_type
-        ahv_score_all = self.data.externd.free_data.ahv_score
+        f_data, g_filt = self.data.externd.free_data, self.data.exc_gen_filt
+        cell_type_all, ahv_score_all = f_data.cell_type, f_data.ahv_score
         c_key = list(cell_type_all[0][0].columns)
 
-        # sets the plot values
+        # retrieves the indices of the free experiments that match the external data files
+        c_free = [c for c in self.data.cluster if c['rotInfo'] is None]
+        exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
+        i_expt_free = [next(i for i, ff in enumerate(exp_free) if f in ff) for f in f_data.exp_name]
+
+        # maps the freely moving experiments to the external data files
+        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[2] for id, c in zip(f_data.cell_id, c_free)]
+
+        # retrieves the inclusion cell boolean flags (matched with the external data files)
+        cl_inc = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt)[i_m] for i_ex, i_m in zip(i_expt_free, i_map)]
+
+        # resets the inclusion cell boolean flags (if required)
+        if rmv_nmatch:
+            # determines the mapping between the free/external data file free cells
+            _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
+
+            # sets the inclusion cell boolean flags for the unmatched cells to false
+            n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
+            for i in range(len(cl_inc)):
+                cl_inc[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
+
+        # sets the plot values (removes any excluded cells from the general filter)
         if plot_all:
             # case is plotting all experiments
-            cell_type, ahv_score = [x[i_bin] for x in cell_type_all], [x[i_bin] for x in ahv_score_all]
+            cell_type = [x[i_bin].loc[ind, :] for ind, x in zip(cl_inc, cell_type_all)]
+            ahv_score = [x[i_bin][ind] for ind, x in zip(cl_inc, ahv_score_all)]
         else:
             # case is plotting a single experiment
             i_expt = self.data.externd.free_data.exp_name.index(free_exp_name)
-            cell_type, ahv_score = [cell_type_all[i_expt][i_bin]], [ahv_score_all[i_expt][i_bin]]
+            cell_type = [cell_type_all[i_expt][i_bin].loc[cl_inc[i_expt], :]]
+            ahv_score = [ahv_score_all[i_expt][i_bin][cl_inc[i_expt]]]
 
         # initialises the plot axes
         setup_plot_axes(self.plot_fig)
@@ -3626,8 +3649,8 @@ class AnalysisGUI(QMainWindow):
         # sets the angular head velocity analysis/significance values
         sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
         sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
-        # sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
-        #               for i_c, i_g in zip(i_cond, ind_gfilt)]
+        sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
+                      for i_c, i_g in zip(i_cond, ind_gfilt)]
 
         # sets the indices for each free/fix match over all experiments
         n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
@@ -3719,18 +3742,13 @@ class AnalysisGUI(QMainWindow):
                     p_sig_tot[i_filt] = [np.sum(i_ex_gf == i) / n for i, n in enumerate(n_cell_ex)]
             else:
                 # calculates the number of significant cells (over all experiments)
-                n_sig, n_tot = np.sum(sf_sig[i_filt]), n_cell[i_filt]
+                n_sig, n_tot = np.sum(sf_sig_all[i_filt]), n_cell[i_filt]
 
                 # calculates the proportion of significant cells over each experiment
                 if n_tot == 0:
                     p_sig_tot[i_filt] = [0] * n_free
                 else:
-                    p_sig_tot[i_filt] = [np.mean(sf_sig[i_filt][i_ex_gf == i]) for i in range(n_free)]
-
-            # p_sig_tot0 = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
-
-            # # removes any NaN values
-            # p_sig_tot[i_filt] = [x for x in p_sig_tot0 if not np.isnan(x)]
+                    p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
 
             # sets up the table values
             n_sig_tab = np.array([n_sig, n_tot - n_sig, n_tot])
@@ -13261,6 +13279,7 @@ class AnalysisFunctions(object):
                     'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['free_exp_name', True]
                 },
                 'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
+                'rmv_nmatch': {'type': 'B', 'text': 'Remove Non-Matched Cells', 'def_val': True},
                 'use_pcent': {'type': 'B', 'text': 'Use Percentages For Venn Diagram', 'def_val': True},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
