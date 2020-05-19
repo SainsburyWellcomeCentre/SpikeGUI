@@ -4307,7 +4307,8 @@ class AnalysisGUI(QMainWindow):
         evnt_str = ['M-to-T', 'T-to-M']
 
         # determines the cells that will be included in the analysis
-        i_expt = [et_d.exp_name.index(cf.extract_file_name(x['expFile'])) for x in self.data._cluster]
+        c_file = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
+        i_expt = [c_file.index(et_exp) for et_exp in et_d.exp_name]
         for i_ex in i_expt:
             cl_ind.append(cfcn.get_inclusion_filt_indices(self.data._cluster[i_ex], self.data.exc_gen_filt))
 
