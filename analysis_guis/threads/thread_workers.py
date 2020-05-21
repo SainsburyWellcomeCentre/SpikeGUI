@@ -157,7 +157,8 @@ class WorkerThread(QThread):
             ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
             ################################################
 
-            elif ' (Fixed)' in self.thread_job_secondary:
+            elif ' (Fixed)' in self.thread_job_secondary or \
+                                            (self.thread_job_secondary == 'Correlation Significance Overlap'):
 
                 # ensures the smoothing window is an odd integer (if smoothing)
                 if calc_para['is_smooth']:
@@ -178,8 +179,7 @@ class WorkerThread(QThread):
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
                 cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
 
-            elif ' (Freely Moving)' in self.thread_job_secondary:
-
+            elif (' (Freely Moving)' in self.thread_job_secondary):
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel_sf_free'], other_para=False)
 

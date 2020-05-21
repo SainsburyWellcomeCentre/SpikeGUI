@@ -3247,6 +3247,7 @@ class AnalysisGUI(QMainWindow):
             # sets the inclusion cell boolean flags for the unmatched cells to false
             n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
             for i in range(len(cl_inc)):
+                is_match = f2f_map[i][:, 0] >= 0
                 cl_inc[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
 
         # sets the plot values (removes any excluded cells from the general filter)
@@ -3333,8 +3334,8 @@ class AnalysisGUI(QMainWindow):
 
         # case is less than 4 groups have been found
         ct_lbl = ['HD+HDMod' if x == 'HDMod' else x for x in c_key if x in ct_dict]
-        ct_set = [set(ct_dict[ct]) for ct in c_key[1:]]
-        col_venn = [col_b[c_key.index(ct)] for ct in c_key[1:]]
+        ct_set = [set(ct_dict[ct]) for ct in c_key[1:] if ct in ct_dict]
+        col_venn = [col_b[c_key.index(ct)] for ct in c_key[1:] if ct in ct_dict]
 
         # creates the venn diagrams based on the type group count
         if use_pcent:
@@ -5131,43 +5132,8 @@ class AnalysisGUI(QMainWindow):
             ####    FIXED HEAD ANALYSIS    ####
             ###################################
 
-            # if there was an error setting up the rotation calculation object, then exit the function with an error
-            r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-            if not r_obj_wc.is_ok:
-                # if there was an error, then exit with an error flag
-                self.calc_ok = False
-                return
-
-            # retrieves the indices of the cells that are common across all trial types
+            n_type_ex0, n_cell_ex0, _, r_obj_wc = self.calc_corr_significance_types(rot_filt)
             n_filt, lg_str = r_obj_wc.n_filt, r_obj_wc.lg_str
-            t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-            i_glob, i_expt_int = cf.get_global_index_arr(r_obj_wc, False)
-            i_loc = cf.get_global_index_arr(r_obj_wc, False, i_expt_int)
-
-            # memory allocation
-            n_filt_ex = np.zeros(n_filt, dtype=int)
-            n_cell_ex0 = np.empty(n_filt, dtype=object)
-            n_type_ex0 = np.empty(n_filt, dtype=object)
-
-            # sets the spiking frequency significance values
-            for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
-                # retrieves the indices of the cells within each experiment
-                i_ex = i_loc[i_filt]
-                n_filt_ex[i_filt] = len(i_ex)
-                n_cell_ex0[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
-
-                # retrieves the significance flags for the current filter type
-                v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
-
-                # determines the number of cells for each significance type:
-                #   =0 - No direction is significance
-                #   =1 - Negative direction only is significance
-                #   =2 - Positive direction only is significance
-                #   =3 - Both directions are significance
-                v_sf_sig_score = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
-                v_sf_sig_ex = [v_sf_sig_score[_i_ex] for _i_ex in i_ex]
-                n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
 
         else:
             ######################################
@@ -5307,6 +5273,101 @@ class AnalysisGUI(QMainWindow):
             # creates the table
             cf.add_plot_table(self.plot_fig, ax[1], t_font, sf_type_N, row_hdr, col_hdr,
                               col_table[:n_filt] + tot_col, col_table[:(len(col_hdr) - 1)] + tot_col, 'fixed')
+
+    def plot_sig_overlap(self, free_cell_type, rot_filt):
+        '''
+
+        :param cell_type:
+        :return:
+        '''
+
+        def setup_venn_dict(ct_fix, is_sig, fc_type):
+            '''
+
+            :param c_arr:
+            :return:
+            '''
+
+            # memory allocation
+            v_dict = {}
+            d_key = ['Significant Matched Cells', '{0} Cells'.format(fc_type)]
+
+            # sets the significant cells/cell type classifications for all cells that have fixed/free matches
+            is_match = ct_fix >= 0
+            n_match = [np.where(is_sig[is_match])[0], np.where(ct_fix[is_match] == 1)[0]]
+
+            for i_col, dk in enumerate(d_key):
+                # determines the number of matches with the current cell-type
+                if len(n_match[i_col]) > 0:
+                    # if there are any matches, then add it to the match dictionary
+                    nw_match = set(['{0}'.format(x) for x in n_match[i_col]])
+                    if dk in v_dict:
+                        v_dict[dk] = v_dict[dk].union(nw_match)
+                    else:
+                        v_dict[dk] = nw_match
+
+            # returns the dictionary
+            return v_dict
+
+        # initialisations
+        f_data, r_data = self.data.externd.free_data, self.data.rotation
+        i_bin = ['5', '10'].index(str(int(r_data.vel_bin_corr)))
+
+        # calculates the spiking frequency correlation significance type
+        _, _, vf_score, r_obj_wc = self.calc_corr_significance_types(rot_filt)
+
+        # retrieves the fixed-to-free cell mapping indices
+        _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
+        is_matched = [np.where(x[:, 0] >= 0)[0] for x in f2f_map]
+
+        # retrieves the indices of the free experiments that match the external data files
+        i_fix = [i for i, c in enumerate(self.data._cluster) if c['rotInfo'] is not None]
+        exp_fix = [cf.extract_file_name(self.data._cluster[i]['expFile']) for i in i_fix]
+        i_expt_fix = [next(i for i, ff in enumerate(exp_fix) if f in ff) for f in f_data.exp_name]
+
+        # determines the indices of the cells (for each experiment) as matched with the free data experiment files
+        i_grp = [[np.where(x == i_fix[i])[0] for i in i_expt_fix] for x in r_obj_wc.i_expt]
+
+        # matches the free cell types classifications with the cells from the
+        c_type_fix = [-np.ones(len(ig), dtype=int) for ig in i_grp[0]]
+        for i_ex, ff in enumerate(f2f_map):
+            c_type_free = f_data.cell_type[i_ex][i_bin][free_cell_type][ff[is_matched[i_ex], 1]]
+            c_type_fix[i_ex][is_matched[i_ex]] = np.array(c_type_free).astype(int)
+
+        # combines the types
+        c_type_fix_all = np.hstack(c_type_fix)
+
+        # combines the significant/cell type arrays over all experiments (for the Black/Uniform trial conditions)
+        is_sig = [np.hstack([vf[_ig] > 0 for _ig in ig]) for vf, ig in zip(vf_score, i_grp)]
+
+
+        ##################################
+        ####    VENN DIAGRAM SETUP    ####
+        ##################################
+
+        # sets the sub-title strings
+        n_plot = 1
+        t_sub = ['Black/DARK', 'Uniform/LIGHT']
+
+        # sets up the plot axes
+        self.plot_fig.setup_plot_axis(n_row=1, n_col=n_plot)
+
+        #
+        for i_ax, ax in enumerate(self.plot_fig.ax[:n_plot]):
+            # sets up the venn diagram dictionary
+            v_dict = setup_venn_dict(c_type_fix_all, is_sig[i_ax], free_cell_type)
+
+            # case is less than 4 groups have been found
+            v_lbl = list(v_dict.keys())
+            v_set = [set(v_dict[vk]) for vk in v_lbl]
+            col_venn = cf.get_plot_col(len(v_lbl))
+
+            # creates the venn diagram
+            venn2(v_set, v_lbl, ax=ax, set_colors=col_venn)
+
+            # sets the title
+            # ax.set_title('Significant Cell Overlap\n({0})'.format(t_sub[i_ax]), fontweight='bold', fontsize=16)
+            ax.set_title('Significant Cell Overlap', fontweight='bold', fontsize=16)
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -12000,6 +12061,58 @@ class AnalysisGUI(QMainWindow):
             t_pos[1] = t_props_2[0]._bbox[1] + t_props_2[0]._bbox[3] + dh_title
             h_title_2.set_position(tuple(t_pos))
 
+    def calc_corr_significance_types(self, rot_filt):
+        '''
+
+        :param rot_filt:
+        :return:
+        '''
+
+        # initialisations
+        r_data = self.data.rotation
+
+        # if there was an error setting up the rotation calculation object, then exit the function with an error
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        if not r_obj_wc.is_ok:
+            # if there was an error, then exit with an error flag
+            self.calc_ok = False
+            return
+
+        # retrieves the indices of the cells that are common across all trial types
+        n_filt = r_obj_wc.n_filt
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+        i_glob, i_expt_int = cf.get_global_index_arr(r_obj_wc, False)
+        i_loc = cf.get_global_index_arr(r_obj_wc, False, i_expt_int)
+
+        # memory allocation
+        n_filt_ex = np.zeros(n_filt, dtype=int)
+        n_cell_ex0 = np.empty(n_filt, dtype=object)
+        n_type_ex0 = np.empty(n_filt, dtype=object)
+        v_sf_sig_score = np.empty(n_filt, dtype=object)
+
+        # sets the spiking frequency significance values
+        for i_filt, rr in enumerate(r_obj_wc.rot_filt_tot):
+            # retrieves the indices of the cells within each experiment
+            i_ex = i_loc[i_filt]
+            n_filt_ex[i_filt] = len(i_ex)
+            n_cell_ex0[i_filt] = repmat(np.array([len(x) for x in i_ex]).reshape(-1, 1), 1, 3)
+
+            # retrieves the significance flags for the current filter type
+            v_sf_sig_nw = r_data.vel_sf_sig[rr['t_type'][0]][i_cell_b[i_filt], :]
+
+            # determines the number of cells for each significance type:
+            #   =0 - No direction is significance
+            #   =1 - Negative direction only is significance
+            #   =2 - Positive direction only is significance
+            #   =3 - Both directions are significance
+            v_sf_sig_score[i_filt] = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
+            v_sf_sig_ex = [v_sf_sig_score[i_filt][_i_ex] for _i_ex in i_ex]
+            n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+
+        # returns the array
+        return n_type_ex0, n_cell_ex0, v_sf_sig_score, r_obj_wc
+
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####
     ############################################
@@ -13543,6 +13656,7 @@ class AnalysisFunctions(object):
         # initialisations
         sig_vel_bin = ['5', '10']
         dist_type = ['Cumulative Distribution', 'Histogram']
+        free_type = ['HD', 'HDMod', 'AHV', 'Speed']
 
         # sets up the fixed correlation rotational filter
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
@@ -13816,6 +13930,10 @@ class AnalysisFunctions(object):
             # retrieves the freely moving trial types
             tt_free = dcopy(list(data.externd.free_data.t_type))
 
+            # plotting parameters
+            rot_filt_sig = dcopy(rot_filt0)
+            rot_filt_sig['t_type'] = ['Black', 'Uniform']
+
             # ====> Correlation Distributions (Freely Moving)
             para = {
                 # calculation parameters
@@ -13920,6 +14038,57 @@ class AnalysisFunctions(object):
             self.add_func(type='Angular Head Velocity Analysis',
                           name='Correlation Significance (Freely Moving)',
                           func='plot_freq_corr_significance',
+                          para=para)
+
+            # ====> Correlation Significance (Freely Moving)
+            para = {
+                # calculation parameters
+                'n_shuffle': {
+                    'gtype': 'C', 'text': 'Trial Shuffle Count',
+                    'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
+                },
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': sig_vel_bin,
+                    'def_val': cfcn.set_def_para(corr_def_para, 'vel_bin', '5')
+                },
+                'n_smooth': {
+                    'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                    'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+                },
+                'is_smooth': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                    'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+                },
+                'n_sample': {
+                    'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                    'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
+                },
+                'equal_time': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'link_para': ['n_sample', False],
+                    'def_val': cfcn.set_def_para(corr_def_para, 'equal_time', False)
+                },
+
+                # invisible calculation parameters
+                'split_vel': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Split Velocity Range', 'is_visible': False, 'def_val': True
+                },
+                'freq_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                    'def_val': 'All', 'is_visible': False
+                },
+
+                # plotting parameters
+                'free_cell_type': {'type': 'L', 'text': 'Cell Type', 'list': free_type, 'def_val': 'AHV'},
+
+                # invisible plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'Rotation Filter Parameters', 'def_val': dcopy(rot_filt_sig),
+                    'para_gui': RotationFilter, 'is_visible': False
+                },
+            }
+            self.add_func(type='Angular Head Velocity Analysis',
+                          name='Correlation Significance Overlap',
+                          func='plot_sig_overlap',
                           para=para)
 
         ##########################################
