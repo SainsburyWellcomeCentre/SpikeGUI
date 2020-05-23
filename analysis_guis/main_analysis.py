@@ -3670,7 +3670,7 @@ class AnalysisGUI(QMainWindow):
 
             # collapses the correlation/significance values for each experiment for the current filter type
             sf_corr_filt = np.array(cf.flat_list(sf_corr[i_filt]))
-            sf_sig_filt = np.array(cf.flat_list(sf_sig[i_filt])) != 0
+            sf_sig_filt = np.array(cf.flat_list(sf_sig[i_filt])) > 0
 
             if len(sf_corr_filt):
                 # calculates the histogram of the significant cells
@@ -3718,8 +3718,8 @@ class AnalysisGUI(QMainWindow):
                     p_sig_tot[i_filt] = [np.mean(x) for x in is_match[i_filt]]
             else:
                 # calculates the number of significant cells (over all experiments)
-                sf_sig_all_filt = cf.flat_list(sf_sig_all[i_filt])
-                n_sig, n_tot = sum(sf_sig_all_filt), len(sf_sig_all_filt)
+                sf_sig_all_filt = np.array(cf.flat_list(sf_sig_all[i_filt]))
+                n_sig, n_tot = sum(sf_sig_all_filt > 0), len(sf_sig_all_filt)
 
                 # calculates the proportion of significant cells over each experiment
                 if n_tot == 0:
@@ -3869,7 +3869,7 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # calculates the significance scores
             ii = 2 * i_plot + np.array([0, 1])
-            sig_score = (sf_sig[ii[0]] != 0) + 2 * (sf_sig[ii[1]] != 0)
+            sig_score = (sf_sig[ii[0]] > 0) + 2 * (sf_sig[ii[1]] > 0)
             sf_x, sf_y = sf_corr[ii[0]], sf_corr[ii[1]]
 
             # plots the significant values
@@ -11733,8 +11733,8 @@ class AnalysisGUI(QMainWindow):
                 roc_xy[i_filt] = r_data.part_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
                 roc_auc[i_filt] = r_data.part_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
             else:
-                roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_sig[i_filt]]
-                roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_sig[i_filt], 2]
+                roc_xy[i_filt] = r_data.cond_roc_xy[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt]]
+                roc_auc[i_filt] = r_data.cond_roc_auc[tt_filt][i_cell_b[i_filt]][i_cell_sig[i_filt], 2]
 
             # calculates the roc curves overall trials (for each cell)
             for i_cell in range(n_cell):
