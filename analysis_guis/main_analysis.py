@@ -5295,11 +5295,15 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         g_filt = self.data.exc_gen_filt
+        ff_corr = self.data.comp.ff_corr
         f_data, r_data = self.data.externd.free_data, self.data.rotation
         i_bin = ['5', '10'].index(str(int(r_data.vel_bin_corr)))
 
-        # calculates the spiking frequency correlation significance type
+        # calculates the spiking frequency correlation significance type (UNCOMENT FOR FIXED SIGNIFICANCE CALCULATIONS)
         _, _, vf_score, r_obj_wc = self.calc_corr_significance_types(rot_filt)
+
+        # # calculates the fixed/free spiking correlations (UNCOMENT FOR FREE SIGNIFICANCE CALCULATIONS)
+        # _, _, _, sf_sig_all, _, _ = self.get_fix_free_spiking_corr(rot_filt)
 
         # retrieves the fixed-to-free cell mapping indices
         _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
@@ -5327,11 +5331,13 @@ class AnalysisGUI(QMainWindow):
             c_type_free = f_data.cell_type[i_ex][i_bin][free_cell_type][f2f_inc[is_matched, 1]]
             c_type_fix[i_ex][is_matched] = np.array(c_type_free).astype(int)
 
-        # combines the types
+
+        # combines the cell type flags over all experiments
         c_type_fix_all = np.hstack(c_type_fix)
 
         # combines the significant/cell type arrays over all experiments (for the Black/Uniform trial conditions)
-        is_sig = [np.hstack([vf[ig] > 0 for ig in i_grp]) for vf in vf_score]
+        is_sig = [np.hstack([vf[ig] > 0 for ig in i_grp]) for vf in vf_score]       # UNCOMMENT FOR FIXED SIGNIFICANCE CALCULATIONS
+        # is_sig = [np.hstack(x) != 0 for x in sf_sig_all]                            # UNCOMMENT FOR FREE SIGNIFICANCE CALCULATIONS
 
         ##################################
         ####    VENN DIAGRAM SETUP    ####
