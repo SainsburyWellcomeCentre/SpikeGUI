@@ -3617,36 +3617,13 @@ class AnalysisGUI(QMainWindow):
         if 'DARK1' not in f_data.t_type:
             tt_key_rev['Black'] = 'DARK'
 
-        # ################################################
-        # ####    DATA PRE-CALCULATIONS & GROUPING    ####
-        # ################################################
-        #
-        # # determines the matching cells against the freely moving experiment file
-        # i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
-        # is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
-        # is_ok = np.array(cf.flat_list(is_ok0))
-        #
-        # # retrieves the common filtered indices
-        # r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        # t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        #
-        # # sets the global-to-local and trial condition indices
-        # ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-        # ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-        # ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-        # i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
-        #
-        # # sets the angular head velocity analysis/significance values
-        # sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-        # sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
-
         ################################################
         ####    DATA PRE-CALCULATIONS & GROUPING    ####
         ################################################
 
         # retrieves the fixed/free matched spiking correlation values
         r_obj_wc, sf_corr, sf_sig, sf_sig_all, is_match, ind_filt_tot = \
-                                self.get_fix_free_spiking_corr(rot_filt, tt_key_rev, i_grp)
+                                self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
 
         # sets the indices for each free/fix match over all experiments
         n_cell_grp = [[len(i) for i in i_filt] for i_filt in ind_filt_tot]
@@ -3857,37 +3834,12 @@ class AnalysisGUI(QMainWindow):
             i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
             v_str = 'All Velocities'
 
-        # sets the reverse trial type condition dictionary key
-        tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
-        if 'DARK1' not in f_data.t_type:
-            tt_key_rev['Black'] = 'DARK'
-
         ################################################
         ####    DATA PRE-CALCULATIONS & GROUPING    ####
         ################################################
 
-        # # determines the matching cells against the freely moving experiment file
-        # i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
-        # is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
-        # is_ok = np.array(cf.flat_list(is_ok0))
-        #
-        # # retrieves the common filtered indices
-        # r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        # t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        # i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-        #
-        # # sets the global-to-local and trial condition indices
-        # ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-        # ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-        # ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-        # i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
-        #
-        # # sets the angular head velocity analysis/significance values
-        # sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-        # sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
-
         # retrieves the fixed/free matched spiking correlation values
-        r_obj_wc, sf_corr0, sf_sig0, _, _, _ = self.get_fix_free_spiking_corr(rot_filt, tt_key_rev, i_grp)
+        r_obj_wc, sf_corr0, sf_sig0, _, _, _ = self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
 
         # flattens the correlation/significance arrays
         sf_corr = [np.array(cf.flat_list(sf)) for sf in sf_corr0]
@@ -5320,7 +5272,7 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
-            # memory allocation
+            # initialisations
             v_dict = {}
             d_key = ['Significant Matched Cells', '{0} Cells'.format(fc_type)]
 
@@ -5342,6 +5294,7 @@ class AnalysisGUI(QMainWindow):
             return v_dict
 
         # initialisations
+        g_filt = self.data.exc_gen_filt
         f_data, r_data = self.data.externd.free_data, self.data.rotation
         i_bin = ['5', '10'].index(str(int(r_data.vel_bin_corr)))
 
@@ -5350,28 +5303,35 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the fixed-to-free cell mapping indices
         _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
-        is_matched = [np.where(x[:, 0] >= 0)[0] for x in f2f_map]
 
         # retrieves the indices of the free experiments that match the external data files
         i_fix = [i for i, c in enumerate(self.data._cluster) if c['rotInfo'] is not None]
         exp_fix = [cf.extract_file_name(self.data._cluster[i]['expFile']) for i in i_fix]
         i_expt_fix = [exp_fix.index(cf.det_closest_file_match(exp_fix, f_name)[0]) for f_name in f_data.exp_name]
 
+        # retrieves the indices of the inclusion cells
+        c_fix = [self.data._cluster[i_fix[i]] for i in i_expt_fix]
+        ind_cl_fix = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_fix]
+
         # determines the indices of the cells (for each experiment) as matched with the free data experiment files
-        i_grp = [[np.where(x == i_fix[i])[0] for i in i_expt_fix] for x in r_obj_wc.i_expt]
+        i_grp = [np.where(r_obj_wc.i_expt[0] == i_fix[i])[0] for i in i_expt_fix]
 
         # matches the free cell types classifications with the cells from the
-        c_type_fix = [-np.ones(len(ig), dtype=int) for ig in i_grp[0]]
+        c_type_fix = [-np.ones(len(ig), dtype=int) for ig in i_grp]
         for i_ex, ff in enumerate(f2f_map):
-            c_type_free = f_data.cell_type[i_ex][i_bin][free_cell_type][ff[is_matched[i_ex], 1]]
-            c_type_fix[i_ex][is_matched[i_ex]] = np.array(c_type_free).astype(int)
+            # sets the fixed/free match indices and matching cells for the current experiment
+            f2f_inc = ff[ind_cl_fix[i_ex], :]
+            is_matched = f2f_inc[:, 0] >= 0
+
+            # aligns the free cells with the fixed cells for the current experiment
+            c_type_free = f_data.cell_type[i_ex][i_bin][free_cell_type][f2f_inc[is_matched, 1]]
+            c_type_fix[i_ex][is_matched] = np.array(c_type_free).astype(int)
 
         # combines the types
         c_type_fix_all = np.hstack(c_type_fix)
 
         # combines the significant/cell type arrays over all experiments (for the Black/Uniform trial conditions)
-        is_sig = [np.hstack([vf[_ig] > 0 for _ig in ig]) for vf, ig in zip(vf_score, i_grp)]
-
+        is_sig = [np.hstack([vf[ig] > 0 for ig in i_grp]) for vf in vf_score]
 
         ##################################
         ####    VENN DIAGRAM SETUP    ####
@@ -12145,7 +12105,7 @@ class AnalysisGUI(QMainWindow):
         # returns the array
         return n_type_ex0, n_cell_ex0, v_sf_sig_score, r_obj_wc
 
-    def get_fix_free_spiking_corr(self, rot_filt, tt_key_rev, i_grp):
+    def get_fix_free_spiking_corr(self, rot_filt, lcond_type=None, i_grp=None):
         '''
 
         :param rot_filt:
@@ -12158,6 +12118,15 @@ class AnalysisGUI(QMainWindow):
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
         g_filt = self.data.exc_gen_filt
+
+        # sets the default light condition type
+        if lcond_type is None:
+            lcond_type = 'LIGHT1'
+
+        # sets the reverse trial type condition dictionary key
+        tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
+        if 'DARK1' not in f_data.t_type:
+            tt_key_rev['Black'] = 'DARK'
 
         # retrieves the rotation filter class object
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False,
@@ -12180,10 +12149,15 @@ class AnalysisGUI(QMainWindow):
         i_cond = [list(f_data.t_type).index(tt_key_rev[tt]) for tt in t_type_full]
 
         # retrieves the significance, correlation and any significance values (for each experiment over all conditions)
-        sf_corr = [[sf[ic][if_t, i_grp] for sf, if_t in
+        if i_grp is None:
+            sf_corr, sf_sig = None, None
+        else:
+            sf_corr = [[sf[ic][if_t, i_grp] for sf, if_t in
                            zip(ff_corr.sf_corr, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
-        sf_sig = [[sf[ic][if_t, i_grp] for sf, if_t in
+            sf_sig = [[sf[ic][if_t, i_grp] for sf, if_t in
                            zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+
+        #
         sf_sig_all = [[np.any(sf[ic][if_t, :] > 0, axis=1) for sf, if_t in
                            zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
 
