@@ -1008,7 +1008,11 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
 
                             # sets the indices of the cells that match the filter value
                             ind_cl_nw = np.zeros(len(ind_cl), dtype=bool)
-                            ind_cl_nw[is_match] = cell_type[rot_filt[ccf][0]][i_f2f[is_match]]
+                            if rot_filt[ccf][0] == 'No Type':
+                                no_ctype = np.sum(cell_type, axis=1) == 0
+                                ind_cl_nw[is_match] = no_ctype[i_f2f[is_match]]
+                            else:
+                                ind_cl_nw[is_match] = cell_type[rot_filt[ccf][0]][i_f2f[is_match]]
 
                 # removes any infeasible trials
                 if ind_tr_nw is not None:

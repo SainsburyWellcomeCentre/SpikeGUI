@@ -717,6 +717,10 @@ class AnalysisGUI(QMainWindow):
                 if self.file_type in [1, 3]:
                     self.check_data_fields()
 
+                # initialises the general exclusion filter  (if not already initialised)
+                if self.data.exc_gen_filt is None:
+                    self.data.exc_gen_filt = cf.init_general_filter_data()
+
                 # sets up the analysis functions and resets the trial type strings
                 self.reset_trial_type_strings()
                 self.fcn_data.init_all_func()
@@ -3231,13 +3235,20 @@ class AnalysisGUI(QMainWindow):
         # retrieves the indices of the free experiments that match the external data files
         c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
         exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
-        i_expt_free = [next(i for i, ff in enumerate(exp_free) if f in ff) for f in f_data.exp_name]
-
-        # maps the freely moving experiments to the external data files
-        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[2] for id, c in zip(f_data.cell_id, c_free)]
+        i_expt_free = [exp_free.index(cf.det_closest_file_match(exp_free, f_name)[0]) for f_name in f_data.exp_name]
 
         # retrieves the inclusion cell boolean flags (matched with the external data files)
-        cl_inc = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt)[i_m] for i_ex, i_m in zip(i_expt_free, i_map)]
+        cl_inc_free = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt) for i_ex in i_expt_free]
+
+        # maps the freely moving experiments to the external data files
+        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[1:] for id, c in zip(f_data.cell_id, c_free)]
+
+        # matches up the inclusion flags for the external data files to the matching free data files
+        cl_inc_extn = np.empty(len(c_free), dtype=object)
+        n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
+        for i in range(len(c_free)):
+            cl_inc_extn[i] = np.zeros(n_ff[i], dtype=bool)
+            cl_inc_extn[i][i_map[i][0]] = cl_inc_free[i][i_map[i][1]]
 
         # resets the inclusion cell boolean flags (if required)
         if rmv_nmatch:
@@ -3245,21 +3256,19 @@ class AnalysisGUI(QMainWindow):
             _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
 
             # sets the inclusion cell boolean flags for the unmatched cells to false
-            n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
-            for i in range(len(cl_inc)):
-                is_match = f2f_map[i][:, 0] >= 0
-                cl_inc[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
+            for i in range(len(cl_inc_extn)):
+                cl_inc_extn[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
 
         # sets the plot values (removes any excluded cells from the general filter)
         if plot_all:
             # case is plotting all experiments
-            cell_type = [x[i_bin].loc[ind, :] for ind, x in zip(cl_inc, cell_type_all)]
-            ahv_score = [x[i_bin][ind] for ind, x in zip(cl_inc, ahv_score_all)]
+            cell_type = [x[i_bin].loc[ind, :] for ind, x in zip(cl_inc_extn, cell_type_all)]
+            ahv_score = [x[i_bin][ind] for ind, x in zip(cl_inc_extn, ahv_score_all)]
         else:
             # case is plotting a single experiment
             i_expt = self.data.externd.free_data.exp_name.index(free_exp_name)
-            cell_type = [cell_type_all[i_expt][i_bin].loc[cl_inc[i_expt], :]]
-            ahv_score = [ahv_score_all[i_expt][i_bin][cl_inc[i_expt]]]
+            cell_type = [cell_type_all[i_expt][i_bin].loc[cl_inc_extn[i_expt], :]]
+            ahv_score = [ahv_score_all[i_expt][i_bin][cl_inc_extn[i_expt]]]
 
         # initialises the plot axes
         setup_plot_axes(self.plot_fig)
@@ -3587,6 +3596,7 @@ class AnalysisGUI(QMainWindow):
         y_top, y_bottom = 0.875, 0.06
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
+        g_filt = self.data.exc_gen_filt
         n_bin_h = int(80 / ff_corr.vel_bin)
 
         # sets the grouping index
@@ -3607,36 +3617,40 @@ class AnalysisGUI(QMainWindow):
         if 'DARK1' not in f_data.t_type:
             tt_key_rev['Black'] = 'DARK'
 
+        # ################################################
+        # ####    DATA PRE-CALCULATIONS & GROUPING    ####
+        # ################################################
+        #
+        # # determines the matching cells against the freely moving experiment file
+        # i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
+        # is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
+        # is_ok = np.array(cf.flat_list(is_ok0))
+        #
+        # # retrieves the common filtered indices
+        # r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        # t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        #
+        # # sets the global-to-local and trial condition indices
+        # ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+        # ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+        # ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+        # i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+        #
+        # # sets the angular head velocity analysis/significance values
+        # sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+        # sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
+
         ################################################
         ####    DATA PRE-CALCULATIONS & GROUPING    ####
         ################################################
 
-        # determines the matching cells against the freely moving experiment file
-        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
-        is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
-        is_ok = np.array(cf.flat_list(is_ok0))
-
-        # retrieves the common filtered indices
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False, rmv_empty=0)
-        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
-
-        # sets the global-to-local and trial condition indices
-        ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-        ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-        ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-        i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
-
-        # sets the angular head velocity analysis/significance values
-        sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-        sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
-        sf_sig_all = [np.any(collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, :] > 0, axis=1)
-                      for i_c, i_g in zip(i_cond, ind_gfilt)]
+        # retrieves the fixed/free matched spiking correlation values
+        r_obj_wc, sf_corr, sf_sig, sf_sig_all, is_match, ind_filt_tot = \
+                                self.get_fix_free_spiking_corr(rot_filt, tt_key_rev, i_grp)
 
         # sets the indices for each free/fix match over all experiments
-        n_cell, n_free = [len(sf) for sf in sf_sig], len(i_expt_f2f)
-        n_cell_grp = [len(x) for x in ind_gfilt0]
-        ind_ex = np.array(cf.flat_list([[i] * len(x) for i, x in enumerate(ff_corr.ind_g)]))
+        n_cell_grp = [[len(i) for i in i_filt] for i_filt in ind_filt_tot]
+        n_cell, n_free = [sum(n) for n in n_cell_grp], len(ind_filt_tot[0])
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -3646,9 +3660,10 @@ class AnalysisGUI(QMainWindow):
         is_norm = False
 
         # initialisations
-        yLmx, n_filt = 0, r_obj_wc.n_filt
+        yLmx, n_filt = 0, len(sf_corr)
         col = cf.get_plot_col(n_filt)
         p_sig_tot, tab_str = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
+        p_sig_mu, p_sig_sem = np.zeros(n_filt), np.zeros(n_filt)
 
         # sets the cdf xi-values
         xi_cdf = np.linspace(-1, 1, int(2 / bin_sz) + 1)
@@ -3676,10 +3691,14 @@ class AnalysisGUI(QMainWindow):
             # sets the index of the column to be analysed
             t_str = r_obj_wc.lg_str[i_filt].replace('\n', ', ')
 
-            if len(sf_corr[i_filt]):
+            # collapses the correlation/significance values for each experiment for the current filter type
+            sf_corr_filt = np.array(cf.flat_list(sf_corr[i_filt]))
+            sf_sig_filt = np.array(cf.flat_list(sf_sig[i_filt])) != 0
+
+            if len(sf_corr_filt):
                 # calculates the histogram of the significant cells
-                sf_corr_hist = np.histogram(sf_corr[i_filt], bins=xi_cdf, normed=False)[0]
-                sf_corr_hist_sig = np.histogram(sf_corr[i_filt][sf_sig[i_filt]], bins=xi_cdf, normed=False)[0]
+                sf_corr_hist = np.histogram(sf_corr_filt, bins=xi_cdf, normed=False)[0]
+                sf_corr_hist_sig = np.histogram(sf_corr_filt[sf_sig_filt], bins=xi_cdf, normed=False)[0]
 
                 # calculates the proportions
                 if is_norm:
@@ -3710,31 +3729,37 @@ class AnalysisGUI(QMainWindow):
             ##############################################
 
             # calculates mean significance (removes any experiments where there are no valid cells)
-            i_ex_gf = ind_ex[ind_gfilt[i_filt]]
-            n_cell_ex = [sum(ind_ex[i_cell_b[i_filt]] == i) for i in range(n_free)]
+            n_tot = n_cell[i_filt]
             if is_matched:
                 # calculates the number of matched cells
-                n_sig, n_tot = np.sum(is_ok[ind_gfilt0[i_filt]]), n_cell_grp[i_filt]
+                n_sig = sum([sum(x) for x in is_match[i_filt]])
 
                 # calculates the proportion of matched cells over each experiment
-                if np.sum(n_cell_ex) == 0:
+                if n_tot == 0:
                     p_sig_tot[i_filt] = [0] * n_free
                 else:
-                    p_sig_tot[i_filt] = [np.sum(i_ex_gf == i) / n for i, n in enumerate(n_cell_ex)]
+                    p_sig_tot[i_filt] = [np.mean(x) for x in is_match[i_filt]]
             else:
                 # calculates the number of significant cells (over all experiments)
-                n_sig, n_tot = np.sum(sf_sig_all[i_filt]), n_cell[i_filt]
+                sf_sig_all_filt = cf.flat_list(sf_sig_all[i_filt])
+                n_sig, n_tot = sum(sf_sig_all_filt), len(sf_sig_all_filt)
 
                 # calculates the proportion of significant cells over each experiment
                 if n_tot == 0:
                     p_sig_tot[i_filt] = [0] * n_free
                 else:
-                    p_sig_tot[i_filt] = [np.mean(sf_sig_all[i_filt][i_ex_gf == i_ex]) for i_ex in range(n_free)]
+                    p_sig_tot[i_filt] = [np.mean(x) for x in sf_sig_all[i_filt]]
+
+            # calculates the metric value SEM
+            p_sig_mu[i_filt] = 100 * np.mean(p_sig_tot[i_filt])
+            p_sig_sem[i_filt] = 100. * np.std(p_sig_tot[i_filt]) / np.sqrt(n_free)
 
             # sets up the table values
             n_sig_tab = np.array([n_sig, n_tot - n_sig, n_tot])
-            p_sig_tab = ['{:.1f}'.format(100 * x / n_tot) for x in n_sig_tab]
-            tab_str[i_filt] = np.vstack((n_sig_tab, p_sig_tab))
+            p_sig_mu_tab = ['{:.1f}'.format(p_sig_mu[i_filt]), '{:.1f}'.format(100 - p_sig_mu[i_filt]), 'N/A']
+            p_sig_sem_tab = ['{:.1f}'.format(p_sig_sem[i_filt])] * 2 + ['N/A']
+            p_sig_tot_tab = ['{:.1f}'.format(100 * x / n_tot) for x in n_sig_tab[:2]] + ['N/A']
+            tab_str[i_filt] = np.vstack((n_sig_tab, p_sig_mu_tab, p_sig_sem_tab, p_sig_tot_tab))
 
         ############################################
         ####    FINAL FIGURE PROPERTY UPDATE    ####
@@ -3760,9 +3785,9 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         xi = np.arange(n_filt) + 1
         n_table = n_filt
-        col_sig, col_row = cf.get_plot_col(n_filt + 1, n_filt), cf.get_plot_col(2, 2 * n_filt + 1)
         t_props = np.empty(n_filt, dtype=object)
-        col_hdr, row_hdr = col_hdr0 + ['Total'], ['Count', '%age']
+        col_hdr, row_hdr = col_hdr0 + ['Total'], ['Count', '%Mean', '%SEM', '%Total']
+        col_sig, col_row = cf.get_plot_col(n_filt + 1, n_filt), cf.get_plot_col(len(row_hdr), 2 * n_filt + 1)
 
         # calculates the mean/sem percentages
         n_free_final = len(p_sig_tot[0])
@@ -3841,25 +3866,32 @@ class AnalysisGUI(QMainWindow):
         ####    DATA PRE-CALCULATIONS & GROUPING    ####
         ################################################
 
-        # determines the matching cells against the freely moving experiment file
-        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
-        is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
-        is_ok = np.array(cf.flat_list(is_ok0))
+        # # determines the matching cells against the freely moving experiment file
+        # i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, apply_filter=True)
+        # is_ok0 = [x[:, 0] >= 0 for x in f2f_map]
+        # is_ok = np.array(cf.flat_list(is_ok0))
+        #
+        # # retrieves the common filtered indices
+        # r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
+        # t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        # i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+        #
+        # # sets the global-to-local and trial condition indices
+        # ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
+        # ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
+        # ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
+        # i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
+        #
+        # # sets the angular head velocity analysis/significance values
+        # sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
+        # sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
 
-        # retrieves the common filtered indices
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
-        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
-        i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj_wc, t_type_full, True)
+        # retrieves the fixed/free matched spiking correlation values
+        r_obj_wc, sf_corr0, sf_sig0, _, _, _ = self.get_fix_free_spiking_corr(rot_filt, tt_key_rev, i_grp)
 
-        # sets the global-to-local and trial condition indices
-        ind_gff = cf.flat_list([list(x) for x in ff_corr.ind_g])
-        ind_gfilt0 = [cf.det_reverse_indices(ic, ind_gff) for ic in i_cell_b]
-        ind_gfilt = [x[ok] for x, ok in zip(ind_gfilt0, [is_ok[ig] for ig in ind_gfilt0])]
-        i_cond = [np.where(f_data.t_type == tt_key_rev[tt])[0][0] for tt in t_type_full]
-
-        # sets the angular head velocity analysis/significance values
-        sf_corr = [collapse_arr(ff_corr.sf_corr, i_c)[i_g, i_grp] for i_c, i_g in zip(i_cond, ind_gfilt)]
-        sf_sig = [collapse_arr(ff_corr.sf_corr_sig, i_c)[i_g, i_grp] > 0 for i_c, i_g in zip(i_cond, ind_gfilt)]
+        # flattens the correlation/significance arrays
+        sf_corr = [np.array(cf.flat_list(sf)) for sf in sf_corr0]
+        sf_sig = [np.array(cf.flat_list(sf)) for sf in sf_sig0]
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -3885,7 +3917,7 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # calculates the significance scores
             ii = 2 * i_plot + np.array([0, 1])
-            sig_score = sf_sig[ii[0]] + 2 * sf_sig[ii[1]]
+            sig_score = (sf_sig[ii[0]] != 0) + 2 * (sf_sig[ii[1]] != 0)
             sf_x, sf_y = sf_corr[ii[0]], sf_corr[ii[1]]
 
             # plots the significant values
@@ -5323,7 +5355,7 @@ class AnalysisGUI(QMainWindow):
         # retrieves the indices of the free experiments that match the external data files
         i_fix = [i for i, c in enumerate(self.data._cluster) if c['rotInfo'] is not None]
         exp_fix = [cf.extract_file_name(self.data._cluster[i]['expFile']) for i in i_fix]
-        i_expt_fix = [next(i for i, ff in enumerate(exp_fix) if f in ff) for f in f_data.exp_name]
+        i_expt_fix = [exp_fix.index(cf.det_closest_file_match(exp_fix, f_name)[0]) for f_name in f_data.exp_name]
 
         # determines the indices of the cells (for each experiment) as matched with the free data experiment files
         i_grp = [[np.where(x == i_fix[i])[0] for i in i_expt_fix] for x in r_obj_wc.i_expt]
@@ -12112,6 +12144,51 @@ class AnalysisGUI(QMainWindow):
 
         # returns the array
         return n_type_ex0, n_cell_ex0, v_sf_sig_score, r_obj_wc
+
+    def get_fix_free_spiking_corr(self, rot_filt, tt_key_rev, i_grp):
+        '''
+
+        :param rot_filt:
+        :param tt_key_rev:
+        :param i_grp:
+        :return:
+        '''
+
+        # initialisations
+        ff_corr = self.data.comp.ff_corr
+        f_data = self.data.externd.free_data
+        g_filt = self.data.exc_gen_filt
+
+        # retrieves the rotation filter class object
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False,
+                                        rmv_empty=0, use_raw=True)
+
+        # determines the matching cells against the freely moving experiment file
+        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
+
+        # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
+        i_expt_fix = np.where(cf.det_valid_rotation_expt(self.data))[0][i_expt_f2f]
+        ind_cl_fix = [np.where(cfcn.get_inclusion_filt_indices(self.data._cluster[i], g_filt))[0] for i in i_expt_fix]
+        ind_filt_tot = [[np.intersect1d(_cl_id, cl_fix) for _cl_id,
+                                                cl_fix in zip(cl_id, ind_cl_fix)] for cl_id in r_obj_wc.clust_ind]
+
+        # determines cells that match between the fixed/external free experiment data files (for each filter type)
+        is_match = [[x[i, 0] >= 0 for i, x in zip(i_filt, f2f_map)] for i_filt in ind_filt_tot]
+
+        # retrieves the indices of the trial type conditions (for retrieving the correlation/significance values)
+        t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
+        i_cond = [list(f_data.t_type).index(tt_key_rev[tt]) for tt in t_type_full]
+
+        # retrieves the significance, correlation and any significance values (for each experiment over all conditions)
+        sf_corr = [[sf[ic][if_t, i_grp] for sf, if_t in
+                           zip(ff_corr.sf_corr, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+        sf_sig = [[sf[ic][if_t, i_grp] for sf, if_t in
+                           zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+        sf_sig_all = [[np.any(sf[ic][if_t, :] > 0, axis=1) for sf, if_t in
+                           zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+
+        # returns the arrays
+        return r_obj_wc, sf_corr, sf_sig, sf_sig_all, is_match, ind_filt_tot
 
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####

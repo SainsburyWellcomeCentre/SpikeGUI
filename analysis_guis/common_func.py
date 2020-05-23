@@ -6,6 +6,7 @@ import copy
 import functools
 import math as m
 import numpy as np
+import pandas as pd
 import pickle as p
 import seaborn as sns
 from numpy import ndarray
@@ -54,6 +55,7 @@ swap_array = lambda x1, x2, is_swap: np.array([x if is_sw else y for x, y, is_sw
 calc_rel_count = lambda x, n: np.array([sum(x == i) for i in range(n)])
 convert_rgb_col = lambda col: to_rgba_array(np.array(col) / 255, 1)
 sig_str_fcn = lambda x, p_value: '*' if x < p_value else ''
+get_field = lambda wfm_para, f_key: np.unique(flat_list([list(x[f_key]) for x in wfm_para]))
 
 # vectorisation function declarations
 sp_freq = lambda x, t_phase: len(x) / t_phase if x is not None else 0
@@ -2801,7 +2803,7 @@ def det_closest_file_match(f_grp, f_new):
 
     if ind_m is None:
         # determines the best match and returns the matching file name/score
-        f_score = np.array([fuzz.partial_ratio(x, f_new) for x in f_grp])
+        f_score = np.array([fuzz.partial_ratio(x.lower(), f_new.lower()) for x in f_grp])
 
         # sorts the scores/file names by descending score
         i_sort = np.argsort(-f_score)
@@ -2936,7 +2938,7 @@ def det_likely_filename_match(f_name, exp_name):
     if i_expt_nw is None:
         # if there isn't an exact match, then determine the
         m_score_fuzz = np.array([fuzz.partial_ratio(x, exp_name_search) for x in f_name])
-        i_match_fuzz = np.where(m_score_fuzz > 99.9)[0]
+        i_match_fuzz = np.where(m_score_fuzz > 90)[0]
 
         #
         if len(i_match_fuzz) == 0:
@@ -3029,7 +3031,7 @@ def has_free_ctype(data):
         return False
 
 
-def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=False):
+def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=False, r_obj=None):
     '''
 
     :param data:
@@ -3053,8 +3055,8 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=F
     if cl_ind is None:
         r_filt = init_rotation_filter_data(False)
         r_filt['t_type'] += ['Uniform']
-        r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False, use_raw=True)
-        cl_ind = r_obj.clust_ind[0]
+        r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False, use_raw=True)
+        cl_ind = r_obj0.clust_ind[0]
 
     # memory allocation
     n_file = len(exp_name)
@@ -3091,6 +3093,11 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=F
         if apply_filter:
             cl_inc_fix = cfcn.get_inclusion_filt_indices(data_fix, data.exc_gen_filt)
             i_match[np.logical_not(cl_inc_fix)] = -1
+
+        # if there is a secondary rotation filter object, then remove any non-included indices
+        if r_obj is not None:
+            b_arr = set_binary_groups(len(i_match), r_obj.clust_ind[0][i_expt_nw])
+            i_match[~b_arr] = -1
 
         # determines the overlapping cell indices between the free dataset and those from the cdata file
         _, i_cell_free_f, i_cell_free = \
@@ -3254,3 +3261,93 @@ def reset_integer_tick(ax, ax_type):
     if np.any(~is_ok):
         set_tick_fcn(t_vals[is_ok])
         set_lbl_fcn([Annotation('{:d}'.format(int(y)),[0, y]) for y in t_vals[is_ok]])
+
+
+def get_all_filter_indices(data, rot_filt):
+    '''
+
+    :param data:
+    :param rot_filt:
+    :return:
+    '''
+
+    # module import
+    from analysis_guis.dialogs.rotation_filter import RotationFilteredData
+
+    # retrieves the data clusters for each of the valid rotation experiments
+    is_rot_expt = det_valid_rotation_expt(data)
+    d_clust = [x for x, y in zip(data._cluster, is_rot_expt) if y]
+    wfm_para = [x['rotInfo']['wfm_para']['UniformDrifting'] for x in
+                              d_clust if 'UniformDrifting' in x['rotInfo']['wfm_para']]
+
+    # adds any non-empty filter objects onto the rotation filter object
+    for gf in data.exc_gen_filt:
+        if len(data.exc_gen_filt[gf]):
+            # retrieves the field values
+            if gf in ['cell_type']:
+                # case is the freely moving data types
+                fld_vals = get_unique_group_types(d_clust, gf, c_type=data.externd.free_data.cell_type)
+            elif gf in ['temp_freq', 'temp_freq_dir', 'temp_cycle']:
+                # case is the uniform drifting data types
+                fld_vals = get_unique_group_types(d_clust, gf, wfm_para=wfm_para)
+            else:
+                # case is the other rotation data types
+                fld_vals = get_unique_group_types(d_clust, gf)
+
+            # retrieves the fields values to be added
+            add_fld = list(set(fld_vals) - set(data.exc_gen_filt[gf]))
+
+            if 'All' in rot_filt[gf]:
+                rot_filt[gf] = add_fld
+            else:
+                rot_filt[gf] = list(np.union1d(add_fld, rot_filt[gf]))
+
+    # retrieves the rotation filter data class object
+    r_obj = RotationFilteredData(data, rot_filt, None, None, True, 'Whole Experiment', False,
+                                 rmv_empty=0, use_raw=True)
+
+    # returns the cluster indices
+    return r_obj.clust_ind
+
+
+def get_unique_group_types(d_clust, f_type, wfm_para=None, c_type=None):
+    '''
+
+    :param d_clust:
+    :param f_type:
+    :return:
+    '''
+
+    # retrieves the field values based on the type and inputs
+    if wfm_para is not None:
+        # case is the uniform-drifting values
+        if f_type == 'temp_freq':
+            return [str(x) for x in get_field(wfm_para, 'tFreq')]
+        elif f_type == 'temp_freq_dir':
+            return [str(x) for x in get_field(wfm_para, 'yDir').astype(int)]
+        elif f_type == 'temp_cycle':
+            return [str(x) for x in get_field(wfm_para, 'tCycle').astype(int)]
+
+    elif c_type is not None:
+        if f_type in ['c_type', 'free_ctype']:
+            c_type0 = pd.concat([x[0] for x in c_type if len(x)], axis=0)
+            c_none = ['No Type'] if any(np.sum(c_type0, axis=1)==0) else []
+            return [ct for ct, ct_any in zip(c_type0.columns, np.any(c_type0, axis=0)) if ct_any] + c_none
+
+    else:
+        if f_type == 'sig_type':
+            return ['Narrow Spikes', 'Wide Spikes']
+        elif f_type == 'match_type':
+            return ['Matched Clusters', 'Unmatched Clusters']
+        elif f_type in ['t_type', 'trial_type']:
+            return flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
+        elif f_type in ['region_type', 'region_name']:
+            return list(np.unique(flat_list([list(np.unique(x['chRegion'])) for x in d_clust])))
+        elif f_type == 'record_layer':
+            return list(np.unique(flat_list([list(np.unique(x['chLayer'])) for x in d_clust])))
+        elif f_type == 'record_coord':
+            return list(np.unique([x['expInfo']['record_coord'] for x in d_clust]))
+        elif f_type in ['lesion_type', 'lesion']:
+            return list(np.unique([x['expInfo']['lesion'] for x in d_clust]))
+        elif f_type == 'record_state':
+            return list(np.unique([x['expInfo']['record_state'] for x in d_clust]))

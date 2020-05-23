@@ -25,7 +25,6 @@ grp_font = cf.create_font_obj(size=10, is_bold=True, font_weight=75)
 
 # other function declarations
 dcopy = copy.deepcopy
-get_field = lambda wfm_para, f_key: np.unique(cf.flat_list([list(x[f_key]) for x in wfm_para]))
 
 ########################################################################################################################
 ########################################################################################################################
@@ -192,7 +191,7 @@ class RotationFilter(QDialog):
 
         # retrieves the trial-types from each experiment
         if (valid_grp or valid_fcn) or (self.is_exc and (not self.is_ud)):
-            t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
+            t_list0 = cf.get_unique_group_types(d_clust, 't_type')
             if self.use_both:
                 trial_type = [x for x in np.unique(t_list0) if x != 'UniformDrifting']
             else:
@@ -201,13 +200,13 @@ class RotationFilter(QDialog):
             trial_type = ['']
 
         # sets the field combobox lists
-        sig_type = ['Narrow Spikes', 'Wide Spikes']
-        match_type = ['Matched Clusters', 'Unmatched Clusters']
-        region_type = np.unique(cf.flat_list([list(np.unique(x['chRegion'])) for x in d_clust]))
-        record_layer = np.unique(cf.flat_list([list(np.unique(x['chLayer'])) for x in d_clust]))
-        record_coord = list(np.unique([x['expInfo']['record_coord'] for x in d_clust]))
-        lesion_type = np.unique([x['expInfo']['lesion'] for x in d_clust])
-        record_state = np.unique([x['expInfo']['record_state'] for x in d_clust])
+        sig_type = cf.get_unique_group_types(d_clust, 'sig_type')
+        match_type = cf.get_unique_group_types(d_clust, 'match_type')
+        region_type = cf.get_unique_group_types(d_clust, 'region_type')
+        record_layer = cf.get_unique_group_types(d_clust, 'record_layer')
+        lesion_type = cf.get_unique_group_types(d_clust, 'lesion_type')
+        record_state = cf.get_unique_group_types(d_clust, 'record_state')
+        record_coord = cf.get_unique_group_types(d_clust, 'record_coord')
 
         # sets the filter field parameter information
         self.fields = [
@@ -228,9 +227,9 @@ class RotationFilter(QDialog):
                                                     d_clust if 'UniformDrifting' in x['rotInfo']['wfm_para']]
 
             # retrieves the unique uniform-drifting stimuli parameters
-            temp_freq = [str(x) for x in get_field(wfm_para, 'tFreq')]
-            temp_freq_dir = [str(x) for x in get_field(wfm_para, 'yDir').astype(int)]
-            temp_cycle = [str(x) for x in get_field(wfm_para, 'tCycle').astype(int)]
+            temp_freq = cf.get_unique_group_types(d_clust, 'temp_freq', wfm_para=wfm_para)
+            temp_freq_dir = cf.get_unique_group_types(d_clust, 'temp_freq_dir', wfm_para=wfm_para)
+            temp_cycle = cf.get_unique_group_types(d_clust, 'temp_cycle', wfm_para=wfm_para)
 
             # adds the new data fields
             self.fields = self.fields[int(not self.use_both):] + [
@@ -242,9 +241,8 @@ class RotationFilter(QDialog):
         # appends addition query field if analysing freely moving cells
         if cf.has_free_ctype(self.data):
             if not self.is_exc or (self.is_exc and self.is_gen):
-                # determines the unique cell types from
-                c_type0 = pd.concat([x[0] for x in self.data.externd.free_data.cell_type if len(x)], axis=0)
-                c_type = [ct for ct, ct_any in zip(c_type0.columns, np.any(c_type0, axis=0)) if ct_any]
+                # determines the unique cell types from free cell data types
+                c_type = cf.get_unique_group_types(d_clust, 'c_type', c_type=self.data.externd.free_data.cell_type)
 
                 # if there are any significant cell types, then add them to the filter type
                 if len(c_type):
