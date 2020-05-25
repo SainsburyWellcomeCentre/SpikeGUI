@@ -4140,7 +4140,7 @@ def get_matching_fix_free_strings(data, exp_name):
 
     # retrieves the experiment index and mapping values
     i_expt, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=exp_name, apply_filter=True)
-    is_ok = f2f_map[0][:, 1] > 0
+    is_ok = f2f_map[0][:, 1] >= 0
 
     # if there are no valid cells then return an error list
     if not np.any(is_ok):

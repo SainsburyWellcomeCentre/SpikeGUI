@@ -1,5 +1,6 @@
 # module import
 import os
+import re
 import copy
 import time
 import pickle as p
@@ -50,7 +51,7 @@ dcopy = copy.deepcopy
 
 
 class InfoDialog(QDialog):
-    def __init__(self, main_obj, parent=None, width=950, height=500, rot_filt=None):
+    def __init__(self, main_obj, parent=None, width=1450, height=600, rot_filt=None):
         # creates the gui object
         super(InfoDialog, self).__init__(parent)
 
@@ -186,7 +187,10 @@ class InfoDialog(QDialog):
 
         #
         self.setup_expt_info(i_expt)
-        self.setup_cluster_info(i_expt)
+        try:
+            self.setup_cluster_info(i_expt)
+        except:
+            a = 1
 
     def setup_expt_info(self, i_expt):
         '''
@@ -285,6 +289,8 @@ class InfoDialog(QDialog):
             ['Matching\nCluster', 'special'],
             ['Spike\nClassification', 'special'],
             ['Action\nType', 'special'],
+            ['Free Cell\nType (5deg/s)', 'special'],
+            ['Free Cell\nType (10deg/s)', 'special'],
         ]
 
         # removes all parameters from the layout
@@ -353,6 +359,35 @@ class InfoDialog(QDialog):
                     else:
                         nw_data = np.array(['---'] * nC)
 
+                elif 'Free Cell\nType' in tt[0]:
+                    if hasattr(self.data.externd, 'free_data'):
+                        # initialisations and memory allocation
+                        c_name = np.array(['HD', 'HDM', 'AHV', 'Spd'])
+                        nw_data = np.array(['---'] * nC, dtype='U15')
+                        f_data = self.data.externd.free_data
+                        i_grp = int('10' in tt[0])
+
+                        # retrieves the free experiment index (which matches the current tab)
+                        f_name = cf.extract_file_name(c_data['expFile'])
+                        i_expt_ff = f_data.exp_name.index(cf.det_closest_file_match(f_data.exp_name, f_name)[0])
+                        _, f2f_map = cf.det_matching_fix_free_cells(self.data,
+                                        exp_name=[f_data.exp_name[i_expt_ff]], apply_filter=True)
+
+                        #
+                        c_type = np.array(f_data.cell_type[i_expt_ff][i_grp])
+                        for i in np.where(f2f_map[0][:, 0] >= 0)[0]:
+                            # sets the table row (depending if fixed or free)
+                            i_row, i_row_ff = i if is_fixed else f2f_map[0][i, 0], f2f_map[0][i, 1]
+
+                            # sets the free cell type
+                            if not np.any(c_type[i_row_ff, :]):
+                                nw_data[i_row] = 'None'
+                            else:
+                                nw_data[i_row] = '/'.join(c_name[c_type[i_row_ff, :]])
+
+                    else:
+                        nw_data = np.array(['---'] * nC)
+
             else:
                 nw_data = np.array(eval('c_data["{0}"]'.format(tt[1]))).astype(str)
 
@@ -365,7 +400,7 @@ class InfoDialog(QDialog):
                                   check_col=[0], check_fcn=self.includeCheck, exc_rows=cl_exc)
         h_table.verticalHeader().setVisible(False)
 
-        nrow_table = min(15, nC)
+        nrow_table = min(20, nC)
         cf.set_obj_fixed_size(h_table, height=(40 - nrow_table) + nrow_table * 22, width=self.grp_wid_info - 2*dX)
 
         # adds the widgets to the layout

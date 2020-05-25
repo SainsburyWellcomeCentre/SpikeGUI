@@ -5318,7 +5318,6 @@ class AnalysisGUI(QMainWindow):
             c_type_free = f_data.cell_type[i_ex][i_bin][free_cell_type][f2f_inc[is_matched, 1]]
             c_type_fix[i_ex][is_matched] = np.array(c_type_free).astype(int)
 
-
         # combines the cell type flags over all experiments
         c_type_fix_all = np.hstack(c_type_fix)
 
