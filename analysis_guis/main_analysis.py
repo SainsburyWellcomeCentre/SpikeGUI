@@ -3542,7 +3542,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
 
-    def plot_fix_free_corr_hist(self, rot_filt, bin_sz, vel_dir, lcond_type, plot_grid, disp_met, plot_scope):
+    def plot_fix_free_corr_hist(self, rot_filt, bin_sz, vel_dir, lcond_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -3607,10 +3607,8 @@ class AnalysisGUI(QMainWindow):
             i_grp, ind_grp = 0, np.arange(2 * n_bin_h)
             v_str = 'All Velocities'
 
-        if disp_met == 'Fixed/Free Matched Cells':
-            met_title, col_hdr0, is_matched = '%age Matched', ['Matched', 'Unmatched'], True
-        else:
-            met_title, col_hdr0, is_matched = '%age Significant', ['Sig.', 'Not Sig.'], False
+        # sets the graph/table headers
+        met_title, col_hdr0 = '%age Significant', ['Sig.', 'Not Sig.']
 
         # sets the reverse trial type condition dictionary key
         tt_key_rev = {'Black': 'DARK1', 'Uniform': lcond_type}
@@ -3622,12 +3620,12 @@ class AnalysisGUI(QMainWindow):
         ################################################
 
         # retrieves the fixed/free matched spiking correlation values
-        r_obj_wc, sf_corr, sf_sig, sf_sig_all, is_match, ind_filt_tot = \
+        r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl = \
                                 self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
 
         # sets the indices for each free/fix match over all experiments
-        n_cell_grp = [[len(i) for i in i_filt] for i_filt in ind_filt_tot]
-        n_cell, n_free = [sum(n) for n in n_cell_grp], len(ind_filt_tot[0])
+        n_cell_grp = [[len(i) for i in i_filt] for i_filt in ind_cl]
+        n_cell, n_free = [sum(n) for n in n_cell_grp], len(ind_cl[0])
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -3705,27 +3703,16 @@ class AnalysisGUI(QMainWindow):
             ####    CELL SIGNIFICANCE CALCULATIONS    ####
             ##############################################
 
-            # calculates mean significance (removes any experiments where there are no valid cells)
+            # calculates the number of significant cells (over all experiments)
             n_tot = n_cell[i_filt]
-            if is_matched:
-                # calculates the number of matched cells
-                n_sig = sum([sum(x) for x in is_match[i_filt]])
+            sf_sig_all_filt = np.array(cf.flat_list(sf_sig_all[i_filt]))
+            n_sig, n_tot = sum(sf_sig_all_filt > 0), len(sf_sig_all_filt)
 
-                # calculates the proportion of matched cells over each experiment
-                if n_tot == 0:
-                    p_sig_tot[i_filt] = [0] * n_free
-                else:
-                    p_sig_tot[i_filt] = [np.mean(x) for x in is_match[i_filt]]
+            # calculates the proportion of significant cells over each experiment
+            if n_tot == 0:
+                p_sig_tot[i_filt] = [0] * n_free
             else:
-                # calculates the number of significant cells (over all experiments)
-                sf_sig_all_filt = np.array(cf.flat_list(sf_sig_all[i_filt]))
-                n_sig, n_tot = sum(sf_sig_all_filt > 0), len(sf_sig_all_filt)
-
-                # calculates the proportion of significant cells over each experiment
-                if n_tot == 0:
-                    p_sig_tot[i_filt] = [0] * n_free
-                else:
-                    p_sig_tot[i_filt] = [np.mean(x) for x in sf_sig_all[i_filt]]
+                p_sig_tot[i_filt] = [np.mean(x) for x in sf_sig_all[i_filt]]
 
             # calculates the metric value SEM
             p_sig_mu[i_filt] = 100 * np.mean(p_sig_tot[i_filt])
@@ -3839,7 +3826,7 @@ class AnalysisGUI(QMainWindow):
         ################################################
 
         # retrieves the fixed/free matched spiking correlation values
-        r_obj_wc, sf_corr0, sf_sig0, _, _, _ = self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
+        r_obj_wc, sf_corr0, sf_sig0, _, _ = self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
 
         # flattens the correlation/significance arrays
         sf_corr = [np.array(cf.flat_list(sf)) for sf in sf_corr0]
@@ -12125,6 +12112,7 @@ class AnalysisGUI(QMainWindow):
         ff_corr = self.data.comp.ff_corr
         f_data = self.data.externd.free_data
         g_filt = self.data.exc_gen_filt
+        ind_func = cfcn.get_inclusion_filt_indices
 
         # sets the default light condition type
         if lcond_type is None:
@@ -12137,19 +12125,24 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the rotation filter class object
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False,
-                                        rmv_empty=0, use_raw=True)
+                                        rmv_empty=0)
+
+        # determines the indices of the experiments (matching the fixed experiments to free experiments)
+        i_fix0 = np.where(cf.det_valid_rotation_expt(self.data))[0]
+        exp_fix = [cf.extract_file_name(self.data._cluster[i]['expFile']) for i in i_fix0]
+        i_expt_fix = np.array([exp_fix.index(cf.det_closest_file_match(exp_fix, x)[0]) for x in f_data.exp_name])
 
         # determines the matching cells against the freely moving experiment file
-        i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
-
-        # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
-        i_expt_fix = np.where(cf.det_valid_rotation_expt(self.data))[0][i_expt_f2f]
-        ind_cl_fix = [np.where(cfcn.get_inclusion_filt_indices(self.data._cluster[i], g_filt))[0] for i in i_expt_fix]
-        ind_filt_tot = [[np.intersect1d(_cl_id, cl_fix) for _cl_id,
-                                                cl_fix in zip(cl_id, ind_cl_fix)] for cl_id in r_obj_wc.clust_ind]
+        ind_cl_fix = [np.where(ind_func(self.data._cluster[i_fix0[i]], g_filt))[0] for i in i_expt_fix]
+        i_expt_f2f, f2f_map0 = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, cl_ind=ind_cl_fix)
 
         # determines cells that match between the fixed/external free experiment data files (for each filter type)
-        is_match = [[x[i, 0] >= 0 for i, x in zip(i_filt, f2f_map)] for i_filt in ind_filt_tot]
+        f2f_map = [[ff[i_cl, :] for ff, i_cl in zip(f2f_map0, cl_ind)] for cl_ind in r_obj_wc.clust_ind]
+        is_match = [[_ff[:, 0] >= 0 for _ff in ff] for ff in f2f_map]
+
+        # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
+        ind_cl_match = [[cl_id[_is_m] for _is_m, cl_id in zip(is_m, cl_ind)]
+                                      for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
 
         # retrieves the indices of the trial type conditions (for retrieving the correlation/significance values)
         t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
@@ -12159,17 +12152,17 @@ class AnalysisGUI(QMainWindow):
         if i_grp is None:
             sf_corr, sf_sig = None, None
         else:
-            sf_corr = [[sf[ic][if_t, i_grp] for sf, if_t in
-                           zip(ff_corr.sf_corr, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
-            sf_sig = [[sf[ic][if_t, i_grp] for sf, if_t in
-                           zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+            sf_corr = [[sf[ic][i_cl, i_grp] for sf, i_cl in zip(ff_corr.sf_corr, ind_cl)]
+                                    for ic, ind_cl in zip(i_cond, ind_cl_match)]
+            sf_sig = [[sf[ic][i_cl, i_grp] for sf, i_cl in zip(ff_corr.sf_corr_sig, ind_cl)]
+                                    for ic, ind_cl in zip(i_cond, ind_cl_match)]
 
-        #
-        sf_sig_all = [[np.any(sf[ic][if_t, :] > 0, axis=1) for sf, if_t in
-                           zip(ff_corr.sf_corr_sig, if_tot)] for ic, if_tot in zip(i_cond, ind_filt_tot)]
+        # determines the significant cells over both directions (for each experiment over each filter type)
+        sf_sig_all = [[np.any(sf[ic][i_cl, :] > 0, axis=1) for sf, i_cl in zip(ff_corr.sf_corr_sig, ind_cl)]
+                                    for ic, ind_cl in zip(i_cond, ind_cl_match)]
 
         # returns the arrays
-        return r_obj_wc, sf_corr, sf_sig, sf_sig_all, is_match, ind_filt_tot
+        return r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl_match
 
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####
@@ -13516,7 +13509,7 @@ class AnalysisFunctions(object):
                 # plotting parameters
                 'rot_filt': {
                     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': dcopy(rot_filt_free)
                 },
                 'bin_sz': {'text': 'Histogram Bin Size', 'def_val': 0.1, 'min_val': 0.01, 'min_val': 0.5},
                 'vel_dir': {
@@ -13526,7 +13519,6 @@ class AnalysisFunctions(object):
                 'lcond_type': {
                     'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
                 },
-                'disp_met': {'type': 'L', 'text': 'Display Metric Type', 'list': disp_met, 'def_val': disp_met[0]},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
                 # invisible parameters
@@ -13565,7 +13557,7 @@ class AnalysisFunctions(object):
                 # plotting parameters
                 'rot_filt': {
                     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': rot_filt_free
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': dcopy(rot_filt_free)
                 },
                 'vel_dir': {
                     'type': 'L', 'text': 'Velocity Direction', 'list': vel_dir,

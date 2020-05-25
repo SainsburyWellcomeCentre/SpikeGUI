@@ -715,7 +715,7 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw):
     is_ok = np.zeros(n_filt, dtype=bool)
     for i_filt in range(n_filt):
         t_spike[i_filt], wvm_para[i_filt], trial_ind[i_filt], clust_ind[i_filt], i_expt[i_filt] = \
-                        apply_single_rot_filter(data, d_clust, rot_filt_p[i_filt], expt_filter_lvl, i_expt_match)
+                    apply_single_rot_filter(data, d_clust, rot_filt_p[i_filt], expt_filter_lvl, i_expt_match, use_raw)
         is_ok[i_filt] = not np.all([x is None for x in t_spike[i_filt]])
 
     # determines if any of the filters failed to turn up a match, then output an error message to screen
@@ -740,7 +740,7 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw):
     # returns the spike time/waveform parameter/filter parameter arrays
     return t_spike, wvm_para, trial_ind, clust_ind, i_expt, f_perm, f_key, rot_filt_p
 
-def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_match):
+def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_match, use_raw):
     '''
 
     :param data:
@@ -919,8 +919,12 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # retrieves the free-to-fixed cell indices
                             if i_expt_f2f is None:
                                 # determines the experiment/mapping indices for each of the freely moving data files
-                                c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
-                                cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+                                if use_raw:
+                                    cl_ind_0 = [np.array(x['nC']) for x in d_clust]
+                                else:
+                                    c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                                    cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+
                                 i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
                                                     exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
 
@@ -989,8 +993,12 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         # retrieves the free-to-fixed cell indices
                         if i_expt_f2f is None:
                             # determines the experiment/mapping indices for each of the freely moving data files
-                            c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
-                            cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+                            if use_raw:
+                                cl_ind_0 = [np.array(x['nC']) for x in d_clust]
+                            else:
+                                c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                                cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+
                             i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
                                                 exp_name=data.externd.free_data.exp_name, cl_ind=cl_ind_0)
 

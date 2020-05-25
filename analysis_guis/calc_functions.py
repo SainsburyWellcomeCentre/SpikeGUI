@@ -1212,7 +1212,7 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
     :return:
     '''
 
-    # applies the general exclusion filter (for the fields that have been set)
+    # applies the general exclusion filter (for the fields that are set)
     cl_inc = dcopy(c['expInfo']['clInclude'])
     for exc_gen in exc_gen_filt:
         ex_g = exc_gen_filt[exc_gen]

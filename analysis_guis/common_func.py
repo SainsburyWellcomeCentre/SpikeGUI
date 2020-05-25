@@ -3051,7 +3051,7 @@ def det_matching_fix_free_cells(data, exp_name=None, cl_ind=None, apply_filter=F
     free_file, free_data = [x.free_name for x in data.comp.data], data.externd.free_data
     i_file_free = [free_data.exp_name.index(ex_name) for ex_name in exp_name]
 
-    # retrieves the cluster indices
+    # retrieves the cluster indices (if not provided)
     if cl_ind is None:
         r_filt = init_rotation_filter_data(False)
         r_filt['t_type'] += ['Uniform']
