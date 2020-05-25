@@ -12070,6 +12070,7 @@ class AnalysisGUI(QMainWindow):
         r_data = self.data.rotation
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
+        # rot_filt_corr = cf.init_rotation_filter_data(False)
         r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
         if not r_obj_wc.is_ok:
             # if there was an error, then exit with an error flag

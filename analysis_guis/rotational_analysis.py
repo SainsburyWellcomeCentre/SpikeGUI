@@ -767,7 +767,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     n_expt, d_copy = len(d_clust), copy.deepcopy
     is_ok, A = np.zeros(n_expt, dtype=bool), np.empty(n_expt, dtype=object)
     t_spike, wfm_para, trial_ind, clust_ind = d_copy(A), d_copy(A), d_copy(A), d_copy(A)
-    i_expt_f2f = None
+    i_expt_f2f, g_filt = None, data.exc_gen_filt
 
     ##########################################
     ####    EXPERIMENT-BASED FILTERING    ####
@@ -919,7 +919,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # retrieves the free-to-fixed cell indices
                             if i_expt_f2f is None:
                                 # determines the experiment/mapping indices for each of the freely moving data files
-                                cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                                c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                                cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
                                 i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
                                                     exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
 
@@ -988,7 +989,8 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         # retrieves the free-to-fixed cell indices
                         if i_expt_f2f is None:
                             # determines the experiment/mapping indices for each of the freely moving data files
-                            cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                            c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                            cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
                             i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
                                                 exp_name=data.externd.free_data.exp_name, cl_ind=cl_ind_0)
 
@@ -1021,7 +1023,6 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                 # removes any infeasible clusters
                 if ind_cl_nw is not None:
                     ind_cl = np.logical_and(ind_cl, ind_cl_nw)
-
 
             # removes the infeasible cluster rows/trial columns
             t_spike[i_expt] = t_spike[i_expt][ind_cl, :, :]
