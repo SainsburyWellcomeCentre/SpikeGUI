@@ -3195,7 +3195,7 @@ class AnalysisGUI(QMainWindow):
     ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
     ################################################
 
-    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, rmv_nmatch, use_pcent, plot_grid):
+    def plot_free_cell_stats(self, free_exp_name, plot_all, vel_bin, rmv_nmatch, use_pcent, show_count, plot_grid):
         '''
 
         :param free_exp_name:
@@ -3260,8 +3260,8 @@ class AnalysisGUI(QMainWindow):
         n_plot = len(c_key)
 
         # sets the bar graph colours
-        col_b = cf.get_plot_col(n_plot+1)
-        col_pp = cf.get_plot_col(2, n_plot+1)
+        col_b = cf.get_plot_col(n_plot + int(show_count))
+        col_pp = cf.get_plot_col(1 + int(show_count), n_plot + 1)
 
         #############################################
         ####    CELL TYPE PERCENTAGES SUBPLOT    ####
@@ -3287,12 +3287,24 @@ class AnalysisGUI(QMainWindow):
         ax[0].set_ylim([-1, 101])
         ax[0].grid(plot_grid)
 
+        # sets the table row/column headers strings
+        col_hdr = c_key + (['Total Cells'] if show_count else [])
+        row_hdr = ['Count', '%age'] if show_count else ['Mean {} SEM'.format(cf._plusminus)]
+
+        # sets up the output table data and properties (based on the type)
+        if show_count:
+            # case is showing the cell counts
+            p_type_str = np.vstack([np.sum(n_type_cell, axis=0),
+                                    np.array(['{:.1f}'.format(pt) for pt in p_type_mu])])
+
+            table_data = np.hstack(([p_type_str, np.array([str(sum(n_cell)), '100.0']).reshape(-1, 1)]))
+        else:
+            # case is showing the mean +/- SEM
+            table_data = self.setup_table_mean_plus_sem(val_mu=p_type_mu, val_sem=p_type_sem)
+
         # creates the output table
-        p_type_str = np.vstack([np.sum(n_type_cell, axis=0),
-                                np.array(['{:.1f}'.format(pt) for pt in p_type_mu])])
-        p_type_str = np.hstack(([p_type_str, np.array([str(sum(n_cell)), '100.0']).reshape(-1, 1)]))
-        cf.add_plot_table(self.plot_fig, ax[0], table_font, p_type_str, ['Count', '%age'],
-                                         c_key + ['Total Cells'], col_pp, col_b, 'bottom')
+        cf.add_plot_table(self.plot_fig, ax[0], table_font, table_data, row_hdr,
+                                         col_hdr, col_pp, col_b, 'bottom')
 
         ####################################
         ####    VENN DIAGRAM SUBPLOT    ####
@@ -5256,7 +5268,7 @@ class AnalysisGUI(QMainWindow):
 
             else:
                 # sets the table values and properties for the mean/SEM values
-                table_data = self.setup_table_mean_plus_sem(sf_type_pr[0])
+                table_data = self.setup_table_mean_plus_sem(t_vals=sf_type_pr[0])
                 row_col, col_col = col_table[:n_filt], col_table[:len(col_hdr)]
 
             # creates the table
@@ -12160,8 +12172,10 @@ class AnalysisGUI(QMainWindow):
         is_match = [[_ff[:, 0] >= 0 for _ff in ff] for ff in f2f_map]
 
         # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
-        ind_cl_match = [[cl_id[_is_m] for _is_m, cl_id in zip(is_m, cl_ind)]
+        ind_cl_match = [[cl_fx[cl_id][_is_m] for _is_m, cl_fx, cl_id in zip(is_m, ind_cl_fix, cl_ind)]
                                       for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
+        # ind_cl_match = [[cl_id[_is_m] for _is_m, cl_id in zip(is_m, cl_ind)]
+        #                               for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
 
         # retrieves the indices of the trial type conditions (for retrieving the correlation/significance values)
         t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
@@ -12620,16 +12634,19 @@ class AnalysisGUI(QMainWindow):
             # otherwise, plot type is feasible
             return True
 
-    def setup_table_mean_plus_sem(self, t_vals):
+    def setup_table_mean_plus_sem(self, t_vals=None, val_mu=None, val_sem=None):
         '''
 
         :param t_vals:
         :return:
         '''
 
-        # calculates the mean/SEM values for the table
-        val_mu = [np.mean(x, axis=0) for x in t_vals]
-        val_sem = [np.std(x, axis=0) / np.sqrt(np.shape(x)[0]) for x in t_vals]
+        # calculates the mean/SEM values for the table (if not provided)
+        if val_mu is None:
+            val_mu = [np.mean(x, axis=0) for x in t_vals]
+            val_sem = [np.std(x, axis=0) / np.sqrt(np.shape(x)[0]) for x in t_vals]
+        elif not isinstance(val_mu, list):
+            val_mu, val_sem = [val_mu], [val_sem]
 
         # combines the mean/SEM values for each grouping and returns the final array
         return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
@@ -12983,7 +13000,7 @@ class AnalysisGUI(QMainWindow):
 
         # memory allocation and initialisations
         p_value = 95
-        c_info = self.data.externd.free_data.c_info
+        c_info = dcopy(self.data.externd.free_data.c_info)
         A = np.empty(n_filt, dtype=object)
         v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
 
@@ -13502,6 +13519,7 @@ class AnalysisFunctions(object):
                 'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
                 'rmv_nmatch': {'type': 'B', 'text': 'Remove Non-Matched Cells', 'def_val': True},
                 'use_pcent': {'type': 'B', 'text': 'Use Percentages For Venn Diagram', 'def_val': True},
+                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
             self.add_func(type='Freely Moving Analysis',
