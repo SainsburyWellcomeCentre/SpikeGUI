@@ -721,6 +721,10 @@ class AnalysisGUI(QMainWindow):
                 if self.data.exc_gen_filt is None:
                     self.data.exc_gen_filt = cf.init_general_filter_data()
 
+                # initialises the external data object (if it has not been set)
+                if not hasattr(self.data, 'externd'):
+                    setattr(self.data, 'externd', ExternalData())
+
                 # sets up the analysis functions and resets the trial type strings
                 self.reset_trial_type_strings()
                 self.fcn_data.init_all_func()
@@ -10991,15 +10995,16 @@ class AnalysisGUI(QMainWindow):
             n_type_ex[0] = [np.vstack(
                     [cf.calc_rel_prop(x, 4, return_counts=True, ind=ind) for x in y]) for y in sf_type_filt]
 
-            # sets the direction selectivity for each filter type/experiment
+            # sets the direction selectivity for each filter type/experiment (based on the motion selective cells)
             is_dir_sel_filt, n_filt_ex = self.group_metrics_by_expt(r_obj, is_dir_sel, i_grp[1])
             n_type_ex[1] = [np.vstack([
                     cf.calc_rel_prop(x, 2, return_counts=True) for x in y]) for y in is_dir_sel_filt]
 
-            # if displaying the motion selectivity proportion, then
+            # if not displaying the motion selectivity proportion, then add on the missing (non-motion selective) cells
             if not ms_prop:
                 for i_filt in range(r_obj.n_filt):
-                    n_type_ex[1][i_filt][:, 0] += n_filt_ex[i_filt] - np.sum(n_type_ex[1][i_filt], axis=1)
+                    n_type_ex[1][i_filt][:, 0] += np.sum(n_type_ex[0][i_filt], axis=1) - \
+                                                  np.sum(n_type_ex[1][i_filt], axis=1)
 
             # calculates the proportions and total counts for each reaction type (over each filter type)
             n_type_tot = [np.vstack([np.sum(x, axis=0) for x in xx]) for xx in n_type_ex]
@@ -11164,6 +11169,7 @@ class AnalysisGUI(QMainWindow):
             if (r_obj.is_ud and r_obj.n_filt == 2) or (r_obj.n_filt == 1):
                 # no filter applied, so all cells are used
                 filt_str = ['#1 - All Cells']
+
             else:
                 # otherwise, set the filter grouping strings
                 filt_str = ['#{0}'.format(i + 1) for i in range(len(lg_str_f))]
@@ -13157,8 +13163,11 @@ class AnalysisFunctions(object):
         init_lda_para, init_def_class_para = cfcn.init_lda_para, cfcn.init_def_class_para
 
         # determines if the external data fields have been set
-        has_free_data = hasattr(data.externd, 'free_data')
-        has_eyetrack_data = hasattr(data.externd, 'eye_track')
+        if hasattr(data, 'externd'):
+            has_free_data = hasattr(data.externd, 'free_data')
+            has_eyetrack_data = hasattr(data.externd, 'eye_track')
+        else:
+            has_free_data, has_eyetrack_data = False
 
         # re-initialises the current parameter fields
         self.reset_curr_para_fields()
@@ -13358,7 +13367,7 @@ class AnalysisFunctions(object):
         # ====> Cluster Classification
         para = {
             # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['exp_name', True]
             },
@@ -13392,7 +13401,7 @@ class AnalysisFunctions(object):
                          'min_val': 1, 'max_val': 4},
 
             # plotting parameters
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'action_type': {'type': 'L', 'text': 'Classification Type', 'def_val': act_type[0], 'list': act_type},
             'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
             'i_plot': {'text': 'Plot Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
@@ -14544,7 +14553,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_invisible': False},
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
             'plot_exp_name': {
                 'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperimentUD', 'is_visible': False
             },
@@ -15980,8 +15989,8 @@ class AnalysisFunctions(object):
         para = {
             # plotting parameters
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster',True]},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Single Experiment Analysis',
@@ -15993,8 +16002,8 @@ class AnalysisFunctions(object):
         # ====> Auto Cross-Correlogram
         para = {
             # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list': True},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
             'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
         }
@@ -16002,6 +16011,27 @@ class AnalysisFunctions(object):
                       name='Auto-Correlogram',
                       func='plot_cluster_auto_ccgram',
                       multi_fig=['i_cluster'],
+                      para=para)
+
+        para = {
+            # plotting parameters
+            'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
+            'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp', True]},
+            'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot'],
+                'link_para': [['m_size', 'bar']]
+            },
+            'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
+            'p_lim': {'text': 'Confidence Interval (%)', 'def_val': 99.99, 'min_val': 90.0, 'max_val': 100.0 - 1e-6},
+            'f_cutoff': {'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
+        }
+        self.add_func(type='Single Experiment Analysis',
+                      name='Cross-Correlogram',
+                      func='plot_cluster_cross_ccgram',
+                      multi_fig=['i_comp'],
                       para=para)
 
         ######################################
@@ -16044,33 +16074,6 @@ class AnalysisFunctions(object):
                       func='output_spiking_freq_dataframe',
                       para=para)
 
-        ##############################
-        ####    OTHER FUNCTIONS   ####
-        ##############################
-
-        # ====> Cross Cross-Correlogram
-        para = {
-            # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'Experiments'},
-            'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
-            'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp', True]},
-            'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
-            'plot_type': {
-                'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot'],
-                'link_para': [['m_size', 'bar']]
-            },
-            'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
-            'p_lim': {'text': 'Confidence Interval (%)', 'def_val': 99.99, 'min_val': 90.0, 'max_val': 100.0 - 1e-6},
-            'f_cutoff': {'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
-        }
-        self.add_func(type='Single Experiment Analysis',
-                      name='Cross-Correlogram',
-                      func='plot_cluster_cross_ccgram',
-                      multi_fig=['i_comp'],
-                      para=para)
-
-        # initialises the parameter dictionary
         self.init_para_dict()
 
     def add_func(self, type, **kwargs):
