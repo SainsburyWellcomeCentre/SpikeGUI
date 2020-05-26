@@ -5094,6 +5094,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         n_grp = [4]
+        n_type = 4
         r_data = self.data.rotation
 
         if is_fixed:
@@ -5110,7 +5111,6 @@ class AnalysisGUI(QMainWindow):
             ######################################
 
             # initialisations
-            n_type = 4
             i_bin = ['5', '10'].index(r_data.vel_bin_corr)
             t_type_filt = lg_str = dcopy(rot_filt)
             n_filt = len(t_type_filt)

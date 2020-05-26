@@ -3,6 +3,7 @@ import os
 import re
 import copy
 import time
+import platform
 import pickle as p
 import numpy as np
 
@@ -187,10 +188,7 @@ class InfoDialog(QDialog):
 
         #
         self.setup_expt_info(i_expt)
-        try:
-            self.setup_cluster_info(i_expt)
-        except:
-            a = 1
+        self.setup_cluster_info(i_expt)
 
     def setup_expt_info(self, i_expt):
         '''
@@ -408,8 +406,13 @@ class InfoDialog(QDialog):
                                   check_col=[0], check_fcn=self.includeCheck, exc_rows=cl_exc)
         h_table.verticalHeader().setVisible(False)
 
+        # sets the table dimensions
         nrow_table = min(20, nC)
-        cf.set_obj_fixed_size(h_table, height=(40 - nrow_table) + nrow_table * 22, width=self.grp_wid_info - 2*dX)
+        h0 = (41 - int(platform.system() == 'Windows')) - nrow_table
+        row_hght = 22 if platform.system() == 'Windows' else 23
+
+        # resets the table dimensions
+        cf.set_obj_fixed_size(h_table, height=h0 + nrow_table * row_hght, width=self.grp_wid_info - 2*dX)
 
         # adds the widgets to the layout
         h_layout.addRow(h_table)
