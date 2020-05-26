@@ -370,15 +370,23 @@ class InfoDialog(QDialog):
                         # retrieves the free experiment index (which matches the current tab)
                         f_name = cf.extract_file_name(c_data['expFile'])
                         i_expt_ff = f_data.exp_name.index(cf.det_closest_file_match(f_data.exp_name, f_name)[0])
-                        _, f2f_map = cf.det_matching_fix_free_cells(self.data,
+                        c_type = np.array(f_data.cell_type[i_expt_ff][i_grp])
+
+                        # sets the matching cell/external free data file cell indices (based on experiment type)
+                        if is_fixed:
+                            # case is a fixed experiment
+                            _, f2f_map = cf.det_matching_fix_free_cells(self.data,
                                         exp_name=[f_data.exp_name[i_expt_ff]], apply_filter=True)
 
-                        #
-                        c_type = np.array(f_data.cell_type[i_expt_ff][i_grp])
-                        for i in np.where(f2f_map[0][:, 0] >= 0)[0]:
-                            # sets the table row (depending if fixed or free)
-                            i_row, i_row_ff = i if is_fixed else f2f_map[0][i, 0], f2f_map[0][i, 1]
+                            i0 = np.where(f2f_map[0][:, 0] >= 0)[0]
+                            i_free = f2f_map[0][i0, 1]
+                        else:
+                            # case is a free experiment
+                            _, i0, i_free = np.intersect1d(c_data['clustID'], f_data.cell_id[i_expt_ff],
+                                                           return_indices=True)
 
+                        # sets the column data
+                        for i_row, i_row_ff in zip(i0, i_free):
                             # sets the free cell type
                             if not np.any(c_type[i_row_ff, :]):
                                 nw_data[i_row] = 'None'
