@@ -3236,32 +3236,8 @@ class AnalysisGUI(QMainWindow):
         cell_type_all, ahv_score_all = f_data.cell_type, f_data.ahv_score
         c_key = list(cell_type_all[0][0].columns)
 
-        # retrieves the indices of the free experiments that match the external data files
-        c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
-        exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
-        i_expt_free = [exp_free.index(cf.det_closest_file_match(exp_free, f_name)[0]) for f_name in f_data.exp_name]
-
-        # retrieves the inclusion cell boolean flags (matched with the external data files)
-        cl_inc_free = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt) for i_ex in i_expt_free]
-
-        # maps the freely moving experiments to the external data files
-        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[1:] for id, c in zip(f_data.cell_id, c_free)]
-
-        # matches up the inclusion flags for the external data files to the matching free data files
-        cl_inc_extn = np.empty(len(c_free), dtype=object)
-        n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
-        for i in range(len(c_free)):
-            cl_inc_extn[i] = np.zeros(n_ff[i], dtype=bool)
-            cl_inc_extn[i][i_map[i][0]] = cl_inc_free[i][i_map[i][1]]
-
-        # resets the inclusion cell boolean flags (if required)
-        if rmv_nmatch:
-            # determines the mapping between the free/external data file free cells
-            _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
-
-            # sets the inclusion cell boolean flags for the unmatched cells to false
-            for i in range(len(cl_inc_extn)):
-                cl_inc_extn[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
+        # retrieves the free cells that are to be included in the analysis
+        cl_inc_extn = self.get_free_inclusion_indices(i_bin, rmv_nmatch=rmv_nmatch)
 
         # sets the plot values (removes any excluded cells from the general filter)
         if plot_all:
@@ -3270,7 +3246,7 @@ class AnalysisGUI(QMainWindow):
             ahv_score = [x[i_bin][ind] for ind, x in zip(cl_inc_extn, ahv_score_all)]
         else:
             # case is plotting a single experiment
-            i_expt = self.data.externd.free_data.exp_name.index(free_exp_name)
+            i_expt = f_data.exp_name.index(free_exp_name)
             cell_type = [cell_type_all[i_expt][i_bin].loc[cl_inc_extn[i_expt], :]]
             ahv_score = [ahv_score_all[i_expt][i_bin][cl_inc_extn[i_expt]]]
 
@@ -4718,6 +4694,15 @@ class AnalysisGUI(QMainWindow):
                 self.calc_ok = False
                 return
 
+            # retrieves the free cells that are to be included in the analysis
+            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+
+            # memory allocation
+            for i_filt in range(len(v_sf_sig)):
+                # reduces the cells down to only include the cells for analysis
+                v_sf_sig[i_filt] = np.vstack([vf[cl_inc, :] for vf, cl_inc in zip(v_sf_sig[i_filt], cl_inc_extn)])
+                v_sf_corr[i_filt] = np.vstack([vf[cl_inc, :] for vf, cl_inc in zip(v_sf_corr[i_filt], cl_inc_extn)])
+
         #####################################
         ####    DISTRIBUTION SUBPLOTS    ####
         #####################################
@@ -4945,6 +4930,15 @@ class AnalysisGUI(QMainWindow):
                 self.calc_ok = False
                 return
 
+            # retrieves the free cells that are to be included in the analysis
+            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+
+            # memory allocation
+            for i_filt in range(len(v_sf_sig)):
+                # reduces the cells down to only include the cells for analysis
+                v_sf_sig[i_filt] = np.vstack([vf[cl_inc, :] for vf, cl_inc in zip(v_sf_sig[i_filt], cl_inc_extn)])
+                v_sf_corr[i_filt] = np.vstack([vf[cl_inc, :] for vf, cl_inc in zip(v_sf_corr[i_filt], cl_inc_extn)])
+
         ########################################
         ####    CORRELATION SCATTERPLOTS    ####
         ########################################
@@ -5021,7 +5015,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
-    def plot_freq_corr_significance(self, rot_filt, grp_plot_type, plot_grid, p_value, grp_by_filt,
+    def plot_freq_corr_significance(self, rot_filt, grp_plot_type, p_value, grp_by_filt, show_count, plot_grid,
                                     show_stats, plot_scope, is_fixed):
         '''
 
@@ -5116,12 +5110,13 @@ class AnalysisGUI(QMainWindow):
             ######################################
 
             # initialisations
+            n_type = 4
             i_bin = ['5', '10'].index(r_data.vel_bin_corr)
             t_type_filt = lg_str = dcopy(rot_filt)
             n_filt = len(t_type_filt)
 
             # determines the number of selected trial types
-            v_sf_sig, _ = self.get_free_moving_data(t_type_filt, i_bin, 0, stack_arr=False)
+            v_sf_sig, _ = self.get_free_moving_data(t_type_filt, i_bin, 0)
             if v_sf_sig is None:
                 # if no trial types are selected, then output an error to screen
                 e_str = 'Error! At least one trial type must be selected to run this function.'
@@ -5131,12 +5126,20 @@ class AnalysisGUI(QMainWindow):
                 self.calc_ok = False
                 return
 
+            # retrieves the free cells that are to be included in the analysis
+            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+            n_cell = repmat(np.array([sum(x) for x in cl_inc_extn]).reshape(-1, 1), 1, n_type - 1)
+
             # memory allocation
             n_type_ex0, n_cell_ex0 = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
             for i_filt in range(n_filt):
-                v_sf_sig_ex = [x[:, 0] + 2 * x[:, 1] for x in v_sf_sig[i_filt]]
-                n_cell_ex0[i_filt] = repmat(np.array([np.shape(v_sf)[0] for v_sf in v_sf_sig[0]]).reshape(-1, 1), 1, 3)
-                n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+                # reduces the cells down to only include the cells for analysis
+                v_sf_sig_filt = [vf[cl_inc, :] for vf, cl_inc in zip(v_sf_sig[i_filt], cl_inc_extn)]
+
+                # calculates the significance types and cell counts
+                v_sf_sig_ex = [x[:, 0] + 2 * x[:, 1] for x in v_sf_sig_filt]
+                n_cell_ex0[i_filt] = dcopy(n_cell)
+                n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, n_type)] for v_sf in v_sf_sig_ex])
 
         # includes the any significant column within the data
         for i_filt in range(n_filt):
@@ -5215,7 +5218,7 @@ class AnalysisGUI(QMainWindow):
             # updates the axis properties
             ax[0].grid(plot_grid)
             ax[0].set_ylabel('Population %')
-            ax[0].legend([x[0] for x in h_plt], lg_str, ncol=max([2, int(len(lg_str) / 2)]), loc='upper center',
+            ax[0].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
                                  columnspacing=0.125, bbox_to_anchor=(0.5, 1.075))
 
             # sets the y-axis limits based on type
@@ -5235,19 +5238,29 @@ class AnalysisGUI(QMainWindow):
 
             # table parameters
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
-            col_hdr, row_hdr = ['None'] + tt_class + ['Total Cell Count'], tt_filt_N + ['Total Count']
-            col_table = cf.get_plot_col(max([len(col_hdr), len(row_hdr)]))
+            col_hdr = ['None'] + (tt_class + ['Total Cell Count'] if show_count else tt_class[:-1])
+            row_hdr = tt_filt_N + (['Total Count'] if show_count else [])
+            col_table = cf.get_plot_col(max([len(col_hdr), len(row_hdr)]), n_type)
 
-            # calculates the total cell counts (over all filter types/classification groups)
-            sf_type_N0 = np.vstack([np.concatenate((np.sum(n_t, axis=0), [np.sum(n_ex[:, 0])]))
-                                    for n_t, n_ex in zip(n_type_ex0, n_cell_ex0)])
-            sf_type_N0 = np.hstack(((sf_type_N0[:,-1] - np.sum(sf_type_N0[:, :n_grp[0]-1],
-                                    axis=1)).reshape(-1, 1), sf_type_N0))   # REMOVE THIS LINE FOR NONE COLUMN
-            sf_type_N = np.vstack((sf_type_N0, np.sum(sf_type_N0, axis=0)))
+            # determines if the total cell count or mean/SEM values are being shown in the table
+            if show_count:
+                # calculates the total cell counts (over all filter types/classification groups)
+                sf_type_N0 = np.vstack([np.concatenate((np.sum(n_t, axis=0), [np.sum(n_ex[:, 0])]))
+                                        for n_t, n_ex in zip(n_type_ex0, n_cell_ex0)])
+                sf_type_N0 = np.hstack(((sf_type_N0[:,-1] - np.sum(sf_type_N0[:, :n_grp[0]-1],
+                                        axis=1)).reshape(-1, 1), sf_type_N0))   # REMOVE THIS LINE FOR NONE COLUMN
+
+                # sets the table values and properties
+                table_data = np.vstack((sf_type_N0, np.sum(sf_type_N0, axis=0)))
+                row_col, col_col = col_table[:n_filt] + tot_col, col_table[:(len(col_hdr) - 1)] + tot_col
+
+            else:
+                # sets the table values and properties for the mean/SEM values
+                table_data = self.setup_table_mean_plus_sem(sf_type_pr[0])
+                row_col, col_col = col_table[:n_filt], col_table[:len(col_hdr)]
 
             # creates the table
-            cf.add_plot_table(self.plot_fig, ax[1], t_font, sf_type_N, row_hdr, col_hdr,
-                              col_table[:n_filt] + tot_col, col_table[:(len(col_hdr) - 1)] + tot_col, 'fixed')
+            cf.add_plot_table(self.plot_fig, ax[1], t_font, table_data, row_hdr, col_hdr, row_col, col_col, 'fixed')
 
     def plot_sig_overlap(self, free_cell_type, rot_filt):
         '''
@@ -10945,7 +10958,8 @@ class AnalysisGUI(QMainWindow):
                                                                               plot_trend=plot_trend)
 
         # determines the indices of the experiments that need to be removed
-        i_expt_rmv = cfcn.det_matching_ttype_expt(r_obj, self.data.cluster)
+        c_fix = [c for is_rot, c in zip(cf.det_valid_rotation_expt(self.data), self.data.cluster) if is_rot]
+        i_expt_rmv = cfcn.det_matching_ttype_expt(r_obj, c_fix)
         if len(i_expt_rmv):
             # memory allocation
             is_keep = [np.ones(len(x), dtype=bool) for x in i_grp[0]]
@@ -11002,7 +11016,7 @@ class AnalysisGUI(QMainWindow):
 
             # if not displaying the motion selectivity proportion, then add on the missing (non-motion selective) cells
             if not ms_prop:
-                for i_filt in range(r_obj.n_filt):
+                for i_filt in range(int(r_obj.n_filt / (1 + int(r_obj.is_ud)))):
                     n_type_ex[1][i_filt][:, 0] += np.sum(n_type_ex[0][i_filt], axis=1) - \
                                                   np.sum(n_type_ex[1][i_filt], axis=1)
 
@@ -12169,6 +12183,48 @@ class AnalysisGUI(QMainWindow):
         # returns the arrays
         return r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl_match
 
+    def get_free_inclusion_indices(self, i_bin, rmv_nmatch=False):
+        '''
+
+        :param i_bin:
+        :param rmv_nmatch:
+        :return:
+        '''
+
+        # initialisations
+        f_data, g_filt = self.data.externd.free_data, self.data.exc_gen_filt
+        cell_type_all, ahv_score_all = f_data.cell_type, f_data.ahv_score
+
+        # retrieves the indices of the free experiments that match the external data files
+        c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
+        exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
+        i_expt_free = [exp_free.index(cf.det_closest_file_match(exp_free, f_name)[0]) for f_name in f_data.exp_name]
+
+        # retrieves the inclusion cell boolean flags (matched with the external data files)
+        cl_inc_free = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt) for i_ex in i_expt_free]
+
+        # maps the freely moving experiments to the external data files
+        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[1:] for id, c in zip(f_data.cell_id, c_free)]
+
+        # matches up the inclusion flags for the external data files to the matching free data files
+        cl_inc_extn = np.empty(len(c_free), dtype=object)
+        n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
+        for i in range(len(c_free)):
+            cl_inc_extn[i] = np.zeros(n_ff[i], dtype=bool)
+            cl_inc_extn[i][i_map[i][0]] = cl_inc_free[i][i_map[i][1]]
+
+        # resets the inclusion cell boolean flags (if required)
+        if rmv_nmatch:
+            # determines the mapping between the free/external data file free cells
+            _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
+
+            # sets the inclusion cell boolean flags for the unmatched cells to false
+            for i in range(len(cl_inc_extn)):
+                cl_inc_extn[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
+
+        # returns the inclusion index array
+        return cl_inc_extn
+
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####
     ############################################
@@ -12564,6 +12620,21 @@ class AnalysisGUI(QMainWindow):
             # otherwise, plot type is feasible
             return True
 
+    def setup_table_mean_plus_sem(self, t_vals):
+        '''
+
+        :param t_vals:
+        :return:
+        '''
+
+        # calculates the mean/SEM values for the table
+        val_mu = [np.mean(x, axis=0) for x in t_vals]
+        val_sem = [np.std(x, axis=0) / np.sqrt(np.shape(x)[0]) for x in t_vals]
+
+        # combines the mean/SEM values for each grouping and returns the final array
+        return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
+                                 for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+
     ####################################################################################################################
     ####                                           DATA OUTPUT FUNCTIONS                                            ####
     ####################################################################################################################
@@ -12898,7 +12969,7 @@ class AnalysisGUI(QMainWindow):
         else:
             return [str(clustID[x]) if y else 'N/A' for x, y in zip(i_match, is_accept)]
 
-    def get_free_moving_data(self, t_type_filt, i_bin, i_grp, stack_arr=True, use_all_sig=True):
+    def get_free_moving_data(self, t_type_filt, i_bin, i_grp, stack_arr=False, use_all_sig=True):
         '''
 
         :param t_type_filt:
@@ -12910,16 +12981,14 @@ class AnalysisGUI(QMainWindow):
         if n_filt == 0:
             return None, None
 
-        # parameters
-        p_value = 0.05
-
-        # memory allocation
+        # memory allocation and initialisations
+        p_value = 95
         c_info = self.data.externd.free_data.c_info
         A = np.empty(n_filt, dtype=object)
         v_sf_sig, v_sf_corr = dcopy(A), dcopy(A)
 
         # dataframe column names
-        pval_col = ['ahv_pearson_p_neg', 'ahv_pearson_p_pos']
+        pval_col = ['pearson_neg_percentile', 'pearson_pos_percentile']
         rval_col = ['ahv_pearson_r_neg', 'ahv_pearson_r_pos']
 
         # sets the spiking frequency significance/correlation
@@ -12934,10 +13003,10 @@ class AnalysisGUI(QMainWindow):
                 # sets the significance values
                 if use_all_sig:
                     # case is using all significance values
-                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][pval_col]) < p_value for ci in c_info])
+                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][pval_col]) >= p_value for ci in c_info])
                 else:
                     # case is using significance values for a given direction
-                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][[pval_col[i_grp]]]) < p_value for ci in c_info])
+                    v_sf_sig[i_filt] = np.vstack([np.array(ci[i_bin][tt][[pval_col[i_grp]]]) >= p_value for ci in c_info])
 
             else:
                 # case is the data values don't need to be stacked
@@ -12948,10 +13017,10 @@ class AnalysisGUI(QMainWindow):
                 # sets the significance values
                 if use_all_sig:
                     # case is using all significance values
-                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][pval_col]) < p_value for ci in c_info]
+                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][pval_col]) >= p_value for ci in c_info]
                 else:
                     # case is using significance values for a given direction
-                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][[pval_col[i_grp]]]) < p_value for ci in c_info]
+                    v_sf_sig[i_filt] = [np.array(ci[i_bin][tt][[pval_col[i_grp]]]) >= p_value for ci in c_info]
 
         # returns the arrays
         return v_sf_sig, v_sf_corr
@@ -13964,12 +14033,13 @@ class AnalysisFunctions(object):
                 'def_val': dcopy(rot_filt0), 'para_gui_var': {'rmv_fields': ['match_type']}
             },
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+            'p_value': {'text': 'KW Stats Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False]]
+                'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
             },
 
             # invisible parameters
@@ -14078,12 +14148,13 @@ class AnalysisFunctions(object):
                 'grp_plot_type': {
                     'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]
                 },
-                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-                'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+                'p_value': {'text': 'KW Stats Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
                 'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
+                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
                 'show_stats': {
                     'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                    'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False]]
+                    'link_para': [['grp_plot_type', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
                 },
 
                 # invisible plotting parameters
@@ -14098,7 +14169,7 @@ class AnalysisFunctions(object):
                           func='plot_freq_corr_significance',
                           para=para)
 
-            # ====> Correlation Significance (Freely Moving)
+            # ====> Correlation Significance Overlap
             para = {
                 # calculation parameters
                 'n_shuffle': {

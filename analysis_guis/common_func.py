@@ -65,6 +65,7 @@ sp_freq_fcn = np.vectorize(sp_freq)
 _bullet_point = '\u2022'
 _mu = '\u03bc'
 _delta = '\u0394'
+_plusminus = '\u00b1'
 
 # other initialisations
 t_wid_f = 0.99
