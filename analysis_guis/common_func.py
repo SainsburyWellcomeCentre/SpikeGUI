@@ -2878,8 +2878,14 @@ def save_single_comp_file(main_obj, out_info, force_update=False):
     i_comp = det_comp_dataset_index(main_obj.data.comp.data, out_info['exptName'])
 
     # creates the multi-experiment data file based on the type
-    data_out = {'data': [[] for _ in range(2)], 'c_data': main_obj.data.comp.data[i_comp]}
+    data_out = {'data': [[] for _ in range(2)], 'c_data': main_obj.data.comp.data[i_comp],
+                'ex_data': None, 'gen_filt': main_obj.data.exc_gen_filt}
     data_out['data'][0], data_out['data'][1] = get_comp_datasets(main_obj.data, c_data=data_out['c_data'], is_full=True)
+
+    # outputs the external data (if it exists)
+    if hasattr(main_obj.data, 'externd'):
+        if hasattr(main_obj.data.externd, 'free_data'):
+            data_out['ex_data'] = main_obj.data.externd.free_data
 
     # outputs the data to file
     with open(out_file, 'wb') as fw:

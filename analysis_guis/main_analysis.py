@@ -626,6 +626,10 @@ class AnalysisGUI(QMainWindow):
                              3: 'Multiple Experiments', 4: 'Multiple Comparison Matches'}
                 self.lbl_expt_type.setText(expt_type[self.file_type])
 
+                # initialises the general exclusion filter  (if not already initialised)
+                if self.data.exc_gen_filt is None:
+                    self.data.exc_gen_filt = cf.init_general_filter_data()
+
                 # loops through all the new file names and loads
                 if (worker_data is not None) and len(worker_data):
                     for i_d, loaded_data in enumerate(worker_data):
@@ -647,6 +651,24 @@ class AnalysisGUI(QMainWindow):
 
                             if not self.is_loaded_file(loaded_data['data'][1]['expFile']):
                                 self.data._cluster.append(loaded_data['data'][1])
+
+                            # appends on the general filter fields (if they have been set)
+                            g_filt = loaded_data['gen_filt']
+                            for gk in g_filt:
+                                if len(g_filt[gk]):
+                                    self.data.exc_gen_filt[gk] = \
+                                        list(np.union1d(self.data.exc_gen_filt[gk], g_filt[gk]))
+
+                            f_data = loaded_data['ex_data']
+                            if f_data is not None:
+                                # flag that there is free data
+                                has_free_data = True
+
+                                # sets the new data based on the type
+                                if hasattr(self.data.externd, 'free_data'):
+                                    self.data.externd.free_data.append_set_data(self.data, f_data)
+                                else:
+                                    setattr(self.data.externd, 'free_data', FreelyMovingData(self.data, f_data, True))
 
                             # determines if the new combination files already exist
                             chk_status, _ = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
@@ -717,10 +739,6 @@ class AnalysisGUI(QMainWindow):
                 if self.file_type in [1, 3]:
                     self.check_data_fields()
 
-                # initialises the general exclusion filter  (if not already initialised)
-                if self.data.exc_gen_filt is None:
-                    self.data.exc_gen_filt = cf.init_general_filter_data()
-
                 # initialises the external data object (if it has not been set)
                 if not hasattr(self.data, 'externd'):
                     setattr(self.data, 'externd', ExternalData())
@@ -783,7 +801,7 @@ class AnalysisGUI(QMainWindow):
                     is_keep = [
                         True,               # Cluster Matching
                         True,               # Cluster Classification
-                        False,              # Freely Moving Analysis
+                        has_free_data,      # Freely Moving Analysis
                         False,              # Eye Tracking
                         has_rot_expt,       # Angular Head Velocity Analysis
                         has_rot_expt,       # Rotation Analysis
@@ -3431,7 +3449,7 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the fixed/free mapping indices
         i_expt = f_data.exp_name.index(free_exp_name)
-        is_ok = np.where(f2f_map[0][:, 1] > 0)[0]
+        is_ok = np.where(f2f_map[0][:, 1] >= 0)[0]
 
         # determines the index of the selected cluster
         clust_id = np.array(re.findall(r'\d+', ff_cluster)).astype(int)
@@ -3492,6 +3510,7 @@ class AnalysisGUI(QMainWindow):
             ax[iR].set_ylabel('Percentage')
             ax[iR].grid(plot_grid)
 
+        axLmx[0] = max([0, axLmx[0]])
         for i_tt in range(n_tt):
             _ax = ax[2 * i_tt]
             cf.set_axis_limits(_ax, axLmx, axLmx)
@@ -18466,13 +18485,10 @@ class ExternalData(object):
 
 
 class FreelyMovingData(object):
-    def __init__(self, data, f_data):
+    def __init__(self, data, f_data, is_set=False):
 
         # initialises the static object fields
         self.n_file = 0
-        self.v_bin = f_data['AHV_bin_size']
-        self.v_max = f_data['AHV_max_magnitude']
-        self.t_type = np.sort(list(f_data['cell_data'][0].keys()))
 
         # initialises the other
         self.exp_name = []
@@ -18485,7 +18501,43 @@ class FreelyMovingData(object):
         self.ahv_score = []
 
         # creates the objects for each experiment
-        self.append_data(data, f_data)
+        if is_set:
+            self.v_bin = f_data.v_bin
+            self.v_max = f_data.v_max
+            self.t_type = f_data.t_type
+
+            self.append_set_data(data, f_data)
+        else:
+            self.v_bin = f_data['AHV_bin_size']
+            self.v_max = f_data['AHV_max_magnitude']
+            self.t_type = np.sort(list(f_data['cell_data'][0].keys()))
+
+            self.append_data(data, f_data)
+
+    def append_set_data(self, data, f_data):
+        '''
+
+        :param data:
+        :param f_data:
+        :return:
+        '''
+
+        # if the external data is already set then exit
+        if f_data.exp_name[0] in self.exp_name:
+            return
+
+        # increments the file count
+        self.n_file += 1
+
+        # appends the other fields
+        self.exp_name.append(f_data.exp_name[0])
+        self.cell_id.append(f_data.cell_id[0])
+        self.s_freq.append(f_data.s_freq[0])
+        self.c_info.append(f_data.c_info[0])
+        self.p_sig_neg.append(f_data.p_sig_neg[0])
+        self.p_sig_pos.append(f_data.p_sig_pos[0])
+        self.cell_type.append(f_data.cell_type[0])
+        self.ahv_score.append(f_data.ahv_score[0])
 
     def append_data(self, data, f_data):
         '''

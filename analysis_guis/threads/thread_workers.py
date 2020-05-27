@@ -1479,6 +1479,11 @@ class WorkerThread(QThread):
             w_prog.emit('Determining Overall Cluster Matches', 5.0 * pW)
             c_data.i_match = det_overall_cluster_matches(is_feas, -total_metrics_mean)
 
+            # matches which are from different regions are to be removed
+            ii = np.where(c_data.i_match >= 0)[0]
+            same_region = data_fix['chRegion'][ii] == data_free['chRegion'][c_data.i_match[ii]]
+            c_data.i_match[ii[~same_region]] = -1
+
             # calculates the correlation coefficients between the best matching signals
             w_prog.emit('Setting Final Match Metrics', 6.0 * pW)
             for i in range(data_fix['nC']):
@@ -1690,7 +1695,7 @@ class WorkerThread(QThread):
                 ff_corr.sf_free[i_file, i_tt] = np.vstack([s_freq[i_tt][ii] if ii >= 0 else nan_bin for ii in i_f2f])
 
             # sets the cluster ID values
-            is_ok = i_f2f > 0
+            is_ok = i_f2f >= 0
             i_expt_fix = cf.get_global_expt_index(data, data.comp.data[i_expt[i_file]])
             fix_clust_id = np.array(data._cluster[i_expt_fix]['clustID'])[is_ok]
             free_clust_id = np.array(data.externd.free_data.cell_id[i_file])[f2f_map[i_file][is_ok, 1]]
@@ -3004,7 +3009,7 @@ class WorkerThread(QThread):
         phase_str, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], np.array([0, 1])
         i_cell_g, _ = cf.get_global_index_arr(r_obj_vis)
 
-        #
+        # array indexing values
         n_filt = round(r_obj_vis.n_filt / 2)
         n_trial = min([np.shape(x)[1] for x in t_spike])
         n_cell = sum([x['nC'] for x in np.array(data.cluster)[cf.det_valid_rotation_expt(data, is_ud=True)]])
