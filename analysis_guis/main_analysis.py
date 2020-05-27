@@ -6602,7 +6602,7 @@ class AnalysisGUI(QMainWindow):
         lg_str, n_filt, n_bin = r_obj.lg_str, r_obj.n_filt, int(100. / float(bin_sz))
         xi, r_data = np.linspace(0, 1, n_bin + 1), self.data.rotation
         c, yL_mx = cf.get_plot_col(n_filt), 0.
-        f_keys = list(r_data.cond_roc_auc.keys())
+        f_keys = [x['t_type'][0] for x in r_obj.rot_filt_tot]
         i_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW'].index(phase_type)
 
         # initialises the plot axis

@@ -3000,45 +3000,53 @@ class WorkerThread(QThread):
             r_data = data.rotation
 
         # parameters and initialisations
+        t_spike = r_obj_vis.t_spike
         phase_str, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], np.array([0, 1])
-        ind_CC, ind_CCW = ind_type[0][0], ind_type[1][0]
+        i_cell_g, _ = cf.get_global_index_arr(r_obj_vis)
+
+        #
+        n_filt = round(r_obj_vis.n_filt / 2)
+        n_trial = min([np.shape(x)[1] for x in t_spike])
+        n_cell = sum([x['nC'] for x in np.array(data.cluster)[cf.det_valid_rotation_expt(data, is_ud=True)]])
+
 
         # if the uniformdrifting phase is calculated already, then exit the function
         if r_data.phase_roc_ud is not None:
             return
 
-        # sets the time spike array
-        t_spike = r_obj_vis.t_spike
-        n_trial = np.min([np.size(t_spike[0], axis=1), np.size(t_spike[1], axis=1)])
-
         # memory allocation
-        n_cell = np.size(r_obj_vis.t_spike[0], axis=0)
         roc = np.empty((n_cell, len(phase_str)), dtype=object)
         roc_xy = np.empty(n_cell, dtype=object)
         roc_auc = np.ones((n_cell, len(phase_str)))
 
-        # calculates the roc curves/integrals for all cells over each phase
-        for i_phs, p_str in enumerate(phase_str):
-            # updates the progress bar string
-            w_str = 'ROC Curve Calculations ({0})...'.format(p_str)
-            self.work_progress.emit(w_str, 100 * pW * i_phs / len(phase_str))
+        for i_filt in range(n_filt):
+            # sets the time spike array
+            ind_CC, ind_CCW = ind_type[0][i_filt], ind_type[1][i_filt]
+            n_cell_f, ig_cell = np.shape(t_spike[ind_CC])[0], cf.flat_list(i_cell_g[i_filt])
 
-            # loops through each of the cells calculating the roc curves (and associated values)
-            for i_cell in range(n_cell):
-                # sets the time spike arrays depending on the phase type
-                if (i_phs + 1) == len(phase_str):
-                    t_spike_phs = np.vstack((t_spike[ind_CC][i_cell, :n_trial, 1],
-                                             t_spike[ind_CCW][i_cell, :n_trial, 1])).T
-                else:
-                    t_spike_phs = t_spike[i_phs][i_cell, :, :]
+            # calculates the roc curves/integrals for all cells over each phase
+            for i_phs, p_str in enumerate(phase_str):
+                # updates the progress bar string
+                w_str = 'ROC Curve Calculations ({0})...'.format(p_str)
+                self.work_progress.emit(w_str, 100 * pW * ((i_filt / n_filt) + (i_phs / len(phase_str))))
 
-                # calculates the roc curve/auc integral
-                roc[i_cell, i_phs] = cf.calc_roc_curves(t_spike_phs, ind=ind)
-                roc_auc[i_cell, i_phs] = cf.get_roc_auc_value(roc[i_cell, i_phs])
+                # loops through each of the cells calculating the roc curves (and associated values)
+                for i_cell in range(n_cell_f):
+                    # sets the time spike arrays depending on the phase type
+                    if (i_phs + 1) == len(phase_str):
+                        t_spike_phs = np.vstack((t_spike[ind_CC][i_cell, :n_trial, 1],
+                                                 t_spike[ind_CCW][i_cell, :n_trial, 1])).T
+                    else:
+                        t_spike_phs = t_spike[ind_type[i_phs][i_filt]][i_cell, :, :]
 
-                # if the CW/CCW phase interaction, then set the roc curve x/y coordinates
-                if (i_phs + 1) == len(phase_str):
-                    roc_xy[i_cell] = cf.get_roc_xy_values(roc[i_cell, i_phs])
+                    # calculates the roc curve/auc integral
+                    ig_nw = ig_cell[i_cell]
+                    roc[ig_nw, i_phs] = cf.calc_roc_curves(t_spike_phs, ind=np.array([0, 1]))
+                    roc_auc[ig_nw, i_phs] = cf.get_roc_auc_value(roc[ig_nw, i_phs])
+
+                    # if the CW/CCW phase interaction, then set the roc curve x/y coordinates
+                    if (i_phs + 1) == len(phase_str):
+                        roc_xy[ig_nw] = cf.get_roc_xy_values(roc[ig_nw, i_phs])
 
         # sets the final
         r_data.phase_roc_ud, r_data.phase_roc_xy_ud, r_data.phase_roc_auc_ud = roc, roc_xy, roc_auc
@@ -3387,7 +3395,8 @@ class WorkerThread(QThread):
 
                 # case is the wilcoxon paired test
                 sf_scores = np.zeros((np.size(roc, axis=0), 3), dtype=int)
-                sf_scores[i_grp[0], :] = cf.calc_ms_scores(auc, auc_sig[i_grp[0], :], None)
+                for ig in i_grp:
+                    sf_scores[ig, :] = cf.calc_ms_scores(auc[ig, :], auc_sig[ig, :], None)
 
             # returns the direction selectivity scores
             return sf_scores, i_grp, r_CCW_CW
@@ -3889,7 +3898,8 @@ class WorkerThread(QThread):
             '''
 
             if t_type == 'MotorDrifting':
-                return [-1, 1][i_dir]
+                # return [-1, 1][i_dir]
+                return [1, -1][i_dir]
             else:
                 return [1, -1][i_dir]
 
