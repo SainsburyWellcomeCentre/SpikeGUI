@@ -5399,7 +5399,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
-                                    plot_scope, plot_trend, m_size, plot_grid, p_value, grp_by_filt, show_stats):
+                              plot_scope, plot_trend, m_size, show_count, plot_grid, p_value, grp_by_filt, show_stats):
         '''
 
         :param rot_filt:
@@ -5419,7 +5419,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
@@ -6351,7 +6351,8 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
-                                 plot_scope, plot_trend, m_size, plot_grid, p_value, grp_by_filt, show_stats):
+                                 plot_scope, plot_trend, m_size, show_count, plot_grid, p_value,
+                                 grp_by_filt, show_stats):
         '''
 
         :param rot_filt:
@@ -6386,7 +6387,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
@@ -10832,7 +10833,7 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop, m_size,
+    def create_spike_freq_plot(self, r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop, m_size,
                                grp_by_filt, show_stats, ind_type=None):
         '''
 
@@ -11086,7 +11087,6 @@ class AnalysisGUI(QMainWindow):
             self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
 
         else:
-
             ####################################################
             ####    SPIKING FREQUENCY COMPARISON SUBPLOT    ####
             ####################################################
@@ -11231,30 +11231,38 @@ class AnalysisGUI(QMainWindow):
                 ax[i + n_sub].grid(plot_grid)
                 ax[i + n_sub].set_xticklabels(x_ticklbl)
 
-            ###################################
-            ####    METRIC COUNT TABLES    ####
-            ###################################
+            #################################
+            ####    STATISTICS TABLES    ####
+            #################################
 
-            # sets the
-            n_type_N0 = [np.hstack((x, np.sum(x, axis=1).reshape(-1, 1))) for x in n_type_tot]
-            n_type_N = [np.vstack((x, np.sum(x, axis=0))) for x in n_type_N0]
-            col_hdr = [x + ['Total Cells'] for x in class_str0]
+            # initialisations
+            t_font = cf.get_table_font_size(3)
+            tot_col = [(0.75, 0.75, 0.75)] if show_count else []
+
+            # sets the table
+            if show_count:
+                # case is showing the cell count
+                n_type_N0 = [np.hstack((x, np.sum(x, axis=1).reshape(-1, 1))) for x in n_type_tot]
+                table_data = [np.vstack((x, np.sum(x, axis=0))).astype(int) for x in n_type_N0]
+
+            else:
+                # case is showing mean +/- SEM
+                table_data = [self.setup_table_mean_plus_sem(x) for x in sf_type_plt]
 
             # creates the title text object
-            t_font = cf.get_table_font_size(3)
+            col_hdr = [x + (['Total Cells'] if show_count else []) for x in class_str0]
             if (n_filt == 1) and (lg_str_f[0] == 'Black'):
-                row_hdr = ['All Cells', 'Total']
+                row_hdr = ['All Cells'] + (['Total'] if show_count else [])
             else:
-                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + (['Total'] if show_count else [])
 
             # creates the graphs for the motion sensitive/direction selectivity plots
             for i in range(len(class_str0)):
                 # creates the new table
                 j, nT = i + 5, len(col_hdr[i])
                 cT = cf.get_plot_col(max(n_filt, nT), max(n_grp))
-                cf.add_plot_table(self.plot_fig, ax[j], t_font, n_type_N[i].astype(int), row_hdr, col_hdr[i],
-                                  cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
-                                  'fixed', n_col=len(class_str0[i]))
+                cf.add_plot_table(self.plot_fig, ax[j], t_font, table_data[i], row_hdr, col_hdr[i],
+                                  cT[:n_filt] + tot_col, cT[:nT] + tot_col, 'fixed', n_col=len(class_str0[i]))
 
         # retrieves the function data values
         self.func_data = self.set_output_data(locals())
@@ -14328,6 +14336,9 @@ class AnalysisFunctions(object):
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True, 'is_visible': False},
             'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
 
+            # invisible plotting parameters
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
+
             # output variables
 
         }
@@ -14357,14 +14368,14 @@ class AnalysisFunctions(object):
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
                 'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
-                              ['m_size', True], ['plot_grid', True], ['p_value', False]]
+                              ['m_size', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
             },
         }
         self.add_func(type='Rotation Analysis',
@@ -14617,10 +14628,14 @@ class AnalysisFunctions(object):
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True, 'is_visible': False},
             'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
+
+            # invisible plotting parameters
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
         }
         self.add_func(type='UniformDrift Analysis',
                       name='UniformDrift Phase Spiking Rate Comparison (Individual Cell)',
@@ -14657,14 +14672,14 @@ class AnalysisFunctions(object):
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
+            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
                 'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
-                              ['m_size', True], ['plot_grid', True], ['p_value', False]]
+                              ['m_size', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
             },
         }
         self.add_func(type='UniformDrift Analysis',
