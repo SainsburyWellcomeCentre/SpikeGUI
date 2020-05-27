@@ -180,7 +180,7 @@ class LoadExpt(QDialog):
 
         else:
             # case is multi free/fixed comparison file
-            self.is_multi, self.multi_file = True, False
+            self.is_multi, self.multi_file = True, True
             file_type = 'Multi-Free/Fixed Comparison File (*.mcomp)'
 
         # opens the file dialog

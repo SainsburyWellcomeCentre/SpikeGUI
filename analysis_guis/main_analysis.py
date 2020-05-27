@@ -653,22 +653,25 @@ class AnalysisGUI(QMainWindow):
                                 self.data._cluster.append(loaded_data['data'][1])
 
                             # appends on the general filter fields (if they have been set)
-                            g_filt = loaded_data['gen_filt']
-                            for gk in g_filt:
-                                if len(g_filt[gk]):
-                                    self.data.exc_gen_filt[gk] = \
-                                        list(np.union1d(self.data.exc_gen_filt[gk], g_filt[gk]))
+                            if 'gen_filt' in loaded_data:
+                                g_filt = loaded_data['gen_filt']
+                                for gk in g_filt:
+                                    if len(g_filt[gk]):
+                                        self.data.exc_gen_filt[gk] = \
+                                            list(np.union1d(self.data.exc_gen_filt[gk], g_filt[gk]))
 
-                            f_data = loaded_data['ex_data']
-                            if f_data is not None:
-                                # flag that there is free data
-                                has_free_data = True
+                            if 'ex_data' in loaded_data:
+                                f_data = loaded_data['ex_data']
+                                if f_data is not None:
+                                    # flag that there is free data
+                                    has_free_data = True
 
-                                # sets the new data based on the type
-                                if hasattr(self.data.externd, 'free_data'):
-                                    self.data.externd.free_data.append_set_data(self.data, f_data)
-                                else:
-                                    setattr(self.data.externd, 'free_data', FreelyMovingData(self.data, f_data, True))
+                                    # sets the new data based on the type
+                                    if hasattr(self.data.externd, 'free_data'):
+                                        self.data.externd.free_data.append_set_data(self.data, f_data)
+                                    else:
+                                        setattr(self.data.externd, 'free_data',
+                                                FreelyMovingData(self.data, f_data, True))
 
                             # determines if the new combination files already exist
                             chk_status, _ = cfcn.check_existing_compare(self.data.comp.data, fix_name, free_name)
@@ -702,14 +705,29 @@ class AnalysisGUI(QMainWindow):
                             n_file = len(loaded_data['c_data'])
 
                             # if the loaded data correlation calculations have been made, then update that field
-                            if loaded_data['ff_corr'].is_set:
+                            if loaded_data['ff_corr'].is_set and (len(worker_data) == 1):
                                 self.data.comp.ff_corr = loaded_data['ff_corr']
+                            else:
+                                setattr(self.data.comp, 'ff_corr', FixedFreeCorr())
 
-                            # if the loaded data correlation calculations have been made, then update that field
                             if 'f_data' in loaded_data:
-                                if loaded_data['f_data'] is not None:
-                                    self.data.externd.free_data = loaded_data['f_data']
-                                    has_free_data = any([len(x) > 0 for x in self.data.externd.free_data.cell_type])
+                                f_data = loaded_data['f_data']
+                                if f_data is not None:
+                                    # flag that there is free data
+                                    has_free_data = True
+
+                                    # sets the new data based on the type
+                                    if hasattr(self.data.externd, 'free_data'):
+                                        self.data.externd.free_data.append_set_data(self.data, f_data)
+                                    else:
+                                        setattr(self.data.externd, 'free_data',
+                                                FreelyMovingData(self.data, f_data, True))
+
+                            # # if the loaded data correlation calculations have been made, then update that field
+                            # if 'f_data' in loaded_data:
+                            #     if loaded_data['f_data'] is not None:
+                            #         self.data.externd.free_data = loaded_data['f_data']
+                            #         has_free_data = any([len(x) > 0 for x in self.data.externd.free_data.cell_type])
 
                             for i_file in range(n_file):
                                 # retrieves the fixed/free clusters
@@ -7141,7 +7159,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
-        ind_black = [t_type.index('Black')]
+        ind_black = [i for i, tt in enumerate(t_type) if tt == 'Black']
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_black]
         m = ['o', 'x', '^', 's', 'D', 'H', '*']
 
@@ -7187,10 +7205,11 @@ class AnalysisGUI(QMainWindow):
 
             # initialises the plot axes
             self.init_plot_axes(n_plot=1)
+            ax = self.plot_fig.ax
 
             # initialises the plot axes region
-            self.plot_fig.ax[0].plot([0, 1], [0, 1], 'k--', linewidth=2)
-            self.plot_fig.ax[0].grid(plot_grid)
+            ax[0].plot([0, 1], [0, 1], 'k--', linewidth=2)
+            ax[0].grid(plot_grid)
 
             #
             for i, im in enumerate(ind_match):
@@ -7218,8 +7237,8 @@ class AnalysisGUI(QMainWindow):
                                                      zip(sig_col_plt, xy_sig)], dtype=object)
 
                         # creates the significance markers
-                        self.plot_fig.ax[0].scatter(x_auc[jj], y_auc[jj], marker=m[i],
-                                                    s=mlt*m_size, facecolor=face_col_plt[jj], edgecolor=sig_col_plt[jj])
+                        ax[0].scatter(x_auc[jj], y_auc[jj], marker=m[i], s=mlt*m_size,
+                                                            facecolor=face_col_plt[jj], edgecolor=sig_col_plt[jj])
 
                         # creates the significance legend plot markers
                         if i == 0:
@@ -7229,21 +7248,29 @@ class AnalysisGUI(QMainWindow):
                                 lg_ind = np.unique(xy_sig)
 
                             for j in lg_ind:
-                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, marker=m[i], s=mlt*m_size,
-                                                                         facecolor='None' if j == 0 else sig_col[j],
-                                                                         edgecolor=sig_col[j]))
+                                h_plt.append(ax[0].scatter(-1, -1, marker=m[i], s=mlt*m_size,
+                                                                   facecolor='None' if j == 0 else sig_col[j],
+                                                                   edgecolor=sig_col[j]))
+
+                            # appends to the legend any multi-filtered selections
+                            if int(r_obj.n_filt / 2) > 1:
+                                g_str = np.unique([','.join(x.split('\n')[:-1]) for x in r_obj.lg_str])
+                                for j, gs in enumerate(g_str):
+                                    h_plt.append(ax[0].scatter(-1, -1, marker=m[j], s=mlt*m_size,
+                                                                       facecolor='k', edgecolor='k'))
+                                    lg_str.append(gs)
 
                     # creates the markers for each of the phases
                     for igt, gt in enumerate(grp_type):
                         ii = g_type_m == igt
                         if np.any(ii):
                             if _show_grp_markers:
-                                self.plot_fig.ax[0].scatter(x_auc[ii], y_auc[ii], marker=m[i], s=m_size, alpha=1,
-                                                            facecolor=f_col[igt], edgecolor=e_col[igt])
+                                ax[0].scatter(x_auc[ii], y_auc[ii], marker=m[i], s=m_size, alpha=1,
+                                                                    facecolor=f_col[igt], edgecolor=e_col[igt])
 
                                 # h_plt[i, igt] = self.plot_fig.ax[0].plot(-1, -1, c=c[igt], marker=m[igt])
-                                h_plt.append(self.plot_fig.ax[0].scatter(-1, -1, marker=m[i],
-                                             facecolor=f_col[igt], edgecolor=e_col[igt]))
+                                h_plt.append(ax[0].scatter(-1, -1, marker=m[i], facecolor=f_col[igt],
+                                                                   edgecolor=e_col[igt]))
                                 if len(ind_match) > 1:
                                     lg_str.append('{0} ({1})'.format(gt, r_obj.lg_str[im[0]].replace('Black\n', '')))
                                 else:
@@ -7252,14 +7279,18 @@ class AnalysisGUI(QMainWindow):
                             # adds the trend-line (if selected)
                             if plot_trend:
                                 auc_trend, _ = curve_fit(cf.lin_func, x_auc[ii] - 0.5, y_auc[ii] - 0.5)
-                                self.plot_fig.ax[0].plot(x_trend + 0.5, auc_trend * x_trend + 0.5, '-{0}'.format(m[i]),
-                                                         color=c[igt], markersize=8, linewidth=2, linestyle='dashed')
+                                ax[0].plot(x_trend + 0.5, auc_trend * x_trend + 0.5, '-{0}'.format(m[i]),
+                                                          color=c[igt], markersize=8, linewidth=2, linestyle='dashed')
+
+            # resets the figure size
+            self.plot_fig.fig.set_tight_layout(False)
+            self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
             # updates the axis limits
-            cf.set_axis_limits(self.plot_fig.ax[0], [0.5, 1], [0.5, 1])
-            self.plot_fig.ax[0].set_xlabel('Black auROC Scores')
-            self.plot_fig.ax[0].set_ylabel('{0} auROC Scores'.format(plot_cond))
-            self.plot_fig.ax[0].legend(h_plt, lg_str, loc=0, ncol=1+len(ind_match))
+            cf.set_axis_limits(ax[0], [0.5, 1], [0.5, 1])
+            ax[0].set_xlabel('Black auROC Scores')
+            ax[0].set_ylabel('{0} auROC Scores'.format(plot_cond))
+            ax[0].legend(h_plt, lg_str, loc=9, ncol=len(lg_str), bbox_to_anchor=(0.5, 1.06))
 
         else:
             ############################################
@@ -7364,10 +7395,13 @@ class AnalysisGUI(QMainWindow):
         # initialises the plot axes
         setup_plot_axes()
 
-        #
+        # sets up the plot axes
         self.plot_fig.ax[0].plot([1, 10], [1, 10])
         self.plot_fig.ax[1].plot([1, 10], [1, 10])
         self.plot_fig.ax[2].plot([1, 10], [1, 10])
+
+        # REMOVE ME LATER
+        cf.show_error('This function is incomplete (an issue has been raised to finish it)', 'Incomplete Function')
 
     #############################################
     ####    COMMON ROC ANALYSIS FUNCTIONS    ####
@@ -7971,21 +8005,35 @@ class AnalysisGUI(QMainWindow):
         ####    AUC SIGNIFICANCE STATS TABLE    ####
         ############################################
 
-        #
+        # sets the table properties
         n_tt = len(tt_filt)
         col_h = cf.get_plot_col(max(n_grp, n_tt))
+        col_h2 = cf.get_plot_col(1, len(col_h))
+
+        # sets up the table data values
+        n_val_data = setup_sig_str(p_auc_sig, True)
+        mu_sem_data = self.setup_table_mean_plus_sem(None, [p_auc_sig_mn], [p_auc_sig_sem])
 
         # sets the table headers/values
-        # row_hdr = col_hdr = [cf.cond_abb(tt) for tt in tt_filt]
         row_hdr = col_hdr = ['#{0}'.format(i + 1) for i in range(n_tt)]
-        t_data = setup_sig_str(p_auc_sig, True)
+        col_hdr2 = ['Mean {} SEM'.format(cf._plusminus)]
 
         # sets up the n-value table
+        t_font = cf.get_table_font_size(3)
         ax_pos_tbb = dcopy(ax[2].get_tightbbox(self.plot_fig.get_renderer()).bounds)
-        cf.add_plot_table(self.plot_fig, ax[2], table_font, t_data, row_hdr, col_hdr, col_h[:n_tt],
-                          col_h[:n_tt], 'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
 
-        #
+        # creates two tables
+        t_props = cf.add_plot_table(self.plot_fig, ax[2], t_font, n_val_data, row_hdr, col_hdr, col_h[:n_tt],
+                                    col_h[:n_tt], 'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+        t_props2 = cf.add_plot_table(self.plot_fig, ax[2], t_font, mu_sem_data.T, row_hdr, col_hdr2, col_h[:n_tt],
+                                     col_h2, 'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
+
+        # resets the dimensions
+        rw_hght = t_props[0]._bbox[3] / (n_tt + 1)
+        t_props[0]._bbox[1] = t_props2[0]._bbox[1] - (t_props[0]._bbox[3] - t_props2[0]._bbox[3])
+        t_props2[0]._bbox[1] = t_props[0]._bbox[1] - (rw_hght + t_props[0]._bbox[3])
+
+        # if plotting all bins, then force the axis to be turned off
         if i_bin == 'All Bins':
             ax[1].axis('off')
             return
@@ -8035,10 +8083,11 @@ class AnalysisGUI(QMainWindow):
         col_t = cf.get_plot_col(4)
         row_hdr = col_hdr = dcopy(auc_hist_type)
         t_data = setup_sig_str(auc_cdf, False)
+        t_font = cf.get_table_font_size(3)
 
         # sets up the n-value table
         ax_pos_tbb = dcopy(ax[3].get_tightbbox(self.plot_fig.get_renderer()).bounds)
-        cf.add_plot_table(self.plot_fig, ax[3], table_font, t_data, row_hdr, col_hdr, col_t, col_t,
+        cf.add_plot_table(self.plot_fig, ax[3], t_font, t_data, row_hdr, col_hdr, col_t, col_t,
                           'top', n_row=2, n_col=4, ax_pos_tbb=ax_pos_tbb, p_wid=1.5)
 
     ###########################################

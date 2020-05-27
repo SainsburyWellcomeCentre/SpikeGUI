@@ -3007,13 +3007,16 @@ class WorkerThread(QThread):
         # parameters and initialisations
         t_spike = r_obj_vis.t_spike
         phase_str, ind = ['CW/BL', 'CCW/BL', 'CCW/CW'], np.array([0, 1])
-        i_cell_g, _ = cf.get_global_index_arr(r_obj_vis)
 
         # array indexing values
         n_filt = round(r_obj_vis.n_filt / 2)
         n_trial = min([np.shape(x)[1] for x in t_spike])
-        n_cell = sum([x['nC'] for x in np.array(data.cluster)[cf.det_valid_rotation_expt(data, is_ud=True)]])
+        n_cell_expt = [x['nC'] for x in np.array(data.cluster)[cf.det_valid_rotation_expt(data, is_ud=True)]]
+        n_cell = sum(n_cell_expt)
 
+        # sets up the global index arrays
+        i_ofs = np.concatenate(([0], np.cumsum(n_cell_expt[:-1])))
+        i_cell_g = [i0 + np.arange(nC) for i0, nC in zip(i_ofs, n_cell_expt)]
 
         # if the uniformdrifting phase is calculated already, then exit the function
         if r_data.phase_roc_ud is not None:
@@ -3025,9 +3028,12 @@ class WorkerThread(QThread):
         roc_auc = np.ones((n_cell, len(phase_str)))
 
         for i_filt in range(n_filt):
-            # sets the time spike array
+            # sets the time spike array and global cell indices array
             ind_CC, ind_CCW = ind_type[0][i_filt], ind_type[1][i_filt]
-            n_cell_f, ig_cell = np.shape(t_spike[ind_CC])[0], cf.flat_list(i_cell_g[i_filt])
+            ig_cell = cf.flat_list([ig[ind] for ig, ind in zip(i_cell_g, r_obj_vis.clust_ind[i_filt])])
+
+            # sets the number of cells to be analysed for the current filter
+            n_cell_f = np.shape(t_spike[ind_CC])[0]
 
             # calculates the roc curves/integrals for all cells over each phase
             for i_phs, p_str in enumerate(phase_str):
