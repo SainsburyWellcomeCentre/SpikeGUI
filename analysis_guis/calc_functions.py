@@ -2732,7 +2732,7 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
         sf_calc = np.divide(sf_calc - sf_mn, sf_sd)
 
         # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
-        sf_calc[sf_sd == 0] = 0
+        sf_calc[np.isnan(sf_calc)] = 0
 
     # transposes the array
     sf_calc = sf_calc.T

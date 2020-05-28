@@ -10529,8 +10529,12 @@ class AnalysisGUI(QMainWindow):
 
             # creates the bar-graph and the centre marker
             n_hist = data_plot['ccGram'][j_plot, j_plot, ind]
-            self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=1)
-            self.plot_fig.ax[i_plot].plot(np.zeros(2), self.plot_fig.ax[i_plot].get_ylim(), 'r--')
+            self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=bin_sz)
+
+            # updates the axis limits and plots the central line
+            yL = self.plot_fig.ax[i_plot].get_ylim()
+            self.plot_fig.ax[i_plot].set_ylim(yL)
+            self.plot_fig.ax[i_plot].plot(np.zeros(2), yL, 'r--')
 
             # sets the axis properties
             self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(int(id_clust)))
@@ -10609,7 +10613,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].add_collection(pc)
 
             if plot_type == 'bar':
-                self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=1/2)
+                self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=bin_sz)
             else:
                 self.plot_fig.ax[i_plot].scatter(xi_hist, n_hist, marker='o', c='b', s=m_size)
 
