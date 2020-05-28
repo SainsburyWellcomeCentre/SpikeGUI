@@ -7161,7 +7161,8 @@ class AnalysisGUI(QMainWindow):
         t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
         ind_black = [i for i, tt in enumerate(t_type) if tt == 'Black']
         ind_match = [cf.det_matching_filters(r_obj, i) for i in ind_black]
-        m = ['o', 'x', '^', 's', 'D', 'H', '*']
+        m = ['o', 's', 'D', 'H', 'x', '^', '*']
+        f_markers = ['o', 's', 'D', 'H']
 
         # significance colours
         sig_col = [cf.convert_rgb_col([147, 149, 152])[0],         # non-significant markers
@@ -9682,7 +9683,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         # calculates the mean of the decoding accuracy value across all experiments
-        n_expt = np.size(d_data_p.y_acc, axis=0)
+        n_expt = len(d_data_p.i_cell) if d_data_p.poolexpt else np.size(d_data_p.y_acc, axis=0)
         y_acc, xi = np.nanmean(d_data_p.y_acc, axis=0), [0] + d_data_p.xi
         zz = np.zeros((np.size(y_acc, axis=0), 1))
 

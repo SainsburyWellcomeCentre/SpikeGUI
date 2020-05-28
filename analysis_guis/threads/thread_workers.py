@@ -2455,16 +2455,16 @@ class WorkerThread(QThread):
                 n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
 
             # combines the spike counts/group indices into the final combined arrays
-            n_sp, n_expt, i_expt = np.hstack(n_sp).T, 1, np.array([0])
+            n_sp, n_expt, i_expt_lda = np.hstack(n_sp).T, 1, np.array([i_expt[0]])
             xi = cfcn.get_pool_cell_counts(data, calc_para['lda_para'], 1)
             i_cell = np.array([np.ones(np.size(n_sp, axis=1), dtype=bool)])
 
         else:
-            # case is all experiments are pooled
+            # case is experiments are not pooled
 
             # initialisations
             # y_acc_d, n_expt = data.discrim.dir.y_acc, min([3, len(i_expt)])
-            y_acc_d, n_expt = data.discrim.dir.y_acc, len(i_expt)
+            y_acc_d, n_expt, i_expt_lda = data.discrim.dir.y_acc, len(i_expt), i_expt
 
             # # retrieves the top n_expt experiments based on the base decoding accuracy
             # ii = np.sort(np.argsort(-np.prod(y_acc_d, axis=1))[:n_expt])
@@ -2511,7 +2511,7 @@ class WorkerThread(QThread):
             # initialisations and memory allocation
             for i_xi in range(n_xi):
                 d_data.y_acc[:, :, i_xi, i_sh] = run_pooled_lda_expt(
-                    data, calc_para, r_filt, i_expt, dcopy(i_cell), n_trial_max, xi[i_xi], dcopy(n_sp)
+                    data, calc_para, r_filt, i_expt_lda, dcopy(i_cell), n_trial_max, xi[i_xi], dcopy(n_sp)
                 )
 
         #######################################
@@ -3016,7 +3016,7 @@ class WorkerThread(QThread):
 
         # sets up the global index arrays
         i_ofs = np.concatenate(([0], np.cumsum(n_cell_expt[:-1])))
-        i_cell_g = [i0 + np.arange(nC) for i0, nC in zip(i_ofs, n_cell_expt)]
+        i_cell_g = [i0 + np.arange(nC) for i0, nC in zip(i_ofs, n_cell_expt) if nC > 0]
 
         # if the uniformdrifting phase is calculated already, then exit the function
         if r_data.phase_roc_ud is not None:
