@@ -11346,10 +11346,14 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # retrieves the indices of the common cells (across all experiments/filter types)
+        # determines the maximum number of experiments
+        n_expt_max = max([max(x) for x in r_obj.i_expt]) + 1
         i_expt_all = np.array(cf.flat_list([list(x) for x in r_obj.i_expt]))
-        i_filt_ex = [[np.where(x == i)[0] for i in np.unique(x)] for x in [i_expt_all[x] for x in i_grp]]
-        n_filt_ex = [[len(xx) for xx in x] for x in i_filt_ex]
+
+        # retrieves the indices of the common cells (across all experiments/filter types)
+        i_filt_ex = [[np.where(x == i)[0] for i in range(n_expt_max)] for x in [i_expt_all[x] for x in i_grp]]
+        has_cell = np.any(np.vstack([[len(xx) for xx in x] for x in i_filt_ex]) > 0, axis=0)
+        n_filt_ex = [[len(xx) for xx, ok in zip(x, has_cell) if ok] for x in i_filt_ex]
 
         # groups the metric values by the
         if np.ndim(y_metric) == 1:
@@ -16075,7 +16079,7 @@ class AnalysisFunctions(object):
             },
             'n_shuffle': {
                 'gtype': 'C', 'text': 'Pooled Experiment Shuffle Count',
-                'def_val': cfcn.set_def_para(spdcp_def_para, 'nshuffle', 5), 'min_val': 5
+                'def_val': cfcn.set_def_para(spdcp_def_para, 'nshuffle', 5), 'min_val': 1
             },
             'pool_expt': {
                 'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments',
