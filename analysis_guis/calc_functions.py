@@ -2508,6 +2508,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
     ################################
 
     # memory allocation and other initialisations
+    extern_wprog = w_str0 is not None
     i_bin_spd = r_data.i_bin_spd
     ind_t, xi_bin = np.array(range(n_trial)), r_data.spd_xi
     n_bin = np.size(xi_bin, axis=0)
@@ -2524,16 +2525,16 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
     for i_ex in range(n_ex):
         # sets the progress strings (if progress bar handle is provided)
         if w_prog is not None:
-            if w_str0 is None:
-                w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
-            else:
+            if extern_wprog:
                 w_prog.emit('{0} Ex:{1}/{2})'.format(w_str0, i_ex + 1, n_ex), pw0)
+            else:
+                w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
 
         # sets the experiment name and runs the LDA prediction calculations
         for i_bin in range(n_bin):
             # updates the progressbar (if provided)
             if w_prog is not None:
-                if pw0 is None:
+                if not extern_wprog:
                     w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
 
             if i_bin != i_bin_spd:
