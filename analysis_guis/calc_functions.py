@@ -1561,7 +1561,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                 if w_prog is not None:
                     e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                             'Either choose a different solver or alter the solver parameters before retrying'
-                    w_prog.emit(e_str, 'LDA Analysis Error')
+                    w_prog.emit('LDA Analysis Error', 0.)
                 return None, False
 
             # resets the acceptance array
@@ -1778,8 +1778,7 @@ def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, 
                 if w_prog is not None:
                     e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                             'Either choose a different solver or alter the solver parameters before retrying'
-                    w_prog.emit(e_str, 'LDA Analysis Error')
-                return np.nan
+                    w_prog.emit('LDA Analysis Error', 0.)
 
             if is_OTO:
                 # calculates the model prediction from the remaining trial and increments the confusion matrix
@@ -2441,7 +2440,7 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
         if not ok:
             # if there was an error, then exit with a false flag
             if w_prog is not None:
-                w_prog.emit(e_str, 'LDA Analysis Error')
+                w_prog.emit('LDA Analysis Error', 0.)
             return False
 
         # calculates the grouping accuracy values
@@ -2482,7 +2481,8 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
     return True
 
 
-def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_data=None, r_data=None):
+def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_str0=None,
+                                                                pw0=None, d_data=None, r_data=None):
     '''
 
     :param data:
@@ -2527,13 +2527,17 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
     for i_ex in range(n_ex):
         # sets the progress strings (if progress bar handle is provided)
         if w_prog is not None:
-            w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+            if w_str0 is None:
+                w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+            else:
+                w_prog.emit('{0} Ex:{1}/{2})'.format(w_str0, i_ex + 1, n_ex), pw0)
 
         # sets the experiment name and runs the LDA prediction calculations
         for i_bin in range(n_bin):
             # updates the progressbar (if provided)
             if w_prog is not None:
-                w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
+                if pw0 is None:
+                    w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
 
             if i_bin != i_bin_spd:
                 # stacks the speed spiking frequency values into a single array
@@ -2544,7 +2548,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, d_d
                 if not ok:
                     # if there was an error, then exit with a false flag
                     if w_prog is not None:
-                        w_prog.emit(e_str, 'LDA Analysis Error')
+                        w_prog.emit('LDA Analysis Error', 0.)
                     return False
 
                 # calculates the grouping accuracy values
@@ -2656,7 +2660,7 @@ def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data, r_
                 if not ok:
                     # if there was an error, then exit with a false flag
                     if w_prog is not None:
-                        w_prog.emit(e_str, 'LDA Analysis Error')
+                        w_prog.emit('LDA Calculation Error', 0.)
                     return False
 
                 # calculates the grouping accuracy values
@@ -3296,7 +3300,7 @@ def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
                 if p_type == 'Number':
                     r_para[pf_nw] = set_roc_para(def_val, getattr(r_data, fld_name))
                 elif p_type == 'String':
-                    r_para[pf_nw] = set_roc_para(def_val, str(int(getattr(r_data, fld_name))))
+                    r_para[pf_nw] = str(set_roc_para(int(def_val), int(getattr(r_data, fld_name))))
             else:
                 r_para[pf_nw] = def_val
 

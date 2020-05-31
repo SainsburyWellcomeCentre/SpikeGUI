@@ -2754,107 +2754,112 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        # initialisations
-        d_data = data.discrim.spdcp
-        tt, lda_para, n_shuff = r_filt['t_type'], calc_para['lda_para'], calc_para['n_shuffle']
+        try:
+            # initialisations
+            d_data = data.discrim.spdcp
+            tt, lda_para, n_shuff = r_filt['t_type'], calc_para['lda_para'], calc_para['n_shuffle']
 
-        ###########################################
-        ####    PRE-PROCESSING CALCULATIONS    ####
-        ###########################################
+            ###########################################
+            ####    PRE-PROCESSING CALCULATIONS    ####
+            ###########################################
 
-        # reduces down the cluster data array
-        _data = cfcn.reduce_cluster_data(data, i_expt)
+            # reduces down the cluster data array
+            _data = cfcn.reduce_cluster_data(data, i_expt)
 
-        # sets up the kinematic LDA spiking frequency array
-        w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
-        spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial,
-                                                      w_prog, is_pooled=calc_para['pool_expt'])
+            # sets up the kinematic LDA spiking frequency array
+            w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
+            spd_sf, _r_filt = cfcn.setup_kinematic_lda_sf(_data, r_filt, calc_para, i_cell, n_trial,
+                                                          w_prog, is_pooled=calc_para['pool_expt'])
 
-        ##############################################
-        ####    POOLED NEURON LDA CALCULATIONS    ####
-        ##############################################
+            ##############################################
+            ####    POOLED NEURON LDA CALCULATIONS    ####
+            ##############################################
 
-        # initialises the RotationData class object (if not provided)
-        r_data = getattr(_data, r_data_type)
+            # initialises the RotationData class object (if not provided)
+            r_data = getattr(_data, r_data_type)
 
-        # determines the cell pool groupings
-        if calc_para['pool_expt']:
-            n_cell = cfcn.get_pool_cell_counts(data, lda_para)
-        else:
-            n_cell_ex = [sum(x) for x in i_cell]
-            n_cell = [x for x in cfcn.n_cell_pool1 if x <= np.max(n_cell_ex)]
+            # determines the cell pool groupings
+            if calc_para['pool_expt']:
+                n_cell = cfcn.get_pool_cell_counts(data, lda_para)
+            else:
+                n_cell_ex = [sum(x) for x in i_cell]
+                n_cell = [x for x in cfcn.n_cell_pool1 if x <= np.max(n_cell_ex)]
 
-        # memory allocation
-        n_cell_pool = n_cell[-1]
-        nC, n_tt, n_xi = len(n_cell), len(tt), len(r_data.spd_xi)
-        y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
+            # memory allocation
+            n_cell_pool = n_cell[-1]
+            nC, n_tt, n_xi = len(n_cell), len(tt), len(r_data.spd_xi)
+            y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
 
-        #
-        for i_c, n_c in enumerate(n_cell):
-            n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
-            for i_s in range(n_shuff_nw):
-                # updates the progressbar
-                w_str = 'Pooled Speed LDA (Shuffle {0}/{1}, Group {2}/{3})'.format(i_s + 1, n_shuff_nw, i_c + 1, nC)
-                w_prog.emit(w_str, 100. * (i_c + (i_s / n_shuff_nw)) / nC)
+            #
+            for i_c, n_c in enumerate(n_cell):
+                n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
+                for i_s in range(n_shuff_nw):
+                    # updates the progressbar
+                    w_str = 'Pooled Speed LDA (Sh:{0}/{1}, G:{2}/{3}, '.format(i_s + 1, n_shuff_nw, i_c + 1, nC)
+                    pw0 = 100. * (i_c + (i_s / n_shuff_nw)) / nC
 
-                while 1:
-                    # sets the new shuffled spiking frequency array (over all expt)
-                    if calc_para['pool_expt']:
-                        # case all cells are pooled over all experiments
-                        spd_sf_sh = [set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)]
+                    while 1:
+                        # sets the new shuffled spiking frequency array (over all expt)
+                        if calc_para['pool_expt']:
+                            # case all cells are pooled over all experiments
+                            spd_sf_sh = [set_sf_cell_perm(dcopy(spd_sf), n_cell_pool, n_c)]
 
-                    else:
-                        # case all cells
-                        is_keep = np.array(n_cell_ex) >= n_c
-                        spd_sf_sh = [set_sf_cell_perm(x, n_ex, n_c) for x, n_ex, is_k in
-                                     zip(dcopy(spd_sf), n_cell_ex, is_keep) if is_k]
+                        else:
+                            # case all cells
+                            is_keep = np.array(n_cell_ex) >= n_c
+                            spd_sf_sh = [set_sf_cell_perm(x, n_ex, n_c) for x, n_ex, is_k in
+                                         zip(dcopy(spd_sf), n_cell_ex, is_keep) if is_k]
 
-                    # runs the kinematic LDA on the new data
-                    results = cfcn.run_kinematic_lda(_data, spd_sf_sh, calc_para, _r_filt, n_trial)
-                    if not isinstance(results, bool):
-                        # if successful, then retrieve the accuracy values
-                        for i_tt in range(n_tt):
-                            y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
+                        # runs the kinematic LDA on the new data
+                        results = cfcn.run_kinematic_lda(_data, spd_sf_sh, calc_para, _r_filt, n_trial, w_prog=w_prog,
+                                                         w_str0=w_str, pw0=pw0)
+                        if not isinstance(results, bool):
+                            # if successful, then retrieve the accuracy values
+                            for i_tt in range(n_tt):
+                                y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
 
-                        # exits the loop
-                        break
+                            # exits the loop
+                            break
 
-        #######################################
-        ####    HOUSE-KEEPING EXERCISES    ####
-        #######################################
+            #######################################
+            ####    HOUSE-KEEPING EXERCISES    ####
+            #######################################
 
-        # sets a copy of the lda parameters and updates the comparison conditions
-        _lda_para = dcopy(lda_para)
-        _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
+            # sets a copy of the lda parameters and updates the comparison conditions
+            _lda_para = dcopy(lda_para)
+            _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
 
-        # sets the lda values
-        d_data.lda = 1
-        d_data.y_acc = y_acc
-        d_data.i_expt = i_expt
-        d_data.i_cell = i_cell
-        d_data.n_cell = n_cell
-        d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in _data.cluster]
-        d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
+            # sets the lda values
+            d_data.lda = 1
+            d_data.y_acc = y_acc
+            d_data.i_expt = i_expt
+            d_data.i_cell = i_cell
+            d_data.n_cell = n_cell
+            d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in _data.cluster]
+            d_data.lda_trial_type = cfcn.get_glob_para('lda_trial_type')
 
-        # sets the rotation values
-        d_data.spd_xi = r_data.spd_xi
-        d_data.i_bin_spd = r_data.i_bin_spd
+            # sets the rotation values
+            d_data.spd_xi = r_data.spd_xi
+            d_data.i_bin_spd = r_data.i_bin_spd
 
-        # sets the solver parameters
-        cfcn.set_lda_para(d_data, _lda_para, r_filt, n_trial)
+            # sets the solver parameters
+            cfcn.set_lda_para(d_data, _lda_para, r_filt, n_trial)
 
-        # sets the phase duration/offset parameters
-        d_data.spd_xrng = calc_para['spd_x_rng']
-        d_data.vel_bin = calc_para['vel_bin']
-        d_data.n_sample = calc_para['n_sample']
-        d_data.equal_time = calc_para['equal_time']
-        d_data.nshuffle = calc_para['n_shuffle']
+            # sets the phase duration/offset parameters
+            d_data.spd_xrng = calc_para['spd_x_rng']
+            d_data.vel_bin = calc_para['vel_bin']
+            d_data.n_sample = calc_para['n_sample']
+            d_data.equal_time = calc_para['equal_time']
+            d_data.nshuffle = calc_para['n_shuffle']
 
-        # calculates the psychometric curves
-        cfcn.calc_all_psychometric_curves(d_data, float(calc_para['vel_bin']))
+            # calculates the psychometric curves
+            w_prog.emit('Calculating Pyschometric Curves', 100.)
+            cfcn.calc_all_psychometric_curves(d_data, float(calc_para['vel_bin']))
 
-        # returns a true value indicating success
-        return True
+            # returns a true value indicating success
+            return True
+        except Exception as ex:
+            a = 1
 
     def run_speed_dir_lda_accuracy(self, data, calc_para, r_filt, i_expt, i_cell, n_trial, w_prog):
         '''

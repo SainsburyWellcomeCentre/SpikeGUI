@@ -7897,7 +7897,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets the base/comparison trial condition cell group type values (for the current match)
         i_cell_auc, r_obj_auc = cfcn.get_common_filtered_cell_indices(self.data, r_obj_auc_full, tt_auc, use_vel)
-        if len(i_cell_b[im[1]]):
+        if len(i_cell_b[1]):
             # retrieves the auc, signal and statistical significance values
             x_auc, y_auc, _, xy_sig, i_cell_auc = self.get_plot_vals(r_data, r_obj_auc, g_type, i_cell_auc, im, plot_cond,
                                                                      is_cong=is_cong, i_bin=i_bin, use_vel=use_vel)
@@ -8608,7 +8608,8 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATION DISCRIMINATION ANALYSIS FUNCTIONS   ####
     #########################################################
 
-    def plot_rotation_dir_lda(self, plot_transform, s_factor, plot_exp_name, plot_all_expt, acc_type,
+    def plot_rotation_dir_lda(self, plot_transform, s_factor, plot_exp_name, plot_all_expt,
+                              vl_bw_size, vl_bw, vl_scale, vl_cut, acc_type,
                               add_accuracy_trend, output_stats, plot_grid):
         '''
 
@@ -8894,7 +8895,8 @@ class AnalysisGUI(QMainWindow):
             y_plt = 100. * y_acc.T.flatten()
 
             # sets the violin/swarmplot dictionaries
-            vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None)
+            vl_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, inner=None, cut=vl_cut,
+                                             scale=vl_scale, bw=vl_bw_size if vl_bw=='number' else vl_bw)
             sw_dict = cf.setup_sns_plot_dict(ax=self.plot_fig.ax[3], x=x_plt, y=y_plt, color='white', edgecolor='gray')
 
             # creates the violin/swarmplot
@@ -15648,6 +15650,15 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': has_multi_expt,
                 'link_para': [['plot_exp_name', True], ['plot_transform', True]], 'is_enabled': has_multi_expt
             },
+            'vl_bw_size': {'text': 'Violinplot Kernel Size', 'def_val': 1},
+            'vl_bw': {
+                'type': 'L', 'text': 'Violinplot Kernel Type', 'list': ['scott', 'silverman', 'number'],
+                'def_val': 'scott', 'link_para': ['vl_bw_size', ['scott', 'silverman']]
+            },
+            'vl_scale': {
+                'type': 'L', 'text': 'Violinplot Scale Type', 'list': ['area', 'count', 'width'], 'def_val': 'count'
+            },
+            'vl_cut': {'text': 'Violinplot Cut Size', 'def_val': 2},
             'acc_type': {
                 'type': 'L', 'text': 'Accuracy Plot Type', 'list': acc_type, 'def_val': acc_type[0],
                 'link_para': ['s_factor', 'Violinplot + Swarmplot']
