@@ -2795,7 +2795,7 @@ class WorkerThread(QThread):
                 n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
                 for i_s in range(n_shuff_nw):
                     # updates the progressbar
-                    w_str = 'Speed LDA (Sh:{0}/{1}, G:{2}/{3}, '.format(i_s + 1, n_shuff_nw, i_c + 1, nC)
+                    w_str = 'Speed LDA (G:{2}/{3}, Sh:{0}/{1}, '.format(i_c + 1, nC, i_s + 1, n_shuff_nw)
                     pw0 = 100. * (i_c + (i_s / n_shuff_nw)) / nC
 
                     while 1:

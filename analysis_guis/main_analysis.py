@@ -3944,7 +3944,7 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         n_sd, dp_ax = 3, 10
-        extn_data = self.data.externd.eye_track
+        extn_data = dcopy(self.data.externd.eye_track)
         et_tt = [x.lower() for x in etrack_tt]
         t_str0 = ['Medial to Temporal', 'Temporal to Medial']
 
@@ -4051,12 +4051,12 @@ class AnalysisGUI(QMainWindow):
             i_tt = et_d.t_type.index(etrack_tt.lower())
             exp_file = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
             i_expt_c = exp_file.index(exp_name)
-            cl_ind = cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt_c], self.data.exc_gen_filt)
+            cl_ind = np.where(cfcn.get_inclusion_filt_indices(self.data._cluster[i_expt_c], self.data.exc_gen_filt))[0]
 
             if plot_type == 'Individual Cell':
                 # retrieves the correlation coefficients/p-values for the
-                y_corr0, p_corr0 = et_d.y_corr[i_expt][i_tt][cl_ind, :], et_d.p_corr[i_expt][i_tt][cl_ind, :]
-                n_cell = np.shape(y_corr0)[0]
+                y_corr0, p_corr0 = dcopy(et_d.y_corr[i_expt][i_tt]), dcopy(et_d.p_corr[i_expt][i_tt])
+                n_cell = len(cl_ind)
 
                 # determines if the cluster index is valid
                 if i_cell > n_cell:
@@ -4070,16 +4070,16 @@ class AnalysisGUI(QMainWindow):
                     return
                 else:
                     # otherwise, set the
-                    j_cell = i_cell - 1
-                    y_corr, p_corr = y_corr0[j_cell, :], p_corr0[j_cell, :]
-                    sp_evnt = [et_d.fps * sp_evnt[:, :, j_cell] for sp_evnt in et_d.sp_evnt[i_expt][i_tt]]
+                    i_cell_plt = cl_ind[i_cell - 1]
+                    y_corr, p_corr = y_corr0[i_cell_plt, :], p_corr0[i_cell_plt, :]
+                    sp_evnt = [et_d.fps * sp_evnt[:, :, i_cell_plt] for sp_evnt in et_d.sp_evnt[i_expt][i_tt]]
 
             elif plot_type == 'Individual Experiment':
                 # retrieves the eye-tracking position sub-strings
-                y_evnt = self.data.externd.eye_track.y_evnt[i_expt][i_tt]
+                y_evnt = dcopy(self.data.externd.eye_track.y_evnt[i_expt][i_tt])
 
                 # retrieves the spike events
-                sp_evnt0 = self.data.externd.eye_track.sp_evnt[i_expt][i_tt]
+                sp_evnt0 = dcopy(self.data.externd.eye_track.sp_evnt[i_expt][i_tt])
                 sp_evnt = [et_d.fps * np.mean(x[:, :, cl_ind], axis=2) for x in sp_evnt0]
 
                 # calculates the correlation value/p-value over the current experiment
@@ -4097,11 +4097,11 @@ class AnalysisGUI(QMainWindow):
                     cl_ind_all.append(cfcn.get_inclusion_filt_indices(self.data._cluster[i_ex], self.data.exc_gen_filt))
 
                 # retrieves the eye-tracking position sub-strings
-                y_evnt0 = self.data.externd.eye_track.y_evnt
+                y_evnt0 = dcopy(self.data.externd.eye_track.y_evnt)
                 y_evnt = [np.vstack([y_ev[i_tt][i] for y_ev in y_evnt0]) for i in range(2)]
 
                 # retrieves the eye movement spike histograms (for each experiment with the included cells)
-                sp_evnt0 = self.data.externd.eye_track.sp_evnt
+                sp_evnt0 = dcopy(self.data.externd.eye_track.sp_evnt)
                 sp_evnt = [et_d.fps * np.vstack([np.mean(sp[i_tt][i][:, :, i_cl], axis=2)
                                         for sp, i_cl in zip(sp_evnt0, cl_ind_all)]) for i in range(2)]
 
@@ -4206,8 +4206,8 @@ class AnalysisGUI(QMainWindow):
         # sets the title string
         if plot_type == 'Individual Cell':
             # case is for a single cell
-            c = self.data.cluster[[cf.extract_file_name(x['expFile']) for x in self.data.cluster].index(exp_name)]
-            cl_id, ch_id, ch_reg = c['clustID'][j_cell], c['chDepth'][j_cell], c['chRegion'][j_cell]
+            c = self.data._cluster[[cf.extract_file_name(x['expFile']) for x in self.data._cluster].index(exp_name)]
+            cl_id, ch_id, ch_reg = c['clustID'][i_cell_plt], c['chDepth'][i_cell_plt], c['chRegion'][i_cell_plt]
             t_str = 'Trial Type = {0}\nCluster #{1}/Channel #{2} ({3})'.format(etrack_tt, cl_id, ch_id, ch_reg)
         elif plot_type == 'Individual Experiment':
             # case is the individual experiment average
@@ -4292,7 +4292,7 @@ class AnalysisGUI(QMainWindow):
         p_value = 0.05
         cl_ind = []
         n_filt, n_evnt = len(etrack_tt), 2
-        et_d = self.data.externd.eye_track
+        et_d = dcopy(self.data.externd.eye_track)
 
         # determines the indices of the trial types over each experiment
         etrack_tt_lo = [x.lower() for x in etrack_tt]
@@ -4319,7 +4319,7 @@ class AnalysisGUI(QMainWindow):
         c = cf.get_plot_col(n_filt)
 
         # retrieves the correlation values (set only for the selected trial types and split by the event types)
-        y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, et_d.y_corr)])
+        y_corr0 = np.vstack([x[i] for i, x in zip(ind_tt, dcopy(et_d.y_corr))])
         y_corr = split_data_by_event_type(y_corr0, cl_ind, True)
 
         for i_evnt in range(n_evnt):
