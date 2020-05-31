@@ -1,7 +1,5 @@
 # module import
 import os
-import neo
-import time
 import pywt
 import copy
 import random
@@ -9,7 +7,6 @@ import peakutils
 import math as m
 import numpy as np
 import pickle as _p
-import quantities as pq
 from fastdtw import fastdtw
 import scikit_posthocs as sp
 from numpy.matlib import repmat
@@ -2940,7 +2937,7 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
     # student-t value for the dof and confidence level
     n_para, alpha = 4, 0.05
     tval = t.ppf(1. - alpha / 2., max(0, len(xi) - n_para))
-    bounds = ((0., 0., 0., 0.), (100., 100., 0.5, 200.))
+    bounds = ((0., 0., 0., 0.), (100., 100., 5.0, 200.))
 
     # memory allocation
     y_acc_fit, A = np.empty(n_cond, dtype=object), np.zeros((n_cond, n_para))
@@ -2959,7 +2956,10 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
 
         # sets up the initial parameters
         p0 = init_fit_para(xi[ii], y_acc_mn[ii, i_c], n_para)
-        # params = gmodel.make_params(y0=p0[0], yA=p0[1], k=p0[2], xH=p0[3])
+
+        # ensures the initial estimate is between the lower/upper bounds
+        iLB = p0 < bounds[0]; p0[iLB] = np.array(bounds[0])[iLB]
+        iUB = p0 > bounds[1]; p0[iUB] = np.array(bounds[1])[iUB]
 
         # keep attempting to find the psychometric fit until a valid solution is found
         while 1:
