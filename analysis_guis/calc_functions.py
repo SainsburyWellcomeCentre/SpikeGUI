@@ -4193,7 +4193,8 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
         # calculates and returns the kruskal wallis test p-value
         kw_stats = r_stats.kruskal_test(FloatVector(cf.flat_list(y)), FloatVector(i_grp))
-        return kw_stats[kw_stats.names.index('p.value')][0]
+        return cf.get_r_stats_values(kw_stats, 'p.value')
+
 
     def calc_dunn_stats(y, p_kw_stats, p_value):
         '''

@@ -1773,6 +1773,20 @@ def det_reqd_cond_types(data, t_type):
                                                 for x, y in zip(data._cluster, is_rot_expt) if y]
 
 
+def get_r_stats_values(r_stats_obj, f_key):
+    '''
+
+    :param r_stats_obj:
+    :param f_key:
+    :return:
+    '''
+
+    if isinstance(r_stats_obj.names, list):
+        return r_stats_obj[r_stats_obj.names.index(f_key)][0]
+    else:
+        return list(r_stats_obj)[np.where(r_stats_obj.names == f_key)[0][0]][0]
+
+
 def lcm(x, y):
    """This function takes two
    integers and returns the L.C.M."""
@@ -1930,7 +1944,7 @@ def calc_spike_freq_stats(sp_f0, ind, concat_results=True):
                 x, y = sp_f0[i_filt][i_row, :, ind[0]], sp_f0[i_filt][i_row, :, ind[1]]
                 ii = np.logical_and(~np.equal(x, None), ~np.equal(y, None))
                 results = r_stats.wilcox_test(FloatVector(x[ii]), FloatVector(y[ii]), paired=True, exact=True)
-                sf_stats[i_filt][i_row] = results[results.names.index('p.value')][0]
+                sf_stats[i_filt][i_row] = get_r_stats_values(results, 'p.value')
 
     # returns the stats array
     if concat_results:
@@ -1973,8 +1987,10 @@ def get_roc_xy_values(roc, is_comp=None):
     :return:
     '''
 
+
+
     # retrieves the roc coordinates and returns them in a combined array
-    roc_ss, roc_sp = roc[roc.names.index('sensitivities')], roc[roc.names.index('specificities')]
+    roc_ss, roc_sp = get_r_stats_values(roc, 'sensitivities'), get_r_stats_values(roc, 'specificities')
     return np.vstack((1-np.array(roc_ss), np.array(roc_sp))).T
 
 
@@ -1986,7 +2002,7 @@ def get_roc_auc_value(roc):
     '''
 
     # returns the roc curve integral
-    return roc[roc.names.index('auc')][0]
+    return get_r_stats_values(roc, 'auc')
 
 
 def calc_inter_roc_significance(roc1, roc2, method, boot_n):
@@ -1999,7 +2015,7 @@ def calc_inter_roc_significance(roc1, roc2, method, boot_n):
 
     # runs the test and returns the p-value
     results = _roc_test(roc1, roc2, method=method[0].lower(), boot_n=boot_n, progress='none')
-    return results[results.names.index('p.value')][0]
+    return get_r_stats_values(results, 'p.value')
 
 
 def calc_roc_curves(comp_vals, roc_type='Cell Spike Times', x_grp=None, y_grp=None, ind=[1, 2]):

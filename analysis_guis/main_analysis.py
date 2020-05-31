@@ -5287,7 +5287,7 @@ class AnalysisGUI(QMainWindow):
 
             # table parameters
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
-            col_hdr = ['None'] + (tt_class + ['Total Cell Count'] if show_count else tt_class[:-1])
+            col_hdr = (['None'] + tt_class + ['Total Cell Count'] if show_count else tt_class)
             row_hdr = tt_filt_N + (['Total Count'] if show_count else [])
             col_table = cf.get_plot_col(max([len(col_hdr), len(row_hdr)]), n_type)
 
@@ -5577,7 +5577,7 @@ class AnalysisGUI(QMainWindow):
 
                             # calculates the non-paired wilcoxon test between the 2 conditions
                             results = r_stats.wilcox_test(FloatVector(x), FloatVector(y), paired=False, exact=True)
-                            pv_str = '{:5.3f}'.format(results[results.names.index('p.value')][0])
+                            pv_str = '{:5.3f}'.format(cf.get_r_stats_values(results, 'p.value'))
 
                             # sets the title (first row only)
                             if i_type == 0:
@@ -7558,7 +7558,7 @@ class AnalysisGUI(QMainWindow):
 
                 # calculates the kruskal-wallis test
                 kw_stats = r_stats.kruskal_test(FloatVector(y_grp), FloatVector(i_grp))
-                return kw_stats[kw_stats.names.index('p.value')][0]
+                return cf.get_r_stats_values(kw_stats, 'p.value')
 
             # initialisations
             roc_auc_b = dcopy(roc_auc[0])
@@ -7784,7 +7784,8 @@ class AnalysisGUI(QMainWindow):
                             i_grp, y_grp = [0] * n_ex[i_tt] + [1] * n_ex[j_tt], y[i_tt] + y[j_tt]
                             results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
                                                                    p_adjust_method='bonf', paired=False)
-                            p_val_nw = results[results.names.index('p.value')][0]
+                            p_val_nw = cf.get_r_stats_values(results, 'p.value')
+
                         else:
                             if (y[i_tt] is None) or (y[j_tt] is None):
                                 p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = 'NaN'
@@ -11904,7 +11905,7 @@ class AnalysisGUI(QMainWindow):
                     if i_col != i_row:
                         results = r_stats.wilcox_test(FloatVector(roc_auc[i_row]), FloatVector(roc_auc[i_col]),
                                                       paired=is_paired, exact=True)
-                        p_value = results[results.names.index('p.value')][0]
+                        p_value = cf.get_r_stats_values(results, 'p.value')
 
                         p_value_str = '{:5.3f}{}'.format(p_value, cf.sig_str_fcn(p_value, 0.05))
                         auc_stats[i_row, i_col] = auc_stats[i_col, i_row] = p_value_str
@@ -12130,7 +12131,7 @@ class AnalysisGUI(QMainWindow):
                         # otherwise, calculate the statistics
                         Br = ro.r.matrix(n_DS[:, np.array([i_col, i_row])], nrow=2, ncol=2)
                         result = r_stats.chisq_test(Br, correct=False)
-                        chi_pval = result[result.names.index('p.value')][0]
+                        chi_pval = cf.get_r_stats_values(result, 'p.value')
 
                         # sets the p-value significance string for the table cell
                         if np.isnan(chi_pval):
@@ -12138,7 +12139,7 @@ class AnalysisGUI(QMainWindow):
                             sig_str = '*****'
                         else:
                             # case is a legitimate p-value
-                            sig_str = '{:5.3f}{}'.format(chi_pval, cf.sig_str_fcn(chi_pval, p_value))
+                            sig_str = '{:5.3f}{}'.format(chi_pval, cf.sig_str_fcn(chi_pval, p_value_sig))
 
                         chi_stats[i_row, i_col] = chi_stats[i_col, i_row] = sig_str
 
