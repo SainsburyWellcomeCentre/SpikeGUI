@@ -2526,7 +2526,10 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
         # sets the progress strings (if progress bar handle is provided)
         if w_prog is not None:
             if extern_wprog:
-                w_prog.emit('{0} Ex:{1}/{2})'.format(w_str0, i_ex + 1, n_ex), pw0)
+                if n_ex == 1:
+                    w_prog.emit('{0})'.format(w_str0), pw0)
+                else:
+                    w_prog.emit('{0}, Ex:{1}/{2})'.format(w_str0, i_ex + 1, n_ex), pw0)
             else:
                 w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
 

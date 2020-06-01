@@ -2779,7 +2779,7 @@ class WorkerThread(QThread):
 
         # determines the cell pool groupings
         if calc_para['pool_expt']:
-            n_cell, is_keep = cfcn.get_pool_cell_counts(data, lda_para), 1, []
+            n_cell, is_keep = cfcn.get_pool_cell_counts(data, lda_para), []
         else:
             n_cell_ex = [sum(x) for x in i_cell]
             n_cell = [x for x in cfcn.n_cell_pool1 if x <= np.max(n_cell_ex)]
@@ -2795,7 +2795,7 @@ class WorkerThread(QThread):
             n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
             for i_s in range(n_shuff_nw):
                 # updates the progressbar
-                w_str = 'Speed LDA (G:{0}/{1}, Sh:{2}/{3}, '.format(i_c + 1, nC, i_s + 1, n_shuff_nw)
+                w_str = 'Speed LDA (G:{0}/{1}, Sh:{2}/{3}'.format(i_c + 1, nC, i_s + 1, n_shuff_nw)
                 pw0 = 100. * (i_c + (i_s / n_shuff_nw)) / nC
 
                 while 1:

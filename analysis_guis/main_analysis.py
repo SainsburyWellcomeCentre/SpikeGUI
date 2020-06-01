@@ -10365,7 +10365,7 @@ class AnalysisGUI(QMainWindow):
             ax, h_plt_cond = self.plot_fig.ax[0], []
             l_col, l_style = cf.get_plot_col(len(plot_cell)), ['-', '--', '-.', ':']
             y_acc_fit = d_data.y_acc_fit
-            plot_sem = plot_type == 'Mean + SEM'
+            plot_sem = (plot_type == 'Mean + SEM') and (n_expt > 1)
 
             # sets the x-tick labels and axis limits
             x = np.arange(np.size(d_data.spd_xi, axis=0))
@@ -16149,7 +16149,9 @@ class AnalysisFunctions(object):
                 'def_val': np.ones(len(n_cell_list[int(spd_lda_pool)]), dtype=bool),
                 'other_para': '--- Select Plot Cell Counts ---'
             },
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': lda_ptype, 'def_val': lda_ptype[0]},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'list': lda_ptype, 'def_val': lda_ptype[0]
+            },
             'plot_para': {
                 'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False,
                 'link_para': [['plot_cell', True], ['plot_type', True]]
@@ -17726,9 +17728,9 @@ class AnalysisFunctions(object):
 
         # initialisations
         data, p_name = self.get_data_fcn(), p_data[0]
-        h_list0 = self.find_obj_handle([QComboBox], p_name)
-        if len(h_list0):
-            h_list = h_list0[0]
+        h_list_cells0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list_cells0):
+            h_list_cells = h_list_cells0[0]
         else:
             return
 
@@ -17745,15 +17747,25 @@ class AnalysisFunctions(object):
 
         # updates the parameters
         d_grp[i_grp]['para'][p_name]['list'] = n_cell_list
-        d_grp[i_grp]['para'][p_name]['def_val'] = np.ones(len(n_cell_list), dtype=bool)
-        self.curr_para[p_name] = np.ones(len(n_cell_list), dtype=bool)
+        d_grp[i_grp]['para'][p_name]['def_val'] = list(np.ones(len(n_cell_list), dtype=bool))
+        self.curr_para[p_name] = n_cell_list
 
         # updates the x-axis checklist values
-        h_list.clear()
-        h_list.addItem('--- Select Plot Cell Counts ---', False)
+        h_list_cells.clear()
+        h_list_cells.addItem('--- Select Plot Cell Counts ---', False)
         for i_tt, tt in enumerate(n_cell_list):
-            h_list.addItem(tt, True)
-            h_list.setState(i_tt + 1, True)
+            h_list_cells.addItem(tt, True)
+            h_list_cells.setState(i_tt + 1, True)
+
+        # retrieves the plot type listbox handle
+        h_list_plot0 = self.find_obj_handle([QComboBox], 'plot_type')
+        if len(h_list_plot0):
+            h_list_plot = h_list_plot0[0]
+        else:
+            return
+
+        # sets the enabled properties based on the selection
+        h_list_plot.setEnabled((state == 0) and (len(n_cell_list) > 0))
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
