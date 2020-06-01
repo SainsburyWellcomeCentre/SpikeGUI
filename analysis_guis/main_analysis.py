@@ -45,7 +45,6 @@ from rpy2.robjects.packages import importr
 rpy2.robjects.numpy2ri.activate()
 r_pair = importr("pairwise")
 r_stats = importr("stats")
-r_pROC = importr("pROC")
 
 # try:
 #     r_pHOC = importr("PMCMRplus")
@@ -8301,6 +8300,52 @@ class AnalysisGUI(QMainWindow):
                 cf.add_plot_table(self.plot_fig, ax[j], t_font, t_data[i].astype(int), row_hdr, col_hdr[i],
                                   cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
                                   'fixed', n_col=n_plt)
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # initialisations and memory allocation
+        n_col, n_filt = 6, len(r_data.ms_gtype_comb)
+        data_all = np.empty(n_filt, dtype=object)
+
+        # combines the data for each filter type
+        for i in range(n_filt):
+            # memory allocation
+            n_ex = len(r_data.ms_gtype_comb[i])
+            data_tmp = np.empty(n_ex + 1, dtype=object)
+
+            # sets title row
+            data_tmp[0] = np.empty((2, n_col), dtype=object)
+            data_tmp[0][0, :] = ''
+            data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID', 'Rot. DS', 'Vis DS', 'Rot MS', 'Vis MS'], dtype=object)
+
+            # retrieves the cluster IDs
+            i_expt_match = np.unique(r_data.r_obj_vis.i_expt[i])
+            clustID = [self.data.cluster[i]['clustID'] for i in i_expt_match]
+            exp_name = [cf.extract_file_name(self.data.cluster[i]['expFile']) for i in i_expt_match]
+
+            for i_ex in range(n_ex):
+                # memory allocation and initialisations
+                ds_tmp, ms_tmp = r_data.ds_gtype_comb[i][i_ex], r_data.ms_gtype_comb[i][i_ex]
+                data_tmp[i_ex + 1] = np.zeros((len(ds_tmp) + 1, 6), dtype=object)
+
+                # sets the data values into the array
+                data_tmp[i_ex + 1][:, 0] = ''
+                data_tmp[i_ex + 1][0, :] = ''
+                data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
+                data_tmp[i_ex + 1][1:, 1] = np.array(clustID[i_ex])
+                data_tmp[i_ex + 1][1:, 2] = np.logical_or(ds_tmp == 1, ds_tmp == 3).astype(int)
+                data_tmp[i_ex + 1][1:, 3] = np.logical_or(ds_tmp == 2, ds_tmp == 3).astype(int)
+                data_tmp[i_ex + 1][1:, 4] = np.logical_or(ms_tmp == 1, ms_tmp == 3).astype(int)
+                data_tmp[i_ex + 1][1:, 5] = np.logical_or(ms_tmp == 2, ms_tmp == 3).astype(int)
+
+            # sets the values for the filter type
+            data_all[i] = np.vstack(data_tmp)
+
+        # combines everything into a single array and outputs to file
+        data_out = np.vstack(data_all).astype(str)
+        np.savetxt("Rot & Vis Significance.csv", data_out, delimiter=",", fmt='%s')
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, m_size,
                                            violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
@@ -18415,6 +18460,11 @@ class RotationData(object):
         self.pd_type_pr = None
         self.pd_type_N = None
         self.ds_p_value = -1
+
+        # combined group type fields
+        self.ds_gtype_comb = None
+        self.ms_gtype_comb = None
+        self.r_obj_vis = None
 
         #
         self.vel_bin = -1                       #

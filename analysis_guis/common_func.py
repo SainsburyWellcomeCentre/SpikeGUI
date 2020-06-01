@@ -2047,7 +2047,7 @@ def calc_roc_curves(comp_vals, roc_type='Cell Spike Times', x_grp=None, y_grp=No
     # sets up the roc
     nn = len(x_grp)
     roc_pred, roc_class = np.hstack((np.zeros(nn), np.ones(nn))), np.hstack((x_grp, y_grp))
-    return r_pROC.roc(FloatVector(roc_pred), FloatVector(roc_class), direction = "<")
+    return r_pROC.roc(FloatVector(roc_pred), FloatVector(roc_class), direction = "<", quiet=True)
 
 
 # def calc_cell_roc_bootstrap_wrapper(p_data):

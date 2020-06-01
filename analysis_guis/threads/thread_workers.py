@@ -3503,11 +3503,11 @@ class WorkerThread(QThread):
 
             # case is uniform-drifting experiments (split into CW/CCW phases)
             r_filt_vis['t_type'], r_filt_vis['is_ud'], r_filt_vis['t_cycle'] = ['UniformDrifting'], [True], ['15']
-            r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
+            r_data.r_obj_vis, ind_type = cf.split_unidrift_phases(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
                                                            p_scope, t_phase_vis, t_ofs_vis)
 
             if (r_data.phase_roc_ud is None) and ('Wilcoxon' not in calc_para['grp_stype']):
-                self.calc_ud_roc_curves(data, r_obj_vis, ind_type, 66.)
+                self.calc_ud_roc_curves(data, r_data.r_obj_vis, ind_type, 66.)
 
         else:
             # case is motor-drifting experiments
@@ -3517,17 +3517,17 @@ class WorkerThread(QThread):
             t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para, is_vis=True)
 
             # runs the rotation filter
-            r_obj_vis = RotationFilteredData(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
+            r_data.r_obj_vis = RotationFilteredData(data, r_filt_vis, None, plot_exp_name, plot_all_expt,
                                                     p_scope, False, t_ofs=t_ofs, t_phase=t_phase)
-            if not r_obj_vis.is_ok:
+            if not r_data.r_obj_vis.is_ok:
                 # if there was an error, then output an error to screen
-                self.work_error.emit(r_obj_vis.e_str, 'Incorrect Analysis Function Parameters')
+                self.work_error.emit(r_data.r_obj_vis.e_str, 'Incorrect Analysis Function Parameters')
                 return False
 
         # calculate the visual/rotation stats scores
         sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data, r_data.r_obj_rot_ds, pool,
                                                                             calc_para, g_para, p_val)
-        sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_data, r_obj_vis, pool,
+        sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_data, r_data.r_obj_vis, pool,
                                                                             calc_para, g_para, p_val, ind_type,
                                                                             r_filt_vis['t_type'][0])
 
@@ -3536,12 +3536,13 @@ class WorkerThread(QThread):
         r_data.ms_gtype_N, r_data.ds_gtype_N, r_data.pd_type_N = [], [], []
         A = np.empty(len(i_grp_rot), dtype=object)
         r_data.ds_gtype_ex, r_data.ms_gtype_ex, r_data.pd_type_ex = dcopy(A), dcopy(A), dcopy(A)
+        r_data.ds_gtype_comb, r_data.ms_gtype_comb = dcopy(A), dcopy(A)
 
         # reduces the arrays to the matching cells
         for i in range(len(i_grp_rot)):
             if len(i_grp_rot[i]):
                 # retrieves the matching rotation/visual indices
-                ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_obj_vis)
+                ind_rot, ind_vis = cf.det_cell_match_indices(r_data.r_obj_rot_ds, i, r_data.r_obj_vis)
 
                 # determines the motion sensitivity from the score phase types (append proportion/N-value arrays)
                 #   0 = None
@@ -3550,8 +3551,8 @@ class WorkerThread(QThread):
                 #   3 = Both
                 _sf_score_rot = sf_score_rot[i_grp_rot[i][ind_rot]][:, :-1]
                 _sf_score_vis = sf_score_vis[i_grp_vis[i][ind_vis]][:, :-1]
-                ms_gtype = (np.sum(_sf_score_rot, axis=1) > 0) + 2 * (np.sum(_sf_score_vis, axis=1) > 0)
-                ms_type_tmp.append(cf.calc_rel_prop(ms_gtype, 4))
+                ms_gtype_comb = (np.sum(_sf_score_rot, axis=1) > 0) + 2 * (np.sum(_sf_score_vis, axis=1) > 0)
+                ms_type_tmp.append(cf.calc_rel_prop(ms_gtype_comb, 4))
                 r_data.ms_gtype_N.append(len(ind_rot))
 
                 # determines the direction selectivity type from the score phase types (append proportion/N-value arrays)
@@ -3561,13 +3562,13 @@ class WorkerThread(QThread):
                 #   3 = Both
                 is_ds_rot = det_dirsel_cells(sf_score_rot[i_grp_rot[i][ind_rot]], calc_para['grp_stype'])
                 is_ds_vis = det_dirsel_cells(sf_score_vis[i_grp_vis[i][ind_vis]], calc_para['grp_stype'])
-                ds_gtype = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
-                ds_type_tmp.append(cf.calc_rel_prop(ds_gtype, 4))
+                ds_gtype_comb = is_ds_rot.astype(int) + 2 * is_ds_vis.astype(int)
+                ds_type_tmp.append(cf.calc_rel_prop(ds_gtype_comb, 4))
                 r_data.ds_gtype_N.append(len(ind_rot))
 
                 # determines which cells have significance for both rotation/visual stimuli. from this determine the
                 # preferred direction from the CW vs CCW spiking rates
-                is_both_ds = ds_gtype == 3
+                is_both_ds = ds_gtype_comb == 3
                 r_CCW_CW_comb = np.vstack((r_CCW_CW_rot[i_grp_rot[i][ind_rot]][is_both_ds],
                                            r_CCW_CW_vis[i_grp_vis[i][ind_vis]][is_both_ds])).T
 
@@ -3586,13 +3587,22 @@ class WorkerThread(QThread):
                 ind_comb = ind_bl[np.searchsorted(ind_bl_rot, ind_rot)]
 
                 # sets the indices for each experiment
-                i_expt0 = r_obj_vis.i_expt[i][ind_vis]
+                i_expt0 = r_data.r_obj_vis.i_expt[i][ind_vis]
                 i_expt, i_expt_cong = grp_expt_indices(i_expt0), grp_expt_indices(i_expt0[is_both_ds])
 
                 # sets the final motion sensitivity, direction selectivity and congruency values
-                r_data.ms_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ms_gtype[x], 4) for x in i_expt])
-                r_data.ds_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ds_gtype[x], 4) for x in i_expt])
-                r_data.pd_type_ex[i] = np.vstack([cf.calc_rel_prop(pd_type[x], 2) for x in i_expt_cong])
+                r_data.ms_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ms_gtype_comb[x], 4) for x in i_expt])
+                r_data.ds_gtype_ex[i] = np.vstack([cf.calc_rel_prop(ds_gtype_comb[x], 4) for x in i_expt])
+
+                if len(i_expt_cong):
+                    r_data.pd_type_ex[i] = np.vstack([cf.calc_rel_prop(pd_type[x], 2) for x in i_expt_cong])
+                else:
+                    r_data.pd_type_ex[i] = np.nan * np.ones((1, 2))
+
+                # sets the direction selective/motion sensitivity types for current experiment
+                r_data.ds_gtype_comb[i] = [ds_gtype_comb[i_ex] for i_ex in i_expt]
+                r_data.ms_gtype_comb[i] = [ms_gtype_comb[i_ex] for i_ex in i_expt]
+
             else:
                 # appends the counts to the motion sensitive/direction selectivity arrays
                 r_data.ms_gtype_N.append(0)
