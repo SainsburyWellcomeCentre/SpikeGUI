@@ -827,7 +827,7 @@ class WorkerThread(QThread):
                         self.is_ok = False
                         self.work_finished.emit(thread_data)
                         return
-                    # elif status == 2:
+                    # elif status == 2:/
 
                     # if an update in the calculations is required, then run the rotation LDA analysis
                     if not self.run_pooled_kinematic_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max,
@@ -2779,22 +2779,23 @@ class WorkerThread(QThread):
 
         # determines the cell pool groupings
         if calc_para['pool_expt']:
-            n_cell = cfcn.get_pool_cell_counts(data, lda_para)
+            n_cell, is_keep = cfcn.get_pool_cell_counts(data, lda_para), 1, []
         else:
             n_cell_ex = [sum(x) for x in i_cell]
             n_cell = [x for x in cfcn.n_cell_pool1 if x <= np.max(n_cell_ex)]
 
         # memory allocation
         n_cell_pool = n_cell[-1]
+        n_ex = 1 if calc_para['pool_expt'] else len(i_cell)
         nC, n_tt, n_xi = len(n_cell), len(tt), len(r_data.spd_xi)
-        y_acc = [np.zeros((n_shuff, n_xi, nC)) for _ in range(n_tt)]
+        y_acc = [np.nan * np.ones((n_shuff, n_xi, nC, n_ex)) for _ in range(n_tt)]
 
         #
         for i_c, n_c in enumerate(n_cell):
             n_shuff_nw = n_shuff if (((i_c + 1) < nC) or (not calc_para['pool_expt'])) else 1
             for i_s in range(n_shuff_nw):
                 # updates the progressbar
-                w_str = 'Speed LDA (G:{2}/{3}, Sh:{0}/{1}, '.format(i_c + 1, nC, i_s + 1, n_shuff_nw)
+                w_str = 'Speed LDA (G:{0}/{1}, Sh:{2}/{3}, '.format(i_c + 1, nC, i_s + 1, n_shuff_nw)
                 pw0 = 100. * (i_c + (i_s / n_shuff_nw)) / nC
 
                 while 1:
@@ -2810,12 +2811,14 @@ class WorkerThread(QThread):
                                      zip(dcopy(spd_sf), n_cell_ex, is_keep) if is_k]
 
                     # runs the kinematic LDA on the new data
+                    n_ex_sh = 1 if calc_para['pool_expt'] else sum(is_keep)
                     results = cfcn.run_kinematic_lda(_data, spd_sf_sh, calc_para, _r_filt, n_trial, w_prog=w_prog,
                                                      w_str0=w_str, pw0=pw0)
                     if not isinstance(results, bool):
                         # if successful, then retrieve the accuracy values
                         for i_tt in range(n_tt):
-                            y_acc[i_tt][i_s, :, i_c] = results[0][0, :, i_tt]
+                            for i_ex in range(n_ex_sh):
+                                y_acc[i_tt][i_s, :, i_c, i_ex] = results[0][i_ex, :, i_tt]
 
                         # exits the loop
                         break
@@ -2850,6 +2853,7 @@ class WorkerThread(QThread):
         d_data.n_sample = calc_para['n_sample']
         d_data.equal_time = calc_para['equal_time']
         d_data.nshuffle = calc_para['n_shuffle']
+        d_data.poolexpt = calc_para['pool_expt']
 
         # calculates the psychometric curves
         w_prog.emit('Calculating Pyschometric Curves', 100.)
@@ -4375,7 +4379,6 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 'yaccmn', lda_para['y_acc_min'], def_val=True),
                     check_class_para_equal(d_data, 'yaucmx', lda_para['y_auc_max'], def_val=True),
                     check_class_para_equal(d_data, 'yaucmn', lda_para['y_auc_min'], def_val=True),
-
                     check_class_para_equal(d_data, 'lda_trial_type', lda_tt, def_val=True),
                     set(d_data.ttype) == set(lda_para['comp_cond']),
                 ]
@@ -4438,6 +4441,7 @@ class WorkerThread(QThread):
                     if d_data.type in ['SpdCompPool']:
                         is_equal += [
                             check_class_para_equal(d_data, 'nshuffle', calc_para['n_shuffle']),
+                            check_class_para_equal(d_data, 'poolexpt', calc_para['pool_expt']),
                         ]
 
                 # if there was a change in any of the parameters, then reset the LDA data field

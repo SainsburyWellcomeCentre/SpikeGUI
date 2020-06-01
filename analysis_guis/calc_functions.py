@@ -2855,8 +2855,9 @@ def calc_all_psychometric_curves(d_data, d_vel):
     # calculates the psychometric fits for each condition trial type
     for i_tt in range(n_tt):
         # sets the mean accuracy values (across all cell counts)
-        y_acc_mn = np.hstack((np.mean(100. * y_acc[i_tt][:, :, :-1], axis=0),
-                              100. * y_acc[i_tt][0, :, -1].reshape(-1, 1)))
+        y_acc_mn_exp = np.nanmean(y_acc[i_tt], axis=3)
+        y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
+                                         100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
 
         # calculates/sets the psychometric fit values
         y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \

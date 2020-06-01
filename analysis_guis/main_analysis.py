@@ -793,6 +793,7 @@ class AnalysisGUI(QMainWindow):
                     self.data.discrim.init_discrim_fields()
 
                     if init_comp:
+
                         self.data.comp.init_comparison_data()
 
                 # updates the comparison flag
@@ -10267,7 +10268,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
 
-    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_para, plot_grid):
+    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, plot_grid):
         '''
 
         :param show_fit:
@@ -10289,6 +10290,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         d_data = self.data.discrim.spdcp
         n_cell, y_acc = d_data.n_cell, d_data.y_acc
+        n_expt = np.size(d_data.y_acc[0], axis=3)
 
         # sets up the plot parameters
         is_plot = np.array([x in plot_cond for x in d_data.ttype])
@@ -10363,6 +10365,7 @@ class AnalysisGUI(QMainWindow):
             ax, h_plt_cond = self.plot_fig.ax[0], []
             l_col, l_style = cf.get_plot_col(len(plot_cell)), ['-', '--', '-.', ':']
             y_acc_fit = d_data.y_acc_fit
+            plot_sem = plot_type == 'Mean + SEM'
 
             # sets the x-tick labels and axis limits
             x = np.arange(np.size(d_data.spd_xi, axis=0))
@@ -10370,14 +10373,23 @@ class AnalysisGUI(QMainWindow):
             x_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
             xL, yL, h_plt, k = [x[0], x[-1] + 1.], [0., 100.], [], 0
 
-            # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-            y_acc_mn = [100. * np.hstack((np.mean(x[:, :, :-1], axis=0), x[0, :, -1].reshape(-1, 1))) for x in y_acc]
+            # calculates the mean accuracy values (averaged over all shuffles then over each experiment)
+            y_acc_mn_exp = [100. * np.nanmean(x, axis=0) for x in y_acc]
+            y_acc_mn = [np.nanmean(x, axis=2) for x in y_acc_mn_exp]
+
+            # calculates the SEM values (if plotting the errorbars)
+            if plot_sem:
+                n_acc_exp = [np.sqrt(np.sum(~np.all(np.isnan(x), axis=0), axis=1)) for x in y_acc_mn_exp]
+                y_acc_sem = [np.divide(np.nanstd(x, axis=2), n) for x, n in zip(y_acc_mn_exp, n_acc_exp)]
 
             # plots the data for all points
             for i, i_cond in enumerate(np.where(is_plot)[0]):
                 # sets the plot x locations and error bar values
                 x_nw, k = x + ((i + 1) / (n_cond + 1)), 0
-                _y_acc_fit = y_acc_fit[:, :, i_cond]
+
+                # retrieves the plot values (if plotting the psychometric fits)
+                if not plot_sem:
+                    _y_acc_fit = y_acc_fit[:, :, i_cond]
 
                 # plots the dummy condition marker lines
                 h_plt_cond.append(ax.plot([-1, -2], [0, 0], l_style[i], c='k', linewidth=2))
@@ -10395,8 +10407,18 @@ class AnalysisGUI(QMainWindow):
                         elif i == 0:
                             h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[k], s=m_size))
 
-                        # plots the psychometric fit (if required)
-                        ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[k], linewidth=2)
+                        # creates the main plot based on type
+                        if plot_sem:
+                            # case is the mean + SEM
+                            if n_c == n_cell[-1]:
+                                ax.plot(x_nw, y_acc_mn[i_cond][:, j], l_style[i], c=l_col[k], linewidth=3)
+                            else:
+                                cf.create_error_area_patch(ax, x_nw, y_acc_mn[i_cond][:, j],
+                                                           y_acc_sem[i_cond][:, j], l_col[k], l_style=l_style[i],
+                                                           edge_color='k')
+                        else:
+                            # case is the psychometric plots
+                            ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[k], linewidth=2)
 
                         # increments the colour counter
                         k += 1
@@ -15961,10 +15983,18 @@ class AnalysisFunctions(object):
         # combobox parameter lists
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_cond = spdcp_lda_para['comp_cond']
+        lda_ptype = ['Mean + SEM', 'Psychometric Curves']
         spr_type = ['Experiment IQR Area', 'Individual Experiment Markers', 'No Markers']
 
         # determines the cell count checklist values
-        n_cell_list = [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
+        spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', True)
+        cl_inc = [cfcn.get_inclusion_filt_indices(c, data.exc_gen_filt) for c in data._cluster]
+
+        # determines the cell counts based on whether the experiments are being pooled or not
+        n_cell_list = [
+            [str(x) for x in cfcn.n_cell_pool1 if x <= max([sum(x) for x in cl_inc])],
+            [str(x) for x in cfcn.get_pool_cell_counts(data, spdcp_lda_para)]
+        ]
 
         # ====> Speed LDA Accuracy
         para = {
@@ -16094,8 +16124,8 @@ class AnalysisFunctions(object):
                 'def_val': cfcn.set_def_para(spdcp_def_para, 'nshuffle', 5), 'min_val': 1
             },
             'pool_expt': {
-                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments',
-                'def_val': cfcn.set_def_para(spdcp_def_para, 'poolexpt', False),
+                'gtype': 'C', 'type': 'B', 'text': 'Pool All Experiments', 'def_val': spd_lda_pool,
+                'para_reset': [[['plot_cell', spdcp_lda_para], self.reset_pool_cells]]
             },
 
             # invisible parameters
@@ -16115,11 +16145,14 @@ class AnalysisFunctions(object):
                 'def_val': np.ones(len(lda_plot_cond), dtype=bool),
             },
             'plot_cell': {
-                'type': 'CL', 'text': 'Plot Cell Counts', 'list': n_cell_list,
-                'def_val': np.ones(len(n_cell_list), dtype=bool), 'other_para': '--- Select Plot Cell Counts ---'
+                'type': 'CL', 'text': 'Plot Cell Counts', 'list': n_cell_list[int(spd_lda_pool)],
+                'def_val': np.ones(len(n_cell_list[int(spd_lda_pool)]), dtype=bool),
+                'other_para': '--- Select Plot Cell Counts ---'
             },
+            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': lda_ptype, 'def_val': lda_ptype[0]},
             'plot_para': {
-                'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False, 'link_para': ['plot_cell', True],
+                'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False,
+                'link_para': [['plot_cell', True], ['plot_type', True]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -17683,6 +17716,45 @@ class AnalysisFunctions(object):
         h_chk_x.setCurrentIndex(i_sel_x)
         h_chk_y.setCurrentIndex(i_sel_y)
 
+    def reset_pool_cells(self, p_data, state):
+        '''
+
+        :param p_name:
+        :param state:
+        :return:
+        '''
+
+        # initialisations
+        data, p_name = self.get_data_fcn(), p_data[0]
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
+        # updates the parameter enabled value for all associated parameters
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # determines the cell counts based on whether the experiments are being pooled or not
+        cl_inc = [cfcn.get_inclusion_filt_indices(c, data.exc_gen_filt) for c in data._cluster]
+        n_cell_list = [
+            [str(x) for x in cfcn.n_cell_pool1 if x <= max([sum(x) for x in cl_inc])],
+            [str(x) for x in cfcn.get_pool_cell_counts(data, p_data[1])]
+        ][state > 0]
+
+        # updates the parameters
+        d_grp[i_grp]['para'][p_name]['list'] = n_cell_list
+        d_grp[i_grp]['para'][p_name]['def_val'] = np.ones(len(n_cell_list), dtype=bool)
+        self.curr_para[p_name] = np.ones(len(n_cell_list), dtype=bool)
+
+        # updates the x-axis checklist values
+        h_list.clear()
+        h_list.addItem('--- Select Plot Cell Counts ---', False)
+        for i_tt, tt in enumerate(n_cell_list):
+            h_list.addItem(tt, True)
+            h_list.setState(i_tt + 1, True)
+
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####
     #######################################
@@ -18508,7 +18580,7 @@ class SubDiscriminationData(object):
                 self.p_acc_lo = None
                 self.p_acc_hi = None
                 self.nshuffle = -1
-
+                self.poolexpt = True
 
 class MultiFileData(object):
     def __init__(self, is_multi=False):

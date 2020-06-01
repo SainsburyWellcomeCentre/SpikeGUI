@@ -2720,7 +2720,7 @@ def setup_sns_plot_dict(**kwargs):
     return sns_dict
 
 
-def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
+def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None, l_style='-', edge_color=None):
     '''
 
     :param ax:
@@ -2736,6 +2736,9 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
     # removes the non-NaN values
     is_ok = ~np.isnan(y_err)
     y_err, x = dcopy(y_err)[is_ok], np.array(dcopy(x))[is_ok]
+
+    if edge_color is None:
+        edge_color = col
 
     #
     if y_mn is not None:
@@ -2757,7 +2760,7 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None):
             err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err2[::-1])]
 
     # creates the polygon object and adds it to the axis
-    poly = Polygon(err_vert, facecolor=col, alpha=f_alpha, edgecolor=col, linewidth=4)
+    poly = Polygon(err_vert, facecolor=col, alpha=f_alpha, edgecolor=edge_color, linewidth=3, linestyle=l_style)
     ax.add_patch(poly)
 
 
