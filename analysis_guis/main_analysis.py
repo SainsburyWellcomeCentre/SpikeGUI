@@ -5151,7 +5151,7 @@ class AnalysisGUI(QMainWindow):
             ####    FIXED HEAD ANALYSIS    ####
             ###################################
 
-            n_type_ex0, n_cell_ex0, _, r_obj_wc = self.calc_corr_significance_types(rot_filt)
+            n_type_ex0, n_cell_ex0, v_sf_sig_ex0, _, r_obj_wc = self.calc_corr_significance_types(rot_filt)
             n_filt, lg_str = r_obj_wc.n_filt, r_obj_wc.lg_str
 
         else:
@@ -5311,6 +5311,59 @@ class AnalysisGUI(QMainWindow):
             # creates the table
             cf.add_plot_table(self.plot_fig, ax[1], t_font, table_data, row_hdr, col_hdr, row_col, col_col, 'fixed')
 
+            ###########################
+            ####    DATA OUTPUT    ####
+            ###########################
+
+            # only output data for fixed cell correlation
+            if not is_fixed:
+                return
+
+            # initialisations and memory allocation
+            t_type = r_obj_wc.rot_filt['t_type']
+            n_col, n_filt = 2 + len(t_type), int(len(v_sf_sig_ex0) / len(t_type))
+            data_all = np.empty(n_filt, dtype=object)
+
+            # combines the data for each filter type
+            for i in range(n_filt):
+                # memory allocation
+                i_grp = i * len(t_type) + np.arange(len(t_type))
+                n_ex = len(v_sf_sig_ex0[i_grp[0]])
+                data_tmp = np.empty(n_ex + 1, dtype=object)
+
+                # sets title row
+                data_tmp[0] = np.empty((2, n_col), dtype=object)
+                data_tmp[0][0, :] = ''
+                data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID'] + t_type, dtype=object)
+
+                # retrieves the cluster IDs
+                i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
+                clustID = [self.data.cluster[j]['clustID'] for j in i_expt_match]
+                exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
+
+                for i_ex in range(n_ex):
+                    # memory allocation and initialisations
+                    v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
+                    data_tmp[i_ex + 1] = np.zeros((len(v_sf_grp[0]) + 1, n_col), dtype=object)
+
+                    # sets the data values into the array
+                    data_tmp[i_ex + 1][:, 0] = ''
+                    data_tmp[i_ex + 1][0, :] = ''
+                    data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
+                    data_tmp[i_ex + 1][1:, 1] = np.array(clustID[i_ex])
+
+                    # sets the cells which has any type of significance (negative, positive or both)
+                    for j, v_sf in enumerate(v_sf_grp):
+                        data_tmp[i_ex + 1][1:, j + 2] = (v_sf > 0).astype(int)
+
+                # sets the values for the filter type
+                data_all[i] = np.vstack(data_tmp)
+
+            # combines everything into a single array and outputs to file
+            data_out = np.vstack(data_all).astype(str)
+            np.savetxt("Fixed Correlation Significance.csv", data_out, delimiter=",", fmt='%s')
+
+
     def plot_sig_overlap(self, free_cell_type, rot_filt):
         '''
 
@@ -5353,7 +5406,7 @@ class AnalysisGUI(QMainWindow):
         i_bin = ['5', '10'].index(str(int(r_data.vel_bin_corr)))
 
         # calculates the spiking frequency correlation significance type (UNCOMENT FOR FIXED SIGNIFICANCE CALCULATIONS)
-        _, _, vf_score, r_obj_wc = self.calc_corr_significance_types(rot_filt)
+        _, _, _, vf_score, r_obj_wc = self.calc_corr_significance_types(rot_filt)
 
         # # calculates the fixed/free spiking correlations (UNCOMENT FOR FREE SIGNIFICANCE CALCULATIONS)
         # _, _, _, sf_sig_all, _, _ = self.get_fix_free_spiking_corr(rot_filt)
@@ -12261,6 +12314,7 @@ class AnalysisGUI(QMainWindow):
         n_filt_ex = np.zeros(n_filt, dtype=int)
         n_cell_ex0 = np.empty(n_filt, dtype=object)
         n_type_ex0 = np.empty(n_filt, dtype=object)
+        v_sf_sig_ex = np.empty(n_filt, dtype=object)
         v_sf_sig_score = np.empty(n_filt, dtype=object)
 
         # sets the spiking frequency significance values
@@ -12279,11 +12333,11 @@ class AnalysisGUI(QMainWindow):
             #   =2 - Positive direction only is significance
             #   =3 - Both directions are significance
             v_sf_sig_score[i_filt] = v_sf_sig_nw[:, 0] + 2 * v_sf_sig_nw[:, 1]
-            v_sf_sig_ex = [v_sf_sig_score[i_filt][_i_ex] for _i_ex in i_ex]
-            n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex])
+            v_sf_sig_ex[i_filt] = [v_sf_sig_score[i_filt][_i_ex] for _i_ex in i_ex]
+            n_type_ex0[i_filt] = np.vstack([[sum(v_sf == i) for i in range(1, 4)] for v_sf in v_sf_sig_ex[i_filt]])
 
         # returns the array
-        return n_type_ex0, n_cell_ex0, v_sf_sig_score, r_obj_wc
+        return n_type_ex0, n_cell_ex0, v_sf_sig_ex, v_sf_sig_score, r_obj_wc
 
     def get_fix_free_spiking_corr(self, rot_filt, lcond_type=None, i_grp=None):
         '''
@@ -12798,9 +12852,9 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the mean/SEM values for the table (if not provided)
         if val_mu is None:
-            val_mu = [np.mean(x, axis=0) for x in t_vals]
-            val_sem = [np.std(x, axis=0) / np.sqrt(np.shape(x)[0]) for x in t_vals]
-        elif not isinstance(val_mu, list):
+            val_mu = [np.nanmean(x, axis=0) for x in t_vals]
+            val_sem = [np.nanstd(x, axis=0) / np.sqrt(np.shape(x)[0]) for x in t_vals]
+        elif not isinstance(val_mu[0], list):
             val_mu, val_sem = [val_mu], [val_sem]
 
         # combines the mean/SEM values for each grouping and returns the final array
@@ -18762,6 +18816,7 @@ class FreelyMovingData(object):
         p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
         p_tile_speed = 95.0             # min mean vec percentile for speed cells
         p_tile_place = 95.0             # min mean vec percentile for place cells
+        use_hd_light_cells = False       # Set to True to use Light1/Light2 for HD cell definition (otherwise, DARK cells will be used)
 
         def check_data_fields(c_info):
             '''
@@ -18787,15 +18842,26 @@ class FreelyMovingData(object):
             return True
 
         if f_data['experiment_name'] in self.exp_name:
-            # if the data already exists in the class object, then exit
+            # if the file already exists in the data, then pop the values from the list
+            i_expt_ex = self.exp_name.index(f_data['experiment_name'])
+            self.exp_name.pop(i_expt_ex)
+            self.cell_id.pop(i_expt_ex)
+            self.s_freq.pop(i_expt_ex)
+            self.c_info.pop(i_expt_ex)
+            self.p_sig_neg.pop(i_expt_ex)
+            self.p_sig_pos.pop(i_expt_ex)
+            self.cell_type.pop(i_expt_ex)
+            self.ahv_score.pop(i_expt_ex)
+
+            # decrements the file count
+            self.n_file -= 1
+
+        # determines if the new data file matches any of the loaded experiments
+        free_name = [cf.extract_file_name(x['expFile']) for x in data._cluster if x['rotInfo'] is None]
+        i_expt_nw = cf.det_likely_filename_match(free_name, f_data['experiment_name'])
+        if i_expt_nw is None:
+            # if there is no matching expt, then exit without appending
             return
-        else:
-            # determines if the new data file matches any of the loaded experiments
-            free_name = [cf.extract_file_name(x['expFile']) for x in data._cluster if x['rotInfo'] is None]
-            i_expt_nw = cf.det_likely_filename_match(free_name, f_data['experiment_name'])
-            if i_expt_nw is None:
-                # if there is no matching expt, then exit without appending
-                return
 
         # initialisations
         has_missing_fields = False
@@ -18820,6 +18886,9 @@ class FreelyMovingData(object):
         s_freq, p_sig_neg, p_sig_pos = dcopy(A), dcopy(B), dcopy(B)
         cell_type, ahv_score, c_info = dcopy(C), dcopy(C), dcopy(C)
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
+
+        # AHV and Speed significant condition type
+        ahv_spd_sig_type = dark_type                     # set to either dark_type, 'LIGHT1', 'LIGHT2'
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
@@ -18849,43 +18918,63 @@ class FreelyMovingData(object):
                 has_missing_fields = True
                 continue
 
-            # head direction cell significance
-            #   => for BOTH light1 and light2 conditions:
-            #     * v_min_hd_mod_lo < mean_vec_length < v_min_hd_mod_hi
-            #     * rayleigh_test_p < p_rayleight_hd_mod
-            hd_sig = np.logical_and(
-                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] >= v_min_hd,
-                               c_info[i_bin]['LIGHT2']['mean_vec_length'] >= v_min_hd),
-                np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd,
-                               c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd)
-            )
 
-            # head direction modulated cell significance
-            #   => for BOTH light1 and light2 conditions:
-            #     * mean_vec_length >= v_min_hd_mod
-            #     * rayleigh_test_p < p_rayleight_hd
-            hd_mod_sig_vec = np.logical_and(
-                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd_mod_lo,
-                               c_info[i_bin]['LIGHT2']['mean_vec_length'] > v_min_hd_mod_lo),
-                np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] < v_min_hd_mod_hi,
-                               c_info[i_bin]['LIGHT2']['mean_vec_length'] < v_min_hd_mod_hi),
-            )
-            hd_mod_sig = np.logical_and(
-                np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd_mod,
-                               c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd_mod),
-                hd_mod_sig_vec
-            )
+            if use_hd_light_cells:
+                # head direction cell significance
+                #   => for BOTH light1 and light2 conditions:
+                #     * v_min_hd_mod_lo < mean_vec_length < v_min_hd_mod_hi
+                #     * rayleigh_test_p < p_rayleight_hd_mod
+                hd_sig = np.logical_and(
+                    np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] >= v_min_hd,
+                                   c_info[i_bin]['LIGHT2']['mean_vec_length'] >= v_min_hd),
+                    np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd,
+                                   c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd)
+                )
+
+                # head direction modulated cell significance
+                #   => for BOTH light1 and light2 conditions:
+                #     * mean_vec_length >= v_min_hd_mod
+                #     * rayleigh_test_p < p_rayleight_hd
+                hd_mod_sig_vec = np.logical_and(
+                    np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd_mod_lo,
+                                   c_info[i_bin]['LIGHT2']['mean_vec_length'] > v_min_hd_mod_lo),
+                    np.logical_and(c_info[i_bin]['LIGHT1']['mean_vec_length'] < v_min_hd_mod_hi,
+                                   c_info[i_bin]['LIGHT2']['mean_vec_length'] < v_min_hd_mod_hi),
+                )
+                hd_mod_sig = np.logical_and(
+                    np.logical_and(c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd_mod,
+                                   c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd_mod),
+                    hd_mod_sig_vec
+                )
+            else:
+                # head direction cell significance
+                #  => SAME AS ABOVE BUT DARK CELLS ONLY
+                hd_sig = np.logical_and(
+                    c_info[i_bin][dark_type]['mean_vec_length'] >= v_min_hd,
+                    c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd
+                )
+
+                # head direction modulated cell significance
+                #  => SAME AS ABOVE BUT DARK CELLS ONLY
+                hd_mod_sig_vec = np.logical_and(
+                    c_info[i_bin][dark_type]['mean_vec_length'] > v_min_hd_mod_lo,
+                    c_info[i_bin][dark_type]['mean_vec_length'] < v_min_hd_mod_hi,
+                )
+                hd_mod_sig = np.logical_and(
+                    c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd_mod,
+                    hd_mod_sig_vec
+                )
 
             # angular head velocity cell significance
-            ahv_sig_pos = c_info[i_bin][dark_type]['pearson_pos_percentile'] > p_tile_ahv
-            ahv_sig_neg = c_info[i_bin][dark_type]['pearson_neg_percentile'] > p_tile_ahv
+            ahv_sig_pos = c_info[i_bin][ahv_spd_sig_type]['pearson_pos_percentile'] > p_tile_ahv
+            ahv_sig_neg = c_info[i_bin][ahv_spd_sig_type]['pearson_neg_percentile'] > p_tile_ahv
             ahv_score[i_bin] = np.array(ahv_sig_neg).astype(int) + 2 * np.array(ahv_sig_pos).astype(int)
             ahv_sig = ahv_score[i_bin] > 0
 
             # speed cell significance
             spd_sig = np.logical_or(
-                c_info[i_bin][dark_type]['pearson_percentile'] > p_tile_speed,
-                c_info[i_bin][dark_type]['pearson_percentile'] < (100. - p_tile_speed)
+                c_info[i_bin][ahv_spd_sig_type]['pearson_percentile'] > p_tile_speed,
+                c_info[i_bin][ahv_spd_sig_type]['pearson_percentile'] < (100. - p_tile_speed)
             )
 
             # # place cell significance (UNCOMMENT IF USING PLACE CELLS)

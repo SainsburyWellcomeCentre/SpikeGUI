@@ -1781,9 +1781,9 @@ def get_r_stats_values(r_stats_obj, f_key):
     :return:
     '''
 
-    if isinstance(r_stats_obj.names, list):
+    try:
         return r_stats_obj[r_stats_obj.names.index(f_key)][0]
-    else:
+    except:
         return list(r_stats_obj)[np.where(r_stats_obj.names == f_key)[0][0]][0]
 
 
