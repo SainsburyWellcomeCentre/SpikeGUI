@@ -57,7 +57,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
-from scipy.stats import linregress, bartlett, ks_2samp, kruskal
+from scipy.stats import linregress, bartlett, ks_2samp, kruskal, ttest_rel
 from scipy.signal import find_peaks
 
 # sklearn module imports
@@ -3927,6 +3927,154 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.set_tight_layout(False)
         self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
+
+    def plot_ahv_corr_comp(self, vel_bin, lcond_type, cell_type, plot_type, plot_grid):
+        '''
+
+        :param rot_filt:
+        :param vel_dir:
+        :param lcond_type:
+        :param plot_type:
+        :param plot_grid:
+        :param plot_scope:
+        :return:
+        '''
+
+        def setup_plot_axis(plot_fig):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            n_r, n_c, n_filt = 2, 2, 2
+            top, bottom, wspace, hspace = 0.925, 0.04, 0.25, 0.05
+            tbl_hght = 0.05 + 0.025 * n_filt
+            height_ratios = [1 - tbl_hght, tbl_hght]
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_r * n_c, dtype=object)
+            for i_c in range(n_c):
+                i_ofs = i_c * n_c
+                plot_fig.ax[i_ofs] = plot_fig.figure.add_subplot(gs[0, i_c])
+                plot_fig.ax[i_ofs + 1] = plot_fig.figure.add_subplot(gs[1, i_c])
+
+                # turns off axis for the table row
+                plot_fig.ax[i_ofs + 1].axis('off')
+
+        ############################################
+        ####    INITIALISATIONS & DATA SETUP    ####
+        ############################################
+
+        # initialisations
+        n_grp, n_cond = 2, 2
+        f_data = self.data.externd.free_data
+        i_bin = ['5', '10'].index(vel_bin)
+        col_type = ['ahv_pearson_r_neg', 'ahv_pearson_r_pos']
+
+        # retrieves the absolute
+        cl_inc = self.get_free_inclusion_indices(i_bin)
+        r_dark = [np.abs(np.array(ci[i_bin]['DARK'][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
+        r_light = [np.abs(np.array(ci[i_bin][lcond_type][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
+
+        # if showing a specific cell type, then reduce the dataset to those cells
+        if cell_type != 'All Cells':
+            # determines the indices of the cells to be kept and removes the others
+            i_cell = [np.array(ct[i_bin][cell_type])[ic] for ct, ic in zip(f_data.cell_type, cl_inc)]
+            r_dark = [r[ic, :] for r, ic in zip(r_dark, i_cell)]
+            r_light = [r[ic, :] for r, ic in zip(r_light, i_cell)]
+
+        ######################################
+        ####    SUBPLOT/TABLE CREATION    ####
+        ######################################
+
+        # parameters
+        b_wid = 0.9
+        xi = np.arange(n_cond)
+        col = cf.get_plot_col(n_cond)
+        t_str = ['Negative', 'Positive']
+        x_tick_lbl = ['DARK', lcond_type]
+
+        # table parameters
+        t_font = cf.get_table_font_size(2)
+        col_table = cf.get_plot_col(n_cond, n_cond)
+
+        # creates the subplot axes
+        setup_plot_axis(self.plot_fig)
+        ax = self.plot_fig.ax
+
+        # creates the subplots for each group
+        for i_grp in range(n_grp):
+            ################################
+            ####    SUBPLOT CREATION    ####
+            ################################
+
+            # sets the plot axes index
+            i_plt = n_grp * i_grp
+
+            # calculates the mean dark/light correlation values over each experiment
+            # r_dl_tot = np.vstack([np.nanmean(np.vstack((rd[:, i_grp], rl[:, i_grp])).T, axis=0)
+            #                                                                     for rd, rl in zip(r_dark, r_light)])
+            r_dl_tot = np.vstack([np.vstack((rd[:, i_grp], rl[:, i_grp])).T for rd, rl in zip(r_dark, r_light)])
+
+            # from these values, calculate the mean/SEM values
+            n_exp = np.size(r_dl_tot, axis=0)
+            r_dl_tot_mu = np.nanmean(r_dl_tot, axis=0)
+            r_dl_tot_sem = np.nanstd(r_dl_tot, axis=0) / np.sqrt(n_exp)
+
+            # creates the subplot figures
+            if plot_type == 'Violin/Swarmplot':
+                # case is the correlation plot type is a violin/swarmplot
+
+                # sets the x/y plot values
+                x_plt = cf.flat_list([[j + 1] * n_exp for j in range(n_cond)])
+                y_plt = cf.flat_list(r_dl_tot.T)
+
+                # sets the violin/swarmplot dictionaries
+                vl_dict = cf.setup_sns_plot_dict(ax=ax[i_plt], x=x_plt, y=y_plt, inner=None, bw=1, cut=1)
+                sw_dict = cf.setup_sns_plot_dict(ax=ax[i_plt], x=x_plt, y=y_plt, color='white',
+                                                 edgecolor='gray', size=3)
+
+                # creates the violin/swarmplot
+                sns.violinplot(**vl_dict)
+                sns.swarmplot(**sw_dict)
+
+            else:
+                # case is the separated bar graph
+                for i in range(n_cond):
+                    ax[i_plt].bar(xi[i], r_dl_tot_mu[i], width=b_wid, color=col[i], yerr=r_dl_tot_sem[i])
+
+            # sets the axis properties
+            ax[i_plt].grid(plot_grid)
+            ax[i_plt].set_xlim([-0.5, n_cond-0.5])
+            ax[i_plt].set_ylim([0, 1])
+            ax[i_plt].set_xticks(xi)
+            ax[i_plt].set_xticklabels(x_tick_lbl)
+            ax[i_plt].set_ylabel('Correlation')
+
+            # calculates the relative t-test values and
+            _, p_ttest = ttest_rel(r_dl_tot[:, 0], r_dl_tot[:, 1])
+            p_str = '*' if (p_ttest < 0.05) else ''
+            ax[i_plt].set_title('{} Correlation\n(p-value = {:.3f}{})'.format(t_str[i_grp], p_ttest, p_str),
+                                fontsize=16, fontweight='bold')
+
+            ####################################
+            ####    STATS TABLE CREATION    ####
+            ####################################
+
+            # sets the table values and properties for the mean/SEM values
+            table_data = self.setup_table_mean_plus_sem(val_mu=r_dl_tot_mu, val_sem=r_dl_tot_sem, n_dp=3)
+
+            # creates the table
+            cf.add_plot_table(self.plot_fig, ax[i_plt + 1], t_font, table_data, ['Mean {} SEM'.format(cf._plusminus)],
+                                        x_tick_lbl, col_table[:1], col_table, 'fixed')
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
@@ -12383,8 +12531,6 @@ class AnalysisGUI(QMainWindow):
         # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
         ind_cl_match = [[cl_fx[cl_id][_is_m] for _is_m, cl_fx, cl_id in zip(is_m, ind_cl_fix, cl_ind)]
                                       for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
-        # ind_cl_match = [[cl_id[_is_m] for _is_m, cl_id in zip(is_m, cl_ind)]
-        #                               for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
 
         # retrieves the indices of the trial type conditions (for retrieving the correlation/significance values)
         t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
@@ -12843,7 +12989,7 @@ class AnalysisGUI(QMainWindow):
             # otherwise, plot type is feasible
             return True
 
-    def setup_table_mean_plus_sem(self, t_vals=None, val_mu=None, val_sem=None):
+    def setup_table_mean_plus_sem(self, t_vals=None, val_mu=None, val_sem=None, n_dp=1):
         '''
 
         :param t_vals:
@@ -12858,7 +13004,14 @@ class AnalysisGUI(QMainWindow):
             val_mu, val_sem = [val_mu], [val_sem]
 
         # combines the mean/SEM values for each grouping and returns the final array
-        return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
+        if n_dp == 1:
+            return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
+                                 for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+        elif n_dp == 2:
+            return np.vstack([['{:.2f} {} {:.2f}'.format(_mu, cf._plusminus, _sem)
+                                 for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+        elif n_dp == 3:
+            return np.vstack([['{:.3f} {} {:.3f}'.format(_mu, cf._plusminus, _sem)
                                  for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
 
     ####################################################################################################################
@@ -13480,6 +13633,7 @@ class AnalysisFunctions(object):
         vel_dir = ['Negative', 'Positive']
         lcond_type = ['LIGHT1', 'LIGHT2']
         rt_free = ['Black', 'Uniform']
+        corr_stype = ['Violin/Swarmplot', 'Separated Bar']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
@@ -13717,6 +13871,7 @@ class AnalysisFunctions(object):
         if has_free_data:
             # list initialisations
             disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
+            fcell_type = ['All Cells', 'AHV', 'HD', 'HDMod', 'Speed']
 
             # ====> Freely Moving Cell Type Statistics
             para = {
@@ -13880,6 +14035,22 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Analysis',
                           name='Fixed/Free Spiking Correlation (Scatterplot)',
                           func='plot_fix_free_corr_scatter',
+                          para=para)
+
+            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            para = {
+                # plotting parameters
+                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+                'cell_type': {'type': 'L', 'text': 'Free Cell Type', 'list': fcell_type, 'def_val': 'All Cells'},
+                'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': corr_stype, 'def_val': corr_stype[0]},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='AHV Correlation Comparison',
+                          func='plot_ahv_corr_comp',
                           para=para)
 
         ######################################
