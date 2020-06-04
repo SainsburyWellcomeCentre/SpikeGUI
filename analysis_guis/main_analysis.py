@@ -3983,6 +3983,7 @@ class AnalysisGUI(QMainWindow):
         cl_inc = self.get_free_inclusion_indices(i_bin)
         r_dark = [np.abs(np.array(ci[i_bin]['DARK'][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         r_light = [np.abs(np.array(ci[i_bin][lcond_type][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
+        c_id = [np.array(id)[ic] for id, ic in zip(f_data.cell_id, cl_inc)]
 
         # if showing a specific cell type, then reduce the dataset to those cells
         if cell_type != 'All Cells':
@@ -3990,6 +3991,7 @@ class AnalysisGUI(QMainWindow):
             i_cell = [np.array(ct[i_bin][cell_type])[ic] for ct, ic in zip(f_data.cell_type, cl_inc)]
             r_dark = [r[ic, :] for r, ic in zip(r_dark, i_cell)]
             r_light = [r[ic, :] for r, ic in zip(r_light, i_cell)]
+            c_id = [id[ic] for id, ic in zip(c_id, i_cell)]
 
         ######################################
         ####    SUBPLOT/TABLE CREATION    ####
@@ -4081,6 +4083,42 @@ class AnalysisGUI(QMainWindow):
             # creates the table
             cf.add_plot_table(self.plot_fig, ax[i_plt + 1], t_font, table_data, ['Mean {} SEM'.format(cf._plusminus)],
                                         x_tick_lbl, col_table[:1], col_table, 'fixed')
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # memory allocation
+        n_ex, n_col = len(f_data.exp_name), 6
+        data_tmp = np.empty(n_ex + 1, dtype=object)
+        grp_str = cf.flat_list([['{0} ({1})'.format(ct, tt) for tt in t_str] for ct in x_tick_lbl])
+
+        # sets title row
+        data_tmp[0] = np.empty((2, n_col), dtype=object)
+        data_tmp[0][0, :] = ''
+        data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID'] + grp_str, dtype=object)
+
+        for i_ex in range(n_ex):
+            # memory allocation and initialisations
+            n_row = len(c_id[i_ex])
+            data_tmp[i_ex + 1] = np.zeros((n_row + 1, n_col), dtype=object)
+
+            # sets the data values into the array
+            data_tmp[i_ex + 1][:, 0] = ''
+            data_tmp[i_ex + 1][0, :] = ''
+            data_tmp[i_ex + 1][1, 0] = f_data.exp_name[i_ex]
+            data_tmp[i_ex + 1][1:, 1] = c_id[i_ex]
+
+            # sets the cells which has any type of significance (negative, positive or both)
+            for j in range(n_grp):
+                data_tmp[i_ex + 1][1:, j + 2] = r_dark[i_ex][:, j]
+                data_tmp[i_ex + 1][1:, j + 4] = r_light[i_ex][:, j]
+
+        # sets the values for the filter type
+        data_out = np.vstack(data_tmp)
+        out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
+        out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
+        np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
