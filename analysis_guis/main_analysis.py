@@ -57,7 +57,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
-from scipy.stats import linregress, bartlett, ks_2samp, kruskal, ttest_rel
+from scipy.stats import linregress, bartlett, ks_2samp, kruskal, ttest_rel, wilcoxon
 from scipy.signal import find_peaks
 
 # sklearn module imports
@@ -4046,6 +4046,11 @@ class AnalysisGUI(QMainWindow):
                 sns.violinplot(**vl_dict)
                 sns.swarmplot(**sw_dict)
 
+            elif plot_type == 'Boxplot':
+                # case is a boxplot
+                y_plt_box = [r_dl_tot[:, i_cond] for i_cond in range(n_cond)]
+                ax[i_plt].boxplot(y_plt_box, positions=xi, vert=True, patch_artist=True, widths=0.9)
+
             else:
                 # case is the separated bar graph
                 for i in range(n_cond):
@@ -4060,9 +4065,10 @@ class AnalysisGUI(QMainWindow):
             ax[i_plt].set_ylabel('Correlation')
 
             # calculates the relative t-test values and
-            _, p_ttest = ttest_rel(r_dl_tot[:, 0], r_dl_tot[:, 1])
-            p_str = '*' if (p_ttest < 0.05) else ''
-            ax[i_plt].set_title('{} Correlation\n(p-value = {:.3f}{})'.format(t_str[i_grp], p_ttest, p_str),
+            # _, p_value = ttest_rel(r_dl_tot[:, 0], r_dl_tot[:, 1])
+            _, p_value = wilcoxon(r_dl_tot[:, 0], r_dl_tot[:, 1])
+            p_str = '*' if (p_value < 0.05) else ''
+            ax[i_plt].set_title('{} Correlation\n(p-value = {:.3f}{})'.format(t_str[i_grp], p_value, p_str),
                                 fontsize=16, fontweight='bold')
 
             ####################################
@@ -13633,7 +13639,7 @@ class AnalysisFunctions(object):
         vel_dir = ['Negative', 'Positive']
         lcond_type = ['LIGHT1', 'LIGHT2']
         rt_free = ['Black', 'Uniform']
-        corr_stype = ['Violin/Swarmplot', 'Separated Bar']
+        corr_stype = ['Violin/Swarmplot', 'Boxplot', 'Separated Bar']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
