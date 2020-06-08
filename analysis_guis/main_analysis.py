@@ -3458,7 +3458,7 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the number of time bins
         axLmx = [1e10, -1e10]
-        p_value = 2.5
+        p_value = 5  # SK-test set this to 2.5 or 5
         n_tt = len(f_data.t_type)
 
         # sets the cdf xi-values
@@ -4665,7 +4665,7 @@ class AnalysisGUI(QMainWindow):
         ########################################
 
         # parameters
-        p_value = 2.5
+        p_value = 5    # SK-test set this to 2.5 or 5
 
         # initialisations
         xi_cdf = np.linspace(-1, 1, 2001)
@@ -5530,19 +5530,20 @@ class AnalysisGUI(QMainWindow):
 
                 # retrieves the cluster IDs
                 i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
-                clustID = [self.data.cluster[j]['clustID'] for j in i_expt_match]
+                clustID = [self.data._cluster[j]['clustID'] for j in i_expt_match]
                 exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
 
                 for i_ex in range(n_ex):
                     # memory allocation and initialisations
                     v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
-                    data_tmp[i_ex + 1] = np.zeros((len(v_sf_grp[0]) + 1, n_col), dtype=object)
+                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][i_ex]]
+                    data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
 
                     # sets the data values into the array
                     data_tmp[i_ex + 1][:, 0] = ''
                     data_tmp[i_ex + 1][0, :] = ''
                     data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
-                    data_tmp[i_ex + 1][1:, 1] = np.array(clustID[i_ex])
+                    data_tmp[i_ex + 1][1:, 1] = np.array(clustIDex)
 
                     # sets the cells which has any type of significance (negative, positive or both)
                     for j, v_sf in enumerate(v_sf_grp):
@@ -5771,12 +5772,17 @@ class AnalysisGUI(QMainWindow):
             plt_data[0] = [np.divide(x[:, 1] - x[:, 0], x[:, 0]) if (x is not None) else None for x in sp_f]      # CW Motion Selectivity
             plt_data[1] = [np.divide(x[:, 2] - x[:, 0], x[:, 0]) if (x is not None) else None for x in sp_f]      # CCW Motion Selectivity
 
-            # calculates the Direction Selectivity
+            # calculates the Direction Selectivity Index
             dCW = [(x[:, 1] - x[:, 0]) if (x is not None) else None for x in sp_f]
             dCCW = [(x[:, 2] - x[:, 0]) if (x is not None) else None for x in sp_f]
             plt_data[2] = [np.array([np.abs((z[zz, 1]-z[zz, 2])/(z[zz, 1]+z[zz, 2])) if (np.sign(xx*yy) == 1) else 1
                             for xx, yy, zz in zip(x,y,range(np.size(z,axis=0)))]) if (x is not None) else None
                             for x, y, z in zip(dCW, dCCW, sp_f)]
+
+            # CALCULATION FOR SORTING HEATMAP
+            # dCW = [(x[:, 1] - x[:, 0]) if (x is not None) else None for x in sp_f]
+            # dCCW = [(x[:, 2] - x[:, 0]) if (x is not None) else None for x in sp_f
+            # np.sign(dCW-dCCW) if (dCW+dCCW) == 0 else (dCW-dCCW)/(dCW+dCCW)
 
             # creates the plot axes
             c = cf.get_plot_col(n_filt)
@@ -19031,7 +19037,7 @@ class FreelyMovingData(object):
         p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
         p_tile_speed = 95.0             # min mean vec percentile for speed cells
         p_tile_place = 95.0             # min mean vec percentile for place cells
-        use_hd_light_cells = False       # Set to True to use Light1/Light2 for HD cell definition (otherwise, DARK cells will be used)
+        use_hd_light_cells = True       # Set to True to use Light1/Light2 for HD cell definition (otherwise, DARK cells will be used)
 
         def check_data_fields(c_info):
             '''
@@ -19103,7 +19109,7 @@ class FreelyMovingData(object):
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
 
         # AHV and Speed significant condition type
-        ahv_spd_sig_type = dark_type                     # set to either dark_type, 'LIGHT1', 'LIGHT2'
+        ahv_spd_sig_type = dark_type                    # set to either dark_type, 'LIGHT1', 'LIGHT2'
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
@@ -19161,22 +19167,48 @@ class FreelyMovingData(object):
                                    c_info[i_bin]['LIGHT2']['rayleigh_test_p'] < p_rayleight_hd_mod),
                     hd_mod_sig_vec
                 )
+
+            # else:
+            #     # head direction cell significance
+            #     #  => SAME AS ABOVE BUT DARK CELLS ONLY
+            #     hd_sig = np.logical_and(
+            #         c_info[i_bin][dark_type]['mean_vec_length'] >= v_min_hd,
+            #         c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd
+            #     )
+            #
+            #     # head direction modulated cell significance
+            #     #  => SAME AS ABOVE BUT DARK CELLS ONLY
+            #     hd_mod_sig_vec = np.logical_and(
+            #         c_info[i_bin][dark_type]['mean_vec_length'] > v_min_hd_mod_lo,
+            #         c_info[i_bin][dark_type]['mean_vec_length'] < v_min_hd_mod_hi,
+            #     )
+            #     hd_mod_sig = np.logical_and(
+            #         c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd_mod,
+            #         hd_mod_sig_vec
+            #     )
+
+
             else:
                 # head direction cell significance
                 #  => SAME AS ABOVE BUT DARK CELLS ONLY
                 hd_sig = np.logical_and(
-                    c_info[i_bin][dark_type]['mean_vec_length'] >= v_min_hd,
-                    c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd
+                    np.logical_and(c_info[i_bin][dark_type]['mean_vec_length'] >= v_min_hd,
+                                   c_info[i_bin]['LIGHT1']['mean_vec_length'] >= v_min_hd),
+                    np.logical_and(c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd,
+                                   c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd)
                 )
 
                 # head direction modulated cell significance
                 #  => SAME AS ABOVE BUT DARK CELLS ONLY
                 hd_mod_sig_vec = np.logical_and(
-                    c_info[i_bin][dark_type]['mean_vec_length'] > v_min_hd_mod_lo,
-                    c_info[i_bin][dark_type]['mean_vec_length'] < v_min_hd_mod_hi,
+                    np.logical_and(c_info[i_bin][dark_type]['mean_vec_length'] > v_min_hd_mod_lo,
+                                   c_info[i_bin]['LIGHT1']['mean_vec_length'] > v_min_hd_mod_lo),
+                    np.logical_and(c_info[i_bin][dark_type]['mean_vec_length'] < v_min_hd_mod_hi,
+                                   c_info[i_bin]['LIGHT1']['mean_vec_length'] < v_min_hd_mod_hi),
                 )
                 hd_mod_sig = np.logical_and(
-                    c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd_mod,
+                    np.logical_and(c_info[i_bin][dark_type]['rayleigh_test_p'] < p_rayleight_hd_mod,
+                                   c_info[i_bin]['LIGHT1']['rayleigh_test_p'] < p_rayleight_hd_mod),
                     hd_mod_sig_vec
                 )
 

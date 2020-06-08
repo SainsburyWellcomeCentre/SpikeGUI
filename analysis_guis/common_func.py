@@ -1773,7 +1773,7 @@ def det_reqd_cond_types(data, t_type):
                                                 for x, y in zip(data._cluster, is_rot_expt) if y]
 
 
-def get_r_stats_values(r_stats_obj, f_key):
+def get_r_stats_values(r_stats_obj, f_key, is_arr=False):
     '''
 
     :param r_stats_obj:
@@ -1782,9 +1782,14 @@ def get_r_stats_values(r_stats_obj, f_key):
     '''
 
     try:
-        return r_stats_obj[r_stats_obj.names.index(f_key)][0]
+        r_stats_val = r_stats_obj[r_stats_obj.names.index(f_key)]
     except:
-        return list(r_stats_obj)[np.where(r_stats_obj.names == f_key)[0][0]][0]
+        r_stats_val = list(r_stats_obj)[np.where(r_stats_obj.names == f_key)[0][0]]
+
+    if is_arr:
+        return r_stats_val
+    else:
+        return r_stats_val[0]
 
 
 def lcm(x, y):
@@ -1990,7 +1995,7 @@ def get_roc_xy_values(roc, is_comp=None):
 
 
     # retrieves the roc coordinates and returns them in a combined array
-    roc_ss, roc_sp = get_r_stats_values(roc, 'sensitivities'), get_r_stats_values(roc, 'specificities')
+    roc_ss, roc_sp = get_r_stats_values(roc, 'sensitivities', True), get_r_stats_values(roc, 'specificities', True)
     return np.vstack((1-np.array(roc_ss), np.array(roc_sp))).T
 
 
