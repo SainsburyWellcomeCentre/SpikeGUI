@@ -1988,7 +1988,7 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
             return v_corr
 
         # parameters
-        p_value = 2.5           # SET THIS TO EITHER 2.5 or 5
+        p_value = 5           # SK-test SET THIS TO EITHER 2.5 or 5
 
         # initialisations
         pW0 = i_filt * pW
@@ -2127,7 +2127,7 @@ def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
         return sf_corr
 
     # parameters
-    p_value = 2.5       # sets this to either 2.5 or 5
+    p_value = 5       # SK-test sets this to either 2.5 or 5
     p_value_rng = [p_value, (100 - p_value)]
 
     # initialisations

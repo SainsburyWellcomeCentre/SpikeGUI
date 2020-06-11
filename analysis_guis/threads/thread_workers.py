@@ -153,9 +153,9 @@ class WorkerThread(QThread):
                 # case is the cc-gram type determinations
                 thread_data = self.calc_ccgram_types(calc_para, data.cluster)
 
-            ################################################
-            ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
-            ################################################
+            ######################################
+            ####    AHV ANALYSIS FUNCTIONS    ####
+            ######################################
 
             elif ' (Fixed)' in self.thread_job_secondary or \
                                             (self.thread_job_secondary == 'Correlation Significance Overlap'):
