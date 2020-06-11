@@ -3928,7 +3928,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
 
-    def plot_ahv_corr_comp(self, vel_bin, lcond_type, cell_type, plot_type, plot_grid):
+    def plot_ahv_corr_comp(self, vel_bin, lcond_type, cell_type, plot_type, ahv_met_type, plot_grid):
         '''
 
         :param rot_filt:
@@ -3977,9 +3977,18 @@ class AnalysisGUI(QMainWindow):
         n_grp, n_cond = 2, 2
         f_data = self.data.externd.free_data
         i_bin = ['5', '10'].index(vel_bin)
-        col_type = ['ahv_pearson_r_neg', 'ahv_pearson_r_pos']
 
-        # retrieves the absolute
+        if ahv_met_type == 'Correlation':
+            y_lbl, t_str_base = 'Correlation', 'Correlation'
+            col_type = ['ahv_pearson_r_neg', 'ahv_pearson_r_pos']
+        elif ahv_met_type == 'Fit Slope':
+            y_lbl, t_str_base = 'Slope', 'Slope'
+            col_type = ['ahv_fit_slope_neg', 'ahv_fit_slope_pos']
+        elif ahv_met_type == 'Fit Intercept':
+            y_lbl, t_str_base = 'Intercept', 'Intercept'
+            col_type = ['ahv_fit_intercept_neg', 'ahv_fit_intercept_pos']
+
+        # retrieves the absolute metric values
         cl_inc = self.get_free_inclusion_indices(i_bin)
         r_dark = [np.abs(np.array(ci[i_bin]['DARK'][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         r_light = [np.abs(np.array(ci[i_bin][lcond_type][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
@@ -3998,7 +4007,7 @@ class AnalysisGUI(QMainWindow):
         ######################################
 
         # parameters
-        b_wid = 0.9
+        b_wid, y_mx = 0.9, 0
         xi = np.arange(n_cond)
         col = cf.get_plot_col(n_cond)
         t_str = ['Negative', 'Positive']
@@ -4061,15 +4070,19 @@ class AnalysisGUI(QMainWindow):
             # sets the axis properties
             ax[i_plt].grid(plot_grid)
             ax[i_plt].set_xlim([-0.5, n_cond-0.5])
-            ax[i_plt].set_ylim([0, 1])
             ax[i_plt].set_xticks(xi)
             ax[i_plt].set_xticklabels(x_tick_lbl)
-            ax[i_plt].set_ylabel('Correlation')
+            ax[i_plt].set_ylabel(y_lbl)
+
+            if ahv_met_type == 'Correlation':
+                ax[i_plt].set_ylim([0, 1])
+            else:
+                y_mx = max([y_mx, ax[i_plt].get_ylim()[1]])
 
             # calculates the relative t-test values and
             _, p_value = wilcoxon(r_dl_tot[:, 0], r_dl_tot[:, 1])
             p_str = '*' if (p_value < 0.05) else ''
-            ax[i_plt].set_title('{} Correlation\n(p-value = {:.3f}{})'.format(t_str[i_grp], p_value, p_str),
+            ax[i_plt].set_title('{} {}\n(p-value = {:.3f}{})'.format(t_str[i_grp], t_str_base, p_value, p_str),
                                 fontsize=16, fontweight='bold')
 
             ####################################
@@ -4082,6 +4095,13 @@ class AnalysisGUI(QMainWindow):
             # creates the table
             cf.add_plot_table(self.plot_fig, ax[i_plt + 1], t_font, table_data, ['Mean {} SEM'.format(cf._plusminus)],
                                         x_tick_lbl, col_table[:1], col_table, 'fixed')
+
+        # creates the subplots for each group
+        if ahv_met_type != 'Correlation':
+            for i_grp in range(n_grp):
+                # sets the plot axes index
+                i_plt = n_grp * i_grp
+                ax[i_plt].set_ylim([0, y_mx])
 
         ###########################
         ####    DATA OUTPUT    ####
@@ -4659,6 +4679,18 @@ class AnalysisGUI(QMainWindow):
             self.calc_ok = False
             return
 
+        # checks to see that all trial conditions are present for the current experiment
+        i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
+        if not np.all([i_expt in i_ex for i_ex in r_obj_wc.i_expt]):
+            # if not all trial conditions are present then output an error to screen
+            e_str = 'The selected trial conditions are not all present for this experiment.\n' \
+                    'Either de-select some of the trial conditions or try another experiment.'
+            cf.show_error(e_str, 'Incorrect Trial Condition Selection')
+
+            # exit function with an error
+            self.calc_ok = False
+            return
+
         ########################################
         ####    INDIVIDUAL CELL ANALYSIS    ####
         ########################################
@@ -4676,9 +4708,8 @@ class AnalysisGUI(QMainWindow):
         r_obj_b = RotationFilteredData(self.data, rot_filt_base, None, None, False, 'Whole Experiment', False)
 
         # retrieves the indices of the cells that correspond to the selected experiment
-        i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-        ind_expt = np.where(r_obj_b.i_expt[0] == i_expt)[0]
-        if i_cluster >= len(ind_expt):
+        ind_expt = [np.where(i_ex == i_expt)[0] for i_ex in r_obj_wc.i_expt]
+        if i_cluster >= len(ind_expt[0]):
             # if the cluster index is invalid, then exit the function
             e_str = 'You have specified an index greater than the number of clusters ({0}) for the selected ' \
                     'experiment. Reset the cluster index and re-run the function.'.format(len(ind_expt))
@@ -4687,7 +4718,8 @@ class AnalysisGUI(QMainWindow):
             return
 
         # otherwise, determine the global cell index
-        i_cell_g, t_type = ind_expt[i_cluster - 1], rot_filt['t_type']
+        t_type = rot_filt['t_type']
+        i_cell_g = [i_ex[i_cluster - 1] for i_ex in ind_expt]
         n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
         col = cf.get_plot_col(len(t_type))
 
@@ -4715,8 +4747,8 @@ class AnalysisGUI(QMainWindow):
                 ########################################
 
                 # retrieves the mean/shuffled signal values
-                vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g, i_grp]
-                vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g, i_grp].T
+                vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g[i_tt], i_grp]
+                vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g[i_tt], i_grp].T
 
                 # creates the signal plot
                 if plot_shuffle:
@@ -4733,9 +4765,9 @@ class AnalysisGUI(QMainWindow):
                 ########################################
 
                 # retrieves the correlation/significance values
-                vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g, i_grp]
-                vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g, i_grp]
-                vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g, i_grp]
+                vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g[i_tt], i_grp]
+                vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g[i_tt], i_grp]
+                vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g[i_tt], i_grp]
 
                 # calculates the cumulative distribution values
                 sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
@@ -9321,7 +9353,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the datacursor
                     datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
-    def plot_temporal_lda(self, use_stagger, plot_err, show_stats, plot_grid):
+    def plot_temporal_lda(self, use_stagger, plot_err, plot_grid):
         '''
 
         :param plot_exp_name:
@@ -9418,48 +9450,70 @@ class AnalysisGUI(QMainWindow):
         self.init_plot_axes(n_row=1, n_col=2)
         ax = self.plot_fig.ax
 
-        if show_stats:
-            ############################
-            ####    STATS TABLES    ####
-            ############################
+        #################################
+        ####    SUBPLOT CREATIONS    ####
+        #################################
 
-            # sets the axis properties for both subplots
-            for _ax in ax:
-                _ax.axis('off')
+        # creates the multiple boxplot
+        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], use_stagger, plot_err)
+        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], use_stagger, plot_err)
 
-            # memory allocation
-            ttype_abb, n_cond = [cf.cond_abb(x) for x in ttype], np.size(y_acc_phs, axis=1) - 1
-            col = cf.get_plot_col(n_cond)
+        # sets the titles for both subplots
+        ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+        ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
 
-            # creates the stats table for the differing phase duration
-            tt_phs, xi_phs, y_phs = setup_bin_stats_values(d_data.xi_phs, ttype, y_acc_phs)
-            c_grp_phs, p_str_phs = cfcn.calc_art_stats(tt_phs, xi_phs, y_phs, 'X1')
-            cf.add_plot_table(self.plot_fig, 0, table_font, p_str_phs, c_grp_phs, c_grp_phs,
-                              col, col, 'top', p_wid=1.5, n_col=1)
+        # sets the axis properties for both subplots
+        for _ax, _x_lbl in zip(ax, ['Phase Duration (s)', 'Phase Offset (s)']):
+            _ax.set_xlabel(_x_lbl)
+            _ax.grid(plot_grid)
 
-            # creates the stats table for the differing phase offset
-            tt_ofs, xi_ofs, y_ofs = setup_bin_stats_values(d_data.xi_ofs, ttype, y_acc_ofs)
-            c_grp_ofs, p_str_ofs = cfcn.calc_art_stats(tt_ofs, xi_ofs, y_ofs, 'X1')
-            cf.add_plot_table(self.plot_fig, 1, table_font, p_str_ofs, c_grp_ofs, c_grp_ofs,
-                              col, col, 'top', p_wid=1.5, n_col=1)
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
 
-        else:
-            #################################
-            ####    SUBPLOT CREATIONS    ####
-            #################################
+        # sets up the phase data output
+        tt_phs, xi_phs, y_phs = setup_bin_stats_values(d_data.xi_phs, ttype, y_acc_phs)
+        data_out_phs = np.empty((len(tt_phs) + 1, 4), dtype=object)
 
-            # creates the multiple boxplot
-            create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], use_stagger, plot_err)
-            create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], use_stagger, plot_err)
+        # sets the titles and accuracy values
+        data_out_phs[:, 0] = ''
+        data_out_phs[0, :] = ['Expt Name', 'Trial Type', 'Phase Duration', 'Accuracy %']
+        data_out_phs[1:, -1] = y_phs
 
-            # sets the titles for both subplots
-            ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
-            ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+        i_expt_phs = 0
+        for i in range(len(tt_phs)):
+            data_out_phs[i + 1, 1] = ttype[int(tt_phs[i]) - 1]
+            data_out_phs[i + 1, 2] = d_data.xi_phs[int(xi_phs[i]) - 1]
 
-            # sets the axis properties for both subplots
-            for _ax, _x_lbl in zip(ax, ['Phase Duration (s)', 'Phase Offset (s)']):
-                _ax.set_xlabel(_x_lbl)
-                _ax.grid(plot_grid)
+            # sets the experiment name
+            if i % (len(ttype) * len(d_data.xi_phs)) == 0:
+                data_out_phs[i + 1, 0] = d_data.exp_name[i_expt_phs]
+                i_expt_phs += 1
+
+        # outputs the phase data file
+        np.savetxt('Temporal LDA Value (Phase).csv', data_out_phs, delimiter=",", fmt='%s')
+
+        # sets up the phase data output
+        tt_ofs, xi_ofs, y_ofs = setup_bin_stats_values(d_data.xi_ofs, ttype, y_acc_ofs)
+        data_out_ofs = np.empty((len(tt_phs) + 1, 4), dtype=object)
+
+        # sets the titles and accuracy values
+        data_out_ofs[:, 0] = ''
+        data_out_ofs[0, :] = ['Expt Name', 'Trial Type', 'Offset Duration', 'Accuracy %']
+        data_out_ofs[1:, -1] = y_ofs
+
+        i_expt_ofs = 0
+        for i in range(len(tt_ofs)):
+            data_out_ofs[i + 1, 1] = ttype[int(tt_ofs[i]) - 1]
+            data_out_ofs[i + 1, 2] = d_data.xi_ofs[int(xi_ofs[i]) - 1]
+
+            # sets the experiment name
+            if i % (len(ttype) * len(d_data.xi_ofs)) == 0:
+                data_out_ofs[i + 1, 0] = d_data.exp_name[i_expt_ofs]
+                i_expt_ofs += 1
+
+        # outputs the offset data file
+        np.savetxt('Temporal LDA Value (Offset).csv', data_out_ofs, delimiter=",", fmt='%s')
 
     def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, m_size, plot_grid):
         '''
@@ -11903,6 +11957,10 @@ class AnalysisGUI(QMainWindow):
             # case is the whole experiments
             data = self.get_data().cluster
 
+            # determines the common cell indices
+            t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
+            i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full, True)
+
             # sets the sort values based on the type
             if sort_type == 'Probe Depth':
                 # case is sorting by the probe depth
@@ -11919,20 +11977,21 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the x-axis label and sort values
                 x_lbl = 'Depth ({0}m)'.format(cf._mu)
-                Y_sort = [[ch_depth[x][y] for x, y in zip(i_ex, cf.flat_list([list(x) for x in cl_id]))]
+                Y_sort0 = [[ch_depth[x][y] for x, y in zip(i_ex, cf.flat_list([list(x) for x in cl_id]))]
                             for i_ex, cl_id in zip(r_obj.i_expt, r_obj.clust_ind)]
+                Y_sort = [np.array(Y)[i] for i, Y in zip(i_cell_b, Y_sort0)]
 
             elif sort_type == 'Direction Selectivity Index':
                 # case is the direction selectivity index
 
                 # calculates the mean spiking rate over each trial/filter type
-                t_sp_mu = [np.array([[[np.nan if z is None else np.mean(z) for z in y] for y in x] for x in t_sp]) for
+                t_sp_mu = [np.array([[[np.nan if z is None else len(z) for z in y] for y in x] for x in t_sp]) for
                            t_sp in r_obj.t_spike]
                 t_sp_phase_mu = [np.nanmean(t_sp, axis=1) for t_sp in t_sp_mu]
 
                 # calculates the CW/CCW baseline difference
-                dCW = [x[:, 1] - x[:, 0] for x in t_sp_phase_mu]
-                dCCW = [x[:, 2] - x[:, 0] for x in t_sp_phase_mu]
+                dCW = [x[i, 1] - x[i, 0] for i, x in zip(i_cell_b, t_sp_phase_mu)]
+                dCCW = [x[i, 2] - x[i, 0] for i, x in zip(i_cell_b, t_sp_phase_mu)]
 
                 # sets the x-axis label and sort values
                 ds_max = 50
@@ -11940,9 +11999,9 @@ class AnalysisGUI(QMainWindow):
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
 
                 # calculates the direction selectivity index over all cells/filter types
+                n_cell = len(i_cell_b[0])
                 for i_filt in range(len(Y_sort)):
                     # memory allocation
-                    n_cell = np.size(t_sp_phase_mu[i_filt], axis=0)
                     Y_sort[i_filt] = np.zeros(n_cell)
 
                     for i_row in range(n_cell):
@@ -11955,7 +12014,7 @@ class AnalysisGUI(QMainWindow):
                             Y_sort[i_filt][i_row] = np.sign(d_num)
                         else:
                             # otherwise, calculate the direction selectivity index as per normal
-                            Y_sort[i_filt][i_row] = max(min(d_num / d_den, ds_max), -ds_max)
+                            Y_sort[i_filt][i_row] = max(min(-d_num / d_den, ds_max), -ds_max)
 
             elif 'Pearson Coefficient' in sort_type:
                 # case is the pearson coefficient
@@ -11965,15 +12024,12 @@ class AnalysisGUI(QMainWindow):
                 is_pos = int('(CW)' in sort_type)
                 x_lbl = 'Pearson Coefficient'
 
-                # determines the common cell indices
-                t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
-                i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full, True)
 
                 # sets the spiking frequency significance values
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
-                    Y_sort[i_filt] = r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], is_pos]
+                    Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], is_pos]
 
         else:
             # case is single cell (no need to sort by depth)
@@ -11995,10 +12051,15 @@ class AnalysisGUI(QMainWindow):
             for i in range(len(xi_h0)):
                 xi_h0[i][-1] = t_stim[i]
 
+            if r_obj.is_single_cell:
+                t_spike = r_obj.t_spike[i_filt]
+            else:
+                t_spike = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, :]
+
             # calculates the spiking frequency histograms
             xi_h = np.vstack(xi_h0)
             sort_d = np.argsort(-np.array(Y_sort[i_filt]))
-            I_hm[i_filt] = setup_spiking_heatmap(r_obj.t_spike[i_filt], xi_h, r_obj.is_single_cell, sort_d, mean_type)
+            I_hm[i_filt] = setup_spiking_heatmap(t_spike, xi_h, r_obj.is_single_cell, sort_d, mean_type)
 
             if not r_obj.is_single_cell:
                 Y_sort[i_filt] = list(np.array(Y_sort[i_filt])[sort_d])
@@ -13999,6 +14060,7 @@ class AnalysisFunctions(object):
             # list initialisations
             disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
             fcell_type = ['All Cells', 'AHV', 'HD', 'HDMod', 'Speed']
+            ahv_met_type = ['Correlation', 'Fit Slope', 'Fit Intercept']
 
             # ====> Freely Moving Cell Type Statistics
             para = {
@@ -14173,6 +14235,9 @@ class AnalysisFunctions(object):
                 },
                 'cell_type': {'type': 'L', 'text': 'Free Cell Type', 'list': fcell_type, 'def_val': 'All Cells'},
                 'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': corr_stype, 'def_val': corr_stype[0]},
+                'ahv_met_type': {
+                    'type': 'L', 'text': 'AHV Metric Type', 'list': ahv_met_type, 'def_val': ahv_met_type[0]
+                },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
             self.add_func(type='Freely Moving Analysis',
@@ -16199,9 +16264,6 @@ class AnalysisFunctions(object):
             'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
             'plot_err': {'type': 'B', 'text': 'Show Error Shaded Region', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'show_stats': {
-                'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
-            },
         }
         self.add_func(type='Direction LDA',
                       name='Temporal Duration/Offset LDA',
@@ -19182,11 +19244,11 @@ class FreelyMovingData(object):
         '''
 
         # parameters
-        v_min_hd = 0.2                  # min vec for head direction cells
-        v_min_hd_mod_lo = 0.1           # min vec for head modulated direction cells (lower limit)
-        v_min_hd_mod_hi = 0.2           # min vec for head modulated direction cells (upper limit)
+        v_min_hd = 0.19                  # min vec for head direction cells
+        v_min_hd_mod_lo = 0.99           # min vec for head modulated direction cells (lower limit)
+        v_min_hd_mod_hi = 1          # min vec for head modulated direction cells (upper limit)
         p_rayleight_hd = 0.01           # rayleigh t-test p-value for head direction cells
-        p_rayleight_hd_mod = 0.01       # rayleigh t-test p-value for head direction modulated cells
+        p_rayleight_hd_mod = 0.00000001       # rayleigh t-test p-value for head direction modulated cells
         # p_tile_hd = 97.0                # min mean vec percentile for head direction cells
         # p_tile_hd_mod = 97.0            # min mean vec percentile for head direction modulated cells
         p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
@@ -19264,7 +19326,7 @@ class FreelyMovingData(object):
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
 
         # AHV and Speed significant condition type
-        ahv_spd_sig_type = dark_type                    # set to either dark_type, 'LIGHT1', 'LIGHT2'
+        ahv_spd_sig_type = 'LIGHT1'                    # set to either dark_type, 'LIGHT1', 'LIGHT2'
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
