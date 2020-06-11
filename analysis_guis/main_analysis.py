@@ -5664,7 +5664,7 @@ class AnalysisGUI(QMainWindow):
             ax.set_title('Significant Cell Overlap', fontweight='bold', fontsize=16)
 
     def plot_ahv_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
-                                    mean_type, plot_scope, dt):
+                                    mean_type, sort_type_ahv, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -5679,7 +5679,7 @@ class AnalysisGUI(QMainWindow):
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                      False)
-        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, 'Pearson Coefficient')
+        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type_ahv)
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -11957,24 +11957,23 @@ class AnalysisGUI(QMainWindow):
                             # otherwise, calculate the direction selectivity index as per normal
                             Y_sort[i_filt][i_row] = max(min(d_num / d_den, ds_max), -ds_max)
 
-            elif sort_type == 'Pearson Coefficient':
+            elif 'Pearson Coefficient' in sort_type:
                 # case is the pearson coefficient
 
                 # retrieves the rotation data class object
                 r_data = self.data.rotation
+                is_pos = int('(CW)' in sort_type)
+                x_lbl = 'Pearson Coefficient'
 
-                #
+                # determines the common cell indices
                 t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
                 i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full, True)
 
                 # sets the spiking frequency significance values
+                Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
-                    v_sf_sig_nw = r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], :]
-
-                # sets the x-axis label and sort values
-                x_lbl = 'Pearson Coefficient'
-                Y_sort = 1
+                    Y_sort[i_filt] = r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], is_pos]
 
         else:
             # case is single cell (no need to sort by depth)
@@ -14325,6 +14324,7 @@ class AnalysisFunctions(object):
         # type lists
         mean_type = ['Mean', 'Median']
         norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
+        sort_type_ahv = ['Pearson Coefficient (CW)', 'Pearson Coefficient (CCW)']
 
         # retrieves the correlation default parameters
         corr_def_para = cfcn.init_corr_para(data.rotation)
@@ -14622,7 +14622,8 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                'def_val': dcopy(rot_filt0)
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -14633,6 +14634,9 @@ class AnalysisFunctions(object):
             },
             'mean_type': {
                 'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+            },
+            'sort_type_ahv': {
+                'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type_ahv, 'def_val': sort_type_ahv[0]
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
