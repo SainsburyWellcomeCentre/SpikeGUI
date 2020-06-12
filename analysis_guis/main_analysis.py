@@ -5709,8 +5709,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
-                                     False)
+        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type_ahv)
 
     #############################################
@@ -6984,6 +6983,26 @@ class AnalysisGUI(QMainWindow):
         if n_filt > 1:
             for i_plot in range(n_filt):
                 self.plot_fig.ax[i_plot].set_ylim([0, yL_mx])
+
+    def plot_direction_roc_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
+                                   mean_type, sort_type_auc, plot_scope, dt):
+        '''
+
+        :param rot_filt:
+        :param i_cluster:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param norm_type:
+        :param mean_type:
+        :param sort_type_auc:
+        :param plot_scope:
+        :param dt:
+        :return:
+        '''
+
+        # applies the rotation filter to the dataset
+        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type_auc)
 
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
@@ -11955,6 +11974,7 @@ class AnalysisGUI(QMainWindow):
         # retrieves the depths from each of the experiments (based on type)
         if not r_obj.is_single_cell:
             # case is the whole experiments
+            mlt = -1
             data = self.get_data().cluster
 
             # determines the common cell indices
@@ -11976,7 +11996,7 @@ class AnalysisGUI(QMainWindow):
                     return
 
                 # sets the x-axis label and sort values
-                x_lbl = 'Depth ({0}m)'.format(cf._mu)
+                x_lbl, mlt = 'Depth ({0}m)'.format(cf._mu), 1
                 Y_sort0 = [[ch_depth[x][y] for x, y in zip(i_ex, cf.flat_list([list(x) for x in cl_id]))]
                             for i_ex, cl_id in zip(r_obj.i_expt, r_obj.clust_ind)]
                 Y_sort = [np.array(Y)[i] for i, Y in zip(i_cell_b, Y_sort0)]
@@ -12024,12 +12044,26 @@ class AnalysisGUI(QMainWindow):
                 is_pos = int('(CW)' in sort_type)
                 x_lbl = 'Pearson Coefficient'
 
-
                 # sets the spiking frequency significance values
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
                     Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], is_pos]
+
+            elif 'AUC ROC' in sort_type:
+                # case is the AUC ROC values
+
+                # retrieves the rotation data class object
+                r_data = self.data.rotation
+                s_type = ['(CW vs BL)', '(CCW vs BL)', '(CCW vs CW)']
+                i_col = next(i for i, x in enumerate(s_type) if x in sort_type)
+                x_lbl = 'AUC ROC'
+
+                # sets the spiking frequency significance values
+                Y_sort = np.empty(r_obj.n_filt, dtype=object)
+                for i_filt, rr in enumerate(r_obj.rot_filt_tot):
+                    # retrieves the significance flags for the current filter type
+                    Y_sort[i_filt] = -r_data.cond_roc_auc[rr['t_type'][0]][i_cell_b[i_filt], i_col]
 
         else:
             # case is single cell (no need to sort by depth)
@@ -12126,7 +12160,7 @@ class AnalysisGUI(QMainWindow):
 
                 #
                 if ((i_phase + 1) == r_obj.n_phase) and (not r_obj.is_single_cell):
-                    Y_hm = np.array(Y_sort[i_filt]).reshape(-1, 1)
+                    Y_hm = mlt * np.array(Y_sort[i_filt]).reshape(-1, 1)
                     im_d = self.plot_fig.ax[i_plot + 1].imshow(Y_hm, aspect='auto', cmap='Reds', origin='lower')
                     self.plot_fig.ax[i_plot + 1].grid(False)
                     self.plot_fig.ax[i_plot + 1].get_xaxis().set_visible(False)
@@ -15385,6 +15419,7 @@ class AnalysisFunctions(object):
         cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
         vel_sig_type = ['auROC Significance', 'auROC CDF/Statistics']
         ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
+        sort_type_auc = ['AUC ROC (CW vs BL)', 'AUC ROC (CCW vs BL)', 'AUC ROC (CCW vs CW)']
 
         # velocity/speed ranges
         vc_rng = cfcn.get_kinematic_range_strings(dv, True, v_rng)
@@ -15543,6 +15578,58 @@ class AnalysisFunctions(object):
         self.add_func(type='ROC Analysis',
                       name='Direction ROC AUC Histograms',
                       func='plot_direction_roc_auc_histograms',
+                      para=para)
+
+        # ====> Direction ROC Spiking Rate Heatmap
+        para = {
+            # calculation parameters
+            'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
+            'grp_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'Cell Grouping Significance Test', 'list': grp_stype,
+                'def_val': grp_stype[0], 'link_para': ['n_boot', ['Delong', 'Wilcoxon Paired Test']]
+            },
+            'auc_stype': {
+                'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
+                'def_val': auc_stype[0], 'link_para': ['n_boot', 'Delong']
+            },
+            't_phase_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+            },
+            't_ofs_rot': {
+                'gtype': 'C', 'text': 'Rotation Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+            },
+            'use_full_rot': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Full Rotation Phase', 'def_val': True,
+                'link_para': [['t_phase_rot', True], ['t_ofs_rot', True]]
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
+                              'def_val': True, 'link_para': ['plot_exp_name', True]},
+            'norm_type': {
+                'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
+            },
+            'mean_type': {
+                'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+            },
+            'sort_type_auc': {
+                'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type_auc, 'def_val': sort_type_auc[0]
+            },
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                              ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
+            },
+            'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
+        }
+        self.add_func(type='ROC Analysis',
+                      name='Direction ROC Spiking Rate Heatmap',
+                      func='plot_direction_roc_heatmap',
                       para=para)
 
         # ====> Velocity ROC Curves (Single Cell)

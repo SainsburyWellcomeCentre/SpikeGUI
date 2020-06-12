@@ -264,7 +264,8 @@ class WorkerThread(QThread):
                 self.calc_phase_roc_curves(data, calc_para, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
-            elif self.thread_job_secondary == 'Direction ROC AUC Histograms':
+            elif self.thread_job_secondary in ['Direction ROC AUC Histograms',
+                                               'Direction ROC Spiking Rate Heatmap']:
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['condition'])
 
@@ -274,23 +275,7 @@ class WorkerThread(QThread):
                     self.work_finished.emit(thread_data)
                     return
 
-            elif self.thread_job_secondary == 'Velocity ROC Curves (Single Cell)':
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
-
-                # calculates the binned kinematic spike frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
-                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
-
-            elif self.thread_job_secondary == 'Velocity ROC Curves (Whole Experiment)':
-                # checks to see if any parameters have been altered
-                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
-
-                # calculates the binned kinematic spike frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog)
-                self.calc_kinematic_roc_curves(data, pool, calc_para, g_para, 50.)
-
-            elif self.thread_job_secondary == 'Velocity ROC Curves (Pos/Neg Comparison)':
+            elif 'Velocity ROC Curves' in self.thread_job_secondary:
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
 
