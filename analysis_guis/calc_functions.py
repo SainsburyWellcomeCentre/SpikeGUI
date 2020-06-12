@@ -3598,22 +3598,22 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
                 is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
                 is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
 
+        # #
+        # if hasattr(r_data, 'phase_roc_auc'):
+        #     if (r_data.phase_roc_auc is not None):
+        #         if len(r_data.phase_roc_auc):
+        #             # sets the indices
+        #             ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
+        #             ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
         #
-        if hasattr(r_data, 'phase_roc_auc'):
-            if (r_data.phase_roc_auc is not None):
-                if len(r_data.phase_roc_auc):
-                    # sets the indices
-                    ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
-                    ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
-
-                    # retrieves the black phase roc auc values (ensures the compliment is calculated)
-                    auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
-                    ii = auc_ex < 0.5
-                    auc_ex[ii] = 1 - auc_ex[ii]
-
-                    # determines which values meet the criteria
-                    is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
-                    is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
+        #             # retrieves the black phase roc auc values (ensures the compliment is calculated)
+        #             auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
+        #             ii = auc_ex < 0.5
+        #             auc_ex[ii] = 1 - auc_ex[ii]
+        #
+        #             # determines which values meet the criteria
+        #             is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
+        #             is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
 
         # if the number of valid cells is less than the reqd count, then set all cells to being invalid
         if np.sum(is_valid) < lda_para['n_cell_min']:
@@ -4063,7 +4063,7 @@ def get_kinematic_range_strings(dv, is_vel, v_rng=80):
         return ['{0} to {1}'.format(int(i * dv), int((i + 1) * dv)) for i in range(int(v_rng / dv))]
 
 
-def get_cond_filt_data(data, r_obj):
+def get_cond_filt_data(data, r_obj, reuse_filt=False):
     '''
 
     :param r_obj:
@@ -4078,7 +4078,11 @@ def get_cond_filt_data(data, r_obj):
     # determine the matching cell indices between the current and black filter
     for i_filt in range(r_obj.n_filt):
         # sets up a base filter with each of the filter types
-        r_filt_base = cf.init_rotation_filter_data(False)
+        if reuse_filt:
+            r_filt_base = dcopy(r_obj.rot_filt)
+        else:
+            r_filt_base = cf.init_rotation_filter_data(False)
+
         r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
         r_obj_tt[i_filt] = RotationFilteredData(data, r_filt_base, None, None, True, 'Whole Experiment', False)
 
@@ -4089,7 +4093,7 @@ def get_cond_filt_data(data, r_obj):
     return i_cell_b, r_obj_tt
 
 
-def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_cond=None):
+def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_cond=None, reuse_filt=False):
     '''
 
     :param data:
@@ -4100,7 +4104,7 @@ def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_co
     '''
 
     # retrieves the condition filtered rotation data
-    i_cell_b, r_obj_indiv = get_cond_filt_data(data, r_obj)
+    i_cell_b, r_obj_indiv = get_cond_filt_data(data, r_obj, reuse_filt)
 
     # only return the matching indices/filters that intersect with the trial type filter array
     i_match = np.array([i for i, x in enumerate(r_obj_indiv) if x.rot_filt_tot[0]['t_type'][0] in tt_filt])

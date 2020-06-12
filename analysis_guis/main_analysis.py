@@ -11974,17 +11974,18 @@ class AnalysisGUI(QMainWindow):
         # retrieves the depths from each of the experiments (based on type)
         if not r_obj.is_single_cell:
             # case is the whole experiments
-            mlt = -1
-            data = self.get_data().cluster
 
             # determines the common cell indices
+            mlt = -1
             t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
-            i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full, True)
+            reuse_filt = (sort_type in ['Probe Depth', 'Direction Selectivity Index']) or ('AUC ROC' in sort_type)
+            i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full,
+                                                                True, reuse_filt=reuse_filt)
 
             # sets the sort values based on the type
             if sort_type == 'Probe Depth':
                 # case is sorting by the probe depth
-                ch_depth = get_channel_depths(data)
+                ch_depth = get_channel_depths(self.data.cluster)
                 if ch_depth is None:
                     # if not all channel depths are set, then output an error to screen
                     e_str = 'At least one experimental file does not have the probe depth set. \n' \
@@ -12059,11 +12060,14 @@ class AnalysisGUI(QMainWindow):
                 i_col = next(i for i, x in enumerate(s_type) if x in sort_type)
                 x_lbl = 'AUC ROC'
 
+                i_cell_b2, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full,
+                                                                     True, reuse_filt=False)
+
                 # sets the spiking frequency significance values
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
-                    Y_sort[i_filt] = -r_data.cond_roc_auc[rr['t_type'][0]][i_cell_b[i_filt], i_col]
+                    Y_sort[i_filt] = -r_data.cond_roc_auc[rr['t_type'][0]][i_cell_b2[i_filt], i_col]
 
         else:
             # case is single cell (no need to sort by depth)
