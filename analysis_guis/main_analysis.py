@@ -11978,9 +11978,8 @@ class AnalysisGUI(QMainWindow):
             # determines the common cell indices
             mlt = -1
             t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
-            reuse_filt = (sort_type in ['Probe Depth', 'Direction Selectivity Index']) or ('AUC ROC' in sort_type)
             i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full,
-                                                                True, reuse_filt=reuse_filt)
+                                                                True, reuse_filt=True)
 
             # sets the sort values based on the type
             if sort_type == 'Probe Depth':
@@ -12045,11 +12044,14 @@ class AnalysisGUI(QMainWindow):
                 is_pos = int('(CW)' in sort_type)
                 x_lbl = 'Pearson Coefficient'
 
+                i_cell_b2, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full,
+                                                                     True, reuse_filt=False)
+
                 # sets the spiking frequency significance values
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
-                    Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b[i_filt], is_pos]
+                    Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], is_pos]
 
             elif 'AUC ROC' in sort_type:
                 # case is the AUC ROC values
