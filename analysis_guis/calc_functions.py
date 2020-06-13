@@ -1901,14 +1901,6 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         # memory allocation
         tt = rr['t_type'][0]
 
-        # if the values have already been calculated, then continue
-        if equal_time:
-            if tt in r_data.vel_sf_rs:
-                continue
-        else:
-            if tt in r_data.vel_sf:
-                continue
-
         # sets the speed frequencies into a single array
         spd_f = np.vstack((np.flip(vel_f[i_filt][:, :i_bin0, :], 1), vel_f[i_filt][:, i_bin0:, :]))
 
