@@ -2419,7 +2419,7 @@ class WorkerThread(QThread):
             t_ofs, t_phase = cfcn.get_rot_phase_offsets(calc_para)
 
             # creates a reduce data object and creates the rotation filter object
-            data_tmp = cfcn.reduce_cluster_data(data, i_expt)
+            data_tmp = cfcn.reduce_cluster_data(data, i_expt, True)
             r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
                                          t_ofs=t_ofs, t_phase=t_phase)
 
@@ -2565,7 +2565,7 @@ class WorkerThread(QThread):
         c_wght, y_top, y_bot = dcopy(C), dcopy(C), dcopy(C)
 
         # reduces down the data cluster to the valid experiments
-        data_tmp = cfcn.reduce_cluster_data(data, i_expt)
+        data_tmp = cfcn.reduce_cluster_data(data, i_expt, True)
 
         # sets the LDA solver type
         lda = cfcn.setup_lda_solver(lda_para)
@@ -2665,7 +2665,7 @@ class WorkerThread(QThread):
         d_data = data.discrim.spdacc
 
         # reduces down the cluster data array
-        _data = cfcn.reduce_cluster_data(data, i_expt)
+        _data = cfcn.reduce_cluster_data(data, i_expt, True)
 
         # sets up the kinematic LDA spiking frequency array
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
@@ -2704,7 +2704,7 @@ class WorkerThread(QThread):
         d_data = data.discrim.spdc
 
         # reduces down the cluster data array
-        _data = cfcn.reduce_cluster_data(data, i_expt)
+        _data = cfcn.reduce_cluster_data(data, i_expt, True)
 
         # sets up the kinematic LDA spiking frequency array
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
@@ -2748,7 +2748,7 @@ class WorkerThread(QThread):
         ###########################################
 
         # reduces down the cluster data array
-        _data = cfcn.reduce_cluster_data(data, i_expt)
+        _data = cfcn.reduce_cluster_data(data, i_expt, True)
 
         # sets up the kinematic LDA spiking frequency array
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)
@@ -2759,8 +2759,8 @@ class WorkerThread(QThread):
         ####    POOLED NEURON LDA CALCULATIONS    ####
         ##############################################
 
-        # initialises the RotationData class object (if not provided)
-        r_data = getattr(_data, r_data_type)
+        # retrieves the rotation data class
+        r_data = _data.rotation
 
         # determines the cell pool groupings
         if calc_para['pool_expt']:
@@ -2863,7 +2863,7 @@ class WorkerThread(QThread):
         d_data = data.discrim.spddir
 
         # reduces down the cluster data array
-        _data = cfcn.reduce_cluster_data(data, i_expt)
+        _data = cfcn.reduce_cluster_data(data, i_expt, True)
 
         # sets up the kinematic LDA spiking frequency array
         w_prog.emit('Setting Up LDA Spiking Frequencies...', 0.)

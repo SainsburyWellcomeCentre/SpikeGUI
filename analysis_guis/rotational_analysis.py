@@ -1396,8 +1396,8 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
             for k in range(2):
                 if calc_avg_sf:
                     # case is calculating the average spiking frequency
-                    pos_f[i_filt][i_cell, :, k] = np.mean(pos_bin[:, :, k], axis=0) / pos_dt
-                    vel_f[i_filt][i_cell, :, k] = np.mean(vel_bin[:, :, k], axis=0) / vel_dt
+                    pos_f[i_filt][i_cell, :, k] = np.nanmean(pos_bin[:, :, k], axis=0) / pos_dt
+                    vel_f[i_filt][i_cell, :, k] = np.nanmean(vel_bin[:, :, k], axis=0) / vel_dt
                 else:
                     # case is setting all spiking frequencies
 

@@ -1875,7 +1875,7 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         if len(np.shape(vel_f[i_filt])) == 4:
             if calc_para['freq_type'] == 'All':
                 # case is considering mean frequency types (take mean of the decreasing/increasing velocity frequencies)
-                vel_f[i_filt] = np.mean(vel_f[i_filt], axis=3)
+                vel_f[i_filt] = np.nanmean(vel_f[i_filt], axis=3)
             elif calc_para['freq_type'] == 'Decreasing':
                 # case is only considering decreasing velocity frequencies
                 vel_f[i_filt] = vel_f[i_filt][:, :, :, 0]
@@ -2223,7 +2223,7 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
             # case is the non-equal timebin spiking frequencies
             spd_sf0 = dcopy(r_data.spd_sf)
 
-            # reduces the arrays to only include the first n_trial_max trials (averages pos/neg phases)
+        # reduces the arrays to only include the first n_trial_max trials (averages pos/neg phases)
         n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
         sf = [0.5 * (spd_sf0[ttype][:n_t, :, :] + spd_sf0[ttype][n_t:, :, :])[:n_trial_max, :, :] for ttype in tt]
     else:
@@ -3501,7 +3501,7 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
 ####    GENERAL LDA FUNCTIONS    ####
 #####################################
 
-def reduce_cluster_data(data, i_expt):
+def reduce_cluster_data(data, i_expt, clear_sf_data=False):
     '''
 
     :param data:
@@ -3524,6 +3524,11 @@ def reduce_cluster_data(data, i_expt):
 
     if data._cluster is not None:
         data_tmp._cluster = [scopy(data._cluster[i_ex]) for i_ex in i_expt]
+
+    # initialises the RotationData class object (if not provided)
+    if clear_sf_data:
+        data_tmp.rotation.vel_sf = None
+        data_tmp.rotation.vel_sf_rs = None
 
     # returns the reduced data class object
     return data_tmp
