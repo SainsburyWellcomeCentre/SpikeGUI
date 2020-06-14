@@ -5563,25 +5563,29 @@ class AnalysisGUI(QMainWindow):
                 i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
                 clustID = [self.data._cluster[j]['clustID'] for j in i_expt_match]
                 exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
+                is_ok = np.ones(n_ex, dtype=bool)
 
                 for i_ex in range(n_ex):
                     # memory allocation and initialisations
                     v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
                     clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][i_ex]]
-                    data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
+                    if len(clustIDex):
+                        data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
 
-                    # sets the data values into the array
-                    data_tmp[i_ex + 1][:, 0] = ''
-                    data_tmp[i_ex + 1][0, :] = ''
-                    data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
-                    data_tmp[i_ex + 1][1:, 1] = np.array(clustIDex)
+                        # sets the data values into the array
+                        data_tmp[i_ex + 1][:, 0] = ''
+                        data_tmp[i_ex + 1][0, :] = ''
+                        data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
+                        data_tmp[i_ex + 1][1:, 1] = np.array(clustIDex)
 
-                    # sets the cells which has any type of significance (negative, positive or both)
-                    for j, v_sf in enumerate(v_sf_grp):
-                        data_tmp[i_ex + 1][1:, j + 2] = (v_sf > 0).astype(int)
+                        # sets the cells which has any type of significance (negative, positive or both)
+                        for j, v_sf in enumerate(v_sf_grp):
+                            data_tmp[i_ex + 1][1:, j + 2] = (v_sf > 0).astype(int)
+                    else:
+                        is_ok[i_ex] = False
 
                 # sets the values for the filter type
-                data_all[i] = np.vstack(data_tmp)
+                data_all[i] = np.vstack(data_tmp[is_ok])
 
             # combines everything into a single array and outputs to file
             data_out = np.vstack(data_all).astype(str)
@@ -12061,7 +12065,8 @@ class AnalysisGUI(QMainWindow):
 
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj, is_temp)
-        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=34, l=47, n=11))
+        # hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=34, l=47, n=11))
+        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, s=98, sep=25, l=47, n=15))
 
         # if plotting a velocity heatmap, then retrieve the spiking frequencies for each velocity bin
         if not is_temp:
