@@ -5696,7 +5696,7 @@ class AnalysisGUI(QMainWindow):
             ax.set_title('Significant Cell Overlap', fontweight='bold', fontsize=16)
 
     def plot_ahv_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
-                                    mean_type, sort_type_ahv, plot_scope, dt):
+                                    mean_type, sort_type_ahv, plot_scope, dt, dv, hist_type):
         '''
 
         :param rot_filt:
@@ -5710,7 +5710,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type_ahv)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type_ahv, dt, float(dv), hist_type)
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -5767,7 +5767,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type, dt)
 
     def plot_motion_direction_selectivity(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                           plot_cond, plot_trend, plot_even_axis, p_type, plot_grid):
@@ -6275,33 +6275,6 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
-            def get_kinematic_plot_values(k_sf, i_plot, is_single_cell):
-                '''
-
-                :param k_sf:
-                :param i_plot:
-                :return:
-                '''
-
-                # removes any singleton dimensions
-                if is_single_cell:
-                    k_sf = np.squeeze(k_sf)
-
-                # sets the temporary spiking frequency arrays
-                if i_plot == 0:
-                    # case is decreasing position
-                    k_sf_raw = k_sf[:, :, 0]
-                elif i_plot == 1:
-                    # case is increasing position
-                    k_sf_raw = k_sf[:, :, 1]
-                else:
-                    # case is pooled position
-                    k_sf_raw = np.mean(k_sf, axis=2)
-
-                # calculates the mean spiking frequency over all cells
-                n_cell = np.size(k_sf_raw, axis=0)
-                return k_sf_raw, np.mean(k_sf_raw, axis=0), np.std(k_sf_raw, axis=0) / (n_cell ** 0.5)
-
             def create_pos_polar_plots(ax, r_obj, k_sf, xi_bin, k_rng, b_sz, is_single_cell):
                 '''
 
@@ -6325,7 +6298,7 @@ class AnalysisGUI(QMainWindow):
 
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the mean plot values
-                        _, k_sf_mn, _ = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
+                        _, k_sf_mn, _ = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # creates the polar plot
                         d_xi = 0.5 * (xi_mid[0] - xi_mid[1]) * (((2 * i_filt + 1) / r_obj.n_filt) - 1)
@@ -6385,7 +6358,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the plots for each of the
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the plot values
-                        k_sf_raw, k_sf_mn, k_sf_sem = get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
+                        k_sf_raw, k_sf_mn, k_sf_sem = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
 
                         # smooths the signal (if required)
                         if is_smooth:
@@ -6740,7 +6713,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type, dt)
 
     ######################################
     ####    ROC ANALYSIS FUNCTIONS    ####
@@ -7002,7 +6975,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, dt, norm_type, mean_type, sort_type_auc)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type_auc, dt)
 
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
@@ -11771,7 +11744,7 @@ class AnalysisGUI(QMainWindow):
         else:
             return [[x[yy, :] for yy in y] for x, y in zip([y_metric[x, :] for x in i_grp], i_filt_ex)], n_filt_ex
 
-    def create_spike_heatmap(self, r_obj, dt, norm_type, mean_type, sort_type):
+    def create_spike_heatmap(self, r_obj, norm_type, mean_type, sort_type, dt, dv=0, hist_type='Temporal'):
         '''
 
         :param plot_grid:
@@ -11779,7 +11752,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def init_heatmap_plot_axes(r_obj):
+        def init_heatmap_plot_axes(r_obj, is_temp):
             '''
 
             :return:
@@ -11787,10 +11760,11 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             c_ofs = int(not r_obj.is_single_cell)
+            n_phase = r_obj.n_phase if is_temp else 2
             top, bottom, pH = 0.96 - 0.04 * r_obj.is_single_cell, 0.06, 0.01
-            cb_wid, lcm = 0.03, cf.lcm(r_obj.n_phase, 2)
+            cb_wid, lcm = 0.03, cf.lcm(n_phase, 2)
             ax_dim = [2 + r_obj.n_filt, lcm + c_ofs]
-            n_col_hm, n_col_cb = int(lcm / r_obj.n_phase), int(lcm / 2)
+            n_col_hm, n_col_cb = int(lcm / n_phase), int(lcm / 2)
 
             # sets the axes height/width ratios
             cb_hght, gap_hght = 0.025, pH * r_obj.n_filt
@@ -11808,16 +11782,16 @@ class AnalysisGUI(QMainWindow):
                                    bottom=bottom, top=top, hspace=0.1)
 
             # sets each of the plot axes
-            self.plot_fig.ax = np.empty(r_obj.n_filt * (r_obj.n_phase + 1) + (1 + c_ofs), dtype=object)
+            self.plot_fig.ax = np.empty(r_obj.n_filt * (n_phase + 1) + (1 + c_ofs), dtype=object)
 
             # sets up the axes for each of the heatmap types
             for i_filt in range(r_obj.n_filt):
-                for i_phase in range(r_obj.n_phase + c_ofs):
+                for i_phase in range(n_phase + c_ofs):
                     # sets the plot index
-                    i_plot = i_filt * (r_obj.n_phase + c_ofs) + i_phase
+                    i_plot = i_filt * (n_phase + c_ofs) + i_phase
 
                     # creates the subplot
-                    if i_phase == r_obj.n_phase:
+                    if i_phase == n_phase:
                         # case is the depth heatmap axes
                         self.plot_fig.ax[i_plot] = self.plot_fig.figure.add_subplot(gs[i_filt, -1])
                     else:
@@ -11915,7 +11889,7 @@ class AnalysisGUI(QMainWindow):
             # returns the
             return np.array(cell_depth)
 
-        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type):
+        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type, is_temp):
             '''
 
             :param t_spike:
@@ -11937,27 +11911,31 @@ class AnalysisGUI(QMainWindow):
             #
             for i_phase in range(n_phase):
                 for i_trial in range(n_row):
-                    if is_single_cell:
-                        t_sp_flat = cf.flat_list(
-                            [list(x) if x is not None else [] for x in t_spike[:, i_trial, i_phase]])
-                        h_gram = np.histogram(t_sp_flat, bins=xi_h[0, :])[0]
-                        dt = np.diff(xi_h[0, :])
-                    else:
-                        # t_sp_flat = cf.flat_list(
-                        #     [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
-
-                        is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
-                        h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i, i_phase], bins=xi_h[i_trial, :])[0]
-                                                for i in np.where(is_ok)[0]])
-
-                        dt = np.diff(xi_h[i_trial, :])
-                        if mean_type == 'Mean':
-                            h_gram = np.mean(h_gram_tot, axis=0)
+                    if is_temp:
+                        if is_single_cell:
+                            t_sp_flat = cf.flat_list(
+                                [list(x) if x is not None else [] for x in t_spike[:, i_trial, i_phase]])
+                            h_gram = np.histogram(t_sp_flat, bins=xi_h[0, :])[0]
+                            dt = np.diff(xi_h[0, :])
                         else:
-                            h_gram = np.median(h_gram_tot, axis=0)
+                            # t_sp_flat = cf.flat_list(
+                            #     [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
 
-                    # normalises the histograms by the duration of the bins
-                    I_hm[i_trial, :, i_phase] = h_gram / dt
+                            is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
+                            h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i, i_phase], bins=xi_h[i_trial, :])[0]
+                                                    for i in np.where(is_ok)[0]])
+
+                            dt = np.diff(xi_h[i_trial, :])
+                            if mean_type == 'Mean':
+                                h_gram = np.mean(h_gram_tot, axis=0)
+                            else:
+                                h_gram = np.median(h_gram_tot, axis=0)
+
+                        # normalises the histograms by the duration of the bins
+                        I_hm[i_trial, :, i_phase] = h_gram / dt
+                    else:
+                        #
+                        I_hm[i_trial, :, i_phase] = t_spike[i_trial, :, i_phase]
 
             # sorts the clusters by depth (whole experiments only)
             if not is_single_cell:
@@ -11970,6 +11948,12 @@ class AnalysisGUI(QMainWindow):
         if not r_obj.is_ok:
             self.calc_ok = False
             return
+
+        # determines what type of histogram is being created (temporal or velocity)
+        is_temp = hist_type == 'Temporal'
+        if not is_temp:
+            # sets the normalisation type if plotting velocity histograms
+            norm_type = 'Min/Max Normalisation'
 
         # retrieves the depths from each of the experiments (based on type)
         if not r_obj.is_single_cell:
@@ -12076,30 +12060,52 @@ class AnalysisGUI(QMainWindow):
             Y_sort = [None] * r_obj.n_filt
 
         # creates the plot outlay and titles
-        init_heatmap_plot_axes(r_obj)
+        init_heatmap_plot_axes(r_obj, is_temp)
         hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=34, l=47, n=11))
+
+        # if plotting a velocity heatmap, then retrieve the spiking frequencies for each velocity bin
+        if not is_temp:
+            # parameters
+            i_plot = 2
+            c_type = 2 + r_obj.is_single_cell
+
+            # retrieves the kinematic spiking frequency values
+            k_sf0, xi_bin0, _ = rot.calc_kinemetic_spike_freq(self.data, r_obj, [10, dv], calc_type=c_type)
+            k_sf, xi_bin = k_sf0[1], xi_bin0[1]
+            is_CCW = xi_bin[:, 0] < 0
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
         for i_filt in range(r_obj.n_filt):
             # determines the stimuli times (converts from indices to actual times)
             _, ind = np.unique(r_obj.i_expt[i_filt], return_inverse=True)
-            t_stim = [r_obj.t_phase[i_filt][i] for i in ind]
 
             # sets up the histogram bins
-            xi_h0 = [setup_heatmap_bins(x, dt) for x in t_stim]
-            for i in range(len(xi_h0)):
-                xi_h0[i][-1] = t_stim[i]
+            if is_temp:
+                # case is the temporal heatmaps
+                t_stim = [r_obj.t_phase[i_filt][i] for i in ind]
+                xi_h0 = [setup_heatmap_bins(x, dt) for x in t_stim]
+                for i in range(len(xi_h0)):
+                    xi_h0[i][-1] = t_stim[i]
 
-            if r_obj.is_single_cell:
-                t_spike = r_obj.t_spike[i_filt]
+                # retrieves the time spikes
+                if r_obj.is_single_cell:
+                    t_spike = r_obj.t_spike[i_filt]
+                else:
+                    t_spike = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, :]
+
             else:
-                t_spike = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, :]
+                # sets up the spiking frequency arrays
+                t_sp0, _, _ = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, r_obj.is_single_cell)
+                t_spike = np.dstack((t_sp0[i_cell_b[i_filt], :][:, ~is_CCW], t_sp0[i_cell_b[i_filt], :][:, is_CCW]))
+
+                # sets up the xi-value array
+                xi_h0 = [np.unique(xi_bin[is_CCW, :])] * len(ind)
 
             # calculates the spiking frequency histograms
             xi_h = np.vstack(xi_h0)
             sort_d = np.argsort(-np.array(Y_sort[i_filt]))
-            I_hm[i_filt] = setup_spiking_heatmap(t_spike, xi_h, r_obj.is_single_cell, sort_d, mean_type)
+            I_hm[i_filt] = setup_spiking_heatmap(t_spike, xi_h, r_obj.is_single_cell, sort_d, mean_type, is_temp)
 
             if not r_obj.is_single_cell:
                 Y_sort[i_filt] = list(np.array(Y_sort[i_filt])[sort_d])
@@ -12132,11 +12138,14 @@ class AnalysisGUI(QMainWindow):
                         if I_norm > 0:
                             I_hm[i_filt][i_trial, :, :] /= I_norm
 
+        #
+        n_phase = r_obj.n_phase - int(not is_temp)
+
         # creates the heatmaps for each filter/phase
         for i_filt in range(r_obj.n_filt):
-            im = np.empty(r_obj.n_phase, dtype=object)
-            i_ofs = i_filt * (r_obj.n_phase + int(not r_obj.is_single_cell))
-            for i_phase in range(r_obj.n_phase):
+            im = np.empty(n_phase, dtype=object)
+            i_ofs = i_filt * (n_phase + int(not r_obj.is_single_cell))
+            for i_phase in range(n_phase):
                 # creates the
                 i_plot = i_ofs + i_phase
                 self.plot_fig.ax[i_plot].grid(False)
@@ -12154,18 +12163,17 @@ class AnalysisGUI(QMainWindow):
                 # displays the heatmap
                 im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt][:, :, i_phase], aspect='auto',
                                                               origin='lower', cmap=hm_cmap)
-                # im[i_phase] = sns.heatmap(I_hm[i_filt][:, :, i_phase], cmap=pp, ax=self.plot_fig.ax[i_plot])
 
                 # sets the subplot title (first row only)
                 if i_filt == 0:
-                    self.plot_fig.ax[i_plot].set_title(r_obj.phase_lbl[i_phase])
+                    self.plot_fig.ax[i_plot].set_title(r_obj.phase_lbl[i_phase + int(not is_temp)])
 
                 # sets the x-axis label (last row only)
                 if (i_filt + 1) == r_obj.n_filt:
-                    self.plot_fig.ax[i_plot].set_xlabel('Time (s)')
+                    self.plot_fig.ax[i_plot].set_xlabel('Time (s)' if is_temp else 'Speed (deg/s)')
 
                 #
-                if ((i_phase + 1) == r_obj.n_phase) and (not r_obj.is_single_cell):
+                if ((i_phase + 1) == n_phase) and (not r_obj.is_single_cell):
                     Y_hm = mlt * np.array(Y_sort[i_filt]).reshape(-1, 1)
                     im_d = self.plot_fig.ax[i_plot + 1].imshow(Y_hm, aspect='auto', cmap='Reds', origin='lower')
                     self.plot_fig.ax[i_plot + 1].grid(False)
@@ -12190,7 +12198,14 @@ class AnalysisGUI(QMainWindow):
                     self.plot_fig.ax[i_plot].get_xaxis().set_visible(False)
                 else:
                     x_ticks = self.plot_fig.ax[i_plot].get_xticks().astype(float)[1:-1]
-                    x_ticks_new = ['{:4.2f}'.format(x) for x in x_ticks * (dt / 1000)]
+                    if is_temp:
+                        x_ticks_new = ['{:4.2f}'.format(x) for x in x_ticks * (dt / 1000)]
+                    else:
+                        if i_phase == 0:
+                            x_ticks_new = xi_bin[x_ticks.astype(int), 0].astype(int)
+                        else:
+                            x_ticks_new = xi_bin[(np.shape(xi_bin)[0] - x_ticks).astype(int) - 2, 0][::-1].astype(int)
+
                     self.plot_fig.ax[i_plot].set_xticks(x_ticks)
                     self.plot_fig.ax[i_plot].set_xticklabels(x_ticks_new)
 
@@ -12821,6 +12836,33 @@ class AnalysisGUI(QMainWindow):
 
         # returns the inclusion index array
         return cl_inc_extn
+
+    def get_kinematic_plot_values(self, k_sf, i_plot, is_single_cell):
+        '''
+
+        :param k_sf:
+        :param i_plot:
+        :return:
+        '''
+
+        # removes any singleton dimensions
+        if is_single_cell:
+            k_sf = np.squeeze(k_sf)
+
+        # sets the temporary spiking frequency arrays
+        if i_plot == 0:
+            # case is decreasing position
+            k_sf_raw = k_sf[:, :, 0]
+        elif i_plot == 1:
+            # case is increasing position
+            k_sf_raw = k_sf[:, :, 1]
+        else:
+            # case is pooled position
+            k_sf_raw = np.mean(k_sf, axis=2)
+
+        # calculates the mean spiking frequency over all cells
+        n_cell = np.size(k_sf_raw, axis=0)
+        return k_sf_raw, np.mean(k_sf_raw, axis=0), np.std(k_sf_raw, axis=0) / (n_cell ** 0.5)
 
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####
@@ -14412,8 +14454,10 @@ class AnalysisFunctions(object):
 
         # initialisations
         sig_vel_bin = ['5', '10']
+        vel_bin = [str(x) for x in [4, 5, 8, 10, 16, 20, 40]]
         dist_type = ['Cumulative Distribution', 'Histogram']
         free_type = ['HD', 'HDMod', 'AHV', 'Speed']
+        hist_type = ['Temporal', 'Velocity']
 
         # sets up the fixed correlation rotational filter
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
@@ -14749,6 +14793,11 @@ class AnalysisFunctions(object):
                               ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
             },
             'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
+            'dv': {'type': 'L', 'text': 'Heatmap Resolution (deg/s)', 'list': vel_bin, 'def_val': '5'},
+            'hist_type': {
+                'type': 'L', 'text': 'Histogram Type', 'list': hist_type, 'def_val': hist_type[0],
+                'link_para': [['dt', 'Velocity'], ['dv', 'Temporal'], ['norm_type', 'Velocity']]
+            }
         }
         self.add_func(type='Angular Head Velocity Analysis',
                       name='Spiking Rate Heatmap (Fixed)',
@@ -14932,7 +14981,6 @@ class AnalysisFunctions(object):
         # parameters
         t_phase, t_ofs = 1.0, 0.2
         pos_bin = [str(x) for x in [3, 4, 5, 6, 10, 15, 20, 30, 45, 60]]
-        vel_bin = [str(x) for x in [4, 5, 8, 10, 16, 20, 40]]
 
         # type lists
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
