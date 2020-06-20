@@ -393,12 +393,12 @@ class WorkerThread(QThread):
                 # calculates the partial roc curves
                 self.calc_partial_roc_curves(data, calc_para, plot_para, 66.)
 
-            # elif self.thread_job_secondary == 'Kinematic Spiking Frequency':
-            #     # checks to see if any parameters have been altered
-            #     self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=True)
-            #
-            #     # calculates the binned kinematic spike frequencies
-            #     cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
+            elif self.thread_job_secondary in ['Normalised Spiking Spiking Frequency']:
+                # checks to see if any parameters have been altered
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=False)
+
+                # calculates the binned kinematic spike frequencies
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
 
             ######################################################
             ####    DEPTH-BASED SPIKING ANALYSIS FUNCTIONS    ####
@@ -4272,7 +4272,8 @@ class WorkerThread(QThread):
                 # case is the kinematic calculations
 
                 # initialisations
-                roc_calc, vel_bin = other_para, float(calc_para['vel_bin'])
+                roc_calc = other_para
+                vel_bin = float(calc_para['vel_bin']) if ('vel_bin' in calc_para) else float(plot_para['vel_bin'])
 
                 # checks to see if the dependent speed has changed
                 if 'spd_x_rng' in calc_para:
@@ -4306,7 +4307,7 @@ class WorkerThread(QThread):
                     r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                     r_data.vel_sf, r_data.spd_sf = None, None
 
-                elif roc_calc:
+                if roc_calc:
                     if (vel_bin != r_data.vel_bin) or (calc_para['freq_type'] != r_data.freq_type):
                         r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                         r_data.vel_sf, r_data.spd_sf = None, None
@@ -4319,6 +4320,11 @@ class WorkerThread(QThread):
                     # if there was a change, then re-initialise the roc phase fields
                     if is_change:
                         r_data.vel_roc = None
+
+                else:
+                    if (vel_bin != r_data.vel_bin):
+                        r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
+                        r_data.vel_sf, r_data.spd_sf = None, None
 
             elif ct == 'vel_sf_fix':
                 # if the spiking frequency calculation field has not been set, then force an update

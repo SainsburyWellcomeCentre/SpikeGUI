@@ -5563,12 +5563,13 @@ class AnalysisGUI(QMainWindow):
                 i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
                 clustID = [self.data._cluster[j]['clustID'] for j in i_expt_match]
                 exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
-                is_ok = np.ones(n_ex, dtype=bool)
+                is_ok = np.ones(n_ex + 1, dtype=bool)
+                cl_match = (i_expt_match / 2).astype(int)
 
                 for i_ex in range(n_ex):
                     # memory allocation and initialisations
                     v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
-                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][i_ex]]
+                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][cl_match[i_ex]]]
                     if len(clustIDex):
                         data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
 
@@ -5582,7 +5583,7 @@ class AnalysisGUI(QMainWindow):
                         for j, v_sf in enumerate(v_sf_grp):
                             data_tmp[i_ex + 1][1:, j + 2] = (v_sf > 0).astype(int)
                     else:
-                        is_ok[i_ex] = False
+                        is_ok[i_ex + 1] = False
 
                 # sets the values for the filter type
                 data_all[i] = np.vstack(data_tmp[is_ok])
@@ -5700,7 +5701,7 @@ class AnalysisGUI(QMainWindow):
             ax.set_title('Significant Cell Overlap', fontweight='bold', fontsize=16)
 
     def plot_ahv_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
-                                    mean_type, sort_type_ahv, plot_scope, dt, dv, hist_type):
+                                    mean_type, sort_cond, sort_type_ahv, plot_scope, dt, dv, hist_type):
         '''
 
         :param rot_filt:
@@ -5714,7 +5715,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type_ahv, dt, float(dv), hist_type)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_cond, sort_type_ahv, dt, float(dv), hist_type)
 
     #############################################
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
@@ -5757,7 +5758,7 @@ class AnalysisGUI(QMainWindow):
                                     m_size, grp_by_filt, show_stats)
 
     def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
-                                mean_type, sort_type, plot_scope, dt):
+                                mean_type, sort_cond, sort_type, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -5771,7 +5772,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type, dt)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_cond, sort_type, dt)
 
     def plot_motion_direction_selectivity(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
                                           plot_cond, plot_trend, plot_even_axis, p_type, plot_grid):
@@ -6267,7 +6268,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_kinematic_plots(r_obj, b_sz, n_smooth, is_smooth, is_single_cell, plot_grid):
+        def create_kinematic_plots(r_obj, b_sz, n_smooth, is_smooth, plot_scope, plot_grid):
             '''
 
             :param r_obj:
@@ -6405,12 +6406,8 @@ class AnalysisGUI(QMainWindow):
                     _ax.set_ylim(yL)
                     _ax.grid(plot_grid)
 
-            # if there was an error setting up the rotation calculation object, then exit the function with an error
-            if not r_obj.is_ok:
-                self.calc_ok = False
-                return
-
             # initialisations
+            is_single_cell = plot_scope == 'Individual Cell'
             plot_indiv = spread_type == 'Individual Trial Traces'
             c, k_rng = cf.get_plot_col(r_obj.n_filt), [90, 80]
             proj_type = ['polar', 'polar', 'polar', None, None, None]
@@ -6451,12 +6448,121 @@ class AnalysisGUI(QMainWindow):
                 self.calc_ok = False
                 return
 
+        # applies the rotation filter to the dataset
+        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        if not r_obj.is_ok:
+            # if there was an error setting up the rotation calculation object, then exit the function with an error
+            self.calc_ok = False
+            return
+
+        # creates the kinematic spiking frequency plot
+        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_scope, plot_grid)
+
+    def plot_norm_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, vel_bin, n_smooth,
+                             is_smooth, plot_grid):
+        '''
+
+        :param rot_filt:
+        :param i_cluster:
+        :param plot_exp_name:
+        :param plot_all_expt:
+        :param plot_scope:
+        :param vel_bin:
+        :param n_smooth:
+        :param is_smooth:
+        :param plot_grid:
+        :return:
+        '''
+
+        def create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_scope, plot_grid):
+            '''
+
+            :param r_obj:
+            :param vel_bin:
+            :param n_smooth:
+            :param is_smooth:
+            :param plot_scope:
+            :param plot_grid:
+            :return:
+            '''
+
+            # initialisations
+            r_data = self.data.rotation
+            is_single_cell = plot_scope == 'Individual Cell'
+            c, k_rng, b_sz = cf.get_plot_col(r_obj.n_filt), 80, [10, float(vel_bin)]
+            xi_mid, dy_lim, h_plt = np.mean(r_data.spd_xi, axis=1), 0.02, []
+
+            # retrieves the spiking frequencies based on calculation type
+            if r_data.is_equal_time:
+                # case is equal time bins
+                sf = r_data.spd_sf_rs
+            else:
+                # case is non-equal time bins
+                sf = r_data.spd_sf
+
+            # determines the common filtered cell indices
+            tt_filt = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
+            i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj, tt_filt, True)
+
+            # creates the plot outlay and titles
+            self.init_plot_axes()
+            ax = self.plot_fig.ax[0]
+
+            # calculates the mean/std values
+            for i_filt, rr in enumerate(r_obj.rot_filt_tot):
+                # calculates mean spiking frequencies for each cell
+                sf_filt_mu = np.nanmean(sf[rr['t_type'][0]][:, :, i_cell_b[i_filt]], axis=0)
+
+                # memory allocation (first iteration only)
+                if i_filt == 0:
+                    n_bin = np.shape(sf_filt_mu)[0]
+                    A = np.zeros((r_obj.n_filt, n_bin))
+                    sf_mu, sf_sem = dcopy(A), dcopy(A)
+
+                # smoothes the spiking frequecies for each cell (if required)
+                if is_smooth:
+                    for i in range(np.shape(sf_filt_mu)[1]):
+                        sf_filt_mu[:, i] = medfilt(sf_filt_mu[:, i], n_smooth)
+
+                # normalises the spiking frequencies to the first speed bin
+                is_ok = sf_filt_mu[0, :] > 0
+                sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+
+                # calculates the mean/sem normalised spiking frequencies
+                sf_mu[i_filt, :] = np.nanmean(sf_filt_norm, axis=1)
+                sf_sem[i_filt, :] = np.nanstd(sf_filt_norm, axis=1) / np.sqrt(sum(is_ok))
+
+                # creates the error patch
+                h_plt.append(ax.plot(xi_mid, sf_mu[i_filt, :], color=c[i_filt], linewidth=2))
+                cf.create_error_area_patch(ax, xi_mid, sf_mu[i_filt, :], sf_sem[i_filt, :], c[i_filt])
+
+            # creates the legend object
+            ax.legend([x[0] for x in h_plt], r_obj.lg_str, loc=2)
+
+            # sets the axis properties
+            ax.grid(plot_grid)
+            ax.set_ylabel('Normalised Spiking Frequency')
+            ax.set_xlabel('Speed (deg/s)')
+            ax.set_ylim([np.min(sf_mu - sf_sem) - dy_lim, np.max(sf_mu + sf_sem) + dy_lim])
+
+        ################################################################################################################
+        ################################################################################################################
+
+        # ensures the smoothing window is an odd integer
+        if is_smooth:
+            if n_smooth % 2 != 1:
+                # if not, then exit with an error
+                e_str = 'The median smoothing filter window span must be an odd integer.'
+                cf.show_error(e_str, 'Incorrect Smoothing Window Span')
+                self.calc_ok = False
+                return
+
         # determines what analysis type is being used
         is_single_cell = plot_scope == 'Individual Cell'
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, is_single_cell, plot_grid)
+        create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_scope, plot_grid)
 
     def plot_overall_direction_bias(self, rot_filt, grp_plot_type, plot_grid, p_value, grp_by_filt, show_stats, plot_scope,
                                     plot_exp_name, plot_all_expt):
@@ -6717,7 +6823,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
-        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type, dt)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, 'Own Condition', sort_type, dt)
 
     ######################################
     ####    ROC ANALYSIS FUNCTIONS    ####
@@ -6962,7 +7068,7 @@ class AnalysisGUI(QMainWindow):
                 self.plot_fig.ax[i_plot].set_ylim([0, yL_mx])
 
     def plot_direction_roc_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
-                                   mean_type, sort_type_auc, plot_scope, dt):
+                                   mean_type, sort_cond, sort_type_auc, plot_scope, dt):
         '''
 
         :param rot_filt:
@@ -6979,7 +7085,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_type_auc, dt)
+        self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_cond, sort_type_auc, dt)
 
     def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
@@ -10614,6 +10720,8 @@ class AnalysisGUI(QMainWindow):
                 # creates the legend
                 ax.legend(h_plt, d_data.ttype, loc=4)
 
+            ax.set_title('# of Experiments = {0}'.format(n_ex))
+
         # creates the vertical marker lines
         for xx in np.arange(xL[0] + 1, xL[1]):
             ax.plot(xx * np.ones(2), yL, 'k--')
@@ -10740,8 +10848,8 @@ class AnalysisGUI(QMainWindow):
             y_acc_mn = [np.nanmean(x, axis=2) for x in y_acc_mn_exp]
 
             # calculates the SEM values (if plotting the errorbars)
+            n_acc_exp = [np.sqrt(np.sum(~np.all(np.isnan(x), axis=0), axis=1)) for x in y_acc_mn_exp]
             if plot_sem:
-                n_acc_exp = [np.sqrt(np.sum(~np.all(np.isnan(x), axis=0), axis=1)) for x in y_acc_mn_exp]
                 y_acc_sem = [np.divide(np.nanstd(x, axis=2), n) for x, n in zip(y_acc_mn_exp, n_acc_exp)]
 
             # plots the data for all points
@@ -10807,6 +10915,12 @@ class AnalysisGUI(QMainWindow):
             ax.set_xlabel('Speed Bin Comparison (deg/s)')
             ax.set_xticks(x + 0.5)
             ax.set_xticklabels(x_str)
+
+            # outputs the experiment count to file
+            t_data = np.empty((len(n_cell) + 1, 2), dtype=object)
+            t_data[0, :] = np.array(['N(Cell)', 'N(Expt)'])
+            t_data[1:, :] = np.vstack((np.array(n_cell), n_acc_exp[0] ** 2)).T.astype(int)
+            np.savetxt('Speed LDA Expt Count.csv', t_data, delimiter=",", fmt='%s')
 
         # sets the common axis properties
         for _ax in self.plot_fig.ax:
@@ -11748,7 +11862,7 @@ class AnalysisGUI(QMainWindow):
         else:
             return [[x[yy, :] for yy in y] for x, y in zip([y_metric[x, :] for x in i_grp], i_filt_ex)], n_filt_ex
 
-    def create_spike_heatmap(self, r_obj, norm_type, mean_type, sort_type, dt, dv=0, hist_type='Temporal'):
+    def create_spike_heatmap(self, r_obj, norm_type, mean_type, sort_cond, sort_type, dt, dv=0, hist_type='Temporal'):
         '''
 
         :param plot_grid:
@@ -12029,8 +12143,14 @@ class AnalysisGUI(QMainWindow):
 
                 # retrieves the rotation data class object
                 r_data = self.data.rotation
-                is_pos = int('(CW)' in sort_type)
                 x_lbl = 'Pearson Coefficient'
+
+                #
+                if '(Avg)' in sort_type:
+                    is_avg = True
+                else:
+                    is_pos, is_avg = int('(CW)' in sort_type), False
+
 
                 i_cell_b2, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full,
                                                                      True, reuse_filt=False)
@@ -12039,7 +12159,10 @@ class AnalysisGUI(QMainWindow):
                 Y_sort = np.empty(r_obj.n_filt, dtype=object)
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
-                    Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], is_pos]
+                    if is_avg:
+                        Y_sort[i_filt] = -np.mean(r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], :], axis=1)
+                    else:
+                        Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], is_pos]
 
             elif 'AUC ROC' in sort_type:
                 # case is the AUC ROC values
@@ -12059,6 +12182,17 @@ class AnalysisGUI(QMainWindow):
                     # retrieves the significance flags for the current filter type
                     Y_sort[i_filt] = -r_data.cond_roc_auc[rr['t_type'][0]][i_cell_b2[i_filt], i_col]
 
+            if sort_cond != 'Own Condition':
+                n_tt = len(np.unique([x['t_type'] for x in r_obj.rot_filt_tot]))
+                i_tt = next(i for i, x in enumerate(r_obj.rot_filt_tot) if x['t_type'][0] == sort_cond)
+                ind_f = np.arange(i_tt, r_obj.n_filt, n_tt)
+
+                Y_sort_tmp = dcopy(Y_sort)
+                for i_grp in range(len(ind_f)):
+                    for i in range(n_tt):
+                        j = i_grp * n_tt + i
+                        Y_sort[j] = Y_sort_tmp[ind_f[i_grp]]
+
         else:
             # case is single cell (no need to sort by depth)
             Y_sort = [None] * r_obj.n_filt
@@ -12066,7 +12200,14 @@ class AnalysisGUI(QMainWindow):
         # creates the plot outlay and titles
         init_heatmap_plot_axes(r_obj, is_temp)
         # hm_cmap = ListedColormap(sns.diverging_palette(223, 17, sep=34, l=47, n=11))
-        hm_cmap = ListedColormap(sns.diverging_palette(223, 17, s=98, sep=25, l=47, n=15))
+        if is_temp:
+            hm_cmap = ListedColormap(sns.diverging_palette(223, 17, s=98, sep=25, l=47, n=15))
+            # hm_cmap = ListedColormap(sns.diverging_palette(20, 255, s=99.9, sep=25, l=20, n=11))  #SK alternative colormap
+            # hm_cmap = ListedColormap(sns.diverging_palette(20, 150, s=99.9, sep=25, l=20, n=11))  #SK alternative colormap
+        else:
+            # add veloctiy template here...
+            hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.55, hue=1, light=1, n_colors=15))
+            #hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.15, hue=1, light=1, n_colors=15)) #SK alternative colormap
 
         # if plotting a velocity heatmap, then retrieve the spiking frequencies for each velocity bin
         if not is_temp:
@@ -12078,6 +12219,9 @@ class AnalysisGUI(QMainWindow):
             k_sf0, xi_bin0, _ = rot.calc_kinemetic_spike_freq(self.data, r_obj, [10, dv], calc_type=c_type)
             k_sf, xi_bin = k_sf0[1], xi_bin0[1]
             is_CCW = xi_bin[:, 0] < 0
+            t_str = r_obj.phase_lbl[1:]
+        else:
+            t_str = r_obj.phase_lbl
 
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
@@ -12171,7 +12315,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the subplot title (first row only)
                 if i_filt == 0:
-                    self.plot_fig.ax[i_plot].set_title(r_obj.phase_lbl[i_phase + int(not is_temp)])
+                    self.plot_fig.ax[i_plot].set_title(t_str[i_phase])
 
                 # sets the x-axis label (last row only)
                 if (i_filt + 1) == r_obj.n_filt:
@@ -12207,9 +12351,9 @@ class AnalysisGUI(QMainWindow):
                         x_ticks_new = ['{:4.2f}'.format(x) for x in x_ticks * (dt / 1000)]
                     else:
                         if i_phase == 0:
-                            x_ticks_new = xi_bin[x_ticks.astype(int), 0].astype(int)
-                        else:
                             x_ticks_new = xi_bin[(np.shape(xi_bin)[0] - x_ticks).astype(int) - 2, 0][::-1].astype(int)
+                        else:
+                            x_ticks_new = xi_bin[x_ticks.astype(int), 0].astype(int)
 
                     self.plot_fig.ax[i_plot].set_xticks(x_ticks)
                     self.plot_fig.ax[i_plot].set_xticklabels(x_ticks_new)
@@ -13088,7 +13232,8 @@ class AnalysisGUI(QMainWindow):
 
         # mandatory update function list
         func_plot_chk = ['Shuffled Cluster Distances',
-                         'Cluster Cross-Correlogram']
+                         'Cluster Cross-Correlogram',
+                         'Normalised Spiking Spiking Frequency']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -14478,7 +14623,8 @@ class AnalysisFunctions(object):
         # type lists
         mean_type = ['Mean', 'Median']
         norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
-        sort_type_ahv = ['Pearson Coefficient (CW)', 'Pearson Coefficient (CCW)']
+        sort_type_ahv = ['Pearson Coefficient (CW)', 'Pearson Coefficient (CCW)', 'Pearson Coefficient (Avg)']
+        sort_cond = ['Black']
 
         # retrieves the correlation default parameters
         corr_def_para = cfcn.init_corr_para(data.rotation)
@@ -14777,7 +14923,7 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'def_val': dcopy(rot_filt0)
+                'def_val': dcopy(rot_filt0), 'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -14788,6 +14934,9 @@ class AnalysisFunctions(object):
             },
             'mean_type': {
                 'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+            },
+            'sort_cond': {
+                'text': 'Sort Condition', 'type': 'L', 'list': sort_cond, 'def_val': sort_cond[0]
             },
             'sort_type_ahv': {
                 'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type_ahv, 'def_val': sort_type_ahv[0]
@@ -15115,7 +15264,8 @@ class AnalysisFunctions(object):
         para = {
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -15126,6 +15276,9 @@ class AnalysisFunctions(object):
             },
             'mean_type': {
                 'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+            },
+            'sort_cond': {
+                'text': 'Sort Condition', 'type': 'L', 'list': sort_cond, 'def_val': sort_cond[0]
             },
             'sort_type': {
                 'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type, 'def_val': sort_type[0]
@@ -15242,6 +15395,47 @@ class AnalysisFunctions(object):
         self.add_func(type='Rotation Analysis',
                       name='Kinematic Spiking Frequency',
                       func='plot_spike_freq_kinematics',
+                      para=para)
+
+        # ====> Normalised Speed Spiking Frequency
+        para = {
+            # calculation parameters
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': 100},
+            'equal_time': {
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': False,
+                'link_para': ['n_sample', False]
+            },
+
+            # invisible calculation parameters
+            'freq_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
+                'def_val': 'All', 'is_visible': False
+            },
+
+            # plotting parameters
+            'rot_filt': {
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+            },
+            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
+                              'def_val': True, 'link_para': ['plot_exp_name', True]},
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
+                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                              ['plot_all_expt', 'Individual Cell']]
+            },
+
+            'vel_bin': {'type': 'L', 'text': 'Speed Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'},
+            'n_smooth': {'text': 'Smoothing Window', 'def_val': 3, 'min_val': 3},
+            'is_smooth': {
+                'type': 'B', 'text': 'Smooth Speed Trace', 'def_val': True, 'link_para': ['n_smooth', False]
+            },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+        }
+        self.add_func(type='Rotation Analysis',
+                      name='Normalised Spiking Spiking Frequency',
+                      func='plot_norm_spike_freq',
                       para=para)
 
         # ====> Rotation Trial Cell Depth Direction Selectivity
@@ -15664,7 +15858,8 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
             'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
@@ -15675,6 +15870,9 @@ class AnalysisFunctions(object):
             },
             'mean_type': {
                 'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+            },
+            'sort_cond': {
+                'text': 'Sort Condition', 'type': 'L', 'list': sort_cond, 'def_val': sort_cond[0]
             },
             'sort_type_auc': {
                 'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type_auc, 'def_val': sort_type_auc[0]
@@ -17815,6 +18013,53 @@ class AnalysisFunctions(object):
     #########################################
     ####    PARAMETER RESET FUNCTIONS    ####
     #########################################
+
+    def reset_sort_cond(self, exp_info, p_name):
+        '''
+
+        :param p_name:
+        :param exp_info:
+        :return:
+        '''
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # determines the plot function that is currently selected
+        c_txt = h_list.currentText()
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # sets the new list text
+        if len(exp_info['t_type']) > 1:
+            nw_txt = ['Own Condition'] + exp_info['t_type']
+        else:
+            nw_txt = exp_info['t_type']
+
+        # removes the existing items
+        for i in range(h_list.count()):
+            h_list.removeItem(0)
+
+        # adds the new range
+        for txt in nw_txt:
+            h_list.addItem(txt)
+
+        # retrieves the selected list index value
+        if c_txt in nw_txt:
+            # previous selection is in new list
+            i_sel = nw_txt.index(c_txt)
+        else:
+            # previous selection was not in list, so reset to index to 0
+            i_sel = 0
+            h_list.setCurrentIndex(0)
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = nw_txt[i_sel]
+        d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
     def reset_vel_rng(self, p_name, dv0):
         '''

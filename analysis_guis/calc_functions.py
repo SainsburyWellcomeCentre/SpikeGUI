@@ -1839,7 +1839,8 @@ def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_cal
         r_data = data.rotation
 
     # parameters and initialisations
-    vel_bin, equal_time = float(calc_para['vel_bin']), calc_para['equal_time']
+    vel_bin = float(calc_para['vel_bin']) if ('vel_bin' in calc_para) else float(plot_para['vel_bin'])
+    equal_time = calc_para['equal_time']
 
     # sets the condition types (ensures that the black phase is always included)
     r_filt_base = cf.init_rotation_filter_data(False)
@@ -2837,6 +2838,7 @@ def calc_all_psychometric_curves(d_data, d_vel):
     # parameters and array indexing
     vel_mx = 80.
     nC, n_tt, n_xi = len(d_data.n_cell), len(d_data.ttype), len(d_data.spd_xi)
+    use_mean = True         # set to True to fit thru mean, otherwise False for median fit
 
     # memory allocation
     y_acc_fit, A = np.zeros((n_xi, nC, n_tt)), np.empty(n_tt, dtype=object)
@@ -2850,7 +2852,11 @@ def calc_all_psychometric_curves(d_data, d_vel):
     # calculates the psychometric fits for each condition trial type
     for i_tt in range(n_tt):
         # sets the mean accuracy values (across all cell counts)
-        y_acc_mn_exp = np.nanmean(y_acc[i_tt], axis=3)
+        if use_mean:
+            y_acc_mn_exp = np.nanmean(y_acc[i_tt], axis=3)
+        else:
+            y_acc_mn_exp = np.nanmedian(y_acc[i_tt], axis=3)
+
         y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
                                          100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
 
