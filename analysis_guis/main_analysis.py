@@ -6458,8 +6458,7 @@ class AnalysisGUI(QMainWindow):
         # creates the kinematic spiking frequency plot
         create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_scope, plot_grid)
 
-    def plot_norm_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, vel_bin, n_smooth,
-                             is_smooth, plot_grid):
+    def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -6474,7 +6473,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_scope, plot_grid):
+        def create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_grid):
             '''
 
             :param r_obj:
@@ -6488,7 +6487,6 @@ class AnalysisGUI(QMainWindow):
 
             # initialisations
             r_data = self.data.rotation
-            is_single_cell = plot_scope == 'Individual Cell'
             c, k_rng, b_sz = cf.get_plot_col(r_obj.n_filt), 80, [10, float(vel_bin)]
             xi_mid, dy_lim, h_plt = np.mean(r_data.spd_xi, axis=1), 0.02, []
 
@@ -6519,11 +6517,6 @@ class AnalysisGUI(QMainWindow):
                     A = np.zeros((r_obj.n_filt, n_bin))
                     sf_mu, sf_sem = dcopy(A), dcopy(A)
 
-                # smoothes the spiking frequecies for each cell (if required)
-                if is_smooth:
-                    for i in range(np.shape(sf_filt_mu)[1]):
-                        sf_filt_mu[:, i] = medfilt(sf_filt_mu[:, i], n_smooth)
-
                 # normalises the spiking frequencies to the first speed bin
                 is_ok = sf_filt_mu[0, :] > 0
                 sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
@@ -6531,6 +6524,10 @@ class AnalysisGUI(QMainWindow):
                 # calculates the mean/sem normalised spiking frequencies
                 sf_mu[i_filt, :] = np.nanmean(sf_filt_norm, axis=1)
                 sf_sem[i_filt, :] = np.nanstd(sf_filt_norm, axis=1) / np.sqrt(sum(is_ok))
+
+                # smoothes the spiking frequencies for each cell (if required)
+                if is_smooth:
+                    sf_mu[i_filt, :] = medfilt(sf_mu[i_filt, :], n_smooth)
 
                 # creates the error patch
                 h_plt.append(ax.plot(xi_mid, sf_mu[i_filt, :], color=c[i_filt], linewidth=2))
@@ -6561,8 +6558,8 @@ class AnalysisGUI(QMainWindow):
         is_single_cell = plot_scope == 'Individual Cell'
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
-        create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_scope, plot_grid)
+        r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, plot_scope, False)
+        create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_grid)
 
     def plot_overall_direction_bias(self, rot_filt, grp_plot_type, plot_grid, p_value, grp_by_filt, show_stats, plot_scope,
                                     plot_exp_name, plot_all_expt):
@@ -15416,25 +15413,20 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
-                              'def_val': True, 'link_para': ['plot_exp_name', True]},
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
-            },
-
             'vel_bin': {'type': 'L', 'text': 'Speed Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'},
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 3, 'min_val': 3},
             'is_smooth': {
                 'type': 'B', 'text': 'Smooth Speed Trace', 'def_val': True, 'link_para': ['n_smooth', False]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            # invisible parameters
+            'plot_scope': {
+                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
+            },
         }
         self.add_func(type='Rotation Analysis',
-                      name='Normalised Spiking Spiking Frequency',
+                      name='Normalised Kinematic Spiking Frequency',
                       func='plot_norm_spike_freq',
                       para=para)
 
