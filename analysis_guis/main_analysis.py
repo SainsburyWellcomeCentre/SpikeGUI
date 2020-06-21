@@ -3650,7 +3650,7 @@ class AnalysisGUI(QMainWindow):
 
         # retrieves the fixed/free matched spiking correlation values
         r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl = \
-                                self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
+                                    self.get_fix_free_spiking_corr(rot_filt, lcond_type, i_grp)
 
         # sets the indices for each free/fix match over all experiments
         n_cell_grp = [[len(i) for i in i_filt] for i_filt in ind_cl]
@@ -4138,6 +4138,162 @@ class AnalysisGUI(QMainWindow):
         out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
         out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
         np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
+
+    def plot_ahv_fit_para(self, cell_type, use_no_cells, vel_bin, lcond_type, fit_ptype, plot_indiv,
+                          plot_grid, plot_scope):
+        '''
+
+        :param vel_bin:
+        :param cond_type:
+        :return:
+        '''
+
+        ############################################
+        ####    INITIALISATIONS & DATA SETUP    ####
+        ############################################
+
+        def get_free_cell_info(c_info, cl_inc, i_bin, cond_type, col_type, mlt=1):
+            '''
+
+            :param c_info:
+            :param cl_inc:
+            :param i_bin:
+            :param cond_type:
+            :param col_type:
+            :return:
+            '''
+
+            return np.array(
+                cf.flat_list([mlt * np.array(ci[i_bin][cond_type][col_type])[ic] for ci, ic in zip(c_info, cl_inc)]))
+
+        def create_fit_plot(ax, f_slope, peak_hz, is_pos, plot_indiv):
+            '''
+
+            :param ax:
+            :param f_slope:
+            :param f_int:
+            :param peak_hz:
+            :param is_pos:
+            :param plot_indiv:
+            :param plot_int:
+            :return:
+            '''
+
+            # parameters
+            h_plt = []
+            n_cond, n_grp = len(peak_hz), 2
+            v_max, dv, f_alpha = 80, 2.5, 0.1
+            col = cf.get_plot_col(n_cond)
+
+            # other initialisations
+            p_fit = np.poly1d
+            x_plt = np.array([dv, v_max - dv])
+
+            for i_c in range(n_cond):
+                # determines which cells are feasible (depending on whether positive or negative values are plotted)
+                is_plt = [x > 0 if is_pos else x < 0 for x in f_slope[:, i_c]]
+
+                # calculates the fitted values
+                y_plt = np.vstack([
+                    np.vstack(
+                        [p_fit([_fs, 0])(x_plt) / phz for _fs, phz in zip(fs[i], peak_hz[i_c][i])]
+                    ) for fs, i in zip(f_slope[:, i_c], is_plt)
+                ])
+
+                # ensures the values are within bounds
+                if is_pos:
+                    # case is for positive sloped fits
+                    y_plt[:, 1] = np.clip(y_plt[:, 1], 0, x_plt[1] / v_max)
+                else:
+                    # case is for negative sloped fits
+                    y_plt[:, 1] = np.clip(y_plt[:, 1], -x_plt[1] / v_max, 0)
+
+                # plots the individual responses (if required)
+                if plot_indiv:
+                    for yp in y_plt:
+                        ax.plot(x_plt, yp, c=col[i_c], alpha=f_alpha)
+
+                # plots the mean values
+                h_plt.append(ax.plot(x_plt, np.mean(y_plt, axis=0), c=col[i_c], linewidth=4))
+
+            # returns the plot objects
+            return h_plt
+
+        ###################################################
+        ####    INITIALISATIONS & MEMORY ALLOCATION    ####
+        ###################################################
+
+        # initialisations
+        and_fcn = np.logical_and
+        cond_type = ['DARK', lcond_type]
+        n_grp, n_cond = 2, len(cond_type)
+        f_data = self.data.externd.free_data
+        c_info = dcopy(f_data.c_info)
+        i_bin = ['5', '10'].index(vel_bin)
+
+        # memory allocation
+        # f_int = np.empty((n_grp, n_cond), dtype=object)
+        f_slope = np.empty((n_grp, n_cond), dtype=object)
+        peak_hz = np.empty(n_cond, dtype=object)
+
+        #############################
+        ####    DATA GROUPING    ####
+        #############################
+
+        # retrieves the freely moving cell inclusion indices
+        cl_inc0 = self.get_free_inclusion_indices(i_bin)
+        if use_no_cells:
+            # case is cells with no classification
+            cl_inc = [and_fcn(~np.any(ct[i_bin], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
+        else:
+            # case is cells with at least one cell classification type
+            cl_inc = [and_fcn(np.any(ct[i_bin][cell_type], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
+
+        for i_c, c_t in enumerate(cond_type):
+            # # retrieves the negative/positive intercept values for the current condition type
+            # f_int[0, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_intercept_neg')
+            # f_int[1, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_intercept_pos')
+
+            # retrieves the negative/positive slope values for the current condition type
+            f_slope[0, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_neg', mlt=-1)
+            f_slope[1, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_pos')
+
+            # retrieves the peak firing rate for the current condition type
+            peak_hz[i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_peak_hz')
+
+        ############################
+        ####    FIGURE SETUP    ####
+        ############################
+
+        # setups up the plot axes
+        dy = 0.015
+        n_plot = 1 + int('Both' in fit_ptype)
+        self.plot_fig.setup_plot_axis(n_row=n_plot, n_col=1)
+        ax = self.plot_fig.ax
+
+        #
+        for i_plot in range(n_plot):
+            # determines if only the positive slope are being plotted
+            is_pos = ((i_plot == 0) and (n_plot == 2)) or (fit_ptype == 'Positive Slopes Only')
+
+            # creates the fit plot
+            h_plt = create_fit_plot(ax[i_plot], f_slope, peak_hz, is_pos, plot_indiv)
+
+            # resets the plot axis limits
+            if is_pos:
+                ax[i_plot].set_ylim([-dy, min([ax[i_plot].get_ylim()[1], 1]) + dy])
+            else:
+                ax[i_plot].set_ylim([max([ax[i_plot].get_ylim()[0], -1]) - dy, dy])
+
+            # sets the other axis properties
+            ax[i_plot].grid(plot_grid)
+            ax[i_plot].legend([x[0] for x in h_plt], cond_type)
+            ax[i_plot].set_ylabel("Normalised Firing Rate")
+            ax[i_plot].set_title("AHV Fits ({0} Slopes)".format('Positive' if is_pos else 'Negative'))
+            
+            # sets the x-axis labels (last row only)
+            if i_plot + 1 == n_plot:
+                ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
@@ -5654,7 +5810,7 @@ class AnalysisGUI(QMainWindow):
         # determines the indices of the cells (for each experiment) as matched with the free data experiment files
         i_grp = [np.where(r_obj_wc.i_expt[0] == i_fix[i])[0] for i in i_expt_fix]
 
-        # matches the free cell types classifications with the cells from the
+        # matches the free cell types classifications with the cells from the fixed experiments
         c_type_fix = [-np.ones(len(ig), dtype=int) for ig in i_grp]
         for i_ex, ff in enumerate(f2f_map):
             # sets the fixed/free match indices and matching cells for the current experiment
@@ -6458,7 +6614,7 @@ class AnalysisGUI(QMainWindow):
         # creates the kinematic spiking frequency plot
         create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_scope, plot_grid)
 
-    def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, plot_grid, plot_scope):
+    def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, norm_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -6473,7 +6629,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_grid):
+        def create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, norm_type, plot_grid):
             '''
 
             :param r_obj:
@@ -6518,8 +6674,18 @@ class AnalysisGUI(QMainWindow):
                     sf_mu, sf_sem = dcopy(A), dcopy(A)
 
                 # normalises the spiking frequencies to the first speed bin
-                is_ok = sf_filt_mu[0, :] > 0
-                sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+                if norm_type == 'First Speed Bin':
+                    is_ok = sf_filt_mu[0, :] > 0
+                    sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+
+                elif norm_type == 'Mean Spiking Freq':
+                    sf_mean = np.mean(sf_filt_mu, axis=0)
+                    is_ok = sf_mean > 0
+                    sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_mean[is_ok], n_bin, 1))
+
+                elif norm_type == 'None':
+                    is_ok = np.ones(np.shape(sf_filt_mu)[1], dtype=bool)
+                    sf_filt_norm = sf_filt_mu[:, is_ok]
 
                 # calculates the mean/sem normalised spiking frequencies
                 sf_mu[i_filt, :] = np.nanmean(sf_filt_norm, axis=1)
@@ -6530,7 +6696,7 @@ class AnalysisGUI(QMainWindow):
                     sf_mu[i_filt, :] = medfilt(sf_mu[i_filt, :], n_smooth)
 
                 # creates the error patch
-                h_plt.append(ax.plot(xi_mid, sf_mu[i_filt, :], color=c[i_filt], linewidth=2))
+                h_plt.append(ax.plot(xi_mid, sf_mu[i_filt, :], 'o-', color=c[i_filt], linewidth=2))
                 cf.create_error_area_patch(ax, xi_mid, sf_mu[i_filt, :], sf_sem[i_filt, :], c[i_filt])
 
             # creates the legend object
@@ -6559,7 +6725,7 @@ class AnalysisGUI(QMainWindow):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, plot_scope, False)
-        create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, plot_grid)
+        create_kinematic_plot(r_obj, vel_bin, n_smooth, is_smooth, norm_type, plot_grid)
 
     def plot_overall_direction_bias(self, rot_filt, grp_plot_type, plot_grid, p_value, grp_by_filt, show_stats, plot_scope,
                                     plot_exp_name, plot_all_expt):
@@ -11875,7 +12041,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets up the axes dimensions
             c_ofs = int(not r_obj.is_single_cell)
-            n_phase = r_obj.n_phase if is_temp else 2
+            n_phase = r_obj.n_phase if is_temp else 1
             top, bottom, pH = 0.96 - 0.04 * r_obj.is_single_cell, 0.06, 0.01
             cb_wid, lcm = 0.03, cf.lcm(n_phase, 2)
             ax_dim = [2 + r_obj.n_filt, lcm + c_ofs]
@@ -12004,7 +12170,7 @@ class AnalysisGUI(QMainWindow):
             # returns the
             return np.array(cell_depth)
 
-        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type, is_temp):
+        def setup_spiking_heatmap(t_spike, xi_h, is_single_cell, isort_d, mean_type, is_temp, is_bl=False):
             '''
 
             :param t_spike:
@@ -12019,14 +12185,20 @@ class AnalysisGUI(QMainWindow):
             else:
                 n_row = np.size(t_spike, axis=0)
 
+            # determines the number of phases
+            if is_bl:
+                n_phase = 1
+            else:
+                n_phase = np.size(t_spike, axis=2)
+
             # memory allocation
-            n_phase, n_bin = np.size(t_spike, axis=2), np.size(xi_h, axis=1)
+            n_bin = np.size(xi_h, axis=1)
             I_hm = np.zeros((n_row, n_bin - 1, n_phase))
 
             #
             for i_phase in range(n_phase):
                 for i_trial in range(n_row):
-                    if is_temp:
+                    if is_temp or is_bl:
                         if is_single_cell:
                             t_sp_flat = cf.flat_list(
                                 [list(x) if x is not None else [] for x in t_spike[:, i_trial, i_phase]])
@@ -12036,9 +12208,14 @@ class AnalysisGUI(QMainWindow):
                             # t_sp_flat = cf.flat_list(
                             #     [list(x) if x is not None else [] for x in t_spike[i_trial, :, i_phase]])
 
-                            is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
-                            h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i, i_phase], bins=xi_h[i_trial, :])[0]
-                                                    for i in np.where(is_ok)[0]])
+                            if is_bl:
+                                is_ok = np.array([x is not None for x in t_spike[i_trial, :]])
+                                h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i],
+                                             bins=xi_h[i_trial, :])[0] for i in np.where(is_ok)[0]])
+                            else:
+                                is_ok = np.array([x is not None for x in t_spike[i_trial, :, i_phase]])
+                                h_gram_tot = np.vstack([np.histogram(t_spike[i_trial, i, i_phase],
+                                             bins=xi_h[i_trial, :])[0] for i in np.where(is_ok)[0]])
 
                             dt = np.diff(xi_h[i_trial, :])
                             if mean_type == 'Mean':
@@ -12052,9 +12229,21 @@ class AnalysisGUI(QMainWindow):
                         #
                         I_hm[i_trial, :, i_phase] = t_spike[i_trial, :, i_phase]
 
-            # sorts the clusters by depth (whole experiments only)
-            if not is_single_cell:
-                I_hm = I_hm[isort_d, :, :]
+            if (not is_single_cell) and (isort_d is not None):
+                if is_temp or is_bl:
+                    # case is temporal heatmap
+                    I_hm = I_hm[isort_d, :, :]
+                else:
+                    # case is velocity heatmap
+                    I_hm = np.vstack((I_hm[:, :, 0], I_hm[:, ::-1, 1]))[isort_d, :]
+
+                    # # case is velocity heatmap
+                    # I_hm0 = dcopy(I_hm)
+                    # I_hm = np.zeros((2 * np.shape(I_hm0)[0], np.shape(I_hm0)[1]))
+                    #
+                    # for i_row in range(np.shape(I_hm0)[0]):
+                    #     I_hm[2 * i_row, :] = I_hm0[isort_d[i_row], :, 0]
+                    #     I_hm[2 * i_row + 1, :] = I_hm0[isort_d[i_row], ::-1, 1]
 
             # returns the final heatmap
             return I_hm
@@ -12158,8 +12347,13 @@ class AnalysisGUI(QMainWindow):
                     # retrieves the significance flags for the current filter type
                     if is_avg:
                         Y_sort[i_filt] = -np.mean(r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], :], axis=1)
-                    else:
+                    elif is_temp:
                         Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], is_pos]
+                    else:
+                        Y_sort[i_filt] = -np.hstack((
+                            r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], 1],
+                            r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], 0]
+                        ))
 
             elif 'AUC ROC' in sort_type:
                 # case is the AUC ROC values
@@ -12203,7 +12397,14 @@ class AnalysisGUI(QMainWindow):
             # hm_cmap = ListedColormap(sns.diverging_palette(20, 150, s=99.9, sep=25, l=20, n=11))  #SK alternative colormap
         else:
             # add veloctiy template here...
-            hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.55, hue=1, light=1, n_colors=15))
+            if norm_type == 'Min/Max Normalisation':
+                # min/max nomrliasation
+                hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.55, hue=1, light=1, n_colors=15))
+            else:
+                # median baseline subtraction
+                hm_cmap = ListedColormap(sns.diverging_palette(223, 17, s=98, sep=25, l=47, n=15))
+
+            #hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.55, hue=1, light=1, n_colors=15))
             #hm_cmap = ListedColormap(sns.cubehelix_palette(rot=-0.15, hue=1, light=1, n_colors=15)) #SK alternative colormap
 
         # if plotting a velocity heatmap, then retrieve the spiking frequencies for each velocity bin
@@ -12216,7 +12417,7 @@ class AnalysisGUI(QMainWindow):
             k_sf0, xi_bin0, _ = rot.calc_kinemetic_spike_freq(self.data, r_obj, [10, dv], calc_type=c_type)
             k_sf, xi_bin = k_sf0[1], xi_bin0[1]
             is_CCW = xi_bin[:, 0] < 0
-            t_str = r_obj.phase_lbl[1:]
+            t_str = ['Combined CCW/CW']
         else:
             t_str = r_obj.phase_lbl
 
@@ -12226,14 +12427,14 @@ class AnalysisGUI(QMainWindow):
             # determines the stimuli times (converts from indices to actual times)
             _, ind = np.unique(r_obj.i_expt[i_filt], return_inverse=True)
 
+            # case is the temporal heatmaps
+            t_stim = [r_obj.t_phase[i_filt][i] for i in ind]
+            xi_h0 = [setup_heatmap_bins(x, dt) for x in t_stim]
+            for i in range(len(xi_h0)):
+                xi_h0[i][-1] = t_stim[i]
+
             # sets up the histogram bins
             if is_temp:
-                # case is the temporal heatmaps
-                t_stim = [r_obj.t_phase[i_filt][i] for i in ind]
-                xi_h0 = [setup_heatmap_bins(x, dt) for x in t_stim]
-                for i in range(len(xi_h0)):
-                    xi_h0[i][-1] = t_stim[i]
-
                 # retrieves the time spikes
                 if r_obj.is_single_cell:
                     t_spike = r_obj.t_spike[i_filt]
@@ -12241,6 +12442,19 @@ class AnalysisGUI(QMainWindow):
                     t_spike = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, :]
 
             else:
+                # retrieves the time spikes baseline
+                if norm_type == 'Baseline Median Subtraction':
+                    # memory allocation (first iteration only)
+                    if i_filt == 0:
+                        I_hm_med = np.empty(r_obj.n_filt, dtype=object)
+
+
+                    # calculates the median baseline
+                    t_sp_bl = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, 0]
+                    I_hm_bl = setup_spiking_heatmap(t_sp_bl, np.vstack(xi_h0), r_obj.is_single_cell,
+                                                    None, mean_type, False, is_bl=True)
+                    I_hm_med[i_filt] = np.median(I_hm_bl[:, :, 0], axis=1)
+
                 # sets up the spiking frequency arrays
                 t_sp0, _, _ = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, r_obj.is_single_cell)
                 t_spike = np.dstack((t_sp0[i_cell_b[i_filt], :][:, ~is_CCW], t_sp0[i_cell_b[i_filt], :][:, is_CCW]))
@@ -12250,13 +12464,35 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the spiking frequency histograms
             xi_h = np.vstack(xi_h0)
-            sort_d = np.argsort(-np.array(Y_sort[i_filt]))
+            if is_temp:
+                sort_d = np.argsort(-np.array(Y_sort[i_filt]))
+            else:
+                if np.shape(t_spike)[0] == len(Y_sort[i_filt]):
+                    Y_sort_tmp = repmat(Y_sort[i_filt], 1, 2)[0]
+                    sort_d, is_double = np.argsort(-Y_sort_tmp), True
+
+                    # sorts the baseline (if removing median baseline)
+                    if norm_type == 'Baseline Median Subtraction':
+                        I_hm_med[i_filt] = I_hm_med[i_filt][sort_d]
+                else:
+                    sort_d, is_double = np.argsort(-np.array(Y_sort[i_filt])), False
+
+                    # sorts the baseline (if removing median baseline)
+                    if norm_type == 'Baseline Median Subtraction':
+                        I_hm_med[i_filt] = repmat(I_hm_med[i_filt], 1, 2)[0][sort_d]
+
+            # creates the spiking heatmap
             I_hm[i_filt] = setup_spiking_heatmap(t_spike, xi_h, r_obj.is_single_cell, sort_d, mean_type, is_temp)
 
             if not r_obj.is_single_cell:
-                Y_sort[i_filt] = list(np.array(Y_sort[i_filt])[sort_d])
+                if is_temp or (not is_double):
+                    Y_sort[i_filt] = list(np.array(Y_sort[i_filt])[sort_d])
+                else:
+                    sort_d0 = np.argsort(-np.array(Y_sort[i_filt]))
+                    Y_sort[i_filt] = list(np.array(Y_sort[i_filt])[sort_d0])
 
         # sorts the clusters by depth
+        n_dim = 2 + int(is_temp)
         if (not r_obj.is_single_cell) and (norm_type != 'None'):
             # normalises each trial across each phase/filter type
             # I_hm_norm = np.max(np.vstack([np.max(np.max(x, axis=1), axis=1) for x in I_hm]), axis=0)
@@ -12266,7 +12502,9 @@ class AnalysisGUI(QMainWindow):
                 if norm_type == 'Min/Max Normalisation':
                     I_hm_max, I_hm_min = np.max(I_hm_f, axis=1), np.min(I_hm_f, axis=1)
                 else:
-                    I_hm_med = np.median(I_hm[i_filt][:, :, 0], axis=1)
+                    if is_temp:
+                        I_hm_med = np.median(I_hm[i_filt][:, :, 0], axis=1)
+
                     # I_hm_med = np.mean(I_hm[i_filt][:, :, 0], axis=1)
 
                 for i_trial in range(np.size(I_hm[i_filt], axis=0)):
@@ -12275,17 +12513,26 @@ class AnalysisGUI(QMainWindow):
                         # calculates the denominator of the normalisation
                         d_hm = I_hm_max[i_trial] - I_hm_min[i_trial]
                         if d_hm > 0:
-                            I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_min[i_trial]) / d_hm
+                            if is_temp:
+                                I_hm[i_filt][i_trial, :, :] = (I_hm[i_filt][i_trial, :, :] - I_hm_min[i_trial]) / d_hm
+                            else:
+                                I_hm[i_filt][i_trial, :] = (I_hm[i_filt][i_trial, :] - I_hm_min[i_trial]) / d_hm
                     else:
-                        I_hm[i_filt][i_trial, :, :] -= I_hm_med[i_trial]
-
-                        I_norm = np.max([np.max(I_hm[i_filt][i_trial, :, :]),
-                                         np.abs(np.min(I_hm[i_filt][i_trial, :, :]))])
-                        if I_norm > 0:
-                            I_hm[i_filt][i_trial, :, :] /= I_norm
+                        if is_temp:
+                            I_hm[i_filt][i_trial, :, :] -= I_hm_med[i_trial]
+                            I_norm = np.max([np.max(I_hm[i_filt][i_trial, :, :]),
+                                             np.abs(np.min(I_hm[i_filt][i_trial, :, :]))])
+                            if I_norm > 0:
+                                I_hm[i_filt][i_trial, :, :] /= I_norm
+                        else:
+                            I_hm[i_filt][i_trial, :] -= I_hm_med[i_filt][i_trial]
+                            I_norm = np.max([np.max(I_hm[i_filt][i_trial, :]),
+                                             np.abs(np.min(I_hm[i_filt][i_trial, :]))])
+                            if I_norm > 0:
+                                I_hm[i_filt][i_trial, :] /= I_norm
 
         #
-        n_phase = r_obj.n_phase - int(not is_temp)
+        n_phase = r_obj.n_phase - 2 * int(not is_temp)
 
         # creates the heatmaps for each filter/phase
         for i_filt in range(r_obj.n_filt):
@@ -12307,8 +12554,12 @@ class AnalysisGUI(QMainWindow):
                 #     create_heatmap_markers(self.plot_fig.ax[i_plot], lbl)
 
                 # displays the heatmap
-                im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt][:, :, i_phase], aspect='auto',
-                                                              origin='lower', cmap=hm_cmap)
+                if n_dim == 3:
+                    im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt][:, :, i_phase], aspect='auto',
+                                                                  origin='lower', cmap=hm_cmap)
+                else:
+                    im[i_phase] = self.plot_fig.ax[i_plot].imshow(I_hm[i_filt], aspect='auto',
+                                                                  origin='lower', cmap=hm_cmap)
 
                 # sets the subplot title (first row only)
                 if i_filt == 0:
@@ -12347,10 +12598,8 @@ class AnalysisGUI(QMainWindow):
                     if is_temp:
                         x_ticks_new = ['{:4.2f}'.format(x) for x in x_ticks * (dt / 1000)]
                     else:
-                        if i_phase == 0:
-                            x_ticks_new = xi_bin[(np.shape(xi_bin)[0] - x_ticks).astype(int) - 2, 0][::-1].astype(int)
-                        else:
-                            x_ticks_new = xi_bin[x_ticks.astype(int), 0].astype(int)
+                        x_ticks_new = np.arange(0, 80.01, 20).astype(int)
+                        x_ticks = np.shape(I_hm[i_filt])[1] * (x_ticks_new / 80) - 0.5
 
                     self.plot_fig.ax[i_plot].set_xticks(x_ticks)
                     self.plot_fig.ax[i_plot].set_xticklabels(x_ticks_new)
@@ -12901,8 +13150,7 @@ class AnalysisGUI(QMainWindow):
             tt_key_rev['Black'] = 'DARK'
 
         # retrieves the rotation filter class object
-        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False,
-                                        rmv_empty=0)
+        r_obj_wc = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False, rmv_empty=0)
 
         # determines the indices of the experiments (matching the fixed experiments to free experiments)
         i_fix0 = np.where(cf.det_valid_rotation_expt(self.data))[0]
@@ -13230,7 +13478,7 @@ class AnalysisGUI(QMainWindow):
         # mandatory update function list
         func_plot_chk = ['Shuffled Cluster Distances',
                          'Cluster Cross-Correlogram',
-                         'Normalised Spiking Spiking Frequency']
+                         'Normalised Kinematic Spiking Frequency']
 
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
@@ -14290,6 +14538,8 @@ class AnalysisFunctions(object):
             disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
             fcell_type = ['All Cells', 'AHV', 'HD', 'HDMod', 'Speed']
             ahv_met_type = ['Correlation', 'Fit Slope', 'Fit Intercept']
+            fit_ptype = ['Both Positive/Negative Slopes', 'Positive Slopes Only', 'Negative Slopes Only']
+            cond_type = ['DARK'] + lcond_type
 
             # ====> Freely Moving Cell Type Statistics
             para = {
@@ -14472,6 +14722,39 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Analysis',
                           name='AHV Correlation Comparison',
                           func='plot_ahv_corr_comp',
+                          para=para)
+
+            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            para = {
+                # plotting parameters
+                # 'rot_filt': {
+                #     'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
+                #     'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': dcopy(rot_filt_free)
+                # },
+                'cell_type': {
+                    'type': 'CL', 'text': 'Trial Conditions', 'list': fcell_type[1:],
+                    'def_val': np.ones(len(fcell_type) - 1, dtype=bool)
+                },
+                'use_no_cells': {
+                    'type': 'B', 'text': 'Analyse No Cell Type', 'def_val': False, 'link_para': ['cell_type', True]
+                },
+                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+                'fit_ptype': {'type': 'L', 'text': 'Plot Type', 'list': fit_ptype, 'def_val': fit_ptype[1]},
+                'plot_indiv': {'type': 'B', 'text': 'Plot Individual Cell Fits', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+                # invisible parameters
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'is_visible': False
+                },
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='AHV Fit Parameters',
+                          func='plot_ahv_fit_para',
                           para=para)
 
         ######################################
@@ -14947,7 +15230,7 @@ class AnalysisFunctions(object):
             'dv': {'type': 'L', 'text': 'Heatmap Resolution (deg/s)', 'list': vel_bin, 'def_val': '5'},
             'hist_type': {
                 'type': 'L', 'text': 'Histogram Type', 'list': hist_type, 'def_val': hist_type[0],
-                'link_para': [['dt', 'Velocity'], ['dv', 'Temporal'], ['norm_type', 'Velocity']]
+                'link_para': [['dt', 'Velocity'], ['dv', 'Temporal']]
             }
         }
         self.add_func(type='Angular Head Velocity Analysis',
@@ -15141,6 +15424,7 @@ class AnalysisFunctions(object):
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
+        norm_type_sf = ['First Speed Bin', 'Mean Spiking Freq', 'None']
 
         # sets the LDA comparison types
         comp_type = np.unique(
@@ -15417,6 +15701,9 @@ class AnalysisFunctions(object):
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 3, 'min_val': 3},
             'is_smooth': {
                 'type': 'B', 'text': 'Smooth Speed Trace', 'def_val': True, 'link_para': ['n_smooth', False]
+            },
+            'norm_type': {
+                'type': 'L', 'text': 'Normalisation Type', 'list': norm_type_sf, 'def_val': norm_type_sf[0]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -18044,6 +18331,7 @@ class AnalysisFunctions(object):
         if c_txt in nw_txt:
             # previous selection is in new list
             i_sel = nw_txt.index(c_txt)
+            h_list.setCurrentIndex(i_sel)
         else:
             # previous selection was not in list, so reset to index to 0
             i_sel = 0
@@ -19602,21 +19890,22 @@ class FreelyMovingData(object):
         '''
 
         # if the external data is already set then exit
-        if f_data.exp_name[0] in self.exp_name:
-            return
+        for i_file in range(len(f_data.exp_name)):
+            if f_data.exp_name[i_file] in self.exp_name:
+                continue
 
-        # increments the file count
-        self.n_file += 1
+            # increments the file count
+            self.n_file += 1
 
-        # appends the other fields
-        self.exp_name.append(f_data.exp_name[0])
-        self.cell_id.append(f_data.cell_id[0])
-        self.s_freq.append(f_data.s_freq[0])
-        self.c_info.append(f_data.c_info[0])
-        self.p_sig_neg.append(f_data.p_sig_neg[0])
-        self.p_sig_pos.append(f_data.p_sig_pos[0])
-        self.cell_type.append(f_data.cell_type[0])
-        self.ahv_score.append(f_data.ahv_score[0])
+            # appends the other fields
+            self.exp_name.append(f_data.exp_name[i_file])
+            self.cell_id.append(f_data.cell_id[i_file])
+            self.s_freq.append(f_data.s_freq[i_file])
+            self.c_info.append(f_data.c_info[i_file])
+            self.p_sig_neg.append(f_data.p_sig_neg[i_file])
+            self.p_sig_pos.append(f_data.p_sig_pos[i_file])
+            self.cell_type.append(f_data.cell_type[i_file])
+            self.ahv_score.append(f_data.ahv_score[i_file])
 
     def append_data(self, data, f_data):
         '''
@@ -19709,7 +19998,8 @@ class FreelyMovingData(object):
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
 
         # AHV and Speed significant condition type
-        ahv_spd_sig_type = 'LIGHT1'                    # set to either dark_type, 'LIGHT1', 'LIGHT2'
+        ahv_spd_sig_type = ['LIGHT1']                   # sets values in list to what you want AHV cells to be defined by
+        # ahv_spd_sig_type = ['LIGHT1', dark_type]      # another example of how to use the list
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
@@ -19813,16 +20103,31 @@ class FreelyMovingData(object):
                 )
 
             # angular head velocity cell significance
-            ahv_sig_pos = c_info[i_bin][ahv_spd_sig_type]['pearson_pos_percentile'] > p_tile_ahv
-            ahv_sig_neg = c_info[i_bin][ahv_spd_sig_type]['pearson_neg_percentile'] > p_tile_ahv
+            for i_ahv, ahv_stype in enumerate(ahv_spd_sig_type):
+                # retrieves the positive/negative pearson percentiles
+                pp_pos = c_info[i_bin][ahv_stype]['pearson_pos_percentile'] > p_tile_ahv
+                pp_neg = c_info[i_bin][ahv_stype]['pearson_neg_percentile'] > p_tile_ahv
+
+                # speed cell significance
+                spd_sig_nw = np.logical_or(
+                    c_info[i_bin][ahv_stype]['pearson_percentile'] > p_tile_speed,
+                    c_info[i_bin][ahv_stype]['pearson_percentile'] < (100. - p_tile_speed)
+                )
+
+                # sets the ahv cell types
+                if i_ahv == 0:
+                    ahv_sig_pos = pp_pos
+                    ahv_sig_neg = pp_neg
+                    spd_sig = spd_sig_nw
+                else:
+                    ahv_sig_pos = np.logical_or(ahv_sig_pos, pp_pos)
+                    ahv_sig_neg = np.logical_or(ahv_sig_neg, pp_neg)
+                    spd_sig = np.logical_or(spd_sig_nw, spd_sig)
+
             ahv_score[i_bin] = np.array(ahv_sig_neg).astype(int) + 2 * np.array(ahv_sig_pos).astype(int)
             ahv_sig = ahv_score[i_bin] > 0
 
-            # speed cell significance
-            spd_sig = np.logical_or(
-                c_info[i_bin][ahv_spd_sig_type]['pearson_percentile'] > p_tile_speed,
-                c_info[i_bin][ahv_spd_sig_type]['pearson_percentile'] < (100. - p_tile_speed)
-            )
+
 
             # # place cell significance (UNCOMMENT IF USING PLACE CELLS)
             # pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,

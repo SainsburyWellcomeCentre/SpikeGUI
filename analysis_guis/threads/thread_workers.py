@@ -393,7 +393,7 @@ class WorkerThread(QThread):
                 # calculates the partial roc curves
                 self.calc_partial_roc_curves(data, calc_para, plot_para, 66.)
 
-            elif self.thread_job_secondary in ['Normalised Spiking Spiking Frequency']:
+            elif self.thread_job_secondary in ['Normalised Kinematic Spiking Frequency']:
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel'], other_para=False)
 

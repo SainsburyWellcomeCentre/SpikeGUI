@@ -29,7 +29,6 @@ from rpy2.robjects import FloatVector
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 pandas2ri.activate()
-r_stats = importr("stats")
 
 # sci-kit learn module import
 from sklearn.linear_model import LinearRegression
@@ -4192,7 +4191,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
     :return:
     '''
 
-    def calc_kw_stats(y):
+    def calc_kw_stats(r_stats, y):
         '''
 
         :param y:
@@ -4234,6 +4233,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
         return d_stats
 
     # initialisations and memory allocation
+    r_stats = importr("stats")
     p_within, p_btwn = None, None
     n_grp, n_filt = len(y_orig) - c_ofs, np.shape(y_orig[0])[1]
 
@@ -4245,7 +4245,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
         # calculates the within filter type statistics for each group type
         for i_filt in range(n_filt):
-            p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
+            p_within[i_filt, 0] = calc_kw_stats(r_stats, y_within[i_filt])
             p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
 
     # determines if the between filter type statistics need to be calculated (n_filt > 1)
@@ -4256,7 +4256,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
         # calculates the between filter type statistics for each group type
         for i_grp in range(n_grp):
-            p_btwn[i_grp, 0] = calc_kw_stats(y_btwn[i_grp])
+            p_btwn[i_grp, 0] = calc_kw_stats(r_stats, y_btwn[i_grp])
             p_btwn[i_grp, 1] = calc_dunn_stats(y_btwn[i_grp], p_btwn[i_grp, 0], p_value)
 
     # returns the
