@@ -4182,7 +4182,7 @@ class AnalysisGUI(QMainWindow):
             # parameters
             h_plt = []
             n_cond, n_grp = len(peak_hz), 2
-            v_max, dv, f_alpha = 80, 2.5, 0.1
+            v_max, dv, f_alpha = 80, 2.5, 0.05
             col = cf.get_plot_col(n_cond)
 
             # other initialisations
@@ -4290,7 +4290,7 @@ class AnalysisGUI(QMainWindow):
             ax[i_plot].legend([x[0] for x in h_plt], cond_type)
             ax[i_plot].set_ylabel("Normalised Firing Rate")
             ax[i_plot].set_title("AHV Fits ({0} Slopes)".format('Positive' if is_pos else 'Negative'))
-            
+
             # sets the x-axis labels (last row only)
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
@@ -12255,9 +12255,6 @@ class AnalysisGUI(QMainWindow):
 
         # determines what type of histogram is being created (temporal or velocity)
         is_temp = hist_type == 'Temporal'
-        if not is_temp:
-            # sets the normalisation type if plotting velocity histograms
-            norm_type = 'Min/Max Normalisation'
 
         # retrieves the depths from each of the experiments (based on type)
         if not r_obj.is_single_cell:
@@ -14536,7 +14533,7 @@ class AnalysisFunctions(object):
         if has_free_data:
             # list initialisations
             disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
-            fcell_type = ['All Cells', 'AHV', 'HD', 'HDMod', 'Speed']
+            fcell_type = ['All Cells', 'AHV', 'Speed', 'HD', 'HDMod']
             ahv_met_type = ['Correlation', 'Fit Slope', 'Fit Intercept']
             fit_ptype = ['Both Positive/Negative Slopes', 'Positive Slopes Only', 'Negative Slopes Only']
             cond_type = ['DARK'] + lcond_type
@@ -14732,8 +14729,9 @@ class AnalysisFunctions(object):
                 #     'para_gui_var': {'rmv_fields': ['t_type', 'match_type']}, 'def_val': dcopy(rot_filt_free)
                 # },
                 'cell_type': {
-                    'type': 'CL', 'text': 'Trial Conditions', 'list': fcell_type[1:],
-                    'def_val': np.ones(len(fcell_type) - 1, dtype=bool)
+                    'type': 'CL', 'text': 'Cell Types', 'list': fcell_type[1:-1],
+                    'def_val': np.ones(len(fcell_type) - 2, dtype=bool),
+                    'other_para': '--- Select Cell Types ---'
                 },
                 'use_no_cells': {
                     'type': 'B', 'text': 'Analyse No Cell Type', 'def_val': False, 'link_para': ['cell_type', True]
