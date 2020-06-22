@@ -3273,7 +3273,7 @@ class AnalysisGUI(QMainWindow):
         c_key = list(cell_type_all[0][0].columns)
 
         # retrieves the free cells that are to be included in the analysis
-        cl_inc_extn = self.get_free_inclusion_indices(i_bin, rmv_nmatch=rmv_nmatch)
+        cl_inc_extn = cf.get_free_inclusion_indices(self.data, i_bin, rmv_nmatch=rmv_nmatch)
 
         # sets the plot values (removes any excluded cells from the general filter)
         if plot_all:
@@ -3989,7 +3989,7 @@ class AnalysisGUI(QMainWindow):
             col_type = ['ahv_fit_intercept_neg', 'ahv_fit_intercept_pos']
 
         # retrieves the absolute metric values
-        cl_inc = self.get_free_inclusion_indices(i_bin)
+        cl_inc = cf.get_free_inclusion_indices(self.data,  i_bin)
         r_dark = [np.abs(np.array(ci[i_bin]['DARK'][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         r_light = [np.abs(np.array(ci[i_bin][lcond_type][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         c_id = [np.array(id)[ic] for id, ic in zip(f_data.cell_id, cl_inc)]
@@ -4139,8 +4139,7 @@ class AnalysisGUI(QMainWindow):
         out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
         np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
 
-    def plot_ahv_fit_para(self, cell_type, use_no_cells, vel_bin, lcond_type, fit_ptype, plot_indiv,
-                          plot_grid, plot_scope):
+    def plot_ahv_fit_para(self, cell_type, vel_bin, lcond_type, fit_ptype, plot_indiv, plot_grid, plot_scope):
         '''
 
         :param vel_bin:
@@ -4230,6 +4229,7 @@ class AnalysisGUI(QMainWindow):
         f_data = self.data.externd.free_data
         c_info = dcopy(f_data.c_info)
         i_bin = ['5', '10'].index(vel_bin)
+        use_no_cells = len(cell_type) == 0
 
         # memory allocation
         # f_int = np.empty((n_grp, n_cond), dtype=object)
@@ -4241,7 +4241,7 @@ class AnalysisGUI(QMainWindow):
         #############################
 
         # retrieves the freely moving cell inclusion indices
-        cl_inc0 = self.get_free_inclusion_indices(i_bin)
+        cl_inc0 = cf.get_free_inclusion_indices(self.data,  i_bin)
         if use_no_cells:
             # case is cells with no classification
             cl_inc = [and_fcn(~np.any(ct[i_bin], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
@@ -4289,11 +4289,113 @@ class AnalysisGUI(QMainWindow):
             ax[i_plot].grid(plot_grid)
             ax[i_plot].legend([x[0] for x in h_plt], cond_type)
             ax[i_plot].set_ylabel("Normalised Firing Rate")
-            ax[i_plot].set_title("AHV Fits ({0} Slopes)".format('Positive' if is_pos else 'Negative'))
+
+            # creates the plot title
+            t_str = "AHV Fits ({0} Slopes)\n({1})".format(
+                'Positive' if is_pos else 'Negative', 'No Cell Types' if use_no_cells else '/'.join(cell_type) + ' Cells'
+            )
+            ax[i_plot].set_title(t_str)
 
             # sets the x-axis labels (last row only)
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
+
+    def plot_cell_fit_residual(self, cell_id, free_exp_name, vel_bin, lcond_type, plot_grid):
+        '''
+
+        :param cell_id:
+        :param free_exp_name:
+        :param vel_bin:
+        :param plot_grid:
+        :return:
+        '''
+
+        def calc_sf_res(xi, sf):
+            '''
+
+            :param xi:
+            :param sf:
+            :return:
+            '''
+
+            # fits a linear equation to the spiking frequencies
+            p_fit = np.polyfit(xi, sf, 1)
+
+            # calculates the absolute residual values (normalising by the maximum spiking rate)
+            return np.abs(np.poly1d(p_fit)(xi) - sf) / np.max(sf)
+
+        # initialisations
+        t_type = ['DARK', lcond_type]
+        i_bin = ['5', '10'].index(vel_bin)
+        f_data = self.data.externd.free_data
+        i_expt = f_data.exp_name.index(free_exp_name)
+
+        # retrieves the index of the selected cell
+        c_id = int(cell_id[cell_id.index('#') + 1:])
+        i_cell = f_data.cell_id[i_expt].index(c_id)
+
+        # sets up the velocity bin array
+        v_max, v_bin = 80, float(vel_bin)
+        xi = np.arange(-v_max + v_bin / 2, v_max, v_bin)
+        is_pos = xi > 0
+
+        # retrieves the freely moving spiking frequencies for each condition (for the given cell). the spiking
+        # frequencies are separated into negative/positive velocities (with the negative velocities being reversed)
+        i_tt = np.array([list(f_data.t_type).index(x) for x in t_type])
+        s_freq_tt = np.vstack([x[i_cell] for x in f_data.s_freq[i_expt][i_bin][i_tt]])
+
+        ##########################################
+        ####    GAIN/RESIDUAL CALCULATIONS    ####
+        ##########################################
+
+        # memory allocation
+        n_type, n_bin = len(t_type), int(v_max / v_bin)
+        sf_gain, sf_res = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
+
+        for i_type in range(n_type):
+            # separates the spiking frequencies into negative/positive velocities (for each condition) and subtracts the
+            # spiking frequencies from the smallest magnitude velocity bin (i.e., 0 to v_bin)
+            s_freq0 = np.vstack((s_freq_tt[i_type, :][~is_pos][::-1], s_freq_tt[i_type, :][is_pos]))
+            sf_gain0 = s_freq0 - repmat(s_freq0[:, 0], n_bin, 1).T
+
+            # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
+            sf_res[i_type] = np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain0]).flatten()
+            sf_gain[i_type] = sf_gain0.flatten()
+
+        ###############################
+        ####    FIGURE CREATION    ####
+        ###############################
+
+        # plot parameters and other initialisations
+        h_plt = []
+        m_size = 60
+        f_col = ['k', 'y']
+        m_type = ['o', 's']
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        # creates the scatter plot for each condition
+        for i_type in range(n_type):
+            h_plt.append(ax.scatter(sf_res[i_type], sf_gain[i_type], marker=m_type[i_type],
+                                    s=m_size, facecolor=f_col[i_type]))
+
+        # creates the figure legend
+        ax.legend(h_plt, t_type)
+
+        # plots the x/y-axis zero line markers
+        x_lim, y_lim = ax.get_xlim(), ax.get_ylim()
+        cf.set_axis_limits(ax, x_lim, y_lim)
+        ax.plot(x_lim, [0, 0], 'k--', linewidth=1)
+        ax.plot([0, 0], y_lim, 'k--', linewidth=1)
+
+        # sets the other axis properties
+        ax.set_title('Spiking Frequency Gain vs Normalised Residuals\n({0} - {1})'.format(free_exp_name, cell_id),
+                     fontsize=16, fontweight='bold')
+        ax.set_ylabel('Spiking Frequency Gain (Hz)')
+        ax.set_xlabel('Normalised Residuals')
+        ax.grid(plot_grid)
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
@@ -5123,7 +5225,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
 
             # memory allocation
             for i_filt in range(len(v_sf_sig)):
@@ -5359,7 +5461,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
 
             # memory allocation
             for i_filt in range(len(v_sf_sig)):
@@ -5555,7 +5657,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = self.get_free_inclusion_indices(i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
             n_cell = repmat(np.array([sum(x) for x in cl_inc_extn]).reshape(-1, 1), 1, n_type - 1)
 
             # memory allocation
@@ -6614,7 +6716,7 @@ class AnalysisGUI(QMainWindow):
         # creates the kinematic spiking frequency plot
         create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_scope, plot_grid)
 
-    def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, norm_type, plot_grid, plot_scope):
+    def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, norm_type, split_plt, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -6641,6 +6743,29 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
+            def create_final_plot(ax, xi_mid, sf_norm, is_smooth, n_smooth, c):
+                '''
+
+                :param ax:
+                :param sf_norm:
+                :return:
+                '''
+
+                n_cell = np.shape(sf_norm)[1]
+                sf_mu = np.nanmean(sf_norm, axis=1)
+                sf_sem = np.nanstd(sf_norm, axis=1) / np.sqrt(n_cell)
+
+                # smoothes the spiking frequencies for each cell (if required)
+                if is_smooth:
+                    sf_mu = medfilt(sf_mu, n_smooth)
+
+                # creates the error patch
+                h_plt = ax.plot(xi_mid, sf_mu, 'o-', color=c, linewidth=2)
+                cf.create_error_area_patch(ax, xi_mid, sf_mu, sf_sem, c)
+
+                # returns the plot handle and min/max values
+                return h_plt, np.min(sf_mu - sf_sem), np.max(sf_mu + sf_sem)
+
             # initialisations
             r_data = self.data.rotation
             c, k_rng, b_sz = cf.get_plot_col(r_obj.n_filt), 80, [10, float(vel_bin)]
@@ -6659,54 +6784,90 @@ class AnalysisGUI(QMainWindow):
             i_cell_b, r_obj_tt = cfcn.get_common_filtered_cell_indices(self.data, r_obj, tt_filt, True)
 
             # creates the plot outlay and titles
-            self.init_plot_axes()
-            ax = self.plot_fig.ax[0]
+            n_plot = 1 + int(split_plt)
+            self.init_plot_axes(n_row=n_plot, n_col=1)
+            ax = self.plot_fig.ax
+
+            # memory allocation
+            sf_diff = np.empty(r_obj.n_filt, dtype=object)
+            sf_filt_norm = np.empty(r_obj.n_filt, dtype=object)
 
             # calculates the mean/std values
             for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                 # calculates mean spiking frequencies for each cell
                 sf_filt_mu = np.nanmean(sf[rr['t_type'][0]][:, :, i_cell_b[i_filt]], axis=0)
 
+                # normalises the spiking frequencies to the first speed bin
+                n_bin = np.shape(sf_filt_mu)[0]
+                if norm_type == 'None':
+                    is_ok = np.ones(np.shape(sf_filt_mu)[1], dtype=bool)
+                    sf_filt_norm[i_filt] = sf_filt_mu[:, is_ok]
+                else:
+                    sf_diff[i_filt] = sf_filt_mu - repmat(sf_filt_mu[0, :], n_bin, 1)
+                    # if norm_type == 'First Speed Bin':
+                    #     is_ok = sf_filt_mu[0, :] > 0
+                    #     sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+                    #
+                    # elif norm_type == 'Mean Spiking Freq':
+                    #     sf_mean = np.mean(sf_filt_mu, axis=0)
+                    #     is_ok = sf_mean > 0
+                    #     sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_mean[is_ok], n_bin, 1))
+
+            # normalises the spiking frequencies using the max firing rate over all conditions
+            if norm_type != 'None':
+                # calculates the max spiking frequency over all conditions
+                sf_max = np.max(np.vstack([np.max(sf_d, axis=0) for sf_d in sf_diff]), axis=0)
+
+                # normalises the spiking frequencies from the values calculated above
+                is_ok = sf_max > 0
+                for i_filt, rr in enumerate(r_obj.rot_filt_tot):
+                    sf_filt_norm[i_filt] = np.divide(sf_diff[i_filt][:, is_ok], repmat(sf_max[is_ok], n_bin, 1))
+
+            #
+            h_plt = [[] for _ in range(n_plot)]
+            y_lim = [[1e6, -1e6] for _ in range(n_plot)]
+
+            # creates the final plots
+            i_plt = np.empty(2, dtype=object)
+            for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                 # memory allocation (first iteration only)
                 if i_filt == 0:
-                    n_bin = np.shape(sf_filt_mu)[0]
                     A = np.zeros((r_obj.n_filt, n_bin))
                     sf_mu, sf_sem = dcopy(A), dcopy(A)
 
-                # normalises the spiking frequencies to the first speed bin
-                if norm_type == 'First Speed Bin':
-                    is_ok = sf_filt_mu[0, :] > 0
-                    sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
-
-                elif norm_type == 'Mean Spiking Freq':
-                    sf_mean = np.mean(sf_filt_mu, axis=0)
-                    is_ok = sf_mean > 0
-                    sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_mean[is_ok], n_bin, 1))
-
-                elif norm_type == 'None':
-                    is_ok = np.ones(np.shape(sf_filt_mu)[1], dtype=bool)
-                    sf_filt_norm = sf_filt_mu[:, is_ok]
-
                 # calculates the mean/sem normalised spiking frequencies
-                sf_mu[i_filt, :] = np.nanmean(sf_filt_norm, axis=1)
-                sf_sem[i_filt, :] = np.nanstd(sf_filt_norm, axis=1) / np.sqrt(sum(is_ok))
+                if split_plt:
+                    ii = sf_filt_norm[i_filt][-1, :] > sf_filt_norm[i_filt][0, :]
+                    i_plt[0], i_plt[1] = np.where(ii)[0], np.where(~ii)[0]
 
-                # smoothes the spiking frequencies for each cell (if required)
-                if is_smooth:
-                    sf_mu[i_filt, :] = medfilt(sf_mu[i_filt, :], n_smooth)
+                    for i in range(n_plot):
+                        h_plt_nw, ymn_nw, ymx_nw = create_final_plot(
+                            ax[i], xi_mid, sf_filt_norm[i_filt][:, i_plt[i]], is_smooth, n_smooth, c[i_filt])
+                        h_plt[i].append(h_plt_nw)
+                        y_lim[i] = [min(y_lim[i][0], ymn_nw), max(y_lim[i][1], ymx_nw)]
 
-                # creates the error patch
-                h_plt.append(ax.plot(xi_mid, sf_mu[i_filt, :], 'o-', color=c[i_filt], linewidth=2))
-                cf.create_error_area_patch(ax, xi_mid, sf_mu[i_filt, :], sf_sem[i_filt, :], c[i_filt])
+                else:
+                    h_plt_nw, ymn_nw, ymx_nw = \
+                        create_final_plot(ax[0], xi_mid, sf_filt_norm[i_filt], is_smooth, n_smooth, c[i_filt])
+                    h_plt[0].append(h_plt_nw)
+                    y_lim[0] = [min(y_lim[0][0], ymn_nw), max(y_lim[0][1], ymx_nw)]
+
 
             # creates the legend object
-            ax.legend([x[0] for x in h_plt], r_obj.lg_str, loc=2)
+            for i_ax, _ax in enumerate(ax):
+                # creates the legend
+                _ax.legend([x[0] for x in h_plt[i_ax]], r_obj.lg_str, loc=2 + i_ax)
 
-            # sets the axis properties
-            ax.grid(plot_grid)
-            ax.set_ylabel('Normalised Spiking Frequency')
-            ax.set_xlabel('Speed (deg/s)')
-            ax.set_ylim([np.min(sf_mu - sf_sem) - dy_lim, np.max(sf_mu + sf_sem) + dy_lim])
+                # sets the axis properties
+                _ax.grid(plot_grid)
+                _ax.set_ylabel('Normalised Spiking Frequency')
+                _ax.set_ylim(y_lim[i_ax])
+
+                if (i_ax + 1) == n_plot:
+                    _ax.set_xlabel('Speed (deg/s)')
+
+                if n_plot > 1:
+                    _ax.set_title('{0} Response Cells'.format('Increasing' if i_ax == 0 else 'Decreasing'))
 
         ################################################################################################################
         ################################################################################################################
@@ -12418,6 +12579,10 @@ class AnalysisGUI(QMainWindow):
         else:
             t_str = r_obj.phase_lbl
 
+        # p_min = 0.8
+        # A = np.vstack(Y_sort)
+        # ii = np.logical_and(np.all(np.abs(A) > p_min, axis=0), np.sum(np.sign(A), axis=0) != 0)
+
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
         for i_filt in range(r_obj.n_filt):
@@ -13186,7 +13351,7 @@ class AnalysisGUI(QMainWindow):
         # returns the arrays
         return r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl_match
 
-    def get_free_inclusion_indices(self, i_bin, rmv_nmatch=False):
+    def get_free_inclusion_indices(i_bin, rmv_nmatch=False):
         '''
 
         :param i_bin:
@@ -14538,6 +14703,9 @@ class AnalysisFunctions(object):
             fit_ptype = ['Both Positive/Negative Slopes', 'Positive Slopes Only', 'Negative Slopes Only']
             cond_type = ['DARK'] + lcond_type
 
+            # retrieves the free cell ID#'s for the first expt
+            free_cid = self.get_free_cell_ids(data, free_exp[0])
+
             # ====> Freely Moving Cell Type Statistics
             para = {
                 # plotting parameters
@@ -14733,9 +14901,6 @@ class AnalysisFunctions(object):
                     'def_val': np.ones(len(fcell_type) - 2, dtype=bool),
                     'other_para': '--- Select Cell Types ---'
                 },
-                'use_no_cells': {
-                    'type': 'B', 'text': 'Analyse No Cell Type', 'def_val': False, 'link_para': ['cell_type', True]
-                },
                 'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
                 'lcond_type': {
                     'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
@@ -14753,6 +14918,27 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Analysis',
                           name='AHV Fit Parameters',
                           func='plot_ahv_fit_para',
+                          para=para)
+
+            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            para = {
+                # plotting parameters
+                'cell_id': {
+                    'type': 'L', 'text': 'Free Cell ID#', 'list': free_cid, 'def_val': free_cid[0]
+                },
+                'free_exp_name': {
+                    'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
+                    'para_reset': [['cell_id', self.reset_free_cid]]
+                },
+                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='Freely Moving Cell Fit Residual',
+                          func='plot_cell_fit_residual',
                           para=para)
 
         ######################################
@@ -15422,7 +15608,7 @@ class AnalysisFunctions(object):
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
-        norm_type_sf = ['First Speed Bin', 'Mean Spiking Freq', 'None']
+        norm_type_sf = ['Overall Max SF', 'None']
 
         # sets the LDA comparison types
         comp_type = np.unique(
@@ -15703,6 +15889,7 @@ class AnalysisFunctions(object):
             'norm_type': {
                 'type': 'L', 'text': 'Normalisation Type', 'list': norm_type_sf, 'def_val': norm_type_sf[0]
             },
+            'split_plt': {'type': 'B', 'text': 'Split Response', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -18291,6 +18478,48 @@ class AnalysisFunctions(object):
     ####    PARAMETER RESET FUNCTIONS    ####
     #########################################
 
+    def reset_free_cid(self, p_name, free_exp):
+        '''
+
+        :param p_name:
+        :param exp_name:
+        :return:
+        '''
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # determines the plot function that is currently selected
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # retrieves the free cell ID#'s for the first expt
+        i_bin = ['5', '10'].index(self.curr_para['vel_bin'])
+        free_cid = self.get_free_cell_ids(self.get_data_fcn(), free_exp, i_bin)
+
+        # removes the existing items
+        for i in range(h_list.count()):
+            h_list.removeItem(0)
+
+        # adds the new range
+        for cid in free_cid:
+            h_list.addItem(cid)
+
+        # resets the associated parameter value
+        h_list.setCurrentIndex(0)
+        self.curr_para[p_name] = free_cid[0]
+        d_grp[i_grp]['para'][p_name]['list'] = free_cid
+
+        # flag that the parameters are finished updating
+        self.is_updating = False
+
     def reset_sort_cond(self, exp_info, p_name):
         '''
 
@@ -19150,6 +19379,24 @@ class AnalysisFunctions(object):
 
         # returns the parameter dictionary for the current parameter
         return fcn_d[i_fcn]['para'][p_name]
+
+    def get_free_cell_ids(self, data, free_exp, i_bin=0):
+        '''
+
+        :param data:
+        :param exp_name:
+        :return:
+        '''
+
+        # determines the
+        f_data = data.externd.free_data
+        i_expt = f_data.exp_name.index(free_exp)
+
+        # retrieves the indices of the cells that are included in the analysis
+        cl_inc = cf.get_free_inclusion_indices(data,  i_bin)[i_expt]
+
+        # sets the cell ID strings
+        return ['Cell #{0}'.format(x) for x in np.sort(np.array(f_data.cell_id[i_expt])[cl_inc])]
 
     @staticmethod
     def set_missing_para_field(para):
