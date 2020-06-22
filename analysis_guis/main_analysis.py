@@ -3989,7 +3989,7 @@ class AnalysisGUI(QMainWindow):
             col_type = ['ahv_fit_intercept_neg', 'ahv_fit_intercept_pos']
 
         # retrieves the absolute metric values
-        cl_inc = cf.get_free_inclusion_indices(self.data,  i_bin)
+        cl_inc = cf.get_free_inclusion_indices(self.data, i_bin)
         r_dark = [np.abs(np.array(ci[i_bin]['DARK'][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         r_light = [np.abs(np.array(ci[i_bin][lcond_type][col_type]))[ic, :] for ci, ic in zip(f_data.c_info, cl_inc)]
         c_id = [np.array(id)[ic] for id, ic in zip(f_data.cell_id, cl_inc)]
@@ -4241,7 +4241,7 @@ class AnalysisGUI(QMainWindow):
         #############################
 
         # retrieves the freely moving cell inclusion indices
-        cl_inc0 = cf.get_free_inclusion_indices(self.data,  i_bin)
+        cl_inc0 = cf.get_free_inclusion_indices(self.data, i_bin)
         if use_no_cells:
             # case is cells with no classification
             cl_inc = [and_fcn(~np.any(ct[i_bin], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
@@ -5225,7 +5225,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data, i_bin)
 
             # memory allocation
             for i_filt in range(len(v_sf_sig)):
@@ -5461,7 +5461,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data, i_bin)
 
             # memory allocation
             for i_filt in range(len(v_sf_sig)):
@@ -5657,7 +5657,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
             # retrieves the free cells that are to be included in the analysis
-            cl_inc_extn = cf.get_free_inclusion_indices(self.data,  i_bin)
+            cl_inc_extn = cf.get_free_inclusion_indices(self.data, i_bin)
             n_cell = repmat(np.array([sum(x) for x in cl_inc_extn]).reshape(-1, 1), 1, n_type - 1)
 
             # memory allocation
@@ -13351,48 +13351,6 @@ class AnalysisGUI(QMainWindow):
         # returns the arrays
         return r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl_match
 
-    def get_free_inclusion_indices(i_bin, rmv_nmatch=False):
-        '''
-
-        :param i_bin:
-        :param rmv_nmatch:
-        :return:
-        '''
-
-        # initialisations
-        f_data, g_filt = self.data.externd.free_data, self.data.exc_gen_filt
-        cell_type_all, ahv_score_all = f_data.cell_type, f_data.ahv_score
-
-        # retrieves the indices of the free experiments that match the external data files
-        c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
-        exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
-        i_expt_free = [exp_free.index(cf.det_closest_file_match(exp_free, f_name)[0]) for f_name in f_data.exp_name]
-
-        # retrieves the inclusion cell boolean flags (matched with the external data files)
-        cl_inc_free = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt) for i_ex in i_expt_free]
-
-        # maps the freely moving experiments to the external data files
-        i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[1:] for id, c in zip(f_data.cell_id, c_free)]
-
-        # matches up the inclusion flags for the external data files to the matching free data files
-        cl_inc_extn = np.empty(len(c_free), dtype=object)
-        n_ff = [np.size(c_type[i_bin], axis=0) for c_type in cell_type_all]
-        for i in range(len(c_free)):
-            cl_inc_extn[i] = np.zeros(n_ff[i], dtype=bool)
-            cl_inc_extn[i][i_map[i][0]] = cl_inc_free[i][i_map[i][1]]
-
-        # resets the inclusion cell boolean flags (if required)
-        if rmv_nmatch:
-            # determines the mapping between the free/external data file free cells
-            _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
-
-            # sets the inclusion cell boolean flags for the unmatched cells to false
-            for i in range(len(cl_inc_extn)):
-                cl_inc_extn[i][~cf.set_binary_groups(n_ff[i], f2f_map[i][f2f_map[i][:, 1] >= 0, 1])] = False
-
-        # returns the inclusion index array
-        return cl_inc_extn
-
     def get_kinematic_plot_values(self, k_sf, i_plot, is_single_cell):
         '''
 
@@ -20243,8 +20201,8 @@ class FreelyMovingData(object):
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
 
         # AHV and Speed significant condition type
-        ahv_spd_sig_type = ['LIGHT1']                   # sets values in list to what you want AHV cells to be defined by
-        # ahv_spd_sig_type = ['LIGHT1', dark_type]      # another example of how to use the list
+        # ahv_spd_sig_type = ['LIGHT1']                   # sets values in list to what you want AHV cells to be defined by
+        ahv_spd_sig_type = ['LIGHT1', dark_type]      # another example of how to use the list
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
