@@ -6751,13 +6751,18 @@ class AnalysisGUI(QMainWindow):
                 :return:
                 '''
 
-                n_cell = np.shape(sf_norm)[1]
-                sf_mu = np.nanmean(sf_norm, axis=1)
-                sf_sem = np.nanstd(sf_norm, axis=1) / np.sqrt(n_cell)
-
                 # smoothes the spiking frequencies for each cell (if required)
                 if is_smooth:
-                    sf_mu = medfilt(sf_mu, n_smooth)
+                    for i in range(np.shape(sf_norm)[1]):
+                        sf_norm = medfilt(sf_norm[:, i], n_smooth)
+
+                # calculation of the mean/SEM spiking frequency
+                sf_mu = np.nanmean(sf_norm, axis=1)
+                sf_sem = np.nanstd(sf_norm, axis=1) / np.sqrt(np.shape(sf_norm)[1])
+
+                # # smoothes the spiking frequencies for each cell (if required)
+                # if is_smooth:
+                #     sf_mu = medfilt(sf_mu, n_smooth)
 
                 # creates the error patch
                 h_plt = ax.plot(xi_mid, sf_mu, 'o-', color=c, linewidth=2)
@@ -6800,10 +6805,18 @@ class AnalysisGUI(QMainWindow):
                 # normalises the spiking frequencies to the first speed bin
                 n_bin = np.shape(sf_filt_mu)[0]
                 if norm_type == 'None':
-                    is_ok = np.ones(np.shape(sf_filt_mu)[1], dtype=bool)
-                    sf_filt_norm[i_filt] = sf_filt_mu[:, is_ok]
-                else:
+                    # case is there is not normalisation
+                    sf_filt_norm[i_filt] = sf_filt_mu
+
+                elif norm_type == 'First Speed Bin':
+                    # case is the first speed bin normalisation
+                    is_ok = sf_filt_mu[0, :] > 0
+                    sf_filt_norm[i_filt] = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+
+                elif norm_type == 'Overall Max SF':
+                    # case is the overall spiking frequency normalisation
                     sf_diff[i_filt] = sf_filt_mu - repmat(sf_filt_mu[0, :], n_bin, 1)
+
                     # if norm_type == 'First Speed Bin':
                     #     is_ok = sf_filt_mu[0, :] > 0
                     #     sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
@@ -6814,7 +6827,7 @@ class AnalysisGUI(QMainWindow):
                     #     sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_mean[is_ok], n_bin, 1))
 
             # normalises the spiking frequencies using the max firing rate over all conditions
-            if norm_type != 'None':
+            if norm_type == 'Overall Max SF':
                 # calculates the max spiking frequency over all conditions
                 sf_max = np.max(np.vstack([np.max(sf_d, axis=0) for sf_d in sf_diff]), axis=0)
 
@@ -6823,18 +6836,13 @@ class AnalysisGUI(QMainWindow):
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     sf_filt_norm[i_filt] = np.divide(sf_diff[i_filt][:, is_ok], repmat(sf_max[is_ok], n_bin, 1))
 
-            #
+            # plot initialisations
             h_plt = [[] for _ in range(n_plot)]
             y_lim = [[1e6, -1e6] for _ in range(n_plot)]
 
             # creates the final plots
             i_plt = np.empty(2, dtype=object)
             for i_filt, rr in enumerate(r_obj.rot_filt_tot):
-                # memory allocation (first iteration only)
-                if i_filt == 0:
-                    A = np.zeros((r_obj.n_filt, n_bin))
-                    sf_mu, sf_sem = dcopy(A), dcopy(A)
-
                 # calculates the mean/sem normalised spiking frequencies
                 if split_plt:
                     ii = sf_filt_norm[i_filt][-1, :] > sf_filt_norm[i_filt][0, :]
@@ -6880,9 +6888,6 @@ class AnalysisGUI(QMainWindow):
                 cf.show_error(e_str, 'Incorrect Smoothing Window Span')
                 self.calc_ok = False
                 return
-
-        # determines what analysis type is being used
-        is_single_cell = plot_scope == 'Individual Cell'
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, plot_scope, False)
@@ -15566,7 +15571,7 @@ class AnalysisFunctions(object):
         cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
         comp_type = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
-        norm_type_sf = ['Overall Max SF', 'None']
+        norm_type_sf = ['First Speed Bin', 'Overall Max SF', 'None']
 
         # sets the LDA comparison types
         comp_type = np.unique(
