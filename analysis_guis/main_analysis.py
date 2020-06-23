@@ -4300,7 +4300,7 @@ class AnalysisGUI(QMainWindow):
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
 
-    def plot_cell_fit_residual(self, cell_id, free_exp_name, vel_bin, lcond_type, plot_grid):
+    def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, lcond_type, plot_grid):
         '''
 
         :param cell_id:
@@ -4310,58 +4310,50 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def calc_sf_res(xi, sf):
-            '''
-
-            :param xi:
-            :param sf:
-            :return:
-            '''
-
-            # fits a linear equation to the spiking frequencies
-            p_fit = np.polyfit(xi, sf, 1)
-
-            # calculates the absolute residual values (normalising by the maximum spiking rate)
-            return np.abs(np.poly1d(p_fit)(xi) - sf)
-
         # initialisations
-        t_type = ['DARK', lcond_type]
-        i_bin = ['5', '10'].index(vel_bin)
         f_data = self.data.externd.free_data
-        i_expt = f_data.exp_name.index(free_exp_name)
+        t_type, i_bin = ['DARK', lcond_type], [5, 10].index(f_data.sf_vbin)
+        t_str0 = 'Spiking Frequency Gain vs Normalised Residuals'
+        is_wexp = plot_scope == 'Whole Experiment'
 
-        # retrieves the index of the selected cell
-        c_id = int(cell_id[cell_id.index('#') + 1:])
-        i_cell = f_data.cell_id[i_expt].index(c_id)
+        if not plot_all_expt:
+            # retrieves the index of the selected experiment (if plotting a single experiment/cell)
+            i_expt = f_data.exp_name.index(free_exp_name)
+            if plot_scope == 'Individual Cell':
+                # retrieves the cell index (if plotting a single cell response)
+                c_id = int(cell_id[cell_id.index('#') + 1:])
+                i_cell = f_data.cell_id[i_expt].index(c_id)
 
-        # sets up the velocity bin array
-        v_max, v_bin = 80, float(vel_bin)
-        xi = np.arange(-v_max + v_bin / 2, v_max, v_bin)
-        is_pos = xi > 0
+                # sets the graph title for the single cell
+                t_str = '{0}\n({1} - {2})'.format(t_str0, free_exp_name, cell_id)
+
+            else:
+                # otherwise, set the graph title for the single experiment
+                t_str = '{0}\n({1})'.format(t_str0, free_exp_name, cell_id)
+
+        else:
+            # otherwise, set the title string for all cells
+            t_str = '{0}\n(All Cells)'.format(t_str0)
 
         # retrieves the freely moving spiking frequencies for each condition (for the given cell). the spiking
         # frequencies are separated into negative/positive velocities (with the negative velocities being reversed)
         i_tt = np.array([list(f_data.t_type).index(x) for x in t_type])
-        s_freq_tt = np.vstack([x[i_cell] for x in f_data.s_freq[i_expt][i_bin][i_tt]])
-
-        ##########################################
-        ####    GAIN/RESIDUAL CALCULATIONS    ####
-        ##########################################
 
         # memory allocation
-        n_type, n_bin = len(t_type), int(v_max / v_bin)
-        sf_gain, sf_res = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
+        n_type = len(t_type)
+        sf_res, sf_gain = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
 
+        # retrieves the gain/residual values
         for i_type in range(n_type):
-            # separates the spiking frequencies into negative/positive velocities (for each condition) and subtracts the
-            # spiking frequencies from the smallest magnitude velocity bin (i.e., 0 to v_bin)
-            s_freq0 = np.vstack((s_freq_tt[i_type, :][~is_pos][::-1], s_freq_tt[i_type, :][is_pos]))
-            sf_gain0 = s_freq0 - repmat(s_freq0[:, 0], n_bin, 1).T
-
-            # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
-            sf_gain_res = [sf / max(sf) for sf in sf_gain0]
-            sf_res[i_type] = np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain_res]).flatten()
-            sf_gain[i_type] = sf_gain_res.flatten()
+            if plot_scope == 'Individual Cell':
+                sf_res[i_type] = f_data.sf_res[i_expt, i_tt[i_type]][i_cell]
+                sf_gain[i_type] = f_data.sf_gain[i_expt, i_tt[i_type]][i_cell]
+            elif not plot_all_expt:
+                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt, i_tt[i_type]]))
+                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt, i_tt[i_type]]))
+            else:
+                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[i_tt[i_type]]) for sf in f_data.sf_res]))
+                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[i_tt[i_type]]) for sf in f_data.sf_gain]))
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -4369,9 +4361,10 @@ class AnalysisGUI(QMainWindow):
 
         # plot parameters and other initialisations
         h_plt = []
-        m_size = 60
         f_col = ['k', 'y']
         m_type = ['o', 's']
+        m_size = 60 - 20 * (int(is_wexp) + int(plot_all_expt))
+        alpha = 1. - 0.4 * (int(is_wexp) + int(plot_all_expt))
 
         # sets up the plot axis
         self.plot_fig.setup_plot_axis()
@@ -4380,7 +4373,7 @@ class AnalysisGUI(QMainWindow):
         # creates the scatter plot for each condition
         for i_type in range(n_type):
             h_plt.append(ax.scatter(sf_res[i_type], sf_gain[i_type], marker=m_type[i_type],
-                                    s=m_size, facecolor=f_col[i_type]))
+                                    s=m_size, facecolor=f_col[i_type], alpha=alpha))
 
         # creates the figure legend
         ax.legend(h_plt, t_type)
@@ -4392,8 +4385,7 @@ class AnalysisGUI(QMainWindow):
         ax.plot([0, 0], y_lim, 'k--', linewidth=1)
 
         # sets the other axis properties
-        ax.set_title('Spiking Frequency Gain vs Normalised Residuals\n({0} - {1})'.format(free_exp_name, cell_id),
-                     fontsize=16, fontweight='bold')
+        ax.set_title(t_str, fontsize=16, fontweight='bold')
         ax.set_ylabel('Spiking Frequency Gain (Hz)')
         ax.set_xlabel('Normalised Residuals')
         ax.grid(plot_grid)
@@ -14884,8 +14876,13 @@ class AnalysisFunctions(object):
                           func='plot_ahv_fit_para',
                           para=para)
 
-            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            # ====> Freely Moving Cell Fit Residual
             para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+                },
+
                 # plotting parameters
                 'cell_id': {
                     'type': 'L', 'text': 'Free Cell ID#', 'list': free_cid, 'def_val': free_cid[0]
@@ -14894,7 +14891,14 @@ class AnalysisFunctions(object):
                     'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
                     'para_reset': [['cell_id', self.reset_free_cid]]
                 },
-                'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'},
+                'plot_all_expt': {
+                    'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
+                    'link_para': ['free_exp_name', True]
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'link_para': [['cell_id', 'Whole Experiment'], ['plot_all_expt', 'Individual Cell']]
+                },
                 'lcond_type': {
                     'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
                 },
@@ -20066,7 +20070,7 @@ class FreelyMovingData(object):
         # initialises the static object fields
         self.n_file = 0
 
-        # initialises the other
+        # initialises the other data storage fields
         self.exp_name = []
         self.cell_id = []
         self.s_freq = []
@@ -20075,6 +20079,11 @@ class FreelyMovingData(object):
         self.p_sig_pos = []
         self.cell_type = []
         self.ahv_score = []
+
+        # initialises the calculation fields
+        self.sf_gain = None
+        self.sf_res = None
+        self.sf_vbin = None
 
         # creates the objects for each experiment
         if is_set:

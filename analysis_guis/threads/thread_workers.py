@@ -210,6 +210,15 @@ class WorkerThread(QThread):
                 if not data.comp.ff_corr.is_set:
                     self.calc_fix_free_correlation(data, calc_para, w_prog)
 
+            ################################################
+            ####    FREELY MOVING ANALYSIS FUNCTIONS    ####
+            ################################################
+
+            elif self.thread_job_secondary == 'Freely Moving Cell Fit Residual':
+
+                # ensures the calculation fields are
+                self.calc_cell_fit_residual(data, calc_para, w_prog)
+
             ######################################
             ####    EYE TRACKING FUNCTIONS    ####
             ######################################
@@ -2066,6 +2075,110 @@ class WorkerThread(QThread):
 
         # final update of the progressbar
         w_prog.emit('Correlation Calculations Complete!', 100.)
+
+    #######################################
+    ####    FREELY MOVING FUNCTIONS    ####
+    #######################################
+
+    def calc_cell_fit_residual(self, data, calc_para, w_prog):
+        '''
+
+        :param data:
+        :param calc_para:
+        :param w_prog:
+        :return:
+        '''
+
+        def calc_cell_res_gain(sf_cell, xi):
+            '''
+
+            :param sf_cell:
+            :param xi:
+            :param is_pos:
+            :return:
+            '''
+
+            def calc_sf_res(xi, sf):
+                '''
+
+                :param xi:
+                :param sf:
+                :return:
+                '''
+
+                # fits a linear equation to the spiking frequencies
+                sf_norm = sf / max(sf)
+                p_fit = np.polyfit(xi, sf_norm, 1)
+
+                # calculates the absolute residual values (normalising by the maximum spiking rate)
+                return np.abs(np.poly1d(p_fit)(xi) - sf_norm)
+
+            # memory allocation and other initialisations
+            is_pos = xi > 0
+            n_bin = int(len(xi) / 2)
+
+            # separates the spiking frequencies into negative/positive velocities (for each condition) and subtracts the
+            # spiking frequencies from the smallest magnitude velocity bin (i.e., 0 to v_bin)
+            sf_split = np.vstack((sf_cell[~is_pos][::-1], sf_cell[is_pos]))
+            sf_gain0 = sf_split - repmat(sf_split[:, 0], n_bin, 1).T
+
+            # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
+            return sf_gain0.flatten(), np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain0]).flatten()
+
+        # initialisations
+        f_data = data.externd.free_data
+
+        # ensures the freely moving class calculation fields have been set (initialies them if they have not)
+        if not hasattr(f_data, 'sf_gain'):
+            setattr(f_data, 'sf_gain', None)
+            setattr(f_data, 'sf_res', None)
+            setattr(f_data, 'sf_vbin', None)
+
+        # initialisations
+        v_bin, v_max = int(calc_para['vel_bin']), 80.
+        i_bin = [5, 10].index(v_bin)
+
+        # sets up the velocity bin array
+        xi = np.arange(-v_max + v_bin / 2, v_max, v_bin)
+
+        # memory allocation
+        n_type = len(f_data.t_type)
+        A = np.empty((f_data.n_file, n_type), dtype=object)
+        sf_res, sf_gain = dcopy(A), dcopy(A)
+
+        ##########################################
+        ####    GAIN/RESIDUAL CALCULATIONS    ####
+        ##########################################
+
+        # retrieves the spiking frequencies for the velocity bin size
+        sf_bin = [sf[i_bin] for sf in f_data.s_freq]
+
+        # calculates the gain/residuals for each file/condition type
+        for i_file in range(f_data.n_file):
+            # updates the waitbar progress
+            w_str = 'Gain/Residual Calculations ({0} of {1})'.format(i_file + 1, f_data.n_file)
+            w_prog.emit(w_str, 100 * (i_file / f_data.n_file))
+
+            for i_type in range(n_type):
+                # memory allocation
+                n_cell = np.shape(sf_bin[i_file][i_type])[0]
+                B = np.empty(n_cell, dtype=object)
+                sf_res[i_file, i_type], sf_gain[i_file, i_type] = dcopy(B), dcopy(B)
+
+                # calculates the gain/residuals for each cell
+                for i_cell in range(n_cell):
+                    # retrieves the cell's spiking frequencies
+                    sf_cell = sf_bin[i_file][i_type][i_cell]
+                    sf_gain[i_file, i_type][i_cell], sf_res[i_file, i_type][i_cell] = calc_cell_res_gain(sf_cell, xi)
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the class object fields
+        f_data.sf_gain = sf_gain
+        f_data.sf_res = sf_res
+        f_data.sf_vbin = float(calc_para['vel_bin'])
 
     #########################################
     ####    ROTATION LDA CALCULATIONS    ####
