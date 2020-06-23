@@ -4322,7 +4322,7 @@ class AnalysisGUI(QMainWindow):
             p_fit = np.polyfit(xi, sf, 1)
 
             # calculates the absolute residual values (normalising by the maximum spiking rate)
-            return np.abs(np.poly1d(p_fit)(xi) - sf) / np.max(sf)
+            return np.abs(np.poly1d(p_fit)(xi) - sf)
 
         # initialisations
         t_type = ['DARK', lcond_type]
@@ -4359,8 +4359,9 @@ class AnalysisGUI(QMainWindow):
             sf_gain0 = s_freq0 - repmat(s_freq0[:, 0], n_bin, 1).T
 
             # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
-            sf_res[i_type] = np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain0]).flatten()
-            sf_gain[i_type] = sf_gain0.flatten()
+            sf_gain_res = [sf / max(sf) for sf in sf_gain0]
+            sf_res[i_type] = np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain_res]).flatten()
+            sf_gain[i_type] = sf_gain_res.flatten()
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -6754,7 +6755,7 @@ class AnalysisGUI(QMainWindow):
                 # smoothes the spiking frequencies for each cell (if required)
                 if is_smooth:
                     for i in range(np.shape(sf_norm)[1]):
-                        sf_norm = medfilt(sf_norm[:, i], n_smooth)
+                        sf_norm[:, i] = medfilt(sf_norm[:, i], n_smooth)
 
                 # calculation of the mean/SEM spiking frequency
                 sf_mu = np.nanmean(sf_norm, axis=1)
