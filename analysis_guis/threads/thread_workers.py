@@ -2089,7 +2089,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def calc_cell_res_gain(sf_cell, xi):
+        def calc_cell_res_gain(xi, sf_split):
             '''
 
             :param sf_cell:
@@ -2098,7 +2098,7 @@ class WorkerThread(QThread):
             :return:
             '''
 
-            def calc_sf_res(xi, sf):
+            def calc_sf_res(xi, sf, sf_max):
                 '''
 
                 :param xi:
@@ -2107,23 +2107,26 @@ class WorkerThread(QThread):
                 '''
 
                 # fits a linear equation to the spiking frequencies
-                sf_norm = sf / max(sf)
+                sf_norm = sf / sf_max
                 p_fit = np.polyfit(xi, sf_norm, 1)
 
                 # calculates the absolute residual values (normalising by the maximum spiking rate)
                 return np.abs(np.poly1d(p_fit)(xi) - sf_norm)
 
-            # memory allocation and other initialisations
-            is_pos = xi > 0
-            n_bin = int(len(xi) / 2)
+            # memory allocation
+            n_type = np.shape(sf_split)[1]
+            sf_gain, sf_res = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
 
-            # separates the spiking frequencies into negative/positive velocities (for each condition) and subtracts the
-            # spiking frequencies from the smallest magnitude velocity bin (i.e., 0 to v_bin)
-            sf_split = np.vstack((sf_cell[~is_pos][::-1], sf_cell[is_pos]))
-            sf_gain0 = sf_split - repmat(sf_split[:, 0], n_bin, 1).T
+            # calculates the overall spiking frequency maximum
+            sf_max = np.max([[np.max(np.abs(y)) for y in x] for x in sf_split])
+
+            # calculates/sets the residual/gain values for each direction/condition type
+            for i_type in range(n_type):
+                sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, 0]))
+                sf_res[i_type] = np.array([calc_sf_res(xi, sf, sf_max) for sf in sf_split[:, i_type]]).flatten()
 
             # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
-            return sf_gain0.flatten(), np.array([calc_sf_res(xi[is_pos], sf) for sf in sf_gain0]).flatten()
+            return sf_gain, sf_res
 
         # initialisations
         f_data = data.externd.free_data
@@ -2143,33 +2146,48 @@ class WorkerThread(QThread):
 
         # memory allocation
         n_type = len(f_data.t_type)
-        A = np.empty((f_data.n_file, n_type), dtype=object)
+        A = np.empty(f_data.n_file, dtype=object)
         sf_res, sf_gain = dcopy(A), dcopy(A)
 
         ##########################################
         ####    GAIN/RESIDUAL CALCULATIONS    ####
         ##########################################
 
+        # memory allocation and other initialisations
+        is_pos = xi > 0
+        n_bin, n_dir = int(len(xi) / 2), 2
+
         # retrieves the spiking frequencies for the velocity bin size
         sf_bin = [sf[i_bin] for sf in f_data.s_freq]
 
-        # calculates the gain/residuals for each file/condition type
+        # calculates the gain/residuals for each file
         for i_file in range(f_data.n_file):
             # updates the waitbar progress
             w_str = 'Gain/Residual Calculations ({0} of {1})'.format(i_file + 1, f_data.n_file)
             w_prog.emit(w_str, 100 * (i_file / f_data.n_file))
 
-            for i_type in range(n_type):
-                # memory allocation
-                n_cell = np.shape(sf_bin[i_file][i_type])[0]
-                B = np.empty(n_cell, dtype=object)
-                sf_res[i_file, i_type], sf_gain[i_file, i_type] = dcopy(B), dcopy(B)
+            # memory allocation
+            n_cell = np.shape(sf_bin[i_file][0])[0]
+            B = np.empty((n_cell, n_type), dtype=object)
+            sf_res[i_file], sf_gain[i_file] = dcopy(B), dcopy(B)
 
-                # calculates the gain/residuals for each cell
-                for i_cell in range(n_cell):
-                    # retrieves the cell's spiking frequencies
+            # calculates the gain/residuals for each cell/condition type
+            for i_cell in range(n_cell):
+                # memory allocation
+                sf_split = np.empty((n_dir, n_type), dtype=object)
+
+                # splits the spiking frequency into positive/negative velocities for each condition type
+                for i_type in range(n_type):
+                    # retrieves the spiking frequency for the current cell/condition type and separates
                     sf_cell = sf_bin[i_file][i_type][i_cell]
-                    sf_gain[i_file, i_type][i_cell], sf_res[i_file, i_type][i_cell] = calc_cell_res_gain(sf_cell, xi)
+                    sf_split0 = [sf_cell[~is_pos][::-1], sf_cell[is_pos]]
+
+                    # removes the first time bin from each direction
+                    for i_dir in range(n_dir):
+                        sf_split[i_dir, i_type] = sf_split0[i_dir] - sf_split0[i_dir][0]
+
+                # calculates the gain/residual for condition type
+                sf_gain[i_file][i_cell, :], sf_res[i_file][i_cell, :] = calc_cell_res_gain(xi[is_pos], sf_split)
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####

@@ -4346,14 +4346,14 @@ class AnalysisGUI(QMainWindow):
         # retrieves the gain/residual values
         for i_type in range(n_type):
             if plot_scope == 'Individual Cell':
-                sf_res[i_type] = f_data.sf_res[i_expt, i_tt[i_type]][i_cell]
-                sf_gain[i_type] = f_data.sf_gain[i_expt, i_tt[i_type]][i_cell]
+                sf_res[i_type] = f_data.sf_res[i_expt][i_cell, i_tt[i_type]]
+                sf_gain[i_type] = f_data.sf_gain[i_expt][i_cell, i_tt[i_type]]
             elif not plot_all_expt:
-                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt, i_tt[i_type]]))
-                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt, i_tt[i_type]]))
+                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_tt[i_type]]))
+                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt][:, i_tt[i_type]]))
             else:
-                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[i_tt[i_type]]) for sf in f_data.sf_res]))
-                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[i_tt[i_type]]) for sf in f_data.sf_gain]))
+                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_tt[i_type]]) for sf in f_data.sf_res]))
+                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_tt[i_type]]) for sf in f_data.sf_gain]))
 
         ###############################
         ####    FIGURE CREATION    ####
