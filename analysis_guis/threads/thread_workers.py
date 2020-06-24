@@ -2123,11 +2123,11 @@ class WorkerThread(QThread):
 
             # calculates/sets the residual/gain values for each direction/condition type
             for i_type in range(n_type):
-                sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, i_type])) / sf_max
+                sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, i_type]))
                 sf_res[i_type] = np.array([calc_sf_res(xi, sf / sf_max) for sf in sf_split[:, i_type]]).flatten()
 
             # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
-            return sf_gain, sf_res
+            return sf_gain, sf_res, sf_max
 
         # initialisations
         f_data = data.externd.free_data
@@ -2138,6 +2138,7 @@ class WorkerThread(QThread):
             setattr(f_data, 'sf_res', None)
             setattr(f_data, 'sf_vbin', None)
             setattr(f_data, 'sf_tt', None)
+            setattr(f_data, 'sf_max', None)
 
         # initialisations
         t_type = ['DARK', calc_para['lcond_type']]
@@ -2151,7 +2152,7 @@ class WorkerThread(QThread):
         # memory allocation
         n_type = len(t_type)
         A = np.empty(f_data.n_file, dtype=object)
-        sf_res, sf_gain = dcopy(A), dcopy(A)
+        sf_res, sf_gain, sf_max = dcopy(A), dcopy(A), dcopy(A)
 
         ##########################################
         ####    GAIN/RESIDUAL CALCULATIONS    ####
@@ -2173,7 +2174,7 @@ class WorkerThread(QThread):
             # memory allocation
             n_cell = np.shape(sf_bin[i_file][0])[0]
             B = np.empty((n_cell, n_type), dtype=object)
-            sf_res[i_file], sf_gain[i_file] = dcopy(B), dcopy(B)
+            sf_res[i_file], sf_gain[i_file], sf_max[i_file] = dcopy(B), dcopy(B), np.zeros(n_cell)
 
             # calculates the gain/residuals for each cell/condition type
             for i_cell in range(n_cell):
@@ -2191,7 +2192,8 @@ class WorkerThread(QThread):
                         sf_split[i_dir, i_type] = sf_split0[i_dir] - sf_split0[i_dir][0]
 
                 # calculates the gain/residual for condition type
-                sf_gain[i_file][i_cell, :], sf_res[i_file][i_cell, :] = calc_cell_res_gain(xi[is_pos], sf_split)
+                sf_gain[i_file][i_cell, :], sf_res[i_file][i_cell, :], sf_max[i_file][i_cell] = \
+                                                                calc_cell_res_gain(xi[is_pos], sf_split)
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####
@@ -2202,6 +2204,7 @@ class WorkerThread(QThread):
         f_data.sf_res = sf_res
         f_data.sf_vbin = float(calc_para['vel_bin'])
         f_data.sf_tt = t_type
+        f_data.sf_max = sf_max
 
     #########################################
     ####    ROTATION LDA CALCULATIONS    ####

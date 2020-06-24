@@ -4345,10 +4345,12 @@ class AnalysisGUI(QMainWindow):
                 sf_gain[i_type] = f_data.sf_gain[i_expt][i_cell, i_type]
             elif not plot_all_expt:
                 sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_type]))
-                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt][:, i_type]))
+                sf_gain[i_type] = np.array(cf.flat_list(
+                            np.divide(f_data.sf_gain[i_expt][:, i_type], f_data.sf_max[i_expt])))
             else:
                 sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type]) for sf in f_data.sf_res]))
-                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type]) for sf in f_data.sf_gain]))
+                sf_gain[i_type] = np.array(cf.flat_list(
+                    [cf.flat_list(np.divide(sf[:, i_type], sf_m)) for sf, sf_m in zip(f_data.sf_gain, f_data.sf_max)]))
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -20096,6 +20098,7 @@ class FreelyMovingData(object):
         self.sf_res = None
         self.sf_vbin = None
         self.sf_tt = None
+        self.sf_max = None
 
         # creates the objects for each experiment
         if is_set:
