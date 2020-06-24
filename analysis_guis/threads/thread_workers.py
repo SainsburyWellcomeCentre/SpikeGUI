@@ -2098,7 +2098,7 @@ class WorkerThread(QThread):
             :return:
             '''
 
-            def calc_sf_res(xi, sf, sf_max):
+            def calc_sf_res(xi, sf):
                 '''
 
                 :param xi:
@@ -2107,23 +2107,24 @@ class WorkerThread(QThread):
                 '''
 
                 # fits a linear equation to the spiking frequencies
-                sf_norm = sf / sf_max
-                p_fit = np.polyfit(xi, sf_norm, 1)
+                p_fit = np.polyfit(xi, sf, 1)
 
                 # calculates the absolute residual values (normalising by the maximum spiking rate)
-                return np.abs(np.poly1d(p_fit)(xi) - sf_norm)
+                return np.abs(np.poly1d(p_fit)(xi) - sf)
 
             # memory allocation
             n_type = np.shape(sf_split)[1]
             sf_gain, sf_res = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
 
             # calculates the overall spiking frequency maximum
+            # sf_max = np.max([[np.max(y) for y in x] for x in sf_split])
+            # if sf_max == 0:
             sf_max = np.max([[np.max(np.abs(y)) for y in x] for x in sf_split])
 
             # calculates/sets the residual/gain values for each direction/condition type
             for i_type in range(n_type):
-                sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, 0]))
-                sf_res[i_type] = np.array([calc_sf_res(xi, sf, sf_max) for sf in sf_split[:, i_type]]).flatten()
+                sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, i_type])) / sf_max
+                sf_res[i_type] = np.array([calc_sf_res(xi, sf / sf_max) for sf in sf_split[:, i_type]]).flatten()
 
             # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
             return sf_gain, sf_res
@@ -2136,16 +2137,19 @@ class WorkerThread(QThread):
             setattr(f_data, 'sf_gain', None)
             setattr(f_data, 'sf_res', None)
             setattr(f_data, 'sf_vbin', None)
+            setattr(f_data, 'sf_tt', None)
 
         # initialisations
+        t_type = ['DARK', calc_para['lcond_type']]
         v_bin, v_max = int(calc_para['vel_bin']), 80.
         i_bin = [5, 10].index(v_bin)
+        i_tt = [list(f_data.t_type).index(tt) for tt in t_type]
 
         # sets up the velocity bin array
         xi = np.arange(-v_max + v_bin / 2, v_max, v_bin)
 
         # memory allocation
-        n_type = len(f_data.t_type)
+        n_type = len(t_type)
         A = np.empty(f_data.n_file, dtype=object)
         sf_res, sf_gain = dcopy(A), dcopy(A)
 
@@ -2179,7 +2183,7 @@ class WorkerThread(QThread):
                 # splits the spiking frequency into positive/negative velocities for each condition type
                 for i_type in range(n_type):
                     # retrieves the spiking frequency for the current cell/condition type and separates
-                    sf_cell = sf_bin[i_file][i_type][i_cell]
+                    sf_cell = sf_bin[i_file][i_tt[i_type]][i_cell]
                     sf_split0 = [sf_cell[~is_pos][::-1], sf_cell[is_pos]]
 
                     # removes the first time bin from each direction
@@ -2197,6 +2201,7 @@ class WorkerThread(QThread):
         f_data.sf_gain = sf_gain
         f_data.sf_res = sf_res
         f_data.sf_vbin = float(calc_para['vel_bin'])
+        f_data.sf_tt = t_type
 
     #########################################
     ####    ROTATION LDA CALCULATIONS    ####

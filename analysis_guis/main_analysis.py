@@ -4300,7 +4300,7 @@ class AnalysisGUI(QMainWindow):
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
 
-    def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, lcond_type, plot_grid):
+    def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, plot_grid):
         '''
 
         :param cell_id:
@@ -4312,7 +4312,6 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         f_data = self.data.externd.free_data
-        t_type, i_bin = ['DARK', lcond_type], [5, 10].index(f_data.sf_vbin)
         t_str0 = 'Spiking Frequency Gain vs Normalised Residuals'
         is_wexp = plot_scope == 'Whole Experiment'
 
@@ -4335,25 +4334,21 @@ class AnalysisGUI(QMainWindow):
             # otherwise, set the title string for all cells
             t_str = '{0}\n(All Cells)'.format(t_str0)
 
-        # retrieves the freely moving spiking frequencies for each condition (for the given cell). the spiking
-        # frequencies are separated into negative/positive velocities (with the negative velocities being reversed)
-        i_tt = np.array([list(f_data.t_type).index(x) for x in t_type])
-
         # memory allocation
-        n_type = len(t_type)
+        n_type = len(f_data.sf_tt)
         sf_res, sf_gain = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
 
         # retrieves the gain/residual values
         for i_type in range(n_type):
             if plot_scope == 'Individual Cell':
-                sf_res[i_type] = f_data.sf_res[i_expt][i_cell, i_tt[i_type]]
-                sf_gain[i_type] = f_data.sf_gain[i_expt][i_cell, i_tt[i_type]]
+                sf_res[i_type] = f_data.sf_res[i_expt][i_cell, i_type]
+                sf_gain[i_type] = f_data.sf_gain[i_expt][i_cell, i_type]
             elif not plot_all_expt:
-                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_tt[i_type]]))
-                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt][:, i_tt[i_type]]))
+                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_type]))
+                sf_gain[i_type] = np.array(cf.flat_list(f_data.sf_gain[i_expt][:, i_type]))
             else:
-                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_tt[i_type]]) for sf in f_data.sf_res]))
-                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_tt[i_type]]) for sf in f_data.sf_gain]))
+                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type]) for sf in f_data.sf_res]))
+                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type]) for sf in f_data.sf_gain]))
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -4376,7 +4371,7 @@ class AnalysisGUI(QMainWindow):
                                     s=m_size, facecolor=f_col[i_type], alpha=alpha))
 
         # creates the figure legend
-        ax.legend(h_plt, t_type)
+        ax.legend(h_plt, f_data.sf_tt)
 
         # plots the x/y-axis zero line markers
         x_lim, y_lim = ax.get_xlim(), ax.get_ylim()
@@ -6736,7 +6731,7 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
-            def create_final_plot(ax, xi_mid, sf_norm, is_smooth, n_smooth, c):
+            def create_final_plot(ax, xi_mid, sf_norm, is_smooth, n_smooth, norm_type, c):
                 '''
 
                 :param ax:
@@ -6744,18 +6739,24 @@ class AnalysisGUI(QMainWindow):
                 :return:
                 '''
 
-                # smoothes the spiking frequencies for each cell (if required)
-                if is_smooth:
-                    for i in range(np.shape(sf_norm)[1]):
-                        sf_norm[:, i] = medfilt(sf_norm[:, i], n_smooth)
+                # # smoothes the spiking frequencies for each cell (if required)
+                # if is_smooth:
+                #     for i in range(np.shape(sf_norm)[1]):
+                #         sf_norm[:, i] = medfilt(sf_norm[:, i], n_smooth)
 
                 # calculation of the mean/SEM spiking frequency
                 sf_mu = np.nanmean(sf_norm, axis=1)
                 sf_sem = np.nanstd(sf_norm, axis=1) / np.sqrt(np.shape(sf_norm)[1])
 
-                # # smoothes the spiking frequencies for each cell (if required)
-                # if is_smooth:
-                #     sf_mu = medfilt(sf_mu, n_smooth)
+                # smoothes the spiking frequencies for each cell (if required)
+                if is_smooth:
+                    sf_mu = medfilt(sf_mu, n_smooth)
+
+                # performs the normalisation of the data values to the first bin (if required)
+                if norm_type != 'None':
+                    y_sf = sf_mu[0]
+                    sf_mu /= y_sf
+                    sf_sem /= y_sf
 
                 # creates the error patch
                 h_plt = ax.plot(xi_mid, sf_mu, 'o-', color=c, linewidth=2)
@@ -6788,27 +6789,28 @@ class AnalysisGUI(QMainWindow):
 
             # memory allocation
             sf_diff = np.empty(r_obj.n_filt, dtype=object)
-            sf_filt_norm = np.empty(r_obj.n_filt, dtype=object)
+            sf_filt_mu = np.empty(r_obj.n_filt, dtype=object)
 
             # calculates the mean/std values
             for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                 # calculates mean spiking frequencies for each cell
-                sf_filt_mu = np.nanmean(sf[rr['t_type'][0]][:, :, i_cell_b[i_filt]], axis=0)
+                sf_filt_mu[i_filt] = np.nanmean(sf[rr['t_type'][0]][:, :, i_cell_b[i_filt]], axis=0)
 
-                # normalises the spiking frequencies to the first speed bin
-                n_bin = np.shape(sf_filt_mu)[0]
-                if norm_type == 'None':
-                    # case is there is not normalisation
-                    sf_filt_norm[i_filt] = sf_filt_mu
+                # # normalises the spiking frequencies to the first speed bin
+                # n_bin = np.shape(sf_filt_mu)[0]
+                # if norm_type == 'None':
 
-                elif norm_type == 'First Speed Bin':
-                    # case is the first speed bin normalisation
-                    is_ok = sf_filt_mu[0, :] > 0
-                    sf_filt_norm[i_filt] = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+                # # case is there is not normalisation
+                # sf_filt_norm[i_filt] = sf_filt_mu
 
-                elif norm_type == 'Overall Max SF':
-                    # case is the overall spiking frequency normalisation
-                    sf_diff[i_filt] = sf_filt_mu - repmat(sf_filt_mu[0, :], n_bin, 1)
+                # elif norm_type == 'First Speed Bin':
+                #     # case is the first speed bin normalisation
+                #     is_ok = sf_filt_mu[0, :] > 0
+                #     sf_filt_norm[i_filt] = np.divide(sf_filt_mu[:, is_ok], repmat(sf_filt_mu[0, is_ok], n_bin, 1))
+                #
+                # elif norm_type == 'Overall Max SF':
+                #     # case is the overall spiking frequency normalisation
+                #     sf_diff[i_filt] = sf_filt_mu - repmat(sf_filt_mu[0, :], n_bin, 1)
 
                     # if norm_type == 'First Speed Bin':
                     #     is_ok = sf_filt_mu[0, :] > 0
@@ -6819,15 +6821,15 @@ class AnalysisGUI(QMainWindow):
                     #     is_ok = sf_mean > 0
                     #     sf_filt_norm = np.divide(sf_filt_mu[:, is_ok], repmat(sf_mean[is_ok], n_bin, 1))
 
-            # normalises the spiking frequencies using the max firing rate over all conditions
-            if norm_type == 'Overall Max SF':
-                # calculates the max spiking frequency over all conditions
-                sf_max = np.max(np.vstack([np.max(sf_d, axis=0) for sf_d in sf_diff]), axis=0)
-
-                # normalises the spiking frequencies from the values calculated above
-                is_ok = sf_max > 0
-                for i_filt, rr in enumerate(r_obj.rot_filt_tot):
-                    sf_filt_norm[i_filt] = np.divide(sf_diff[i_filt][:, is_ok], repmat(sf_max[is_ok], n_bin, 1))
+            # # normalises the spiking frequencies using the max firing rate over all conditions
+            # if norm_type == 'Overall Max SF':
+            #     # calculates the max spiking frequency over all conditions
+            #     sf_max = np.max(np.vstack([np.max(sf_d, axis=0) for sf_d in sf_diff]), axis=0)
+            #
+            #     # normalises the spiking frequencies from the values calculated above
+            #     is_ok = sf_max > 0
+            #     for i_filt, rr in enumerate(r_obj.rot_filt_tot):
+            #         sf_filt_norm[i_filt] = np.divide(sf_diff[i_filt][:, is_ok], repmat(sf_max[is_ok], n_bin, 1))
 
             # plot initialisations
             h_plt = [[] for _ in range(n_plot)]
@@ -6838,18 +6840,18 @@ class AnalysisGUI(QMainWindow):
             for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                 # calculates the mean/sem normalised spiking frequencies
                 if split_plt:
-                    ii = sf_filt_norm[i_filt][-1, :] > sf_filt_norm[i_filt][0, :]
+                    ii = sf_filt_mu[i_filt][-1, :] > sf_filt_mu[i_filt][0, :]
                     i_plt[0], i_plt[1] = np.where(ii)[0], np.where(~ii)[0]
 
                     for i in range(n_plot):
                         h_plt_nw, ymn_nw, ymx_nw = create_final_plot(
-                            ax[i], xi_mid, sf_filt_norm[i_filt][:, i_plt[i]], is_smooth, n_smooth, c[i_filt])
+                            ax[i], xi_mid, sf_filt_mu[i_filt][:, i_plt[i]], is_smooth, n_smooth, norm_type, c[i_filt])
                         h_plt[i].append(h_plt_nw)
                         y_lim[i] = [min(y_lim[i][0], ymn_nw), max(y_lim[i][1], ymx_nw)]
 
                 else:
                     h_plt_nw, ymn_nw, ymx_nw = \
-                        create_final_plot(ax[0], xi_mid, sf_filt_norm[i_filt], is_smooth, n_smooth, c[i_filt])
+                        create_final_plot(ax[0], xi_mid, sf_filt_mu[i_filt], is_smooth, n_smooth, norm_type, c[i_filt])
                     h_plt[0].append(h_plt_nw)
                     y_lim[0] = [min(y_lim[0][0], ymn_nw), max(y_lim[0][1], ymx_nw)]
 
@@ -12511,6 +12513,14 @@ class AnalysisGUI(QMainWindow):
                             r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], 0]
                         ))
 
+                if (not is_temp) and (not is_avg):
+                    # combines the sorting values over all filter types
+                    Y_sort_stack = np.vstack(Y_sort)
+                    Y_sort_nw = np.sum(np.multiply(np.sign(Y_sort_stack), Y_sort_stack ** 2), axis=0)
+
+                    # recreates the sorting values array for each filter type
+                    Y_sort = repmat(Y_sort_nw, len(Y_sort), 1)
+
             elif 'AUC ROC' in sort_type:
                 # case is the AUC ROC values
 
@@ -14882,6 +14892,10 @@ class AnalysisFunctions(object):
                 'vel_bin': {
                     'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
                 },
+                'lcond_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type,
+                    'def_val': lcond_type[0]
+                },
 
                 # plotting parameters
                 'cell_id': {
@@ -14898,9 +14912,6 @@ class AnalysisFunctions(object):
                 'plot_scope': {
                     'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
                     'link_para': [['cell_id', 'Whole Experiment'], ['plot_all_expt', 'Individual Cell']]
-                },
-                'lcond_type': {
-                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
                 },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
@@ -20084,6 +20095,7 @@ class FreelyMovingData(object):
         self.sf_gain = None
         self.sf_res = None
         self.sf_vbin = None
+        self.sf_tt = None
 
         # creates the objects for each experiment
         if is_set:
