@@ -2202,7 +2202,7 @@ class WorkerThread(QThread):
         # sets the class object fields
         f_data.sf_gain = sf_gain
         f_data.sf_res = sf_res
-        f_data.sf_vbin = float(calc_para['vel_bin'])
+        f_data.sf_vbin = int(calc_para['vel_bin'])
         f_data.sf_tt = t_type
         f_data.sf_max = sf_max
 

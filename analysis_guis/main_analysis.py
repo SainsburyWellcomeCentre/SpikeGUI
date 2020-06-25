@@ -4300,7 +4300,8 @@ class AnalysisGUI(QMainWindow):
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
 
-    def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, plot_grid):
+    def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, cell_type, use_all_cells,
+                               plot_grid):
         '''
 
         :param cell_id:
@@ -4311,9 +4312,25 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
+        and_fcn = np.logical_and
         f_data = self.data.externd.free_data
         t_str0 = 'Spiking Frequency Gain vs Normalised Residuals'
         is_wexp = plot_scope == 'Whole Experiment'
+        use_no_cells = len(cell_type) == 0
+        i_bin = [5, 10].index(f_data.sf_vbin)
+
+        # retrieves the freely moving cell inclusion indices
+        if plot_scope != 'Individual Cell':
+            cl_inc = cf.get_free_inclusion_indices(self.data, i_bin)
+            if not use_all_cells:
+                if use_no_cells:
+                    # case is cells with no classification
+                    cl_inc = [np.array(and_fcn(~np.any(ct[i_bin], axis=1), ic)) for
+                                                                            ic, ct in zip(cl_inc, f_data.cell_type)]
+                else:
+                    # case is cells with at least one cell classification type
+                    cl_inc = [np.array(and_fcn(np.any(ct[i_bin][cell_type], axis=1), ic)) for
+                                                                            ic, ct in zip(cl_inc, f_data.cell_type)]
 
         if not plot_all_expt:
             # retrieves the index of the selected experiment (if plotting a single experiment/cell)
@@ -4328,11 +4345,12 @@ class AnalysisGUI(QMainWindow):
 
             else:
                 # otherwise, set the graph title for the single experiment
-                t_str = '{0}\n({1})'.format(t_str0, free_exp_name, cell_id)
+                sub_str = 'All Cells' if use_all_cells else '/'.join(cell_type) + ' Cells'
+                t_str = '{0}\n({1} - {2})'.format(t_str0, free_exp_name, sub_str)
 
         else:
             # otherwise, set the title string for all cells
-            t_str = '{0}\n(All Cells)'.format(t_str0)
+            t_str = '{0}\n({1})'.format(t_str0, 'All Cells' if use_all_cells else '/'.join(cell_type) + ' Cells')
 
         # memory allocation
         n_type = len(f_data.sf_tt)
@@ -4344,13 +4362,14 @@ class AnalysisGUI(QMainWindow):
                 sf_res[i_type] = f_data.sf_res[i_expt][i_cell, i_type]
                 sf_gain[i_type] = f_data.sf_gain[i_expt][i_cell, i_type]
             elif not plot_all_expt:
-                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_type]))
-                sf_gain[i_type] = np.array(cf.flat_list(
-                            np.divide(f_data.sf_gain[i_expt][:, i_type], f_data.sf_max[i_expt])))
+                sf_res[i_type] = np.array(cf.flat_list(f_data.sf_res[i_expt][:, i_type][cl_inc[i_expt]]))
+                sf_gain[i_type] = np.array(cf.flat_list(np.divide(f_data.sf_gain[i_expt][:, i_type][cl_inc[i_expt]],
+                                                                  f_data.sf_max[i_expt][cl_inc[i_expt]])))
             else:
-                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type]) for sf in f_data.sf_res]))
-                sf_gain[i_type] = np.array(cf.flat_list(
-                    [cf.flat_list(np.divide(sf[:, i_type], sf_m)) for sf, sf_m in zip(f_data.sf_gain, f_data.sf_max)]))
+                sf_res[i_type] = np.array(cf.flat_list([cf.flat_list(sf[:, i_type][ic])
+                                                    for ic, sf in zip(cl_inc, f_data.sf_res)]))
+                sf_gain[i_type] = np.array(cf.flat_list([cf.flat_list(np.divide(sf[:, i_type][ic], sf_m[ic]))
+                                                    for ic, sf, sf_m in zip(cl_inc, f_data.sf_gain, f_data.sf_max)]))
 
         ###############################
         ####    FIGURE CREATION    ####
@@ -14857,7 +14876,7 @@ class AnalysisFunctions(object):
                           func='plot_ahv_corr_comp',
                           para=para)
 
-            # ====> Fixed/Free Spiking Correlation (Scatterplot)
+            # ====> AHV Fit Parameters
             para = {
                 # plotting parameters
                 # 'rot_filt': {
@@ -14914,6 +14933,15 @@ class AnalysisFunctions(object):
                 'plot_scope': {
                     'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
                     'link_para': [['cell_id', 'Whole Experiment'], ['plot_all_expt', 'Individual Cell']]
+                },
+                'cell_type': {
+                    'type': 'CL', 'text': 'Cell Types', 'list': fcell_type[1:-1],
+                    'other_para': '--- Select Cell Types ---', 'para_reset': [['cell_id', self.reset_free_cid]],
+                    'def_val': np.ones(len(fcell_type) - 2, dtype=bool)
+                },
+                'use_all_cells': {
+                    'type': 'B', 'text': 'Analyse All Cells', 'def_val': True, 'link_para': ['cell_type', True],
+                    'para_reset': [['cell_id', self.reset_free_cid]]
                 },
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             }
@@ -18181,7 +18209,7 @@ class AnalysisFunctions(object):
         link_para, list_txt, def_val = fcn_para['link_para'], fcn_para['list'], fcn_para['def_val']
 
         #
-        first_line = fcn_para['other_para']
+        first_line, para_reset = fcn_para['other_para'], fcn_para['para_reset']
         if first_line is None:
             first_line = '--- Select Trial Conditions ---'
 
@@ -18191,7 +18219,7 @@ class AnalysisFunctions(object):
         h_lbl.setAlignment(Qt.AlignVCenter)
 
         #
-        cb_fcn = functools.partial(self.update_checklist_para, p_name, h_chklist=h_chklist)
+        cb_fcn = functools.partial(self.update_checklist_para, p_name, para_reset, h_chklist=h_chklist)
         h_chklist.view().pressed.connect(cb_fcn)
 
         # sets the callback function
@@ -18211,7 +18239,7 @@ class AnalysisFunctions(object):
             h_chklist.setEnabled(False)
 
         # adds the widgets to the layout
-        self.update_checklist_para(p_name, h_chklist)
+        self.update_checklist_para(p_name, para_reset, h_chklist)
         h_layout.addRow(h_lbl, h_chklist)
 
     ############################################
@@ -18439,7 +18467,7 @@ class AnalysisFunctions(object):
         # updates the parameter value
         self.curr_para[p_name] = p_list[index]
 
-    def update_checklist_para(self, p_name, h_chklist=None):
+    def update_checklist_para(self, p_name, para_reset, h_chklist=None):
         '''
 
         :param p_name:
@@ -18455,11 +18483,23 @@ class AnalysisFunctions(object):
         # retrieves the currently selected items
         self.curr_para[p_name] = h_chklist.getSelectedItems()
 
+        # resets the parameters based on the
+        if para_reset is not None:
+            # flag that the parameters are updating
+            self.is_updating = True
+
+            # runs the parameter reset functions
+            for pr in para_reset:
+                pr[1](pr[0], self.curr_para[p_name])
+
+            # flag that the parameters are finished updating
+            self.is_updating = False
+
     #########################################
     ####    PARAMETER RESET FUNCTIONS    ####
     #########################################
 
-    def reset_free_cid(self, p_name, free_exp):
+    def reset_free_cid(self, p_name, in_value):
         '''
 
         :param p_name:
@@ -18483,7 +18523,10 @@ class AnalysisFunctions(object):
 
         # retrieves the free cell ID#'s for the first expt
         i_bin = ['5', '10'].index(self.curr_para['vel_bin'])
-        free_cid = self.get_free_cell_ids(self.get_data_fcn(), free_exp, i_bin)
+        c_type = in_value if isinstance(in_value, list) else self.curr_para['cell_type']
+        use_all = in_value > 0 if isinstance(in_value, int) else self.curr_para['use_all_cells']
+        free_exp = in_value if isinstance(in_value, str) else self.curr_para['free_exp_name']
+        free_cid = self.get_free_cell_ids(self.get_data_fcn(), free_exp, i_bin, use_all, c_type)
 
         # removes the existing items
         for i in range(h_list.count()):
@@ -19361,7 +19404,7 @@ class AnalysisFunctions(object):
         # returns the parameter dictionary for the current parameter
         return fcn_d[i_fcn]['para'][p_name]
 
-    def get_free_cell_ids(self, data, free_exp, i_bin=0):
+    def get_free_cell_ids(self, data, free_exp, i_bin=0, use_all=True, cell_type=['AHV']):
         '''
 
         :param data:
@@ -19375,9 +19418,19 @@ class AnalysisFunctions(object):
 
         # retrieves the indices of the cells that are included in the analysis
         cl_inc = cf.get_free_inclusion_indices(data,  i_bin)[i_expt]
+        if not use_all:
+            if len(cell_type) == 0:
+                # case is cells with no classification
+                cl_inc = np.logical_and(~np.any(f_data.cell_type[i_expt][i_bin], axis=1), cl_inc)
+            else:
+                # case is cells with at least one cell classification type
+                cl_inc = np.logical_and(np.any(f_data.cell_type[i_expt][i_bin][cell_type], axis=1), cl_inc)
 
         # sets the cell ID strings
-        return ['Cell #{0}'.format(x) for x in np.sort(np.array(f_data.cell_id[i_expt])[cl_inc])]
+        if not np.any(cl_inc):
+            return ['No Valid Cells']
+        else:
+            return ['Cell #{0}'.format(x) for x in np.sort(np.array(f_data.cell_id[i_expt])[cl_inc])]
 
     @staticmethod
     def set_missing_para_field(para):
