@@ -4124,6 +4124,38 @@ def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_co
     return i_cell_b, r_obj_indiv
 
 
+def get_within_filter_cell_matches(r_obj):
+    '''
+
+    :param r_obj:
+    :return:
+    '''
+
+    # initialisations
+    n_filt, n_tt = r_obj.n_filt, len(r_obj.rot_filt['t_type'])
+    comb_id = [10000 * np.array(i_ex) + np.array(cl_id) for i_ex, cl_id in zip(r_obj.i_expt, r_obj.cl_id)]
+
+    # determines the filter groupings for the current filter options
+    n_grp = int(np.round(n_filt / n_tt))
+    i_grp = [np.arange(n_tt) + (i_grp * n_filt) for i_grp in range(n_grp)]
+
+    # determines the intersecting indices within each filter grouping
+    i_cell_w = np.empty(n_filt, dtype=object)
+    for i in range(len(i_grp)):
+        # sets the initial indices for the current filter grouping
+        intersect_id = comb_id[i_grp[i][0]]
+        for j in i_grp[i][1:]:
+            # returns the indices of the matching cells
+            intersect_id = np.sort(list(set(comb_id[j]).intersection(intersect_id)))
+
+        # sets the intersection indices wrt the
+        for ii, j in enumerate(i_grp[i]):
+            i_cell_w[ii] = np.searchsorted(comb_id[j], intersect_id)
+
+    # returns the within filter index array
+    return i_cell_w, i_grp
+
+
 def check_existing_compare(comp_data, fix_name, free_name):
     '''
 

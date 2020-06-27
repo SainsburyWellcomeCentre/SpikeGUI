@@ -11,7 +11,7 @@ import multiprocessing as mp
 from numpy.matlib import repmat
 
 # scipy module imports
-from scipy.stats import norm
+from scipy.stats import norm, linregress
 from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
@@ -157,6 +157,10 @@ class WorkerThread(QThread):
             ####    AHV ANALYSIS FUNCTIONS    ####
             ######################################
 
+            elif self.thread_job_secondary == 'Correlation Fit Parameters (Fixed)':
+                # case is the correlation fit parmeters
+                self.calc_corr_fit_para(data, plot_para, calc_para, w_prog)
+
             elif ' (Fixed)' in self.thread_job_secondary or \
                                             (self.thread_job_secondary == 'Correlation Significance Overlap'):
 
@@ -172,12 +176,21 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
+                # initialises the rotation filter class object (if not already set)
+                if plot_para['rot_filt'] is None:
+                    plot_para['rot_filt'] = cf.init_rotation_filter_data(False)
+
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf_fix'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
                 cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
                 cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
+
+                # runs any specific additional function
+                if self.thread_job_secondary == 'Correlation Comparison (Fixed)':
+                    # case is the correlation fit parameters
+                    self.calc_corr_fit_para(data, plot_para, calc_para, w_prog)
 
             elif (' (Freely Moving)' in self.thread_job_secondary):
                 # checks to see if any parameters have been altered
@@ -2075,6 +2088,78 @@ class WorkerThread(QThread):
 
         # final update of the progressbar
         w_prog.emit('Correlation Calculations Complete!', 100.)
+
+    ######################################
+    ####    AHV ANALYSIS FUNCTIONS    ####
+    ######################################
+
+    def calc_corr_fit_para(self, data, plot_para, calc_para, w_prog):
+        '''
+
+        :param data:
+        :param plot_para:
+        :param calc_para:
+        :param w_prog:
+        :return:
+        '''
+
+        def calc_sf_lin_para(xi, sf):
+            '''
+
+            :param sf:
+            :return:
+            '''
+
+            # memory allocation
+            n_cell = np.shape(sf)[0]
+            sf_slope, sf_int = np.zeros(n_cell), np.zeros(n_cell)
+
+            # calculates the linear parameters for each cell
+            for i_cell in range(n_cell):
+                l_fit = linregress(xi, sf[i_cell, :])
+                sf_slope[i_cell], sf_int[i_cell] = l_fit.slope, l_fit.intercept
+
+            # returns the array
+            return sf_slope, sf_int
+
+        # appends the fields to the rotation class object
+        r_data = data.rotation
+        if not hasattr(r_data, 'sf_fix_slope'):
+            r_data.sf_fix_slope = None
+            r_data.sf_fix_int = None
+            r_data.peak_hz_fix = None
+
+        # applies the rotation filter to the dataset
+        r_obj = RotationFilteredData(data, plot_para['rot_filt'], None, None, True, 'Whole Experiment', False)
+
+        # calculates the kinematic spiking frequencies and retrieves the velocity values
+        k_sf0, xi_bin0, _ = rot.calc_kinemetic_spike_freq(data, r_obj, [10, float(calc_para['vel_bin'])])
+        k_sf, xi_bin = k_sf0[1], np.mean(xi_bin0[1], axis=1)
+        is_pos = xi_bin > 0
+
+        # memory allocation
+        n_filt = r_obj.n_filt
+        A = np.empty((2, n_filt), dtype=object)
+        sf_slope, sf_int, peak_hz = dcopy(A), dcopy(A), np.empty(n_filt, dtype=object)
+
+        # for each filter type, calculate the linear fit parameters
+        for i_filt in range(n_filt):
+            # calculates the spiking frequency linear parameters for the negative/positive frequencies
+            sf_mu = np.mean(k_sf[i_filt], axis=2)
+            sf_slope[0, i_filt], sf_int[0, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_mu[:, ~is_pos][:, ::-1])
+            sf_slope[1, i_filt], sf_int[1, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_mu[:, is_pos])
+
+            # calculates the peak frequencies for each cell
+            peak_hz[i_filt] = np.max(sf_mu, axis=1)
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the class object fields
+        r_data.sf_fix_slope = sf_slope
+        r_data.sf_fix_int = sf_int
+        r_data.peak_hz_fix = peak_hz
 
     #######################################
     ####    FREELY MOVING FUNCTIONS    ####
