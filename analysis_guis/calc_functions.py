@@ -2015,17 +2015,20 @@ def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
                 vel_sf_grp = vel_sf[:, :, i_cell][:, ind_grp[i_grp]]
                 vel_sf_grp = vel_sf_grp[np.logical_not(np.isnan(vel_sf_grp[:, 0])), :]
 
-                # calculates the shuffled spiking frequencies
-                v_sf_sh[i_cell, i_grp] = shuffle_cell_spike_freq(calc_para, vel_sf_grp)
-                v_corr_sh[:, i_cell, i_grp] = calc_spike_freq_corr(v_bin_grp[i_grp], v_sf_sh[i_cell, i_grp], mlt[i_grp])
-
                 # calculates the mean
                 v_sf_mu[i_cell, i_grp] = smooth_signal(np.mean(vel_sf_grp, axis=0), n_sm)
                 v_corr[i_cell, i_grp] = mlt[i_grp] * np.corrcoef(v_sf_mu[i_cell, i_grp], v_bin_grp[i_grp])[0, 1]
 
-                # calculates the cell correlation significance
-                p_tile = np.percentile(v_corr_sh[:, i_cell, i_grp], [p_value, (100 - p_value)])
-                is_sig[i_cell, i_grp] = (v_corr[i_cell, i_grp] < p_tile[0]) or (v_corr[i_cell, i_grp] > p_tile[1])
+                # only perforrm the shuffle analysis if there is at least one shuffle selected
+                if calc_para['n_shuffle'] > 0:
+                    # calculates the shuffled spiking frequencies
+                    v_sf_sh[i_cell, i_grp] = shuffle_cell_spike_freq(calc_para, vel_sf_grp)
+                    v_corr_sh[:, i_cell, i_grp] = \
+                                calc_spike_freq_corr(v_bin_grp[i_grp], v_sf_sh[i_cell, i_grp], mlt[i_grp])
+
+                    # calculates the cell correlation significance
+                    p_tile = np.percentile(v_corr_sh[:, i_cell, i_grp], [p_value, (100 - p_value)])
+                    is_sig[i_cell, i_grp] = (v_corr[i_cell, i_grp] < p_tile[0]) or (v_corr[i_cell, i_grp] > p_tile[1])
 
         # returns the shuffled spiking frequencies, correlation arrays
         return v_sf_mu, v_sf_sh, v_corr_sh, v_corr, is_sig

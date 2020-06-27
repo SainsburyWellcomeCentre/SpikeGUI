@@ -157,10 +157,6 @@ class WorkerThread(QThread):
             ####    AHV ANALYSIS FUNCTIONS    ####
             ######################################
 
-            elif self.thread_job_secondary == 'Correlation Fit Parameters (Fixed)':
-                # case is the correlation fit parmeters
-                self.calc_corr_fit_para(data, plot_para, calc_para, w_prog)
-
             elif ' (Fixed)' in self.thread_job_secondary or \
                                             (self.thread_job_secondary == 'Correlation Significance Overlap'):
 
@@ -188,7 +184,7 @@ class WorkerThread(QThread):
                 cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
 
                 # runs any specific additional function
-                if self.thread_job_secondary == 'Correlation Comparison (Fixed)':
+                if self.thread_job_secondary in ['Correlation Comparison (Fixed)', 'Correlation Fit Parameters (Fixed)']:
                     # case is the correlation fit parameters
                     self.calc_corr_fit_para(data, plot_para, calc_para, w_prog)
 
@@ -2103,7 +2099,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def calc_sf_lin_para(xi, sf):
+        def calc_sf_lin_para(xi, sf, is_neg):
             '''
 
             :param sf:
@@ -2116,7 +2112,14 @@ class WorkerThread(QThread):
 
             # calculates the linear parameters for each cell
             for i_cell in range(n_cell):
-                l_fit = linregress(xi, sf[i_cell, :])
+                if is_neg:
+                    # case is the negative velocities
+                    l_fit = linregress(xi, sf[i_cell][::-1])
+                else:
+                    # case is the positive velocities
+                    l_fit = linregress(xi, sf[i_cell])
+
+                # sets the linear parameters for the current cell
                 sf_slope[i_cell], sf_int[i_cell] = l_fit.slope, l_fit.intercept
 
             # returns the array
@@ -2131,26 +2134,35 @@ class WorkerThread(QThread):
 
         # applies the rotation filter to the dataset
         r_obj = RotationFilteredData(data, plot_para['rot_filt'], None, None, True, 'Whole Experiment', False)
+        n_filt = r_obj.n_filt
 
-        # calculates the kinematic spiking frequencies and retrieves the velocity values
-        k_sf0, xi_bin0, _ = rot.calc_kinemetic_spike_freq(data, r_obj, [10, float(calc_para['vel_bin'])])
-        k_sf, xi_bin = k_sf0[1], np.mean(xi_bin0[1], axis=1)
+        # determines the common cell indices for each filter types
+        t_type_full = [x['t_type'][0] for x in r_obj.rot_filt_tot]
+        i_cell_b, _ = cfcn.get_common_filtered_cell_indices(data, r_obj, t_type_full, True)
+
+        # retrieves the spiking frequencies
+        r_data = data.rotation
+        sf = dcopy(r_data.vel_sf_mean)
+
+        # sets up the velocity bin values
+        v_max, v_bin = 80, r_data.vel_bin_corr
+        xi_bin = np.arange(-v_max + v_bin / 2, v_max, v_bin)
         is_pos = xi_bin > 0
 
         # memory allocation
-        n_filt = r_obj.n_filt
         A = np.empty((2, n_filt), dtype=object)
         sf_slope, sf_int, peak_hz = dcopy(A), dcopy(A), np.empty(n_filt, dtype=object)
 
         # for each filter type, calculate the linear fit parameters
-        for i_filt in range(n_filt):
-            # calculates the spiking frequency linear parameters for the negative/positive frequencies
-            sf_mu = np.mean(k_sf[i_filt], axis=2)
-            sf_slope[0, i_filt], sf_int[0, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_mu[:, ~is_pos][:, ::-1])
-            sf_slope[1, i_filt], sf_int[1, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_mu[:, is_pos])
+        for i_filt, tt in enumerate(t_type_full):
+            # calculates the slope/intercept values
+            sf_filt = sf[tt][i_cell_b[i_filt], :]
+            sf_slope[0, i_filt], sf_int[0, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_filt[:, 0], True)
+            sf_slope[1, i_filt], sf_int[1, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_filt[:, 1], False)
 
             # calculates the peak frequencies for each cell
-            peak_hz[i_filt] = np.max(sf_mu, axis=1)
+            sf_tot = np.vstack(([np.max(sf) for sf in sf_filt[:, 0]], [np.max(sf) for sf in sf_filt[:, 1]])).T
+            peak_hz[i_filt] = np.max(sf_tot, axis=1)
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####

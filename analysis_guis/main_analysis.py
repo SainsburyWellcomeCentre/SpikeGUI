@@ -3992,6 +3992,7 @@ class AnalysisGUI(QMainWindow):
 
             # sets the final title string
             t_str = '{0}\n({1})'.format(t_str0, sub_str)
+
         # memory allocation
         n_type = len(f_data.sf_tt)
         sf_res, sf_gain = np.empty(n_type, dtype=object), np.empty(n_type, dtype=object)
@@ -12306,6 +12307,7 @@ class AnalysisGUI(QMainWindow):
             k_sf, xi_bin = k_sf0[1], xi_bin0[1]
             is_CCW = xi_bin[:, 0] < 0
             t_str = ['Combined CCW/CW']
+
         else:
             t_str = r_obj.phase_lbl
 
@@ -13117,7 +13119,7 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # parameters
-            p_val = 0.05
+            p_value = 0.05
             n_filt = np.shape(r_tot)[1]
 
             # initialisations
@@ -13128,8 +13130,18 @@ class AnalysisGUI(QMainWindow):
                     if i_filt == j_filt:
                         table_data[i_filt, j_filt] = 'N/A'
                     else:
-                        _, p_value = ranksums(cf.flat_list(r_tot[:, i_filt]), cf.flat_list(r_tot[:, j_filt]))
-                        t_str = '{:.3f}{}'.format(p_value, cf.sig_str_fcn(p_value, p_val))
+                        # runs the pair-wise wilcoxon test
+                        y1, y2 = cf.flat_list(r_tot[:, i_filt]), cf.flat_list(r_tot[:, j_filt])
+                        is_ok = np.logical_and(~np.isnan(y1), ~np.isnan(y2))
+                        y1, y2 = list(np.array(y1)[is_ok]), list(np.array(y2)[is_ok])
+
+                        i_grp, y_grp = [0] * len(y1) + [1] * len(y2), y1 + y2
+                        results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
+                                                               p_adjust_method='none', paired=True)
+
+                        # sets the p=value string into the table
+                        p_val_nw = cf.get_r_stats_values(results, 'p.value')
+                        t_str = '{:.3f}{}'.format(p_val_nw, cf.sig_str_fcn(p_val_nw, p_value))
                         table_data[i_filt, j_filt] = table_data[j_filt, i_filt] = t_str
 
             # returns the stats array
@@ -13173,11 +13185,11 @@ class AnalysisGUI(QMainWindow):
                 # retrieves the initial linear fit parameter values (based on type)
                 if ahv_met_type == 'Fit Slope':
                     # case is the linear fit slope
-                    r_met0 = [np.vstack(r_data.sf_fix_slope[:, i])[:, i_c].T for i, i_c in enumerate(i_cell_w)]
+                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_slope[:, i])[:, i_c].T) for i, i_c in enumerate(i_cell_w)]
 
                 elif ahv_met_type == 'Fit Intercept':
                     # case is the linear fit intercept
-                    r_met0 = [np.vstack(r_data.sf_fix_int[:, i])[:, i_c].T for i, i_c in enumerate(i_cell_w)]
+                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_int[:, i])[:, i_c].T) for i, i_c in enumerate(i_cell_w)]
 
             # determines the experiment group indices for each filter type
             i_exg = [[np.where(i_ex[i_c] == x)[0] for x in np.unique(i_ex[i_c])]
@@ -13233,10 +13245,10 @@ class AnalysisGUI(QMainWindow):
         b_wid, y_mx, y_mn = 0.9, -1e6, 1e6
         xi = np.arange(n_cond)
         col = cf.get_plot_col(n_cond)
-        t_str = ['Negative', 'Positive']
+        t_str = ['CCW', 'CW'] if is_fixed else ['Negative', 'Positive']
 
         # table parameters
-        t_font = cf.get_table_font_size(2)
+        t_font = cf.get_table_font_size(2 + int(is_fixed))
         col_table = cf.get_plot_col(n_cond, n_cond)
 
         # creates the subplot axes
@@ -13303,7 +13315,9 @@ class AnalysisGUI(QMainWindow):
 
             elif plot_type == 'Boxplot':
                 # case is a boxplot
-                y_plt_box = [np.hstack(r_tot[:, i_cond][:n_ex]) for i_cond, n_ex in enumerate(n_expt)]
+                y_plt_box0 = [np.hstack(r_tot[:, i_cond][:n_ex]) for i_cond, n_ex in enumerate(n_expt)]
+                is_ok = np.all(np.vstack([~np.isnan(x) for x in y_plt_box0]), axis=0)
+                y_plt_box = [x[is_ok] for x in y_plt_box0]
                 ax[i_grp].boxplot(y_plt_box, positions=xi, vert=True, patch_artist=True, widths=0.9)
 
             else:
@@ -13341,7 +13355,7 @@ class AnalysisGUI(QMainWindow):
                 t_str_nw = '{} {}\n(p-value = {:.3f}{})'.format(t_str[i_grp], t_str_base, p_value, p_str)
 
             # creates the sub-figure title
-            ax[i_grp].set_title(t_str_nw, fontsize=16, fontweight='bold')
+            ax[i_grp].set_title(t_str_nw, fontsize=14, fontweight='bold')
 
             #######################################
             ####    MEAN/SEM TABLE CREATION    ####
@@ -13371,7 +13385,7 @@ class AnalysisGUI(QMainWindow):
         if ahv_met_type != 'Correlation':
             for i_grp in range(n_grp):
                 # sets the plot axes index
-                ax[i_grp].set_ylim([y_mn, y_mx])
+                ax[i_grp].set_ylim([0, y_mx])
 
         ###########################
         ####    DATA OUTPUT    ####
@@ -15587,10 +15601,6 @@ class AnalysisFunctions(object):
         # ====> Correlation Comparison (Fixed)
         para = {
             # calculation parameters
-            'n_shuffle': {
-                'gtype': 'C', 'text': 'Trial Shuffle Count',
-                'def_val': cfcn.set_def_para(corr_def_para, 'n_shuffle', 100)
-            },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'
             },
@@ -15619,6 +15629,7 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
                 'def_val': 'All', 'is_visible': False
             },
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 0, 'is_visible': False},
 
             # plotting parameters
             'rot_filt': {
@@ -15648,6 +15659,14 @@ class AnalysisFunctions(object):
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'
             },
+            'n_smooth': {
+                'gtype': 'C', 'text': 'Smoothing Window', 'min_val': 3,
+                'def_val': cfcn.set_def_para(corr_def_para, 'n_smooth', 5)
+            },
+            'is_smooth': {
+                'gtype': 'C', 'type': 'B', 'text': 'Smooth Velocity Trace', 'link_para': ['n_smooth', False],
+                'def_val': cfcn.set_def_para(corr_def_para, 'is_smooth', False)
+            },
             'n_sample': {
                 'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
                 'def_val': cfcn.set_def_para(corr_def_para, 'n_sample', 100)
@@ -15665,6 +15684,7 @@ class AnalysisFunctions(object):
                 'gtype': 'C', 'type': 'L', 'text': 'Spike Frequency Type', 'list': ['All'],
                 'def_val': 'All', 'is_visible': False
             },
+            'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 0, 'is_visible': False},
 
             # plotting parameters
             'rot_filt': {
