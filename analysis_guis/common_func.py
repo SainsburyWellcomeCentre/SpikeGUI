@@ -1788,6 +1788,8 @@ def get_r_stats_values(r_stats_obj, f_key, is_arr=False):
 
     if is_arr:
         return r_stats_val
+    elif isinstance(r_stats_val[0], np.ndarray):
+        return r_stats_val[0][0]
     else:
         return r_stats_val[0]
 

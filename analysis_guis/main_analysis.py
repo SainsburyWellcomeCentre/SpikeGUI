@@ -5498,7 +5498,7 @@ class AnalysisGUI(QMainWindow):
 
             # combines everything into a single array and outputs to file
             data_out = np.vstack(data_all).astype(str)
-            np.savetxt("Fixed Correlation Significance.csv", data_out, delimiter=",", fmt='%s')
+            self.output_data_file("Fixed Correlation Significance.csv", data_out)
 
     def plot_ahv_corr_comp_fixed(self, rot_filt, plot_type, ahv_met_type, plot_grid, plot_scope):
         '''
@@ -8793,7 +8793,7 @@ class AnalysisGUI(QMainWindow):
 
         # combines everything into a single array and outputs to file
         data_out = np.vstack(data_all).astype(str)
-        np.savetxt("Rot & Vis Significance.csv", data_out, delimiter=",", fmt='%s')
+        self.output_data_file("Rot & Vis Significance.csv", data_out)
 
     def plot_combined_direction_roc_curves(self, rot_filt, plot_exp_name, plot_all_expt, use_avg, connect_lines, m_size,
                                            violin_bw, plot_grp_type, cell_grp_type, auc_plot_type, plot_grid, plot_scope):
@@ -9640,7 +9640,7 @@ class AnalysisGUI(QMainWindow):
                 i_expt_phs += 1
 
         # outputs the phase data file
-        np.savetxt('Temporal LDA Value (Phase).csv', data_out_phs, delimiter=",", fmt='%s')
+        self.output_data_file('Temporal LDA Value (Phase).csv', data_out_phs)
 
         # sets up the phase data output
         tt_ofs, xi_ofs, y_ofs = setup_bin_stats_values(d_data.xi_ofs, ttype, y_acc_ofs)
@@ -9662,7 +9662,7 @@ class AnalysisGUI(QMainWindow):
                 i_expt_ofs += 1
 
         # outputs the offset data file
-        np.savetxt('Temporal LDA Value (Offset).csv', data_out_ofs, delimiter=",", fmt='%s')
+        self.output_data_file('Temporal LDA Value (Offset).csv', data_out_ofs)
 
     def plot_individual_lda(self, plot_exp_name, plot_all_expt, decode_type, dir_type_1, dir_type_2, m_size, plot_grid):
         '''
@@ -10967,7 +10967,7 @@ class AnalysisGUI(QMainWindow):
             t_data = np.empty((len(n_cell) + 1, 2), dtype=object)
             t_data[0, :] = np.array(['N(Cell)', 'N(Expt)'])
             t_data[1:, :] = np.vstack((np.array(n_cell), n_acc_exp[0] ** 2)).T.astype(int)
-            np.savetxt('Speed LDA Expt Count.csv', t_data, delimiter=",", fmt='%s')
+            self.output_data_file('Speed LDA Expt Count.csv', t_data)
 
         # sets the common axis properties
         for _ax in self.plot_fig.ax:
@@ -13049,7 +13049,7 @@ class AnalysisGUI(QMainWindow):
             left, right, wspace, hspace, y_gap = 0.075, 0.98, 0.25, 0.05, 0.025
 
             # sets the pairwise stats table (only for fixed experiments)
-            if is_fixed:
+            if is_fixed and (n_filt > 1):
                 bottom3 = 0.04
                 top3 = bottom3 + (n_filt + 1) * tbl_hght
                 n_r3, bottom2 = 1, top3 + y_gap
@@ -13081,7 +13081,7 @@ class AnalysisGUI(QMainWindow):
                 plot_fig.ax[i_ofs] = plot_fig.figure.add_subplot(gs2[0, i_c])
                 plot_fig.ax[i_ofs].axis('off')
 
-            if is_fixed:
+            if is_fixed and (n_filt > 1):
                 # creates the gridspec objects
                 gs3 = gridspec.GridSpec(1, n_c, width_ratios=width_ratios, height_ratios=height_ratios,
                                         figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=left, right=right,
@@ -13197,7 +13197,7 @@ class AnalysisGUI(QMainWindow):
 
             # splits the initial metric values/cluster ID#'s into separate groups for each experiment
             r_met = [[r_m[i, :] for i in i_ex] for r_m, i_ex in zip(r_met0, i_exg)]
-            c_id = [[np.array(cl_id)[i_c[i]] for i in i_ex] for cl_id, i_c, i_ex in zip(r_obj.cl_id, i_cell_w, i_exg)]
+            c_id = [np.array(r_obj.cl_id[0])[i_cell_w[0][i]] for i in i_exg[0]]
 
             # sets the experiment counts for each filter type
             n_expt = np.array([len(x) for x in r_met])
@@ -13255,6 +13255,9 @@ class AnalysisGUI(QMainWindow):
         setup_plot_axis(self.plot_fig, x_tick_lbl, n_filt_ax)
         ax = self.plot_fig.ax
 
+        # memory allocation
+        r_tot = np.empty(n_grp, dtype=object)
+
         # creates the subplots for each group
         for i_grp in range(n_grp):
             ################################
@@ -13266,28 +13269,26 @@ class AnalysisGUI(QMainWindow):
                 # case is the fixed experiments
 
                 # memory allocation
-                r_tot = np.empty((max(n_expt), len(n_expt)), dtype=object)
+                r_tot[i_grp] = np.empty((max(n_expt), len(n_expt)), dtype=object)
 
                 # sets the metric values into the array for each condition/experiment
                 for i_cond in range(len(n_expt)):
                     for i_expt in range(n_expt[i_cond]):
-                        r_tot[i_expt, i_cond] = r_met[i_cond][i_expt][:, i_grp]
+                        r_tot[i_grp][i_expt, i_cond] = r_met[i_cond][i_expt][:, i_grp]
 
             else:
                 # case is the freely moving experiments
 
                 # memory allocation
-                r_tot = np.empty((n_expt[0], 2), dtype=object)
+                r_tot[i_grp] = np.empty((n_expt[0], 2), dtype=object)
 
                 # case is the freely moving experiments
                 for i_expt in range(n_expt[0]):
-                    r_tot[i_expt, 0] = r_dark[i_expt][:, i_grp]
-                    r_tot[i_expt, 1] = r_light[i_expt][:, i_grp]
-
-                # r_tot = [np.vstack((rd[:, i_grp], rl[:, i_grp])).T for rd, rl in zip(r_dark, r_light)]
+                    r_tot[i_grp][i_expt, 0] = r_dark[i_expt][:, i_grp]
+                    r_tot[i_grp][i_expt, 1] = r_light[i_expt][:, i_grp]
 
             # calculates the mean metric values over each experiment/filter type
-            r_expt_mu = [[np.mean(x) for x in r_tot[:, i_cond][:n_ex]] for i_cond, n_ex in enumerate(n_expt)]
+            r_expt_mu = [[np.mean(x) for x in r_tot[i_grp][:, i_cond][:n_ex]] for i_cond, n_ex in enumerate(n_expt)]
 
             # from these values, calculate the overall mean/SEM values
             r_tot_mu = np.array([np.nanmean(x) for x in r_expt_mu])
@@ -13298,11 +13299,11 @@ class AnalysisGUI(QMainWindow):
                 # case is the correlation plot type is a violin/swarmplot
 
                 # determines the number of cells for each condition
-                n_cell = [sum([len(x) for x in r_tot[:, i_cond][:n_ex]]) for i_cond, n_ex in enumerate(n_expt)]
+                n_cell = [sum([len(x) for x in r_tot[i_grp][:, i_cond][:n_ex]]) for i_cond, n_ex in enumerate(n_expt)]
 
                 # sets the x/y plot values
                 x_plt = cf.flat_list([[j + 1] * n_c for j, n_c in enumerate(n_cell)])
-                y_plt = cf.flat_list(r_tot.T.flatten())
+                y_plt = cf.flat_list(r_tot[i_grp].T.flatten())
 
                 # sets the violin/swarmplot dictionaries
                 vl_dict = cf.setup_sns_plot_dict(ax=ax[i_grp], x=x_plt, y=y_plt, inner=None, bw=1, cut=1)
@@ -13315,7 +13316,7 @@ class AnalysisGUI(QMainWindow):
 
             elif plot_type == 'Boxplot':
                 # case is a boxplot
-                y_plt_box0 = [np.hstack(r_tot[:, i_cond][:n_ex]) for i_cond, n_ex in enumerate(n_expt)]
+                y_plt_box0 = [np.hstack(r_tot[i_grp][:, i_cond][:n_ex]) for i_cond, n_ex in enumerate(n_expt)]
                 is_ok = np.all(np.vstack([~np.isnan(x) for x in y_plt_box0]), axis=0)
                 y_plt_box = [x[is_ok] for x in y_plt_box0]
                 ax[i_grp].boxplot(y_plt_box, positions=xi, vert=True, patch_artist=True, widths=0.9)
@@ -13350,7 +13351,7 @@ class AnalysisGUI(QMainWindow):
 
                 # incorporates the pair-wise comparisons into the title (along with velocity direction/metric type)
                 #  => Is this calculated over all cells or the experiment means?
-                _, p_value = wilcoxon(cf.flat_list(r_tot[:, 0]), cf.flat_list(r_tot[:, 1]))
+                _, p_value = wilcoxon(cf.flat_list(r_tot[i_grp][:, 0]), cf.flat_list(r_tot[i_grp][:, 1]))
                 p_str = '*' if (p_value < 0.05) else ''
                 t_str_nw = '{} {}\n(p-value = {:.3f}{})'.format(t_str[i_grp], t_str_base, p_value, p_str)
 
@@ -13373,9 +13374,9 @@ class AnalysisGUI(QMainWindow):
             ####    FIXED STATS TABLE CREATION    ####
             ##########################################
 
-            if is_fixed:
+            if is_fixed and (n_cond > 1):
                 # sets the table values and properties for the mean/SEM values
-                table_stats = calc_fixed_met_stats(r_tot)
+                table_stats = calc_fixed_met_stats(r_tot[i_grp])
 
                 # creates the table
                 cf.add_plot_table(self.plot_fig, ax[i_grp + 2 * n_grp], t_font, table_stats,
@@ -13391,47 +13392,88 @@ class AnalysisGUI(QMainWindow):
         ####    DATA OUTPUT    ####
         ###########################
 
+        # memory allocation
+        n_ex, n_col = len(c_id), 2 + 2 * n_cond
+        data_tmp = np.empty(n_ex + 1, dtype=object)
+
         if is_fixed:
-            # FINISH ME!
-            return
+            # case is the fixed experiments
+
+            # retrieves the filter names
+            x_tick_lbl_fin = [x.replace('\n', ' ') for x in x_tick_lbl]
+            grp_str = cf.flat_list([['{0} ({1})'.format(ct, tt) for tt in t_str] for ct in x_tick_lbl_fin])
+
+            # sets the experiment file names
+            is_ok = np.array([len(x) > 0 for x in r_obj.clust_ind[0]])
+            c_fix = np.array(self.data.cluster)[np.where(cf.det_valid_rotation_expt(self.data))[0]]
+            exp_name = np.array([cf.extract_file_name(c['expFile']) for c in c_fix])[is_ok]
 
         else:
-            # memory allocation
-            n_ex, n_col = len(c_id), 6
-            data_tmp = np.empty(n_ex + 1, dtype=object)
+            # case is the freely moving experiments
+
+            # retrieves the filter names
             grp_str = cf.flat_list([['{0} ({1})'.format(ct, tt) for tt in t_str] for ct in x_tick_lbl])
 
-            # sets title row
-            data_tmp[0] = np.empty((2, n_col), dtype=object)
-            data_tmp[0][0, :] = ''
-            data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID'] + grp_str, dtype=object)
+            # sets the experiment file names
+            exp_name = f_data.exp_name
 
-            for i_ex in range(n_ex):
-                # memory allocation and initialisations
-                n_row = len(c_id[i_ex])
-                data_tmp[i_ex + 1] = np.zeros((n_row + 1, n_col), dtype=object)
+        # sets title row
+        data_tmp[0] = np.empty((2, n_col), dtype=object)
+        data_tmp[0][0, :] = ''
+        data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID'] + grp_str, dtype=object)
 
-                # sets the data values into the array
-                data_tmp[i_ex + 1][:, 0] = ''
-                data_tmp[i_ex + 1][0, :] = ''
-                data_tmp[i_ex + 1][1, 0] = f_data.exp_name[i_ex]
-                data_tmp[i_ex + 1][1:, 1] = c_id[i_ex]
+        for i_ex in range(n_ex):
+            # memory allocation and initialisations
+            n_row = len(c_id[i_ex])
+            data_tmp[i_ex + 1] = np.zeros((n_row + 1, n_col), dtype=object)
 
-                # sets the cells which has any type of significance (negative, positive or both)
-                for j in range(n_grp):
+            # sets the data values into the array
+            data_tmp[i_ex + 1][:, 0] = ''
+            data_tmp[i_ex + 1][0, :] = ''
+            data_tmp[i_ex + 1][1:, 1] = c_id[i_ex]
+            data_tmp[i_ex + 1][1, 0] = exp_name[i_ex]
+
+            # sets the cells which has any type of significance (negative, positive or both)
+            for i_grp in range(n_grp):
+                for i_cond in range(n_cond):
                     # case is the freely moving experiments
-                    data_tmp[i_ex + 1][1:, j + 2] = r_dark[i_ex][:, j]
-                    data_tmp[i_ex + 1][1:, j + 4] = r_light[i_ex][:, j]
+                    i_col = 2 + (i_cond * n_grp) + i_grp
+                    data_tmp[i_ex + 1][1:, i_col] = r_tot[i_grp][i_ex, i_cond]
 
         # sets the values for the filter type
         data_out = np.vstack(data_tmp)
         if is_fixed:
-            out_name = 'AHV Correlation Comparison (Fixed).csv'
+            out_name = 'AHV Correlation Comparison (Fixed - {0}).csv'.format(ahv_met_type)
         else:
-            out_name = 'AHV Correlation Comparison ({0}).csv'.format(cell_type)
+            out_name = 'AHV Correlation Comparison ({0} - {1}).csv'.format(cell_type, ahv_met_type)
 
         # saves the data to file
-        np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
+        self.output_data_file(out_name, data_out)
+
+    def output_data_file(self, out_name, data_out, use_defdir=True):
+        '''
+
+        :param out_name:
+        :param data_out:
+        :param use_defdir:
+        :return:
+        '''
+
+        # if using the default data output directory, then append this to the output file name
+        if use_defdir:
+            out_name = os.path.join(self.def_data['dir']['dataDir'], out_name)
+
+        # outputs the data to file (continue trying until successful)
+        while 1:
+            try:
+                # attemps to output the data to file. if successful, then exit the loop
+                np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
+                break
+            except PermissionError:
+                # if the file is still open, then output an error message to screen
+                e_str = 'The data file "{0}.csv" is open.\nClose this file ' \
+                        'and then press OK to continue data output'.format(cf.extract_file_name(out_name))
+                cf.show_error(e_str, 'Data File Output Error')
 
     ####################################################
     ####    SPIKING FREQUENCY ANALYSIS FUNCTIONS    ####
