@@ -217,7 +217,7 @@ class RotationFilter(QDialog):
             ['Recording Layer', 'CheckCombo', 'record_layer', list(record_layer), self.is_multi_cell and self.plot_all_expt],
             ['Lesion Type', 'CheckCombo', 'lesion', list(lesion_type), self.is_multi_cell and self.plot_all_expt],
             ['Recording State', 'CheckCombo', 'record_state', list(record_state), self.is_multi_cell and self.plot_all_expt],
-            ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, True],
+            ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, self.plot_all_expt],
         ]
 
         # appends additional query fields if analysing uniform-drifting
@@ -587,7 +587,7 @@ class RotationFilter(QDialog):
 ########################################################################################################################
 
 class RotationFilteredData(object):
-    def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud,
+    def __init__(self, data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, is_ud,
                  t_ofs=None, t_phase=None, use_raw=False, rmv_empty=True):
 
         # initialisations
@@ -627,7 +627,7 @@ class RotationFilteredData(object):
 
         # applies the filter and sets up the other plotting field values
         self.apply_rotation_filter(data)
-        self.set_spike_arrays(data, i_cluster)
+        self.set_spike_arrays(data, cell_id)
 
         if self.is_ok:
             self.set_legend_str()
@@ -658,16 +658,17 @@ class RotationFilteredData(object):
 
         # applies all unique filters to the loaded experiments
         self.t_spike0, self.wvm_para, self.trial_ind, self.clust_ind, self.i_expt0, self.f_perm, self.f_key, \
-                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name, self.use_raw)
+                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name,
+                                                             self.use_raw, self.rmv_empty)
 
         # determines the number of plots to be displayed
         self.n_filt = len(self.rot_filt_tot)
 
-    def set_spike_arrays(self, data, i_cluster):
+    def set_spike_arrays(self, data, cell_id):
         '''
 
         :param data:
-        :param i_cluster:
+        :param cell_id:
         :return:
         '''
 
@@ -685,15 +686,18 @@ class RotationFilteredData(object):
                     'different index or rotation analysis filter.'
 
         elif self.is_single_cell:
-            if i_cluster not in (clust_ind[0][0] + 1):
-                # if the cluster index is not valid, then output an error to screen
-                e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
-                        'different index or rotation analysis filter.'
+            #
+            if cell_id == 'No Valid Cells':
+                # if there are no valid cells, then output an error to screen
+                e_str = 'There are no valid cells for this experiment. Retry again with another experiment.'
             else:
-                # otherwise, set the cluster index value for the given experiment
-                clust_ind = [[np.array([i_cluster-1], dtype=int)] for _ in range(self.n_filt)]
+                # otherwise, deteremine the index of the current experiment
                 i_expt0 = cf.get_expt_index(self.plot_exp_name, cluster, cf.det_valid_rotation_expt(data))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
+
+                # sets the index values for the given experiment
+                i_cluster = data.cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+                clust_ind = [[np.array([i_cluster], dtype=int)] for _ in range(self.n_filt)]
 
         # if there was an error then output a message to screen and exit the function
         if e_str is not None:
@@ -711,18 +715,22 @@ class RotationFilteredData(object):
         n_cell = [[len(x) if x is not None else 0 for x in ss] for ss in clust_ind]
 
         # sets the stimuli phase duration (depending on the trial type)
-        if 'tPeriod' in self.wvm_para[0][0].dtype.names:
-            # case is a sinusoidal pattern
-            self.t_phase = [
-                [np.floor(wv['tPeriod'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
-                                                    for wvp, sf in zip(self.wvm_para, s_freq)
-            ]
+        if len(s_freq[0]):
+            if 'tPeriod' in self.wvm_para[0][0].dtype.names:
+                # case is a sinusoidal pattern
+                self.t_phase = [
+                    [np.floor(wv['tPeriod'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
+                                                        for wvp, sf in zip(self.wvm_para, s_freq)
+                ]
+            else:
+                # case is a flat pattern
+                self.t_phase = [
+                    [np.floor(wv['nPts'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
+                                                        for wvp, sf in zip(self.wvm_para, s_freq)
+                ]
         else:
-            # case is a flat pattern
-            self.t_phase = [
-                [np.floor(wv['nPts'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
-                                                    for wvp, sf in zip(self.wvm_para, s_freq)
-            ]
+            # otherwise, set an empty array
+            self.t_phase = [[]]
 
         # sets the cluster/channel ID flags
         if cf.use_raw_clust(data) or self.use_raw:
@@ -737,30 +745,35 @@ class RotationFilteredData(object):
                             for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
 
         # memory allocation sets the other important values for each cell/experiment
-        A, dcopy = np.empty(self.n_filt, dtype=object), copy.deepcopy
+        A = np.empty(self.n_filt, dtype=object)
         self.n_trial, self.s_freq, self.t_spike, self.i_expt = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
         for i_filt in range(self.n_filt):
-            for ii, j_expt in enumerate(self.i_expt0[i_filt]):
-                # sets the number of cells
-                nC = n_cell[i_filt][ii]
+            if len(self.i_expt0[i_filt]):
+                for ii, j_expt in enumerate(self.i_expt0[i_filt]):
+                    # sets the number of cells
+                    nC = n_cell[i_filt][ii]
 
-                # stores the spike times for the current filter/experiment
-                tSp = self.t_spike0[i_filt][ii] / s_freq[i_filt][ii]
-                if self.is_single_cell:
-                    tSp = tSp[clust_ind[i_filt][ii], :, :]
-                self.t_spike[i_filt] = cf.combine_nd_arrays(self.t_spike[i_filt], tSp)
+                    # stores the spike times for the current filter/experiment
+                    tSp = self.t_spike0[i_filt][ii] / s_freq[i_filt][ii]
+                    if self.is_single_cell:
+                        tSp = tSp[clust_ind[i_filt][ii], :, :]
+                    self.t_spike[i_filt] = cf.combine_nd_arrays(self.t_spike[i_filt], tSp)
 
-                # sets the values for the other field values
-                if ii == 0:
-                    # case is the storage array is empty, so assign the values
-                    self.n_trial[i_filt] = np.array([n_trial[i_filt][ii]] * nC)
-                    self.s_freq[i_filt] = np.array([s_freq[i_filt][ii]] * nC)
-                    self.i_expt[i_filt] = np.array([j_expt] * nC, dtype=int)
-                else:
-                    # otherwise, append the new values to the existing arrays
-                    self.n_trial[i_filt] = np.append(self.n_trial[i_filt], np.array([n_trial[i_filt][ii]] * nC))
-                    self.s_freq[i_filt] = np.append(self.s_freq[i_filt], np.array([s_freq[i_filt][ii]] * nC))
-                    self.i_expt[i_filt] = np.append(self.i_expt[i_filt] , np.array([j_expt] * nC, dtype=int))
+                    # sets the values for the other field values
+                    if ii == 0:
+                        # case is the storage array is empty, so assign the values
+                        self.n_trial[i_filt] = np.array([n_trial[i_filt][ii]] * nC)
+                        self.s_freq[i_filt] = np.array([s_freq[i_filt][ii]] * nC)
+                        self.i_expt[i_filt] = np.array([j_expt] * nC, dtype=int)
+                    else:
+                        # otherwise, append the new values to the existing arrays
+                        self.n_trial[i_filt] = np.append(self.n_trial[i_filt], np.array([n_trial[i_filt][ii]] * nC))
+                        self.s_freq[i_filt] = np.append(self.s_freq[i_filt], np.array([s_freq[i_filt][ii]] * nC))
+                        self.i_expt[i_filt] = np.append(self.i_expt[i_filt] , np.array([j_expt] * nC, dtype=int))
+            else:
+                # if there are no elements in the array
+                self.n_trial[i_filt], self.s_freq[i_filt] = [], []
+                self.t_spike[i_filt], self.i_expt[i_filt] = [], []
 
     def set_legend_str(self):
         '''

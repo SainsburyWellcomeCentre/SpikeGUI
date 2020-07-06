@@ -16,8 +16,10 @@ from scipy.spatial.distance import *
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
 
 # sklearn module imports
+from sklearn.linear_model import LinearRegression
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
 # statsmodels module imports
@@ -41,6 +43,8 @@ interp_arr = lambda xi, y: np.vstack([interp1d(np.linspace(0, 1, len(x)), x, kin
 cell_perm_ind = lambda n_cell_tot, n_cell: np.sort(np.random.permutation(n_cell_tot)[:n_cell])
 set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
 grp_expt_indices = lambda i_expt0: [np.where(i_expt0 == i)[0] for i in np.unique(i_expt0)]
+
+lin_func = lambda x, a: a * x
 
 ########################################################################################################################
 ########################################################################################################################
@@ -180,13 +184,16 @@ class WorkerThread(QThread):
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['vel', 'vel_sf_fix'], other_para=False)
 
                 # calculates the shuffled kinematic spiking frequencies
-                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=False)
-                cfcn.calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog)
+                cfcn.calc_binned_kinemetic_spike_freq(data, plot_para, dcopy(calc_para), w_prog, roc_calc=False)
+                cfcn.calc_shuffled_kinematic_spike_freq(data, dcopy(calc_para), w_prog)
 
                 # runs any specific additional function
-                if self.thread_job_secondary in ['Correlation Comparison (Fixed)', 'Correlation Fit Parameters (Fixed)']:
+                fit_func = ['Correlation Comparison (Fixed)',
+                            'Correlation Fit Parameters (Fixed)',
+                            'Individual Cell Correlation (Fixed)']
+                if self.thread_job_secondary in fit_func:
                     # case is the correlation fit parameters
-                    self.calc_corr_fit_para(data, plot_para, calc_para, w_prog)
+                    self.calc_corr_fit_para(data, plot_para, dcopy(calc_para), w_prog)
 
             elif (' (Freely Moving)' in self.thread_job_secondary):
                 # checks to see if any parameters have been altered
@@ -2099,7 +2106,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def calc_sf_lin_para(xi, sf, is_neg):
+        def calc_sf_lin_para(xi, sf, peak_hz, err_type):
             '''
 
             :param sf:
@@ -2109,27 +2116,41 @@ class WorkerThread(QThread):
             # memory allocation
             n_cell = np.shape(sf)[0]
             sf_slope, sf_int = np.zeros(n_cell), np.zeros(n_cell)
+            sf_err = np.zeros(n_cell)
 
             # calculates the linear parameters for each cell
             for i_cell in range(n_cell):
-                if is_neg:
-                    # case is the negative velocities
-                    l_fit = linregress(xi, sf[i_cell][::-1])
-                else:
-                    # case is the positive velocities
-                    l_fit = linregress(xi, sf[i_cell])
-
-                # sets the linear parameters for the current cell
+                # slope/intercept calculation
+                sf_calc = sf[i_cell]
+                l_fit = linregress(xi, sf_calc / peak_hz[i_cell])
                 sf_slope[i_cell], sf_int[i_cell] = l_fit.slope, l_fit.intercept
 
+                # error calculation
+                dsf_calc = (sf_calc - sf_calc[0])
+                dsf_max = np.max(np.abs(dsf_calc))
+
+                if (dsf_max > 0) and (err_type is not None):
+                    if err_type == 'Covariance':
+                        _, pcov = curve_fit(lin_func, xi, dsf_calc / dsf_max)
+                        sf_err[i_cell] = np.sqrt(pcov[0][0])
+
+                    elif err_type == 'Sum-of-Squares':
+                        p_fit_err = np.polyfit(xi, dsf_calc / dsf_max, 1, full=True)
+                        sf_err[i_cell] = p_fit_err[1][0]
+
+                    elif err_type == 'Standard Error':
+                        l_fit_err = linregress(xi, dsf_calc / dsf_max)
+                        sf_err[i_cell] = l_fit_err.stderr
+
             # returns the array
-            return sf_slope, sf_int
+            return sf_slope, sf_int, sf_err
 
         # appends the fields to the rotation class object
         r_data = data.rotation
         if not hasattr(r_data, 'sf_fix_slope'):
             r_data.sf_fix_slope = None
             r_data.sf_fix_int = None
+            r_data.sf_fix_err = None
             r_data.peak_hz_fix = None
 
         # applies the rotation filter to the dataset
@@ -2143,26 +2164,61 @@ class WorkerThread(QThread):
         # retrieves the spiking frequencies
         r_data = data.rotation
         sf = dcopy(r_data.vel_sf_mean)
+        err_type = None if 'err_type' not in calc_para else calc_para['err_type']
+        norm_sf = False if 'norm_sf' not in calc_para else calc_para['norm_sf']
 
         # sets up the velocity bin values
         v_max, v_bin = 80, r_data.vel_bin_corr
         xi_bin = np.arange(-v_max + v_bin / 2, v_max, v_bin)
         is_pos = xi_bin > 0
+        n_bin = sum(is_pos)
 
         # memory allocation
         A = np.empty((2, n_filt), dtype=object)
-        sf_slope, sf_int, peak_hz = dcopy(A), dcopy(A), np.empty(n_filt, dtype=object)
+        sf_slope, sf_int, sf_err, peak_hz = dcopy(A), dcopy(A), dcopy(A), np.empty(n_filt, dtype=object)
+
+        if norm_sf:
+            # for each filter type, calculate the linear fit parameters
+            dsf_filt = np.empty(n_filt, dtype=object)
+            peak_hz_filt = np.empty(n_filt, dtype=object)
+            for i_filt, tt in enumerate(t_type_full):
+                # calculates the slope/intercept values
+                sf_filt = sf[tt][i_cell_b[i_filt], :]
+
+                #
+                sf_comb = [np.vstack(sf_filt[:, 0])[:, ::-1], np.vstack(sf_filt[:, 1])]
+                dsf_filt[i_filt] = [sf - repmat(sf[:, 0], n_bin, 1).T for sf in sf_comb]
+
+                # determines the peak frequency
+                peak_hz_filt[i_filt] = np.max(np.abs(np.hstack((dsf_filt[i_filt][0], dsf_filt[i_filt][1]))), axis=1)
+
+            # determines the peak spiking frequency across all conditions
+            peak_hz = np.max(np.abs(np.vstack(peak_hz_filt)), axis=0)
 
         # for each filter type, calculate the linear fit parameters
         for i_filt, tt in enumerate(t_type_full):
-            # calculates the slope/intercept values
-            sf_filt = sf[tt][i_cell_b[i_filt], :]
-            sf_slope[0, i_filt], sf_int[0, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_filt[:, 0], True)
-            sf_slope[1, i_filt], sf_int[1, i_filt] = calc_sf_lin_para(xi_bin[is_pos], sf_filt[:, 1], False)
+            # updates the progress bar
+            w_str = 'Linear Fit Calculations ({0})'.format(tt)
+            w_prog.emit(w_str, 100. * i_filt / len(t_type_full))
 
-            # calculates the peak frequencies for each cell
-            sf_tot = np.vstack(([np.max(sf) for sf in sf_filt[:, 0]], [np.max(sf) for sf in sf_filt[:, 1]])).T
-            peak_hz[i_filt] = np.max(sf_tot, axis=1)
+            if norm_sf:
+                # sets the positive/negative spiking frequencies
+                sf_neg, sf_pos = dsf_filt[i_filt][0], dsf_filt[i_filt][1]
+
+            else:
+                # calculates the slope/intercept values
+                sf_filt = sf[tt][i_cell_b[i_filt], :]
+
+                # sets the positive/negative spiking frequencies
+                sf_neg, sf_pos = np.vstack(sf_filt[:, 0])[:, ::-1], np.vstack(sf_filt[:, 1])
+                peak_hz = np.ones(np.shape(sf_neg)[0])
+
+            # calculates the spiking freuency slope, intercept and errors
+            sf_slope[0, i_filt], sf_int[0, i_filt], sf_err[0, i_filt] = \
+                                    calc_sf_lin_para(xi_bin[is_pos], sf_neg, peak_hz, err_type)
+            sf_slope[1, i_filt], sf_int[1, i_filt], sf_err[1, i_filt] = \
+                                    calc_sf_lin_para(xi_bin[is_pos], sf_pos, peak_hz, err_type)
+
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####
@@ -2171,6 +2227,7 @@ class WorkerThread(QThread):
         # sets the class object fields
         r_data.sf_fix_slope = sf_slope
         r_data.sf_fix_int = sf_int
+        r_data.sf_fix_err = sf_err
         r_data.peak_hz_fix = peak_hz
 
     #######################################
@@ -2204,10 +2261,11 @@ class WorkerThread(QThread):
                 '''
 
                 # fits a linear equation to the spiking frequencies
-                p_fit = np.polyfit(xi, sf, 1)
+                l_fit = LinearRegression(fit_intercept=False).fit(xi, sf)
+                # p_fit = np.polyfit(xi, sf, 1)
 
                 # calculates the absolute residual values (normalising by the maximum spiking rate)
-                return np.abs(np.poly1d(p_fit)(xi) - sf)
+                return np.abs(l_fit.predict(xi) - sf)
 
             # memory allocation
             n_type = np.shape(sf_split)[1]
@@ -2221,7 +2279,7 @@ class WorkerThread(QThread):
             # calculates/sets the residual/gain values for each direction/condition type
             for i_type in range(n_type):
                 sf_gain[i_type] = np.array(cf.flat_list(sf_split[:, i_type]))
-                sf_res[i_type] = np.array([calc_sf_res(xi, sf / sf_max) for sf in sf_split[:, i_type]]).flatten()
+                sf_res[i_type] = np.array([calc_sf_res(xi, sf / np.max(np.abs(sf))) for sf in sf_split[:, i_type]]).flatten()
 
             # calculates the normalised absolute residuals from the linear fits to the spiking frequencies
             return sf_gain, sf_res, sf_max
@@ -2290,7 +2348,7 @@ class WorkerThread(QThread):
 
                 # calculates the gain/residual for condition type
                 sf_gain[i_file][i_cell, :], sf_res[i_file][i_cell, :], sf_max[i_file][i_cell] = \
-                                                                calc_cell_res_gain(xi[is_pos], sf_split)
+                                                        calc_cell_res_gain(xi[is_pos].reshape(-1, 1), sf_split)
 
         #######################################
         ####    HOUSE-KEEPING EXERCISES    ####

@@ -30,6 +30,9 @@ from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
 pandas2ri.activate()
 
+# r-library import
+r_stats = importr("stats")
+
 # sci-kit learn module import
 from sklearn.linear_model import LinearRegression
 
@@ -3563,18 +3566,20 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
         # determines the cells that are in the valid regions (RSPg and RSPd)
         exc_filt = data.exc_rot_filt
         if cf.use_raw_clust(data):
+            # case is the raw data is being used for
             cluster = data._cluster[ind]
-            ind_m = np.arange(len(cluster['clustID']))
+            is_valid = get_inclusion_filt_indices(cluster, data.exc_gen_filt)
+            ind_m = np.where(is_valid)[0]
         else:
             cluster = data.cluster[ind]
             if len(cluster['clustID']):
                 ind_m = np.array([data._cluster[ind]['clustID'].index(x) for x in cluster['clustID']])
+                is_valid = np.ones(len(ind_m), dtype=bool)
             else:
                 return np.zeros(1, dtype=bool)
 
         # sets the boolean flags for the valid cells
         # is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd') #### COMMENT ME OUT FOR RETROSPLANIAL ONLY CELLS
-        is_valid = np.ones(len(cluster['chRegion']),dtype=bool)
         if len(is_valid) == 0:
             return np.zeros(1, dtype=bool)
 
@@ -4226,7 +4231,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
     :return:
     '''
 
-    def calc_kw_stats(r_stats, y):
+    def calc_kw_stats(y):
         '''
 
         :param y:
@@ -4268,7 +4273,6 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
         return d_stats
 
     # initialisations and memory allocation
-    r_stats = importr("stats")
     p_within, p_btwn = None, None
     n_grp, n_filt = len(y_orig) - c_ofs, np.shape(y_orig[0])[1]
 
@@ -4280,7 +4284,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
         # calculates the within filter type statistics for each group type
         for i_filt in range(n_filt):
-            p_within[i_filt, 0] = calc_kw_stats(r_stats, y_within[i_filt])
+            p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
             p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
 
     # determines if the between filter type statistics need to be calculated (n_filt > 1)
@@ -4291,7 +4295,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
 
         # calculates the between filter type statistics for each group type
         for i_grp in range(n_grp):
-            p_btwn[i_grp, 0] = calc_kw_stats(r_stats, y_btwn[i_grp])
+            p_btwn[i_grp, 0] = calc_kw_stats(y_btwn[i_grp])
             p_btwn[i_grp, 1] = calc_dunn_stats(y_btwn[i_grp], p_btwn[i_grp, 0], p_value)
 
     # returns the

@@ -675,7 +675,7 @@ def setup_filter_permutations(d_clust, rot_filt):
     return rot_filt_ex, f_perm, f_key
 
 
-def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw):
+def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw, rmv_empty):
     '''
 
     :param data:
@@ -719,7 +719,7 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw):
         is_ok[i_filt] = not np.all([x is None for x in t_spike[i_filt]])
 
     # determines if any of the filters failed to turn up a match, then output an error message to screen
-    if np.any(np.logical_not(is_ok)):
+    if np.any(np.logical_not(is_ok)) and rmv_empty:
         # # if so, then create the warning message
         # e_str = 'The following filters did not turn up any matches for the experiment "{0}":\n\n'.format(exp_name)
         # for i in np.where(np.logical_not(is_ok))[0]:

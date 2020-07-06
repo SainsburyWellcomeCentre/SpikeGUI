@@ -36,6 +36,8 @@ from rpy2.robjects import FloatVector, BoolVector, StrVector, IntVector
 from rpy2.robjects.packages import importr
 from rpy2.robjects.functions import SignatureTranslatedFunction
 rpy2.robjects.numpy2ri.activate()
+
+# r-library import
 r_stats = importr("stats")
 r_pROC = importr("pROC")
 
@@ -69,6 +71,7 @@ _plusminus = '\u00b1'
 
 # other initialisations
 t_wid_f = 0.99
+n_plot_max = 25
 dcopy = copy.deepcopy
 is_linux = sys.platform == 'linux'
 default_dir_file = os.path.join(os.getcwd(), 'default_dir.p')
@@ -2526,7 +2529,7 @@ def det_cell_match_indices(r_obj, ind, r_obj2=None):
         id_match = np.sort(np.array(list(set(cell_id_1).intersection(set(cell_id_2)))))
         return np.searchsorted(cell_id_1, id_match), np.searchsorted(cell_id_2, id_match)
 
-def split_unidrift_phases(data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, dt, t0=0):
+def split_unidrift_phases(data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, dt, t0=0):
     '''
 
     :param rot_filt:
@@ -2539,8 +2542,10 @@ def split_unidrift_phases(data, rot_filt, i_cluster, plot_exp_name, plot_all_exp
     rot_filt['t_freq_dir'] = ['-1', '1']
 
     # splits the data by the forward/reverse directions
-    r_obj = RotationFilteredData(data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True,
+    r_obj = RotationFilteredData(data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, True,
                                  t_ofs=t0, t_phase=dt)
+    if not r_obj.is_ok:
+        return None, None
 
     # shortens the stimuli phases to the last/first dt of the baseline/stimuli phases
     t_phase, n_filt = r_obj.t_phase[0][0], int(r_obj.n_filt / 2)
@@ -3431,3 +3436,154 @@ def get_free_inclusion_indices(data, i_bin, rmv_nmatch=False):
 
     # returns the inclusion index array
     return cl_inc_extn
+
+
+def get_cell_index_and_id(h_main, cell_id, exp_name, use_raw=False, arr_out=True, plot_all=False):
+    '''
+
+    :param cell_id:
+    :param exp_name:
+    :return:
+    '''
+
+    # retrieves the experiment index and cluster ID#'s
+    i_expt = h_main.fcn_data.get_exp_name_list('RotationExperiments').index(exp_name)
+    cl_id = h_main.data._cluster[i_expt]['clustID'] if use_raw else h_main.data.cluster[i_expt]['clustID']
+
+    # converts the cell ID integers to a list (if not already so)
+    if plot_all:
+        return cl_id, list(np.arange(len(cl_id)).astype(int))
+
+    # converts the cell ID integers to a list (if not already so)
+    if not isinstance(cell_id, list):
+        cell_id = [cell_id]
+
+    # determines the cell ID# and index within the experiment for each cell ID#
+    c_id, i_cell = [], []
+    for _cid in cell_id:
+        # retrieves the cell ID# from the current cell
+        c_id_nw = int(_cid[_cid.index('#') + 1:])
+        c_id.append(c_id_nw)
+
+        # determines the index of the cell within the experiment
+        i_cell.append(cl_id.index(c_id_nw))
+
+    # returns the cell ID/index arrays
+    if arr_out:
+        # case is outputting the values as an array
+        return c_id, i_cell
+    else:
+        # case is outputting individual values
+        return c_id[0], i_cell[0]
+
+
+def get_fix_free_indices(data, data_fix, data_free, cell_id, use_1D=False):
+    '''
+
+    :return:
+    '''
+
+    if (len(cell_id) == 0) or (cell_id[0] == 'No Valid Fixed/Free Cells'):
+        # if there are no valid cells, or no cells were selected, then output an error to screen
+        e_str = 'Either there are no valid cells for this experiment or no cells have been selected.\n' \
+                'Re-run the function with either another experiment or with cells selected.'
+        show_error(e_str, 'Invalid Fixed/Free Cell Selection')
+
+        # if there are no cells selected, then return None
+        return None, None
+
+    # determines the number of cells that are to be analysed
+    n_cell = len(cell_id)
+    if n_cell > n_plot_max:
+        # if the number of cell is greater than max, then set the error string
+        e_str = 'The number of subplots ({0}) is greater than the maximum ({1}).\nRemove the "Plot All Clusters" ' \
+                'checkbox option before re-running this function.'.format(n_cell, n_plot_max)
+
+        # output an error message to screen and return Nones
+        show_error(e_str, 'Invalid Cell Selection')
+        return None, None
+    else:
+        # memory allocation
+        c_id, i_cell = -np.ones((n_cell, 2), dtype=int), -np.ones((n_cell, 2), dtype=int)
+
+        for ic, cc in enumerate(cell_id):
+            # splits the cell ID into fixed/free cell IDs
+            i_ff = re.findall('[0-9]+', cc)
+
+            # determines the cluster index/cell index for each grouping
+            for j in range(len(i_ff)):
+                c_id[ic, j] = int(i_ff[j])
+                i_cell[ic, j] = data_fix['clustID'].index(c_id[ic, j]) if j == 0 else \
+                                data_free['clustID'].index(c_id[ic, j])
+
+        # returns the arrays
+        if use_1D:
+            # returns the 1D array if required
+            return c_id[0, :], i_cell[0, :]
+        else:
+            # otherwise, return the full arrays
+            return c_id, i_cell
+
+
+def get_all_fix_free_indices(data, c_data, data_fix, data_free, match_reqd=False, is_old=False):
+    '''
+
+    :param data:
+    :param c_data:
+    :param data_fix:
+    :param data_free:
+    :return:
+    '''
+
+    # function import
+    from analysis_guis.calc_functions import get_inclusion_filt_indices
+
+    # initialisations
+    e_str = None
+
+    # retrieves the inclusion filter indices and the fix/free cell ID#'s
+    cl_ind = get_inclusion_filt_indices(data_fix, data.exc_gen_filt)
+    cl_fix, cl_free = np.array(data_fix['clustID'])[cl_ind], np.array(data_free['clustID'])
+
+    # sets the match indices (depending on the calculation method)
+    i_match = c_data.i_match_old if is_old else c_data.i_match
+    if match_reqd:
+        # if a match is required, then remove all non-matches
+        i_match[~cl_ind] = -1
+        ii = i_match >= 0
+
+    else:
+        # otherwise, use
+        ii = cl_ind
+
+    if np.any(ii):
+        # determines the number of cells that are to be analysed
+        n_cell = np.sum(ii)
+        if n_cell > n_plot_max:
+            # if the number of cell is greater than max, then set the error string
+            e_str = 'The number of subplots ({0}) is greater than the maximum ({1}).\nRemove the "Plot All Clusters" ' \
+                    'checkbox option before re-running this function.'.format(n_cell, n_plot_max)
+        else:
+            # memory allocation
+            c_id, i_cell = -np.ones((n_cell, 2), dtype=int), -np.ones((n_cell, 2), dtype=int)
+
+            # sets the cell ID#'s and indices
+            for i, i_m in enumerate(np.where(ii)[0]):
+                # sets the fixed cell ID#/index
+                c_id[i, 0], i_cell[i, 0] = cl_fix[i_m], i_m
+                if i_match[i_m] >= 0:
+                    # if there is a match, then set the free cell ID#/index
+                    c_id[i, 1], i_cell[i, 1] = cl_free[i_match[i_m]], i_match[i_m]
+
+    else:
+        # if there are no
+        e_str = 'There are no valid fixed/free cell matches! Either select another function or reset ' \
+                'the filter options.'
+
+    if e_str is None:
+        # if there was no errors, then return the arrays
+        return c_id, i_cell
+    else:
+        # if there was an error, then output the error message to screen and return Nones
+        show_error(e_str, 'Invalid Cell Selection')
+        return None, None

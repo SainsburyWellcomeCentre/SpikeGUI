@@ -43,6 +43,8 @@ import rpy2.robjects.numpy2ri
 from rpy2.robjects import FloatVector, FactorVector
 from rpy2.robjects.packages import importr
 rpy2.robjects.numpy2ri.activate()
+
+# r-library import
 r_pair = importr("pairwise")
 r_stats = importr("stats")
 
@@ -794,7 +796,6 @@ class AnalysisGUI(QMainWindow):
                     self.data.discrim.init_discrim_fields()
 
                     if init_comp:
-
                         self.data.comp.init_comparison_data()
 
                 # updates the comparison flag
@@ -813,7 +814,6 @@ class AnalysisGUI(QMainWindow):
                 has_rot_expt = any(cf.det_valid_rotation_expt(self.data))
                 has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.data)
                 has_both = has_vis_expt and has_rot_expt
-
 
                 # if single experiments are loaded, then determine the function types
                 new_func_types = dcopy(func_types)
@@ -952,8 +952,11 @@ class AnalysisGUI(QMainWindow):
                     # case is calculating the cluster matches
 
                     # updates the comparison data struct
-                    self.fcn_data.update_comp_expts()
+                    # self.fcn_data.update_comp_expts()
                     self.data.comp.is_set = np.any([x.is_set for x in self.data.comp.data])
+
+                    # resets fixed/free cell ID#s
+                    self.fcn_data.reset_fix_free_mult_cid('cell_id', self.fcn_data.curr_para['calc_comp'])
 
                 # re-runs the plotting function
                 self.update_click()
@@ -1844,23 +1847,20 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # initialisations
-        reset_fcn = ['Fixed/Free Spiking Correlation (Individual Cell)']
-
         # runs the general filter in exclusion mode
-        r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_gen_filt, is_gen=True, is_exc=True)
+        r_filt = RotationFilter(self.fcn_data, init_data=dcopy(self.data.exc_gen_filt), is_gen=True, is_exc=True)
 
         # determines if the gui was updated correctly
-        if r_filt.is_ok:
-            # updates the general exclusion filter
+        if r_filt.is_ok and (self.data.exc_gen_filt != r_filt.get_info()):
+            # resets the general exclusion filter
             self.data.exc_gen_filt = r_filt.get_info()
 
+            # retrieves the details for the currently selected function
+            self.fcn_data.run_reset_para_func()
+
             # other flag setting/initialisations
-            if self.fcn_data.curr_fcn in reset_fcn:
-                self.fcn_data.reset_matched_index('ff_cluster', None)
-            else:
-                self.data.req_update = True
-                self.data.force_calc = True
+            self.data.req_update = True
+            self.data.force_calc = True
 
     def init_rotfilt(self):
         '''
@@ -1869,12 +1869,14 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # runs the rotation filter in exclustion mode
-        r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_rot_filt, is_exc=True)
+        r_filt = RotationFilter(self.fcn_data, init_data=dcopy(self.data.exc_rot_filt), is_exc=True)
 
         # determines if the gui was updated correctly
-        if r_filt.is_ok:
+        if r_filt.is_ok and (self.data.exc_rot_filt != r_filt.get_info()):
             # updates the current parameter value
             self.data.exc_rot_filt = r_filt.get_info()
+
+            # other flag setting/initialisations
             self.data.req_update = True
             self.data.force_calc = True
 
@@ -1885,12 +1887,14 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # runs the uniformdrifting filter in exclustion mode
-        r_filt = RotationFilter(self.fcn_data, init_data=self.data.exc_ud_filt, is_exc=True)
+        r_filt = RotationFilter(self.fcn_data, init_data=dcopy(self.data.exc_ud_filt), is_exc=True)
 
         # determines if the gui was updated correctly
-        if r_filt.is_ok:
+        if r_filt.is_ok and (self.data.exc_ud_filt != r_filt.get_info()):
             # updates the current parameter value
             self.data.exc_ud_filt = r_filt.get_info()
+
+            # other flag setting/initialisations
             self.data.req_update = True
             self.data.force_calc = True
 
@@ -2101,7 +2105,7 @@ class AnalysisGUI(QMainWindow):
     ####    CLUSTER MATCHING ANALYSIS FUNCTIONS    ####
     ###################################################
 
-    def plot_cluster_match_signals(self, i_cluster, plot_all, m_type, plot_grid=True):
+    def plot_cluster_match_signals(self, cell_id, match_reqd, plot_all, m_type, plot_grid=True):
         '''
 
         :return:
@@ -2139,6 +2143,17 @@ class AnalysisGUI(QMainWindow):
         data_fix, _ = cf.get_comp_datasets(self.data, c_data=c_data)
         _data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
+        # determines the fixed/free cluster ID/cell index values
+        if plot_all:
+            c_id, i_cell = cf.get_all_fix_free_indices(self.data, c_data, data_fix, data_free, match_reqd=match_reqd)
+        else:
+            c_id, i_cell = cf.get_fix_free_indices(self.data, data_fix, data_free, cell_id)
+
+        # if there was an error, then exit the function flagging an error
+        if c_id is None:
+            self.calc_ok = False
+            return
+
         # retrieves the fixed/free cluster inclusion indices
         cl_inc_fix = cfcn.get_inclusion_filt_indices(_data_fix, self.data.exc_gen_filt)
         cl_inc_free = cfcn.get_inclusion_filt_indices(data_free, self.data.exc_gen_filt)
@@ -2146,8 +2161,8 @@ class AnalysisGUI(QMainWindow):
         # removes any excluded cells from the free dataset
         ii = np.where(c_data.i_match >= 0)[0]
         jj = c_data.i_match[ii]
-        c_data.i_match[ii[np.logical_not(cl_inc_free[jj])]] = -1
-        c_data.i_match_old[ii[np.logical_not(cl_inc_free[jj])]] = -1
+        c_data.i_match[ii[~cl_inc_free[jj]]] = -1
+        c_data.i_match_old[ii[~cl_inc_free[jj]]] = -1
 
         # reduces down the match indices to only include the feasible fixed dataset indices
         c_data.i_match, c_data.i_match_old = c_data.i_match[cl_inc_fix], c_data.i_match_old[cl_inc_fix]
@@ -2155,25 +2170,15 @@ class AnalysisGUI(QMainWindow):
 
         # sets the match/acceptance flags
         if m_type == 'New Method':
-            i_match = c_data.i_match
             is_acc = c_data.is_accept
         else:
-            i_match = c_data.i_match_old
             is_acc = c_data.is_accept_old
 
-        # checks cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-
         # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster)
         T = self.setup_time_vector(data_fix['sFreq'], np.size(data_fix['vMu'], axis=0))
 
         # sets up the figure/axis
-        n_plot, col = len(i_cluster), 'kg'
+        n_plot, col = np.shape(i_cell)[0], 'kg'
         n_c, n_r = cf.det_subplot_dim(n_plot)
         setup_plot_axes(self.plot_fig, n_plot, n_c, n_r)
         ax = self.plot_fig.ax
@@ -2182,22 +2187,21 @@ class AnalysisGUI(QMainWindow):
         n_ct = n_plot % n_c
         for i_plot in range(n_plot):
             # sets the actual fixed/free plot indices
-            j_plot = i_cluster[i_plot] - 1
-            i_match_new = i_match[j_plot]
-            id_fix = data_fix['clustID'][j_plot]
+            i_fix, i_free = i_cell[i_plot, 0], i_cell[i_plot, 1]
 
             # plots the fixed signal
-            ax[i_plot].plot(T, data_fix['vMu'][:, j_plot], linewidth=3.0)
-            if i_match_new >= 0:
+            ax[i_plot].plot(T, data_fix['vMu'][:, i_fix], 'b', linewidth=3.0)
+            if i_free >= 0:
                 # if there was a match, then plot the mean matches
-                ax[i_plot].plot(T, data_free['vMu'][:, i_match_new], 'r', linewidth=2.0)
+                ax[i_plot].plot(T, data_free['vMu'][:, i_free], 'r', linewidth=2.0)
 
                 # set the title match/colour
-                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, data_free['clustID'][i_match_new])
-                t_col = col[int(is_acc[j_plot])]
+                t_str = 'Fixed #{0}/Free #{1}'.format(c_id[i_plot, 0], c_id[i_plot, 1])
+                t_col = col[int(is_acc[i_fix])]
+
             else:
                 # otherwise, there was no feasible match (set reduced title which is to be black)
-                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
+                t_str, t_col = 'Fixed #{0}'.format(c_id[i_plot, 0]), 'k'
 
             # sets the plot values
             ax[i_plot].set_xlim(T[0], T[-1])
@@ -2214,17 +2218,29 @@ class AnalysisGUI(QMainWindow):
 
             # creates the legend (first plot only)
             if i_plot == 0:
+                # creates the legend markers
+                h_plt = [ax[i_plot].plot([-2, -1], [0, 0], 'b', linewidth=3.0),
+                         ax[i_plot].plot([-2, -1], [0, 0], 'r', linewidth=3.0)]
+
+                # sets the legend bounding box
                 bbox = ax[i_plot].get_position()
                 L, B, W, H = bbox.p0[0], bbox.p0[1], bbox.width, bbox.height
                 TOP = B + H
                 T_lg = TOP + 3 * (1 - TOP) / 4
-
                 bbox_lg = ((0.5 - L) / W, (T_lg - B) / H)
-                ax[i_plot].legend(['Fixed', 'Free'], ncol=2, loc=10, bbox_to_anchor=bbox_lg)
 
-    def plot_single_match_mean(self, plot_comp, i_cluster, n_trace, is_horz, rej_outlier, plot_grid=True):
+                # creates the legend object
+                ax[i_plot].legend([x[0] for x in h_plt], ['Fixed', 'Free'], ncol=2, loc=10, bbox_to_anchor=bbox_lg)
+
+    def plot_single_match_mean(self, cell_id, match_reqd, plot_comp, n_trace, is_horz, rej_outlier, plot_grid=True):
         '''
 
+        :param cell_id:
+        :param plot_comp:
+        :param n_trace:
+        :param is_horz:
+        :param rej_outlier:
+        :param plot_grid:
         :return:
         '''
 
@@ -2235,57 +2251,40 @@ class AnalysisGUI(QMainWindow):
         # retrieves the fixed/free datasets
         data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
-        # check to see if the cluster index is feasible
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-        elif len(i_cluster) > 1:
-            e_str = 'Not possible to view multiple cluster indices.'
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
+        # determines the fixed/free cluster ID/cell index values
+        c_id, i_cell = cf.get_fix_free_indices(self.data, data_fix, data_free, [cell_id], use_1D=True)
+        if c_id is None:
+            # if there was an error, then exit the function flagging an error
             self.calc_ok = False
             return
 
-        # intiialisations
-        i_cluster, p_lim = i_cluster[0] - 1, 0.4
-        i_match = c_data.i_match[i_cluster]
-
-        # determines if there was a feasible cluster match
-        if i_match < 0:
-            # sets up the error string
-            e_str = 'Unable to create single cluster match plot for cluster index {0} (Free Cluster ID# {1}) ' \
-                    'because there is not a feasible match.'.format(i_cluster+1, data_fix['clustID'][i_cluster])
-            cf.show_error(e_str, 'Missing Feasible Fixed Cluster Match')
-
-            # resets the ok flag and exits
-            self.calc_ok = False
-            return
+        # parameters
+        p_lim = 0.4
 
         # sets the indices of the fixed/free clusters to be plotted
-        ind_fix = np.random.permutation(np.size(data_fix['vSpike'][i_cluster],axis=1))[:n_trace]
-        ind_free = np.random.permutation(np.size(data_free['vSpike'][i_match],axis=1))[:n_trace]
-        fix_ID, free_ID = data_fix['clustID'][i_cluster], data_free['clustID'][c_data.i_match[i_cluster]]
+        ind_fix = np.random.permutation(np.size(data_fix['vSpike'][i_cell[0]],axis=1))[:n_trace]
+        ind_free = np.random.permutation(np.size(data_free['vSpike'][i_cell[1]],axis=1))[:n_trace]
 
         # sets the free/fixed spikes
-        spike_fix = data_fix['vSpike'][i_cluster][:, ind_fix]
-        spike_free = data_free['vSpike'][i_match][:, ind_free]
+        spike_fix = data_fix['vSpike'][i_cell[0]][:, ind_fix]
+        spike_free = data_free['vSpike'][i_cell[1]][:, ind_free]
 
         # sets up the figure/axis
         T = self.setup_time_vector(data_fix['sFreq'], np.size(data_fix['vMu'], axis=0))
         n_row, n_col = 3 - 2 * int(is_horz), 1 + 2 * int(is_horz)
         self.init_plot_axes(n_plot = 3, n_row=n_row, n_col=n_col)
+        ax = self.plot_fig.ax
 
         # creates the combined subplot
-        self.plot_fig.ax[2].plot(T, data_fix['vMu'][:, i_cluster], linewidth=3.0)
-        self.plot_fig.ax[2].plot(T, data_free['vMu'][:, i_match],'r', linewidth=3.0)
-        self.plot_fig.ax[2].set_title('Combined Fixed/Free Cluster Plot')
-        self.plot_fig.ax[2].set_xlabel('Time (ms)')
-        self.plot_fig.ax[2].set_ylabel('Voltage ({0}V)'.format(cf._mu))
-        self.plot_fig.ax[2].legend(['Fixed', 'Free'], loc=3)
+        ax[2].plot(T, data_fix['vMu'][:, i_cell[0]], linewidth=3.0)
+        ax[2].plot(T, data_free['vMu'][:, i_cell[1]],'r', linewidth=3.0)
+        ax[2].set_title('Combined Fixed/Free Cluster Plot')
+        ax[2].set_xlabel('Time (ms)')
+        ax[2].set_ylabel('Voltage ({0}V)'.format(cf._mu))
+        ax[2].legend(['Fixed', 'Free'], loc=3)
 
         # determines the overall
-        yL0 = self.plot_fig.ax[2].get_ylim()
+        yL0 = ax[2].get_ylim()
         yL = np.array(yL0) + p_lim*np.diff(yL0)*np.array([-1, 1])
 
         # removes any outlier signals (if selected as a parameter)
@@ -2295,27 +2294,27 @@ class AnalysisGUI(QMainWindow):
             spike_fix, spike_free = spike_fix[:, ok_fix], spike_free[:, ok_free]
 
         # creates the fixed subplot
-        self.plot_fig.ax[0].plot(T, spike_fix,'b')
-        self.plot_fig.ax[0].plot(T, data_fix['vMu'][:, i_cluster], 'k', linewidth=4.0)
-        self.plot_fig.ax[0].set_title('Fixed Cluster #{0}'.format(fix_ID))
-        self.plot_fig.ax[0].set_xlabel('Time (ms)')
-        self.plot_fig.ax[0].set_ylabel('Voltage ({0}V)'.format(cf._mu))
+        ax[0].plot(T, spike_fix,'b')
+        ax[0].plot(T, data_fix['vMu'][:, i_cell[0]], 'k', linewidth=4.0)
+        ax[0].set_title('Fixed Cluster #{0}'.format(c_id[0]))
+        ax[0].set_xlabel('Time (ms)')
+        ax[0].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
         # creates the free subplot
-        self.plot_fig.ax[1].plot(T, spike_free, 'r')
-        self.plot_fig.ax[1].plot(T, data_free['vMu'][:, i_match], 'k', linewidth=4.0)
-        self.plot_fig.ax[1].set_title('Free Cluster #{0}'.format(free_ID))
-        self.plot_fig.ax[1].set_xlabel('Time (ms)')
-        self.plot_fig.ax[1].set_ylabel('Voltage ({0}V)'.format(cf._mu))
+        ax[1].plot(T, spike_free, 'r')
+        ax[1].plot(T, data_free['vMu'][:, i_cell[1]], 'k', linewidth=4.0)
+        ax[1].set_title('Free Cluster #{0}'.format(c_id[1]))
+        ax[1].set_xlabel('Time (ms)')
+        ax[1].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
         # sets the grid properties for the plot axes
-        for ax in self.plot_fig.ax[:3]:
-            ax.grid(plot_grid)
+        for _ax in ax[:3]:
+            _ax.grid(plot_grid)
 
         # resets the x-axis limits
-        for ax in self.plot_fig.ax:
-            ax.set_xlim(T[0], T[-1])
-            ax.set_ylim(yL)
+        for _ax in ax:
+            _ax.set_xlim(T[0], T[-1])
+            _ax.set_ylim(yL)
 
     def plot_signal_metrics(self, plot_comp, all_expt, is_3d, m_type, plot_grid):
         '''
@@ -2464,9 +2463,14 @@ class AnalysisGUI(QMainWindow):
             ax.set_zlabel('{0} (Z)'.format(z_label))
             ax.set_zlim(z_lim)
 
-    def plot_new_cluster_signals(self, plot_comp, i_cluster, plot_all, sig_type, plot_grid=True):
+    def plot_new_cluster_signals(self, cell_id, plot_comp, match_reqd, plot_all, sig_type, plot_grid=True):
         '''
 
+        :param cell_id:
+        :param plot_comp:
+        :param plot_all:
+        :param sig_type:
+        :param plot_grid:
         :return:
         '''
 
@@ -2480,15 +2484,18 @@ class AnalysisGUI(QMainWindow):
         # retrieves the fixed/free datasets
         data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
-        # resets the cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
+        # determines the fixed/free cluster ID/cell index values
+        if plot_all:
+            c_id, i_cell = cf.get_all_fix_free_indices(self.data, c_data, data_fix, data_free, match_reqd=match_reqd)
+        else:
+            c_id, i_cell = cf.get_fix_free_indices(self.data, data_fix, data_free, cell_id)
+
+        # if there was an error, then exit the function flagging an error
+        if c_id is None:
             self.calc_ok = False
             return
 
-        # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster)
+        # other initialisations
         T, col = self.setup_time_vector(data_fix['sFreq'], np.size(data_fix['vMu'], axis=0)), 'rg'
 
         # sets the plot data based on the signal type
@@ -2507,48 +2514,210 @@ class AnalysisGUI(QMainWindow):
             y_label = 'BHA Distance'
 
         # sets up the figure/axis
-        n_plot = len(i_cluster)
+        n_plot = len(i_cell)
         self.init_plot_axes(n_plot=n_plot)
+        ax = self.plot_fig.ax
 
         # plots the values over all subplots
         for i_plot in range(n_plot):
-            # creates the new subplot
-            j_plot = i_cluster[i_plot] - 1
-            i_match = c_data.i_match[j_plot]
-            id_fix = data_fix['clustID'][j_plot]
+            # sets the fixed/free cell index number and match type
+            i_fix, i_free = i_cell[i_plot, 0], i_cell[i_plot, 1]
 
             # only plot data values if there was a match
-            if i_match >= 0:
-                # plots the z-scores and the upper/lower limits
-                self.plot_fig.ax[i_plot].plot(T,y_data[:, j_plot], 'b')
+            if i_free >= 0:
+                # plots the metric value for the current cell
+                self.plot_fig.ax[i_plot].plot(T,y_data[:, i_fix], 'b')
 
                 # sets the title properties
-                id_free = data_free['clustID'][i_match]
-                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(c_data.is_accept[j_plot])]
+                t_str = 'Fixed #{0}/Free #{1}'.format(c_id[i_plot, 0], c_id[i_plot, 1])
+                t_col = col[int(c_data.is_accept[i_fix])]
             else:
                 # otherwise, set reduced title properties
-                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
+                t_str, t_col = 'Fixed #{0}'.format(c_id[i_plot, 0]), 'k'
 
             # sets the subplot properties
-            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
-            self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
-            self.plot_fig.ax[i_plot].set_ylabel(y_label)
-            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i_plot].grid(plot_grid)
+            ax[i_plot].set_title(t_str, color=t_col)
+            ax[i_plot].set_xlim(T[0], T[-1])
+            ax[i_plot].set_ylabel(y_label)
+            ax[i_plot].set_xlabel('Time (ms)')
+            ax[i_plot].grid(plot_grid)
 
             # updates the axis y-limits (if required)
             if not reset_ylim:
                 # fixed limit has been set
-                self.plot_fig.ax[i_plot].set_ylim(y_lim)
-            elif i_match >= 0:
+                ax[i_plot].set_ylim(y_lim)
+
+            elif i_free >= 0:
                 # limit is based over all sub-plots
-                y_lim_ax = self.plot_fig.ax[i_plot].get_ylim()
+                y_lim_ax = ax[i_plot].get_ylim()
                 y_lim[1] = max([y_lim[1],y_lim_ax[1]])
 
         if reset_ylim:
-            for ax in self.plot_fig.ax:
-                ax.set_ylim(y_lim)
+            for _ax in ax:
+                _ax.set_ylim(y_lim)
+
+    def plot_cluster_isi(self, cell_id, plot_comp, match_reqd, plot_all, t_lim, plot_all_bin, is_norm,
+                         equal_ax, plot_grid=True):
+        '''
+
+        :param cell_id:
+        :param plot_comp:
+        :param plot_all:
+        :param t_lim:
+        :param plot_all_bin:
+        :param is_norm:
+        :param equal_ax:
+        :param plot_grid:
+        :return:
+        '''
+
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data)
+
+        # determines the fixed/free cluster ID/cell index values
+        if plot_all:
+            c_id, i_cell = cf.get_all_fix_free_indices(self.data, c_data, data_fix, data_free, match_reqd=match_reqd)
+        else:
+            c_id, i_cell = cf.get_fix_free_indices(self.data, data_fix, data_free, cell_id)
+
+        # if there was an error, then exit the function flagging an error
+        if c_id is None:
+            self.calc_ok = False
+            return
+
+        # sets the y-axis label (based on whether the distributions are normalised)
+        if is_norm:
+            y_label = 'Probability'
+        else:
+            y_label = 'Count'
+
+        # sets up the figure/axis
+        n_plot, col, y_lim = len(i_cell), 'kg', [0, 0]
+        self.init_plot_axes(n_plot=n_plot)
+        ax = self.plot_fig.ax
+
+        # sets the time bin coordinates
+        dxi = 0.5 * np.diff(data_fix['isiHistX'][:2])
+        xi = data_fix['isiHistX'][:-1] + dxi
+
+        # sets the plot indices based on the type
+        if plot_all_bin:
+            # case is plotting all time bins
+            ii = np.array(range(len(xi)))
+        else:
+            # case is plotting for a given upper limit
+            ii = xi <= t_lim
+            xi = xi[ii]
+
+        # plots the values over all subplots
+        for i_plot in range(n_plot):
+            # sets the fixed/free cell index number and match type
+            i_fix, i_free = i_cell[i_plot, 0], i_cell[i_plot, 1]
+
+            # plots the fixed cluster isi histogram
+            hist_fix = data_fix['isiHist'][i_fix]
+            ax[i_plot].plot(xi, hist_fix[ii] / (1.0 + (sum(hist_fix) - 1.0)*int(is_norm)), 'b')
+
+            # plots the fixed
+            if i_free >= 0:
+                # plots the z-scores and the upper/lower limits
+                hist_free = data_free['isiHist'][i_free]
+                ax[i_plot].plot(xi, hist_free[ii] / (1.0 + (sum(hist_free) - 1.0) * int(is_norm)), 'r')
+
+                # sets the title properties
+                t_str = 'Fixed #{0}/Free #{1}'.format(c_id[i_plot, 0], c_id[i_plot, 1])
+                t_col = col[int(c_data.is_accept[i_fix])]
+            else:
+                # otherwise, set reduced title properties
+                t_str, t_col = 'Fixed #{0}'.format(c_id[i_plot, 0]), 'k'
+
+            # sets the subplot properties
+            ax[i_plot].set_title(t_str, color=t_col)
+            ax[i_plot].set_ylabel(y_label)
+            ax[i_plot].set_xlabel('ISI Time (ms)')
+            ax[i_plot].set_xlim(xi[0] - dxi, xi[-1] + dxi)
+            ax[i_plot].grid(plot_grid)
+
+            # updates the axis y-limits (if required)
+            if equal_ax and (i_free >= 0):
+                y_lim_ax = ax[i_plot].get_ylim()
+                y_lim[1] = max([y_lim[1],y_lim_ax[1]])
+
+        if equal_ax:
+            for _ax in ax:
+                _ax.set_ylim(y_lim)
+
+    def plot_old_cluster_signals(self, cell_id, plot_comp, match_reqd, plot_all, plot_grid=True):
+        '''
+
+        :param cell_id:
+        :param plot_comp:
+        :param plot_all:
+        :param plot_grid:
+        :return:
+        '''
+
+        # retrieves the comparison data struct belonging to the selected experiment
+        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
+        c_data = dcopy(self.data.comp.data[i_comp])
+
+        # retrieves the fixed/free datasets
+        n_pts = c_data.n_pts
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
+
+        # determines the fixed/free cluster ID/cell index values
+        if plot_all:
+            c_id, i_cell = cf.get_all_fix_free_indices(self.data, c_data, data_fix, data_free,
+                                                       is_old=True, match_reqd=match_reqd)
+        else:
+            c_id, i_cell = cf.get_fix_free_indices(self.data, data_fix, data_free, cell_id)
+
+        # if there was an error, then exit the function flagging an error
+        if c_id is None:
+            self.calc_ok = False
+            return
+
+        # sets the indices of the clusters to plot and creates the figure/axis objects
+        T, col = self.setup_time_vector(data_fix['sFreq'], n_pts), 'rg'
+
+        # sets up the figure/axis
+        n_plot = len(i_cell)
+        self.init_plot_axes(n_plot=n_plot)
+        ax = self.plot_fig.ax
+
+        # plots the values over all subplots
+        for i_plot in range(n_plot):
+            # sets the fixed/free cell index number and match type
+            i_fix, i_free = i_cell[i_plot, 0], i_cell[i_plot, 1]
+
+            # only plot data values if there was a match
+            if i_free >= 0:
+                # plots the z-scores and the upper/lower limits
+                ax[i_plot].plot(T, c_data.z_score[:, i_fix], 'b')
+                ax[i_plot].plot([0, n_pts], [1, 1], 'r--')
+                ax[i_plot].plot([0, n_pts], [-1, -1], 'r--')
+
+                # sets the title properties
+                t_str = 'Fixed #{0}/Free #{1}'.format(c_id[i_plot, 0], c_id[i_plot, 1])
+                t_col = col[int(c_data.is_accept[i_fix])]
+            else:
+                # otherwise, set reduced title properties
+                t_str, t_col = 'Fixed #{0}'.format(c_id[i_plot, 0]), 'k'
+
+            # sets the subplot properties
+            ax[i_plot].set_title(t_str, color=t_col)
+            ax[i_plot].set_ylim(-4, 4)
+            ax[i_plot].set_xlim(T[0], T[-1])
+            ax[i_plot].set_ylabel('Z-Score')
+            ax[i_plot].set_xlabel('Time (ms)')
+            ax[i_plot].grid(plot_grid)
+
+            # # sets the final figure layout
+            # self.plot_fig.fig.tight_layout(h_pad=-0.9)
 
     def plot_cluster_distances(self, n_shuffle, n_spikes, i_cluster, plot_all, p_type, exp_name=None, plot_grid=True):
         '''
@@ -2613,158 +2782,6 @@ class AnalysisGUI(QMainWindow):
             # rotates the xtick labels
             for xt in self.plot_fig.ax[i_plot].get_xticklabels():
                 xt.set_rotation(90)
-
-    def plot_cluster_isi(self, plot_comp, i_cluster, plot_all, t_lim, plot_all_bin, is_norm, equal_ax, plot_grid=True):
-        '''
-
-        :param i_cluster:
-        :param plot_all:
-        :param is_norm:
-        :return:
-        '''
-
-        # retrieves the comparison data struct belonging to the selected experiment
-        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
-        c_data = dcopy(self.data.comp.data[i_comp])
-
-        # retrieves the fixed/free datasets
-        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data)
-
-        # resets the cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-
-        # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster)
-
-        # sets the y-axis label (based on whether the distributions are normalised)
-        if is_norm:
-            y_label = 'Probability'
-        else:
-            y_label = 'Count'
-
-        # sets up the figure/axis
-        n_plot, col, y_lim = len(i_cluster), 'kg', [0, 0]
-        self.init_plot_axes(n_plot=n_plot)
-
-        # sets the time bin coordinates
-        dxi = 0.5 * np.diff(data_fix['isiHistX'][:2])
-        xi = data_fix['isiHistX'][:-1] + dxi
-
-        # sets the plot indices based on the type
-        if plot_all_bin:
-            # case is plotting all time bins
-            ii = np.array(range(len(xi)))
-        else:
-            # case is plotting for a given upper limit
-            ii = xi <= t_lim
-            xi = xi[ii]
-
-        # plots the values over all subplots
-        for i_plot in range(n_plot):
-            # creates the new subplot
-            j_plot = i_cluster[i_plot] - 1
-            i_match = c_data.i_match[j_plot]
-            id_fix = data_fix['clustID'][j_plot]
-
-            # plots the fixed cluster isi histogram
-            hist_fix = data_fix['isiHist'][j_plot]
-            self.plot_fig.ax[i_plot].plot(xi, hist_fix[ii] / (1.0 + (sum(hist_fix) - 1.0)*int(is_norm)), 'b')
-
-            # plots the fixed
-            if i_match >= 0:
-                # plots the z-scores and the upper/lower limits
-                hist_free = data_free['isiHist'][i_match]
-                self.plot_fig.ax[i_plot].plot(xi, hist_free[ii] / (1.0 + (sum(hist_free) - 1.0) * int(is_norm)), 'r')
-
-                # sets the title properties
-                id_free = data_free['clustID'][i_match]
-                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(c_data.is_accept[j_plot])]
-            else:
-                # otherwise, set reduced title properties
-                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
-
-            # sets the subplot properties
-            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
-            self.plot_fig.ax[i_plot].set_ylabel(y_label)
-            self.plot_fig.ax[i_plot].set_xlabel('ISI Time (ms)')
-            self.plot_fig.ax[i_plot].set_xlim(xi[0] - dxi, xi[-1] + dxi)
-            self.plot_fig.ax[i_plot].grid(plot_grid)
-
-            # updates the axis y-limits (if required)
-            if equal_ax and (i_match >= 0):
-                y_lim_ax = self.plot_fig.ax[i_plot].get_ylim()
-                y_lim[1] = max([y_lim[1],y_lim_ax[1]])
-
-        if equal_ax:
-            for ax in self.plot_fig.ax:
-                ax.set_ylim(y_lim)
-
-    def plot_old_cluster_signals(self, plot_comp, i_cluster, plot_all, plot_grid=True):
-        '''
-
-        :return:
-        '''
-
-        # retrieves the comparison data struct belonging to the selected experiment
-        i_comp = cf.det_comp_dataset_index(self.data.comp.data, plot_comp)
-        c_data = dcopy(self.data.comp.data[i_comp])
-
-        # retrieves the fixed/free datasets
-        n_pts = c_data.n_pts
-        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
-
-        # resets the cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_fix['nC'])
-        if e_str is not None:
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-
-        # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster)
-        T, col = self.setup_time_vector(data_fix['sFreq'], n_pts), 'rg'
-
-        # sets up the figure/axis
-        n_plot = len(i_cluster)
-        self.init_plot_axes(n_plot=n_plot)
-
-        # plots the values over all subplots
-        for i_plot in range(n_plot):
-            # creates the new subplot
-            j_plot = i_cluster[i_plot] - 1
-            i_match = c_data.i_match[j_plot]
-            id_fix = data_fix['clustID'][j_plot]
-
-            # only plot data values if there was a match
-            if i_match >= 0:
-                # plots the z-scores and the upper/lower limits
-                self.plot_fig.ax[i_plot].plot(T, c_data.z_score[:, j_plot], 'b')
-                self.plot_fig.ax[i_plot].plot([0, n_pts], [1, 1], 'r--')
-                self.plot_fig.ax[i_plot].plot([0, n_pts], [-1, -1], 'r--')
-
-                # sets the title properties
-                id_free = data_free['clustID'][i_match]
-                t_str = 'Fixed #{0}/Free #{1}'.format(id_fix, id_free)
-                t_col = col[int(c_data.is_accept[j_plot])]
-            else:
-                # otherwise, set reduced title properties
-                t_str, t_col = 'Fixed #{0}'.format(id_fix), 'k'
-
-            # sets the subplot properties
-            self.plot_fig.ax[i_plot].set_title(t_str, color=t_col)
-            self.plot_fig.ax[i_plot].set_ylim(-4, 4)
-            self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
-            self.plot_fig.ax[i_plot].set_ylabel('Z-Score')
-            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i_plot].grid(plot_grid)
-
-            # # sets the final figure layout
-            # self.plot_fig.fig.tight_layout(h_pad=-0.9)
 
     ######################################################
     ####    CELL CLASSIFICATION ANALYSIS FUNCTIONS    ####
@@ -3967,8 +3984,7 @@ class AnalysisGUI(QMainWindow):
             i_expt = f_data.exp_name.index(free_exp_name)
             if plot_scope == 'Individual Cell':
                 # retrieves the cell index (if plotting a single cell response)
-                c_id = int(cell_id[cell_id.index('#') + 1:])
-                i_cell = f_data.cell_id[i_expt].index(c_id)
+                i_cell = self.get_free_cell_index(cell_id, free_exp_name, is_fix=False)
 
                 # sets the graph title for the single cell
                 t_str = '{0}\n({1} - {2})'.format(t_str0, free_exp_name, cell_id)
@@ -4565,16 +4581,16 @@ class AnalysisGUI(QMainWindow):
     ####    ANGULAR HEAD VELOCITY ANALYSIS FUNCTIONS    ####
     ########################################################
 
-    def plot_freq_corr_indiv(self, rot_filt, i_cluster, plot_exp_name, plot_shuffle, plot_grid, plot_scope):
+    def plot_freq_corr_indiv(self, rot_filt, cell_id, plot_exp_name, plot_shuffle, plot_type, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
-        :param i_cluster:
+        :param cell_id:
         :param plot_exp_name:
         :param plot_shuffle:
+        :param plot_type:
         :param plot_grid:
         :param plot_scope:
-        :param is_fixed:
         :return:
         '''
 
@@ -4599,142 +4615,186 @@ class AnalysisGUI(QMainWindow):
             self.calc_ok = False
             return
 
-        ########################################
-        ####    INDIVIDUAL CELL ANALYSIS    ####
-        ########################################
-
-        # parameters
-        p_value = 5    # SK-test set this to 2.5 or 5
-
-        # initialisations
-        xi_cdf = np.linspace(-1, 1, 2001)
-        x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
-        xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
-
-        # retrieves the base
-        rot_filt_base = cf.init_rotation_filter_data(False)
-        r_obj_b = RotationFilteredData(self.data, rot_filt_base, None, None, False, 'Whole Experiment', False)
+        #############################################
+        ####    DATA GROUPING/INITIALISATIONS    ####
+        #############################################
 
         # retrieves the indices of the cells that correspond to the selected experiment
         ind_expt = [np.where(i_ex == i_expt)[0] for i_ex in r_obj_wc.i_expt]
-        if i_cluster >= len(ind_expt[0]):
-            # if the cluster index is invalid, then exit the function
-            e_str = 'You have specified an index greater than the number of clusters ({0}) for the selected ' \
-                    'experiment. Reset the cluster index and re-run the function.'.format(len(ind_expt))
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
+        _, i_cell = cf.get_cell_index_and_id(self, cell_id, plot_exp_name, arr_out=False)
 
         # otherwise, determine the global cell index
         t_type = rot_filt['t_type']
-        i_cell_g = [i_ex[i_cluster - 1] for i_ex in ind_expt]
-        n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
+        i_cell_g = [i_ex[i_cell] for i_ex in ind_expt]
         col = cf.get_plot_col(len(t_type))
 
-        # sets the velocity range indices
-        if r_data.split_vel:
-            # case is the velocity range is split into negative/positive ranges
-            i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
-        else:
-            # case is the velocity range is not split
-            i_nw = [np.arange(len(xi))]
+        # sets the title string
+        cl_id, ch_id = r_obj_wc.cl_id[0][i_cell_g[0]], int(r_obj_wc.ch_id[0][i_cell_g[0]])
+        t_str = 'Cluster #{0} (Channel #{1})'.format(cl_id, ch_id)
 
-        # creates the plot axis
-        self.init_plot_axes(n_row=2, n_col=n_grp)
-        ax = self.plot_fig.ax
+        if plot_type == 'Correlation':
+            ######################################################
+            ####    SPIKING FREQUENCY CORRELATION SUBPLOTS    ####
+            ######################################################
 
-        # creates the sub-plot figures for each velocity group type/trial condition
-        for i_grp in range(n_grp):
+            # parameters
+            p_value = 5    # SK-test set this to 2.5 or 5
+
             # initialisations
-            lg_str_cdf = []
-            i_ax1, i_ax2 = i_grp, n_grp + i_grp
+            xi_cdf = np.linspace(-1, 1, 2001)
+            x_cdf = 0.5 * (xi_cdf[:-1] + xi_cdf[1:])
+            xi, h_plt, h_plt2 = np.mean(r_data.vel_xi, axis=1), [], []
+            n_grp = np.size(r_data.vel_sf_sig[t_type[0]], axis=1)
+
+            # sets the velocity range indices
+            if r_data.split_vel:
+                # case is the velocity range is split into negative/positive ranges
+                i_nw = [np.arange(int(len(xi) / 2)), np.arange(int(len(xi) / 2), len(xi))]
+            else:
+                # case is the velocity range is not split
+                i_nw = [np.arange(len(xi))]
+
+            # creates the plot axis
+            self.init_plot_axes(n_row=2, n_col=n_grp)
+            ax = self.plot_fig.ax
+
+            # creates the sub-plot figures for each velocity group type/trial condition
+            for i_grp in range(n_grp):
+                # initialisations
+                lg_str_cdf = []
+                i_ax1, i_ax2 = i_grp, n_grp + i_grp
+
+                for i_tt, tt in enumerate(t_type):
+                    ########################################
+                    ####    SPIKING FREQUENCY OUTPUT    ####
+                    ########################################
+
+                    # retrieves the mean/shuffled signal values
+                    vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g[i_tt], i_grp]
+                    vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g[i_tt], i_grp].T
+
+                    # creates the signal plot
+                    if plot_shuffle:
+                        ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_shuffle, col[i_tt], linewidth=1, alpha=0.05)
+                    h_plt.append(ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_mean, col[i_tt], linewidth=2))
+
+                    # creates the legend (final plot)
+                    ax[i_ax1].grid(plot_grid)
+                    if (i_tt + 1) == len(t_type):
+                        ax[i_ax1].legend([x[0] for x in h_plt], t_type)
+
+                    ########################################
+                    ####    SPIKING FREQUENCY OUTPUT    ####
+                    ########################################
+
+                    # retrieves the correlation/significance values
+                    vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g[i_tt], i_grp]
+                    vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g[i_tt], i_grp]
+                    vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g[i_tt], i_grp]
+
+                    # calculates the cumulative distribution values
+                    sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
+                    sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
+
+                    # creates
+                    i_cdf_bin = max(0, np.where(x_cdf > vel_sf_corr_mn)[0][0] - 1)
+                    ax[i_ax2].plot(x_cdf, sf_corr_cdf, col[i_tt], linewidth=2)
+                    ax[i_ax2].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], '--', c=col[i_tt])
+                    h_plt2.append(ax[i_ax2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
+                                                     '--', c=col[i_tt]))
+
+                    # appends the legend string and updates the axis properties (if final condition type)
+                    lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
+                    if (i_tt + 1) == len(t_type):
+                        ax[i_ax2].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
+                        ax[i_ax2].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
+                        ax[i_ax2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
+
+                    # sets the axis limits
+                    ax[i_ax2].set_xlim([-1, 1])
+                    ax[i_ax2].set_ylim([-0.1, 100.1])
+                    ax[i_ax2].grid(plot_grid)
+
+            # sets the x/y-labels for the first subplot
+            ax[0].set_ylabel('Spiking Frequency (Hz)')
+            ax[0].set_xlabel('Angular Velocity (deg/s)')
+
+            # sets the cumulative distribution properties for the first subplot
+            ax[n_grp].set_ylabel('Percentage')
+            ax[n_grp].set_xlabel('Correlation')
+
+            if n_grp > 1:
+                # sets the final axis limits
+                y_lim0, y_lim1 = ax[0].get_ylim(), ax[1].get_ylim()
+                y_lim_fin = [min(y_lim0[0], y_lim1[0]), max(y_lim0[1], y_lim1[1])]
+
+                # negative velocity axis properties
+                ax[0].set_title('Negative Velocities')
+                ax[0].set_ylim(y_lim_fin)
+
+                # positive velocity axis properties
+                ax[1].set_title('Positive Velocities')
+                ax[1].set_xlabel('Angular Velocity (deg/s)')
+                ax[1].set_ylim(y_lim_fin)
+
+                # positive velocity correlation cumulative distribution properties
+                ax[3].set_xlabel('Correlation')
+
+            else:
+                # sets the axis title
+                ax[0].set_title('All Velocities')
+
+            # creates the super-title
+            self.plot_fig.fig.set_tight_layout(False)
+            self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
+            self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
+
+        else:
+            ######################################################
+            ####    SPIKING FREQUENCY CORRELATION SUBPLOTS    ####
+            ######################################################
+
+            # creates the plot axis
+            self.init_plot_axes()
+            ax = self.plot_fig.ax[0]
+
+            # initialisations
+            m_size = 5
+            xi_fit = [np.array([-80, 0]), np.array([0, 80])]
+            xi, h_plt = np.mean(r_data.vel_xi, axis=1), []
 
             for i_tt, tt in enumerate(t_type):
                 ########################################
                 ####    SPIKING FREQUENCY OUTPUT    ####
                 ########################################
 
+                # retrieves the slope/intercept values for the negative/positive velocity ranges
+                p_slope = [-r_data.sf_fix_slope[0, i_tt][i_cell_g[i_tt]], r_data.sf_fix_slope[1, i_tt][i_cell_g[i_tt]]]
+                p_int = [r_data.sf_fix_int[0, i_tt][i_cell_g[i_tt]], r_data.sf_fix_int[1, i_tt][i_cell_g[i_tt]]]
+
                 # retrieves the mean/shuffled signal values
-                vel_sf_mean = r_data.vel_sf_mean[tt][i_cell_g[i_tt], i_grp]
-                vel_sf_shuffle = r_data.vel_sf_shuffle[tt][i_cell_g[i_tt], i_grp].T
+                vel_sf_mean = np.hstack(r_data.vel_sf_mean[tt][i_cell_g[i_tt], :])
 
-                # creates the signal plot
-                if plot_shuffle:
-                    ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_shuffle, col[i_tt], linewidth=1, alpha=0.05)
-                h_plt.append(ax[i_ax1].plot(xi[i_nw[i_grp]], vel_sf_mean, col[i_tt], linewidth=2))
+                # plots the mean values
+                h_plt.append(ax.plot(xi, vel_sf_mean, 'o', markersize=m_size, c=col[i_tt]))
 
-                # creates the legend (final plot)
-                ax[i_ax1].grid(plot_grid)
-                if (i_tt + 1) == len(t_type):
-                    ax[i_ax1].legend([x[0] for x in h_plt], t_type)
+                # plots the linear fits
+                for i_grp in range(len(p_slope)):
+                    ax.plot(xi_fit[i_grp], p_slope[i_grp] * xi_fit[i_grp] + p_int[i_grp], '--', linewidth=3, c=col[i_tt])
 
-                ########################################
-                ####    SPIKING FREQUENCY OUTPUT    ####
-                ########################################
+            # plots the midline
+            yL = ax.get_ylim()
+            ax.set_ylim(yL)
+            ax.plot([0, 0], yL, 'k--')
 
-                # retrieves the correlation/significance values
-                vel_sf_corr = r_data.vel_sf_corr[tt][:, i_cell_g[i_tt], i_grp]
-                vel_sf_corr_mn = r_data.vel_sf_corr_mn[tt][i_cell_g[i_tt], i_grp]
-                vel_sf_sig = r_data.vel_sf_sig[tt][i_cell_g[i_tt], i_grp]
+            # creates the plot legend
+            ax.legend([x[0] for x in h_plt], t_type)
 
-                # calculates the cumulative distribution values
-                sf_corr_hist = np.histogram(vel_sf_corr, bins=xi_cdf, normed=True)[0]
-                sf_corr_cdf = 100. * np.cumsum(sf_corr_hist / np.sum(sf_corr_hist))
-
-                # creates
-                i_cdf_bin = max(0, np.where(x_cdf > vel_sf_corr_mn)[0][0] - 1)
-                ax[i_ax2].plot(x_cdf, sf_corr_cdf, col[i_tt], linewidth=2)
-                ax[i_ax2].plot(x_cdf[i_cdf_bin] * np.ones(2), [0, sf_corr_cdf[i_cdf_bin]], '--', c=col[i_tt])
-                h_plt2.append(ax[i_ax2].plot([-1, x_cdf[i_cdf_bin]], sf_corr_cdf[i_cdf_bin] * np.ones(2),
-                                                 '--', c=col[i_tt]))
-
-                # appends the legend string and updates the axis properties (if final condition type)
-                lg_str_cdf.append('{} (Corr = {:5.3f}{})'.format(tt, vel_sf_corr_mn, '*' if vel_sf_sig else ''))
-                if (i_tt + 1) == len(t_type):
-                    ax[i_ax2].plot([-1, 1], p_value * np.ones(2), '-', c='r', linewidth=2)
-                    ax[i_ax2].plot([-1, 1], (100 - p_value) * np.ones(2), '-', c='r', linewidth=2)
-                    ax[i_ax2].legend([x[0] for x in h_plt2], lg_str_cdf, loc=4)
-
-                # sets the axis limits
-                ax[i_ax2].set_xlim([-1, 1])
-                ax[i_ax2].set_ylim([-0.1, 100.1])
-                ax[i_ax2].grid(plot_grid)
-
-        # sets the x/y-labels for the first subplot
-        ax[0].set_ylabel('Spiking Frequency (Hz)')
-        ax[0].set_xlabel('Angular Velocity (deg/s)')
-
-        # sets the cumulative distribution properties for the first subplot
-        ax[n_grp].set_ylabel('Percentage')
-        ax[n_grp].set_xlabel('Correlation')
-
-        if n_grp > 1:
-            # sets the final axis limits
-            y_lim0, y_lim1 = ax[0].get_ylim(), ax[1].get_ylim()
-            y_lim_fin = [min(y_lim0[0], y_lim1[0]), max(y_lim0[1], y_lim1[1])]
-
-            # negative velocity axis properties
-            ax[0].set_title('Negative Velocities')
-            ax[0].set_ylim(y_lim_fin)
-
-            # positive velocity axis properties
-            ax[1].set_title('Positive Velocities')
-            ax[1].set_xlabel('Angular Velocity (deg/s)')
-            ax[1].set_ylim(y_lim_fin)
-
-            # positive velocity correlation cumulative distribution properties
-            ax[3].set_xlabel('Correlation')
-
-        else:
-            # sets the axis title
-            ax[0].set_title('All Velocities')
-
-        # creates the super-title
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, False, 'Individual Cell', False)
-        self.plot_fig.fig.set_tight_layout(False)
-        self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
-        self.plot_fig.fig.suptitle('Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0],
-                                   int(r_obj.ch_id[0][0])), fontsize=16, fontweight='bold')
+            # sets the axis values
+            ax.set_title(t_str, fontsize=16, fontweight='bold')
+            ax.set_xlabel('Velocity (deg/s)')
+            ax.set_ylabel('Spiking Frequency (Hz)')
+            ax.grid(plot_grid)
 
     def plot_freq_corr_hist(self, rot_filt, dist_type, bin_size, comb_all, vel_dir, plot_grid, plot_scope, is_fixed):
         '''
@@ -5461,23 +5521,23 @@ class AnalysisGUI(QMainWindow):
                 i_grp = i * len(t_type) + np.arange(len(t_type))
                 n_ex = len(v_sf_sig_ex0[i_grp[0]])
                 data_tmp = np.empty(n_ex + 1, dtype=object)
+                is_ok = np.ones(n_ex + 1, dtype=bool)
 
                 # sets title row
                 data_tmp[0] = np.empty((2, n_col), dtype=object)
                 data_tmp[0][0, :] = ''
                 data_tmp[0][1, :] = np.array(['Expt Name', 'Clust ID'] + t_type, dtype=object)
 
-                # retrieves the cluster IDs
+                # retrieves the cluster IDs/experiment names
                 i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
-                clustID = [self.data._cluster[j]['clustID'] for j in i_expt_match]
+                cl_inc = [cfcn.get_inclusion_filt_indices(c, self.data.exc_gen_filt) for c in self.data._cluster]
+                clustID = [np.array(self.data._cluster[i_ex]['clustID'])[cl_inc[i_ex]] for i_ex in i_expt_match]
                 exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
-                is_ok = np.ones(n_ex + 1, dtype=bool)
-                cl_match = (i_expt_match / 2).astype(int)
 
                 for i_ex in range(n_ex):
                     # memory allocation and initialisations
                     v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
-                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][cl_match[i_ex]]]
+                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][i_ex]]
                     if len(clustIDex):
                         data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
 
@@ -5500,7 +5560,7 @@ class AnalysisGUI(QMainWindow):
             data_out = np.vstack(data_all).astype(str)
             self.output_data_file("Fixed Correlation Significance.csv", data_out)
 
-    def plot_ahv_corr_comp_fixed(self, rot_filt, plot_type, ahv_met_type, plot_grid, plot_scope):
+    def plot_ahv_corr_comp_fixed(self, rot_filt, plot_type, ahv_met_type, is_comb, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -5512,7 +5572,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # creates the ahv correlation comparison figure
-        self.create_ahv_corr_comp_plot(plot_type, ahv_met_type, plot_grid, True, rot_filt=rot_filt)
+        self.create_ahv_corr_comp_plot(plot_type, ahv_met_type, is_comb, plot_grid, True, rot_filt=rot_filt)
 
     def plot_ahv_fit_para_fixed(self, rot_filt, fit_ptype, plot_indiv, plot_grid, plot_scope):
         '''
@@ -5541,7 +5601,7 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # creates the ahv correlation comparison figure
-        self.create_ahv_corr_comp_plot(plot_type, ahv_met_type, plot_grid, False, vel_bin=vel_bin,
+        self.create_ahv_corr_comp_plot(plot_type, ahv_met_type, False, plot_grid, False, vel_bin=vel_bin,
                                        lcond_type=lcond_type, cell_type=cell_type)
 
     def plot_ahv_fit_para_free(self, cell_type, vel_bin, lcond_type, fit_ptype, plot_indiv, plot_grid, plot_scope):
@@ -5690,7 +5750,7 @@ class AnalysisGUI(QMainWindow):
     ####    ROTATIONAL ANALYSIS FUNCTIONS    ####
     #############################################
 
-    def plot_rotation_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
+    def plot_rotation_trial_spikes(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, show_pref_dir,
                                    n_bin, show_err, plot_grid):
         '''
 
@@ -5699,11 +5759,11 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
-    def plot_phase_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
-                              plot_scope, plot_trend, m_size, show_count, plot_grid, p_value, grp_by_filt, show_stats):
+    def plot_phase_spike_freq(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type, plot_scope,
+                              plot_trend, m_size, show_count, is_comb, plot_grid, p_value, grp_by_filt, show_stats):
         '''
 
         :param rot_filt:
@@ -5716,17 +5776,17 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, False)
 
         # checks to see if the current configuration is feasible (exit function if not)
         if not self.check_group_plot_feas(grp_plot_type, grp_by_filt, show_stats):
             return
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats)
 
-    def plot_spike_freq_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
+    def plot_spike_freq_heatmap(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, norm_type,
                                 mean_type, sort_cond, sort_type, plot_scope, dt):
         '''
 
@@ -5740,10 +5800,10 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_cond, sort_type, dt)
 
-    def plot_motion_direction_selectivity(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
+    def plot_motion_direction_selectivity(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope,
                                           plot_cond, plot_trend, plot_even_axis, p_type, plot_grid):
         '''
 
@@ -5763,6 +5823,9 @@ class AnalysisGUI(QMainWindow):
             :param plot_even_axis:
             :return:
             '''
+
+            # module import
+            r_stats = importr("stats")
 
             # parameters
             p_value = 0.05
@@ -6097,7 +6160,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # filters the rotational data and runs the analysis function
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, False)
         if plot_scope == 'Individual Cell':
             create_single_selectivity_plot(r_obj, plot_grid, rot_filt['t_type'], plot_even_axis)
         else:
@@ -6223,7 +6286,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].plot([0, 0], [0, yL_1[1]], 'r--')
         self.plot_fig.ax[1].set_ylim([0, yL_1[1]])
 
-    def plot_spike_freq_kinematics(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, spread_type, plot_scope,
+    def plot_spike_freq_kinematics(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, spread_type, plot_scope,
                                    pos_bin, vel_bin, n_smooth, is_smooth, plot_grid):
         '''
 
@@ -6418,7 +6481,7 @@ class AnalysisGUI(QMainWindow):
                 return
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, False)
         if not r_obj.is_ok:
             # if there was an error setting up the rotation calculation object, then exit the function with an error
             self.calc_ok = False
@@ -6802,7 +6865,7 @@ class AnalysisGUI(QMainWindow):
     ####    UNIFORM DRIFT ANALYSIS FUNCTIONS    ####
     ################################################
 
-    def plot_unidrift_trial_spikes(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope,
+    def plot_unidrift_trial_spikes(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope,
                                    n_bin, show_err, plot_grid, rmv_median, show_pref_dir):
         '''
 
@@ -6812,11 +6875,11 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, True)
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
-    def plot_unidrift_spike_freq(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
-                                 plot_scope, plot_trend, m_size, show_count, plot_grid, p_value,
+    def plot_unidrift_spike_freq(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
+                                 plot_scope, plot_trend, m_size, show_count, is_comb, plot_grid, p_value,
                                  grp_by_filt, show_stats):
         '''
 
@@ -6839,23 +6902,26 @@ class AnalysisGUI(QMainWindow):
 
         # splits up the uniform drifting into CW/CCW phases
         t_phase, t_ofs = self.fcn_data.curr_para['t_phase_vis'], self.fcn_data.curr_para['t_ofs_vis']
-        r_obj, ind_type = cf.split_unidrift_phases(self.data, rot_filt, i_cluster, plot_exp_name,
+        r_obj, ind_type = cf.split_unidrift_phases(self.data, rot_filt, cell_id, plot_exp_name,
                                                    plot_all_expt, plot_scope, t_phase, t_ofs)
         if r_obj is None:
-            e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
-                    '  * Analysis Duration + Offset = {0} s.\n  * Experiment Phase Duration = {1} s.\n\n' \
-                    'Enter a correct analysis duration/offset combination before re-running ' \
-                    'the function.'.format(t_phase + t_ofs, 2.0)
-            cf.show_error(e_str, 'Incorrect Analysis Function Parameters')
+            # if there is an error, then determine what type of error was involved
+            if ind_type is None:
+                e_str = 'The entered analysis duration and offset is greater than the experimental phase duration:\n\n' \
+                        '  * Analysis Duration + Offset = {0} s.\n  * Experiment Phase Duration = {1} s.\n\n' \
+                        'Enter a correct analysis duration/offset combination before re-running ' \
+                        'the function.'.format(t_phase + t_ofs, 2.0)
+                cf.show_error(e_str, 'Incorrect Analysis Function Parameters')
 
+            # flag that an error occured and exit the function
             self.calc_ok = False
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats, ind_type=ind_type)
 
-    def plot_unidrift_spike_heatmap(self, rot_filt, i_cluster, plot_exp_name, plot_all_expt, norm_type,
+    def plot_unidrift_spike_heatmap(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, norm_type,
                                     mean_type, sort_type, plot_scope, dt):
         '''
 
@@ -6869,14 +6935,14 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # applies the rotation filter to the dataset
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, True)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, True)
         self.create_spike_heatmap(r_obj, norm_type, mean_type, 'Own Condition', sort_type, dt)
 
     ######################################
     ####    ROC ANALYSIS FUNCTIONS    ####
     ######################################
 
-    def plot_direction_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, plot_grid,
+    def plot_direction_roc_curves_single(self, rot_filt, cell_id, plot_exp_name, plot_grid,
                                          plot_all_expt, plot_scope):
         '''
 
@@ -6914,20 +6980,20 @@ class AnalysisGUI(QMainWindow):
             # returns the p-value array
             return auc_stats
 
-        # checks cluster index if plotting all clusters
-        i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, self.data.cluster[i_expt]['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
+        # # checks cluster index if plotting all clusters
+        # i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
+        # i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, self.data.cluster[i_expt]['nC'])
+        # if e_str is not None:
+        #     cf.show_error(e_str,'Infeasible Cluster Indices')
+        #     self.calc_ok = False
+        #     return
 
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster[0], plot_exp_name, False, 'Individual Cell', False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, False, 'Individual Cell', False)
         if not r_obj.is_ok:
             self.calc_ok = False
             return
@@ -7134,7 +7200,7 @@ class AnalysisGUI(QMainWindow):
         r_obj = RotationFilteredData(self.data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, False)
         self.create_spike_heatmap(r_obj, norm_type, mean_type, sort_cond, sort_type_auc, dt)
 
-    def plot_velocity_roc_curves_single(self, rot_filt, i_cluster, plot_exp_name, vel_y_rng,
+    def plot_velocity_roc_curves_single(self, rot_filt, cell_id, plot_exp_name, vel_y_rng,
                                          spd_y_rng, use_vel, plot_grid, plot_all_expt, plot_scope):
         '''
 
@@ -7169,20 +7235,12 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[1] = self.plot_fig.figure.add_subplot(gs[0, 1])
             self.plot_fig.ax[2] = self.plot_fig.figure.add_subplot(gs[1, :])
 
-        # checks cluster index if plotting all clusters
-        i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, self.data.cluster[i_expt]['nC'])
-        if e_str is not None:
-            cf.show_error(e_str,'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
 
         # if there was an error setting up the rotation calculation object, then exit the function with an error
-        r_obj = RotationFilteredData(self.data, rot_filt, i_cluster[0], plot_exp_name, False, 'Individual Cell', False)
+        r_obj = RotationFilteredData(self.data, rot_filt, cell_id, plot_exp_name, False, 'Individual Cell', False)
         if not r_obj.is_ok:
             self.calc_ok = False
             return
@@ -7223,7 +7281,8 @@ class AnalysisGUI(QMainWindow):
 
             # finds the corresponding cell types between the overall and user-specified filters
             i_cell_b, _ = cf.det_cell_match_indices(r_obj_k, [0, i_filt], r_obj)
-            i_cell = int(i_cell_b[i_cluster] - 1)
+            i_cl = self.data._cluster[r_obj.i_expt0[i_filt][0]]['clustID'].index(cf.get_cell_id(cell_id))
+            i_cell = i_cell_b[i_cl]
 
             # sets the roc plot coordinates and auc values
             roc_xy[i_filt] = _roc_xy[t_type_base[i_match]][i_cell, i_bin]
@@ -9864,7 +9923,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_title('Direction Decoding Accuracy')
         self.plot_fig.ax[1].grid(plot_grid)
 
-    def plot_shuffled_lda(self, i_cell_1, i_cell_2, plot_exp_name, plot_corr, dir_type_1, dir_type_2,
+    def plot_shuffled_lda(self, cell_id1, cell_id2, plot_exp_name, plot_corr, dir_type_1, dir_type_2,
                           m_size, plot_grid):
         '''
 
@@ -9978,7 +10037,9 @@ class AnalysisGUI(QMainWindow):
 
         elif plot_corr:
             # determines if the cell indices are unique
-            if i_cell_1 == i_cell_2:
+            c_id1, i_cell_1 = cf.get_cell_index_and_id(self, dcopy(cell_id1), plot_exp_name, arr_out=False)
+            c_id2, i_cell_2 = cf.get_cell_index_and_id(self, dcopy(cell_id2), plot_exp_name, arr_out=False)
+            if c_id1 == c_id2:
                 # if the user selected identical cell indices, then output an error to screen
                 e_str = 'It is not possible to run this function with identical cell indices.\n' \
                         'Re-run this function with unique cell indices types.'
@@ -9987,14 +10048,6 @@ class AnalysisGUI(QMainWindow):
             else:
                 # retrieves the experiment index and cell count for the experiment
                 i_expt = list(d_data_d.exp_name).index(plot_exp_name)
-                n_cell = np.size(d_data_d.z_corr[i_expt][0], axis=0)
-
-                # determines if the input indices don't exceed the number of cells for this experiment
-                if (i_cell_1 > n_cell) or (i_cell_2 > n_cell):
-                    # if so, then output an error to screen
-                    e_str = 'The or or both of the cell indices exceeds the number of cells for this ' \
-                            'experiment ({0}). \nRe-run this function feasible cell indices types.'
-                    t_str = 'Invalid Cell Indices'
 
         # determines if there were any errors within the input parameters
         if e_str is not None:
@@ -10021,26 +10074,26 @@ class AnalysisGUI(QMainWindow):
             # retrieves the z-score/pair-wise correlation values
             if i_cell_2 < i_cell_1:
                 # sets the cell indices
-                i_cell = [i_cell_2, i_cell_1]
+                c_id = [c_id2, c_id1]
 
                 # z-score values
-                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
-                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
+                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_2, i_cell_1]
+                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_2, i_cell_1]
 
                 # pair-wise correlation values
-                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_2 - 1, i_cell_1 - 1]
-                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_2 - 1, i_cell_1 - 1]
+                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_2, i_cell_1]
+                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_2, i_cell_1]
             else:
                 # sets the cell indices
-                i_cell = [i_cell_1, i_cell_2]
+                c_id = [c_id1, c_id2]
 
                 # z-score values
-                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
-                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
+                z_corr[0] = d_data_d.z_corr[i_expt][ind_d1][i_cell_1, i_cell_2]
+                z_corr[1] = d_data_d.z_corr[i_expt][ind_d2][i_cell_1, i_cell_2]
 
                 # pair-wise correlation values
-                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_1 - 1, i_cell_2 - 1]
-                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_1 - 1, i_cell_2 - 1]
+                pw_corr[0] = d_data_d.pw_corr[i_expt][ind_d1][i_cell_1, i_cell_2]
+                pw_corr[1] = d_data_d.pw_corr[i_expt][ind_d2][i_cell_1, i_cell_2]
 
             #############################
             ####    SUBPLOT SETUP    ####
@@ -10064,8 +10117,8 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the axis labels/titles
                 ax.set_title(d_type[i_ax])
-                ax.set_xlabel('Z-Score Response (Cell #{0})'.format(i_cell[0]))
-                ax.set_ylabel('Z-Score Response (Cell #{0})'.format(i_cell[1]))
+                ax.set_xlabel('Z-Score Response (Cell #{0})'.format(c_id[0]))
+                ax.set_ylabel('Z-Score Response (Cell #{0})'.format(c_id[1]))
 
                 # sets the axis properties
                 ax.set_xlim(xL)
@@ -10146,14 +10199,16 @@ class AnalysisGUI(QMainWindow):
             # updates the plot marker colours
             for i in range(n_cond + 1):
                 # sets the synchronous violin/swarmplot objects
-                c_v[2 * i].set_color(col[i])
-                c_v[2 * i].set_alpha(f_alpha[0])
                 c_s[2 * i].set_color('w')
+                if len(c_v):
+                    c_v[2 * i].set_color(col[i])
+                    c_v[2 * i].set_alpha(f_alpha[0])
 
                 # sets the non-synchronous violin/swarmplot objects
-                c_v[2 * i + 1].set_color(col[i])
-                c_v[2 * i + 1].set_alpha(f_alpha[1])
                 c_s[2 * i + 1].set_color('w')
+                if len(c_v):
+                    c_v[2 * i + 1].set_color(col[i])
+                    c_v[2 * i + 1].set_alpha(f_alpha[1])
 
             # plots the separation markers
             yL = [-2., p_mx]
@@ -10989,7 +11044,7 @@ class AnalysisGUI(QMainWindow):
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
     ####################################################
 
-    def plot_signal_means(self, i_cluster, plot_all, exp_name, plot_grid=True):
+    def plot_signal_means(self, cell_id, plot_all, exp_name, plot_grid=True):
         '''
 
         :param i_cluster:
@@ -11001,39 +11056,39 @@ class AnalysisGUI(QMainWindow):
         # retrieves the data dictionary corresponding to the selected experiment
         i_expt = cf.get_expt_index(exp_name, self.data.cluster)
         data_plot = self.data.cluster[i_expt]
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_plot['nC'])
 
-        # resets the cluster index if plotting all clusters
-        if e_str is not None:
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
+        # retrieves the cell ID/index numbers of the reference/comparison cells
+        c_id, i_cell = cf.get_cell_index_and_id(self, cell_id, exp_name, plot_all=plot_all)
+        if len(c_id) > n_plot_max:
+            # if the number of subplots the maximum then output an error to screen
+            e_str = 'The number of subplots ({0}) exceeds the maximum ' \
+                    'number of subplots ({1})'.format(len(c_id), n_plot_max)
+            cf.show_error(e_str, 'Invalid Subplot Count')
+
+            # exit with an error flag
             self.calc_ok = False
             return
 
         # sets the indices of the clusters to plot and creates the figure/axis objects
-        i_cluster = self.set_cluster_indices(i_cluster, n_max=data_plot['nC'])
         T = self.setup_time_vector(data_plot['sFreq'], n_pts=np.size(data_plot['vMu'], axis=0))
 
         # sets up the figure/axis
-        n_plot = len(i_cluster)
+        n_plot = len(i_cell)
         self.init_plot_axes(n_plot=n_plot)
 
         # plots the values over all subplots
         for i_plot in range(n_plot):
-            # sets the actual fixed/free plot indices
-            j_plot = i_cluster[i_plot] - 1
-            id_clust = data_plot['clustID'][j_plot]
-
             # plots the mean signal
-            self.plot_fig.ax[i_plot].plot(T, data_plot['vMu'][:, j_plot], linewidth=3.0)
+            self.plot_fig.ax[i_plot].plot(T, data_plot['vMu'][:, i_cell[i_plot]], linewidth=3.0)
 
             # sets the plot values
             self.plot_fig.ax[i_plot].grid(plot_grid)
             self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
-            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(id_clust))
+            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(c_id[i_plot]))
             self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
             self.plot_fig.ax[i_plot].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
-    def plot_cluster_auto_ccgram(self, i_cluster, plot_all, window_size, exp_name):
+    def plot_cluster_auto_ccgram(self, cell_id, plot_all, window_size, exp_name):
         '''
 
         :param i_cluster:
@@ -11042,17 +11097,19 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        # initialisations
-        ex_name, cluster = cf.extract_file_name, self.data.cluster
-
         # retrieves the data dictionary corresponding to the selected experiment
         i_expt = cf.get_expt_index(exp_name, self.data.cluster)
         data_plot = self.data.cluster[i_expt]
 
-        # resets the cluster index if plotting all clusters
-        i_cluster, e_str = self.check_cluster_index_input(i_cluster, plot_all, data_plot['nC'])
-        if e_str is not None:
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
+        # retrieves the cell ID/index numbers of the reference/comparison cells
+        c_id, i_cell = cf.get_cell_index_and_id(self, cell_id, exp_name, plot_all=plot_all)
+        if len(c_id) > n_plot_max:
+            # if the number of subplots the maximum then output an error to screen
+            e_str = 'The number of subplots ({0}) exceeds the maximum ' \
+                    'number of subplots ({1})'.format(len(c_id), n_plot_max)
+            cf.show_error(e_str, 'Invalid Subplot Count')
+
+            # exit with an error flag
             self.calc_ok = False
             return
 
@@ -11061,7 +11118,7 @@ class AnalysisGUI(QMainWindow):
         ind = np.arange(n_bin_tot - window_size, n_bin_tot + window_size)
 
         # sets up the figure/axis
-        n_plot = len(i_cluster)
+        n_plot = len(i_cell)
         self.init_plot_axes(n_plot=n_plot)
         xi_hist = data_plot['ccGramXi'][ind]
 
@@ -11071,12 +11128,8 @@ class AnalysisGUI(QMainWindow):
 
         # plots the values over all subplots
         for i_plot in range(n_plot):
-            # sets the actual fixed/free plot indices
-            j_plot = i_cluster[i_plot] - 1
-            id_clust = data_plot['clustID'][j_plot]
-
             # creates the bar-graph and the centre marker
-            n_hist = data_plot['ccGram'][j_plot, j_plot, ind]
+            n_hist = data_plot['ccGram'][i_cell[i_plot], i_cell[i_plot], ind]
             self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=bin_sz)
 
             # updates the axis limits and plots the central line
@@ -11085,7 +11138,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].plot(np.zeros(2), yL, 'r--')
 
             # sets the axis properties
-            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(int(id_clust)))
+            self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(c_id[i_plot]))
             self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
@@ -11104,32 +11157,25 @@ class AnalysisGUI(QMainWindow):
         i_expt = cf.get_expt_index(exp_name, self.data.cluster)
         data_plot = self.data.cluster[i_expt]
 
-        # resets the cluster index if plotting all clusters
-        i_ref, e_str1 = self.check_cluster_index_input(i_ref, False, data_plot['nC'])
-        if e_str1 is not None:
-            cf.show_error(e_str1, 'Infeasible Cluster Indices')
+        # retrieves the cell ID/index numbers of the reference/comparison cells
+        c_id_ref, i_cell_ref = cf.get_cell_index_and_id(self, dcopy(i_ref), exp_name, arr_out=False)
+        c_id_comp, i_cell_comp = cf.get_cell_index_and_id(self, i_comp, exp_name, plot_all=plot_all)
+        if len(c_id_comp) > n_plot_max:
+            # if the number of subplots the maximum then output an error to screen
+            e_str = 'The number of subplots ({0}) exceeds the maximum ' \
+                    'number of subplots ({1})'.format(len(c_id_comp), n_plot_max)
+            cf.show_error(e_str, 'Invalid Subplot Count')
+
+            # exit with an error flag
             self.calc_ok = False
             return
-        elif len(i_ref) > 1:
-            e_str = 'You have entered multiple indices for the reference cluster index.'
-            cf.show_error(e_str, 'Infeasible Cluster Indices')
-            self.calc_ok = False
-            return
-        else:
-            i_comp, e_str2 = self.check_cluster_index_input(i_comp, plot_all, data_plot['nC'])
-            if e_str2 is not None:
-                cf.show_error(e_str2, 'Infeasible Cluster Indices')
-                self.calc_ok = False
-                return
 
         # sets the indices of the clusters to plot and creates the figure/axis objects
         ind = np.where(abs(data_plot['ccGramXi']) <= window_size)[0]
+        n_plot, xi_hist = len(i_cell_comp), data_plot['ccGramXi'][ind]
+        t_min, t_max, pW_lo, pW_hi, p_lim = 1.5, 4.0, 0.85, 1.15, p_lim / 100.0
 
         # sets up the figure/axis
-        t_min, t_max, pW_lo, pW_hi, p_lim = 1.5, 4.0, 0.85, 1.15, p_lim / 100.0
-        n_plot, j_plot1 = len(i_comp), i_ref[0] - 1
-        id_clust1 = data_plot['clustID'][j_plot1]
-        xi_hist = data_plot['ccGramXi'][ind]
         self.init_plot_axes(n_plot=n_plot)
 
         # sets the x-axis limits
@@ -11137,7 +11183,7 @@ class AnalysisGUI(QMainWindow):
         x_lim = [xi_hist[0], xi_hist[-1]]
 
         # sets up the gaussian signal filter
-        f_scale_ref = len(data_plot['tSpike'][i_ref[0] - 1]) / 1000.0
+        f_scale_ref = len(data_plot['tSpike'][i_cell_ref]) / 1000.0
         freq_range = np.arange(0, len(xi_hist)) * (1 / (xi_hist[1] - xi_hist[0]))
         freq = next((i for i in range(len(xi_hist)) if freq_range[i] > f_cutoff), len(xi_hist))
 
@@ -11145,12 +11191,11 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # sets the actual fixed/free plot indices
             search_lim = []
-            j_plot2 = i_comp[i_plot] - 1
-            id_clust2 = data_plot['clustID'][j_plot2]
 
             # calculates the confidence intervals
-            n_hist = data_plot['ccGram'][j_plot1, j_plot2, ind]
-            ciN_lo, ciN_hi, _ = cfcn.calc_ccgram_prob(data_plot['ccGram'][j_plot1, j_plot2, :] * f_scale_ref, freq, p_lim)
+            n_hist = data_plot['ccGram'][i_cell_ref, i_cell_comp[i_plot], ind]
+            ciN_lo, ciN_hi, _ = cfcn.calc_ccgram_prob(
+                            data_plot['ccGram'][i_cell_ref, i_cell_comp[i_plot], :] * f_scale_ref, freq, p_lim)
 
             # creates the search limit region
             y_lim = [pW_lo * min(np.min(n_hist), np.min(ciN_lo[ind] / f_scale_ref)),
@@ -11173,7 +11218,7 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].plot(np.zeros(2), y_lim, 'k--')
 
             # sets the axis properties
-            self.plot_fig.ax[i_plot].set_title('Cluster #{0} vs #{1}'.format(int(id_clust1), int(id_clust2)))
+            self.plot_fig.ax[i_plot].set_title('Cluster #{0} vs #{1}'.format(c_id_ref, c_id_comp[i_plot]))
             self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
             self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
@@ -11454,8 +11499,8 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, show_count, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop, m_size,
-                               grp_by_filt, show_stats, ind_type=None):
+    def create_spike_freq_plot(self, r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+                               m_size, grp_by_filt, show_stats, ind_type=None):
         '''
 
         :param r_obj:
@@ -11576,10 +11621,10 @@ class AnalysisGUI(QMainWindow):
             return
 
         # initialisations
-        n_sub, n_grp = 3, [3, 1]
+        n_sub, n_grp = 3, [1 if is_comb else 3, 1]
         main_title = ['Reaction Type', 'Direction Selectivity']
         n_filt = int(r_obj.n_filt / 2) if r_obj.is_ud else r_obj.n_filt
-        c, c2 = cf.get_plot_col(n_filt), cf.get_plot_col(max([max(n_grp),n_filt,4]), n_filt)
+        c, c2 = cf.get_plot_col(n_filt), cf.get_plot_col(max([max(n_grp), n_filt, 4]), n_filt)
 
         # memory allocation
         lg_str_f = r_obj.lg_str
@@ -11624,6 +11669,8 @@ class AnalysisGUI(QMainWindow):
             #   2 = Excited
             #   3 = Mixed
             sf_type = np.max(sf_score[:, :2], axis=1) + (np.sum(sf_score[:, :2], axis=1) == 3).astype(int)
+            if is_comb:
+                sf_type = (sf_type > 0).astype(int)
 
             # determines the direction selective cells, which must meet the following conditions:
             #  1) one direction only produces a significant result, OR
@@ -11638,10 +11685,10 @@ class AnalysisGUI(QMainWindow):
             i_grp[1] = [x[is_mot_sens[x]] for x in i_grp[0]]
 
             # sets the reaction type for each filter type/experiment
-            ind = [0, 2, 1, 3]
+            ind = [0, 1] if is_comb else [0, 2, 1, 3]
             sf_type_filt, _ = self.group_metrics_by_expt(r_obj, sf_type, i_grp[0])
             n_type_ex[0] = [np.vstack(
-                    [cf.calc_rel_prop(x, 4, return_counts=True, ind=ind) for x in y]) for y in sf_type_filt]
+                    [cf.calc_rel_prop(x, len(ind), return_counts=True, ind=ind) for x in y]) for y in sf_type_filt]
 
             # sets the direction selectivity for each filter type/experiment (based on the motion selective cells)
             is_dir_sel_filt, n_filt_ex = self.group_metrics_by_expt(r_obj, is_dir_sel, i_grp[1])
@@ -11683,8 +11730,8 @@ class AnalysisGUI(QMainWindow):
             self.setup_posthoc_stats_table_axes(self.plot_fig, main_title, n_filt, n_grp)
 
             # sets the table header strings
-            hdr_class = ['Exc.', 'Inh.', 'Mixed']
-            tt_class = ['Excited', 'Inhibited', 'Mixed']
+            hdr_class = ['Active'] if is_comb else ['Exc.', 'Inh.', 'Mixed']
+            tt_class = ['Active'] if is_comb else ['Excited', 'Inhibited', 'Mixed']
 
             # sets the base title string
             if (n_filt == 1) and (lg_str_f[0] == 'Black'):
@@ -11698,11 +11745,11 @@ class AnalysisGUI(QMainWindow):
             if n_filt == 1:
                 hdr_str, t_str = [hdr_class], [tt_filt]
             elif grp_by_filt:
-                hdr_str = [hdr_filt, hdr_class, hdr_filt]
-                t_str = [tt_class, tt_filt, ['Direction Selective']]
+                hdr_str = [hdr_filt, hdr_filt] if is_comb else [hdr_filt, hdr_class, hdr_filt]
+                t_str = [tt_filt, ['Direction Selective']] if is_comb else [tt_class, tt_filt, ['Direction Selective']]
             else:
-                hdr_str = [hdr_class, hdr_filt, hdr_filt]
-                t_str = [tt_filt, tt_class, ['Direction Selective']]
+                hdr_str = [hdr_filt, hdr_filt] if is_comb else [hdr_class, hdr_filt, hdr_filt]
+                t_str = [tt_filt, ['Direction Selective']] if is_comb else [tt_filt, tt_class, ['Direction Selective']]
 
             # creates the posthoc statistics table
             self.create_posthoc_stats_table(stats_ph, hdr_str, t_str, col_table, p_value)
@@ -11793,12 +11840,18 @@ class AnalysisGUI(QMainWindow):
                     'Cluster #{0} (Channel #{1})'.format(r_obj.cl_id[0][0], int(r_obj.ch_id[0][0])),
                     fontsize=16, fontweight='bold')
 
-                # sets up the statistics table values
+                # sets up the table row/column headers
                 col_hdr = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
+                if r_obj.is_ud and r_obj.n_filt == 2:
+                    row_hdr = ['All Trials']
+                else:
+                    row_hdr = r_obj.lg_str
+
+                # sets up the statistics table values
                 t_data = np.vstack([['{:5.3f}{}'.format(y, cf.sig_str_fcn(y, p_value)) for y in x] for x in sf_stats]).T
 
                 # calculates the table dimensions
-                cf.add_plot_table(self.plot_fig, len(ax)-1, table_font, t_data, r_obj.lg_str,
+                cf.add_plot_table(self.plot_fig, len(ax)-1, table_font, t_data, row_hdr,
                                   col_hdr, c, cf.get_plot_col(3, len(c)), None, n_row=2, pfig_sz=0.955)
 
                 # exits the function
@@ -11809,7 +11862,8 @@ class AnalysisGUI(QMainWindow):
             #################################################################
 
             # sets the classification group strings
-            class_str0 = [['None', 'Excited', 'Inhibited', 'Mixed'], ['Direction Insensitive', 'Direction Sensitive']]
+            class_str0 = [['Unreactive Cells', 'Reactive Cells'] if is_comb else ['None', 'Excited', 'Inhibited', 'Mixed'],
+                          ['Direction Insensitive', 'Direction Sensitive']]
             class_str = [x[not_stacked:] for x in np.array(class_str0)]
 
             # creates filter group strings
@@ -11836,7 +11890,10 @@ class AnalysisGUI(QMainWindow):
                     ax[i + n_sub].legend([x[0] for x in h_plt], lg_str, ncol=len(lg_str), loc='upper center',
                                                                         columnspacing=0.125, bbox_to_anchor=(0.5, y_hg))
                 else:
-                    ax[i + n_sub].set_title('Direction Sensitivity Proportion', fontsize=16, fontweight='bold')
+                    if is_comb and (i == 0):
+                        ax[i + n_sub].set_title('Reactive Cell Proportion', fontsize=14, fontweight='bold')
+                    else:
+                        ax[i + n_sub].set_title('Direction Sensitivity Proportion', fontsize=14, fontweight='bold')
 
                 # only set the y-axis label for the first subplot
                 if i == 0:
@@ -12358,9 +12415,16 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the spiking frequency histograms
             xi_h = np.vstack(xi_h0)
-            if is_temp:
+            if Y_sort[i_filt] is None:
+                # case is an individual cell heatmap
+                sort_d = None
+
+            elif is_temp:
+                # case is a whole experiment temporal heatmap
                 sort_d = np.argsort(-np.array(Y_sort[i_filt]))
+
             else:
+                # case is a whole experiment velocity heatmap
                 if np.shape(t_spike)[0] == len(Y_sort[i_filt]):
                     Y_sort_tmp = repmat(Y_sort[i_filt], 1, 2)[0]
                     sort_d, is_double = np.argsort(-Y_sort_tmp), True
@@ -12882,7 +12946,7 @@ class AnalysisGUI(QMainWindow):
 
             # parameters
             h_plt = []
-            n_cond, n_grp = len(peak_hz), 2
+            n_cond, n_grp = len(f_slope), 2
             v_max, dv, f_alpha = 80, 2.5, 0.05
             col = cf.get_plot_col(n_cond)
 
@@ -13028,10 +13092,10 @@ class AnalysisGUI(QMainWindow):
             if i_plot + 1 == n_plot:
                 ax[i_plot].set_xlabel("Angular head velocity (deg/s)")
 
-    def create_ahv_corr_comp_plot(self, plot_type, ahv_met_type, plot_grid, is_fixed, rot_filt=None, vel_bin=None,
+    def create_ahv_corr_comp_plot(self, plot_type, ahv_met_type, is_comb, plot_grid, is_fixed, rot_filt=None, vel_bin=None,
                                   lcond_type=None, cell_type=None):
 
-        def setup_plot_axis(plot_fig, x_tick_lbl, n_filt):
+        def setup_plot_axis(plot_fig, x_tick_lbl, n_grp, n_filt):
             '''
 
             :param plot_fig:
@@ -13040,11 +13104,11 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # pre-calculations
-            n_lbl_row, n_row_table = 1 + int('\n' in x_tick_lbl[0]), 2
-            tbl_hght = 0.025
+            is_fixed = n_filt is not None
+            n_lbl_row = 1 + int('\n' in x_tick_lbl[0])
+            n_c, n_row_table, tbl_hght = n_grp, 2, 0.025
 
             # sets up the axes dimensions
-            is_fixed, n_c = n_filt is not None, 2
             height_ratios, width_ratios = [1], [1 / n_c] * n_c
             left, right, wspace, hspace, y_gap = 0.075, 0.98, 0.25, 0.05, 0.025
 
@@ -13137,7 +13201,7 @@ class AnalysisGUI(QMainWindow):
 
                         i_grp, y_grp = [0] * len(y1) + [1] * len(y2), y1 + y2
                         results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
-                                                               p_adjust_method='none', paired=True)
+                                                               p_adjust_method='bonferroni', paired=True)
 
                         # sets the p=value string into the table
                         p_val_nw = cf.get_r_stats_values(results, 'p.value')
@@ -13152,10 +13216,11 @@ class AnalysisGUI(QMainWindow):
         ############################################
 
         # initialisations
-        n_grp, n_filt_ax = 2, None
+        n_grp, n_filt_ax = 2 - int(is_comb), None
 
         # sets the title/axis label base string (depending on plot metric type)
-        t_str_base = {'Correlation': 'Correlation', 'Fit Slope': 'Slope', 'Fit Intercept': 'Intercept'}[ahv_met_type]
+        t_str_base = {'Correlation': 'Correlation', 'Fit Slope': 'Slope',
+                      'Fit Intercept': 'Intercept', 'Fit Error': 'Error'}[ahv_met_type]
 
         if is_fixed:
             # case is the fixed experimental conditions
@@ -13185,11 +13250,17 @@ class AnalysisGUI(QMainWindow):
                 # retrieves the initial linear fit parameter values (based on type)
                 if ahv_met_type == 'Fit Slope':
                     # case is the linear fit slope
-                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_slope[:, i])[:, i_c].T) for i, i_c in enumerate(i_cell_w)]
+                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_slope[:, i]).T) for i in range(len(i_cell_w))]
 
                 elif ahv_met_type == 'Fit Intercept':
                     # case is the linear fit intercept
-                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_int[:, i])[:, i_c].T) for i, i_c in enumerate(i_cell_w)]
+                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_int[:, i]).T) for i in range(len(i_cell_w))]
+
+                elif ahv_met_type == 'Fit Error':
+                    # case is the linear fit Error
+                    r_met0 = [np.abs(np.vstack(r_data.sf_fix_err[:, i]).T) for i in range(len(i_cell_w))]
+                    # r_met0 = [np.divide(np.abs(np.vstack(r_data.sf_fix_err[:, i]).T),
+                    #                     repmat(r_data.peak_hz_fix[i], 2, 1).T) for i in range(len(i_cell_w))]
 
             # determines the experiment group indices for each filter type
             i_exg = [[np.where(i_ex[i_c] == x)[0] for x in np.unique(i_ex[i_c])]
@@ -13201,6 +13272,11 @@ class AnalysisGUI(QMainWindow):
 
             # sets the experiment counts for each filter type
             n_expt = np.array([len(x) for x in r_met])
+
+            # combines the metrics (if required)
+            if is_comb:
+                r_met = [[np.hstack(y).reshape(-1,1) for y in rm] for rm in r_met]
+                c_id = [repmat(i, 2, 1).T.flatten() for i in c_id]
 
         else:
             # case is the freely moving experimental conditions
@@ -13245,14 +13321,14 @@ class AnalysisGUI(QMainWindow):
         b_wid, y_mx, y_mn = 0.9, -1e6, 1e6
         xi = np.arange(n_cond)
         col = cf.get_plot_col(n_cond)
-        t_str = ['CCW', 'CW'] if is_fixed else ['Negative', 'Positive']
+        t_str = ['Combined'] if is_comb else ['CCW', 'CW'] if is_fixed else ['Negative', 'Positive']
 
         # table parameters
         t_font = cf.get_table_font_size(2 + int(is_fixed))
         col_table = cf.get_plot_col(n_cond, n_cond)
 
         # creates the subplot axes
-        setup_plot_axis(self.plot_fig, x_tick_lbl, n_filt_ax)
+        setup_plot_axis(self.plot_fig, x_tick_lbl, n_grp, n_filt_ax)
         ax = self.plot_fig.ax
 
         # memory allocation
@@ -13288,11 +13364,11 @@ class AnalysisGUI(QMainWindow):
                     r_tot[i_grp][i_expt, 1] = r_light[i_expt][:, i_grp]
 
             # calculates the mean metric values over each experiment/filter type
-            r_expt_mu = [[np.mean(x) for x in r_tot[i_grp][:, i_cond][:n_ex]] for i_cond, n_ex in enumerate(n_expt)]
+            # r_expt_mu = [[np.mean(x) for x in r_tot[i_grp][:, i_cond][:n_ex]] for i_cond, n_ex in enumerate(n_expt)]
 
             # from these values, calculate the overall mean/SEM values
-            r_tot_mu = np.array([np.nanmean(x) for x in r_expt_mu])
-            r_tot_sem = np.divide([np.nanstd(x) for x in r_expt_mu], n_expt ** 0.5)
+            r_tot_mu = [np.nanmean(np.hstack(r_tot[i_grp][:, i])) for i in range(n_cond)]
+
 
             # creates the subplot figures
             if plot_type == 'Violin/Swarmplot':
@@ -13324,7 +13400,7 @@ class AnalysisGUI(QMainWindow):
             else:
                 # case is the separated bar graph
                 for i in range(n_cond):
-                    ax[i_grp].bar(xi[i], r_tot_mu[i], width=b_wid, color=col[i], yerr=r_tot_sem[i])
+                    ax[i_grp].bar(xi[i], r_tot_mu[i], width=b_wid, color=col[i])
 
             # sets the axis properties
             ax[i_grp].grid(plot_grid)
@@ -13363,7 +13439,8 @@ class AnalysisGUI(QMainWindow):
             #######################################
 
             # sets the table values and properties for the mean/SEM values
-            table_data = self.setup_table_mean_plus_sem(val_mu=r_tot_mu, val_sem=r_tot_sem, n_dp=3)
+            # n_dp = 4 if ahv_met_type == 'Fit Error' else 3
+            table_data = self.setup_table_mean_plus_sem(val_mu=r_tot_mu, val_sem=None, n_dp=3)
 
             # creates the table
             cf.add_plot_table(self.plot_fig, ax[i_grp + n_grp], t_font, table_data,
@@ -13393,7 +13470,7 @@ class AnalysisGUI(QMainWindow):
         ###########################
 
         # memory allocation
-        n_ex, n_col = len(c_id), 2 + 2 * n_cond
+        n_ex, n_col = len(c_id), 2 + n_grp * n_cond
         data_tmp = np.empty(n_ex + 1, dtype=object)
 
         if is_fixed:
@@ -13404,9 +13481,13 @@ class AnalysisGUI(QMainWindow):
             grp_str = cf.flat_list([['{0} ({1})'.format(ct, tt) for tt in t_str] for ct in x_tick_lbl_fin])
 
             # sets the experiment file names
-            is_ok = np.array([len(x) > 0 for x in r_obj.clust_ind[0]])
+            i_expt_out0 = r_obj.i_expt0[0]
+            for i in range(1, len(r_obj.i_expt0)):
+                i_expt_out0 = np.intersect1d(i_expt_out0, r_obj.i_expt0[i])
+
+            i_expt_out = (i_expt_out0 / 2).astype(int)
             c_fix = np.array(self.data.cluster)[np.where(cf.det_valid_rotation_expt(self.data))[0]]
-            exp_name = np.array([cf.extract_file_name(c['expFile']) for c in c_fix])[is_ok]
+            exp_name = np.array([cf.extract_file_name(c['expFile']) for c in c_fix])[i_expt_out]
 
         else:
             # case is the freely moving experiments
@@ -14153,13 +14234,31 @@ class AnalysisGUI(QMainWindow):
 
         # combines the mean/SEM values for each grouping and returns the final array
         if n_dp == 1:
-            return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
+            if val_sem[0] is None:
+                return np.vstack([['{:.1f}'.format(_mu) for _mu in mu] for mu in val_mu])
+            else:
+                return np.vstack([['{:.1f} {} {:.1f}'.format(_mu, cf._plusminus, _sem)
                                  for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+
         elif n_dp == 2:
-            return np.vstack([['{:.2f} {} {:.2f}'.format(_mu, cf._plusminus, _sem)
+            if val_sem[0] is None:
+                return np.vstack([['{:.2f}'.format(_mu) for _mu in mu] for mu in val_mu])
+            else:
+                return np.vstack([['{:.2f} {} {:.2f}'.format(_mu, cf._plusminus, _sem)
                                  for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+
         elif n_dp == 3:
-            return np.vstack([['{:.3f} {} {:.3f}'.format(_mu, cf._plusminus, _sem)
+            if val_sem[0] is None:
+                return np.vstack([['{:.3f}'.format(_mu) for _mu in mu] for mu in val_mu])
+            else:
+                return np.vstack([['{:.3f} {} {:.3f}'.format(_mu, cf._plusminus, _sem)
+                                 for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
+
+        elif n_dp == 4:
+            if val_sem[0] is None:
+                return np.vstack([['{:.4f}'.format(_mu) for _mu in mu] for mu in val_mu])
+            else:
+                return np.vstack([['{:.4f} {} {:.4f}'.format(_mu, cf._plusminus, _sem)
                                  for _mu, _sem in zip(mu, sem)] for mu, sem in zip(val_mu, val_sem)])
 
     ####################################################################################################################
@@ -14728,6 +14827,46 @@ class AnalysisGUI(QMainWindow):
         # re-orders the array so that the first dimension is the previous last dimension (and vice versa)
         return np.moveaxis(np.dstack(y_arr), 1, 0)
 
+    def get_free_cell_index(self, cell_id, exp_name):
+        '''
+
+        :param cell_id:
+        :param free_exp_name:
+        :param is_free:
+        :return:
+        '''
+
+        # splits the cell ID# from the string
+        data = self.data
+        c_id = int(cell_id[cell_id.index('#') + 1:])
+
+        # retrieves the cell ID from the string and determine the index within the cell ID array
+        f_data = data.externd.free_data
+        return f_data.cell_id[f_data.exp_name.index(exp_name)].index(c_id)
+
+    def det_if_clusters_is_valid(self, cell_id, plot_scope, exp_name):
+        '''
+
+        :param cell_id:
+        :param plot_scope:
+        :param exp_name:
+        :return:
+        '''
+
+        if plot_scope == 'Individual Cell':
+            if cell_id == 'No Valid Cells':
+                # if there are no valid cells, then output an error to screen
+                e_str = 'There are no valid cells for this experiment. Retry again with another experiment.'
+                cf.show_error(e_str, 'No Valid Cells')
+
+                # flag that there was an error and exit the function
+                return None, False
+            else:
+                # retrieves the cell index
+                return self.get_cell_index(cell_id, exp_name), True
+        else:
+            return None, True
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -14765,6 +14904,9 @@ class AnalysisFunctions(object):
         else:
             has_free_data, has_eyetrack_data = False
 
+        # determines if there are any uniformdrifting experiments
+        has_ud = np.any(cf.det_valid_rotation_expt(data, True))
+
         # re-initialises the current parameter fields
         self.reset_curr_para_fields()
 
@@ -14777,13 +14919,12 @@ class AnalysisFunctions(object):
         m_type = ['New Method', 'Old Method']
         scope_txt = ['Individual Cell', 'Whole Experiment']
         plt_list = ['Intersection', 'Wasserstein Distance', 'Bhattacharyya Distance']
-        ff_plot_type = ['Individual Cell Correlation', 'Correlation Histogram', 'Correlation Scatterplot']
         vel_dir = ['Negative', 'Positive']
         lcond_type = ['LIGHT1', 'LIGHT2']
         rt_free = ['Black', 'Uniform']
         corr_stype = ['Violin/Swarmplot', 'Boxplot', 'Separated Bar']
         fit_ptype = ['Both Positive/Negative Slopes', 'Positive Slopes Only', 'Negative Slopes Only']
-        ahv_met_type = ['Correlation', 'Fit Slope', 'Fit Intercept']
+        ahv_met_type = ['Correlation', 'Fit Slope', 'Fit Intercept', 'Fit Error']
 
         # retrieves the comparison fixed file names
         calc_comp = self.det_comp_expt_names(True)
@@ -14796,16 +14937,47 @@ class AnalysisFunctions(object):
         rot_filt_free = cf.init_rotation_filter_data(False)
         rot_filt_free['t_type'] = dcopy(rt_free)
 
-        # initialises the cluster parameters
+        # retrieves the fixed experiment names (for differing types)
+        all_exp = self.get_exp_name_list('Experiments')
+        fix_exp = self.get_exp_name_list('RotationExperiments')
+        fix_exp_ud = self.get_exp_name_list('RotationExperimentUD')
+        fix_exp_md = self.get_exp_name_list('RotationExperimentMD')
+
+        # retrieves the eye-tracking experiment names
+        if has_eyetrack_data:
+            etrack_exp = self.get_exp_name_list('EyeTrackExperiments')
+
+        # retrieves the fixed cell IDs
+        fix_cid = self.get_fix_cell_ids(data, fix_exp[0])
+        ff_cid = self.get_fix_free_cell_ids(data, plot_comp[0])
+        ff_cid_nm = self.get_fix_free_cell_ids(data, plot_comp[0], match_reqd=False)
+
+        # list initialisations and other parameters
         free_exp, ff_cluster = self.get_ff_cluster_details()
         def_clust_para = cfcn.init_clust_para(data.comp, free_exp[0])
+
+        # sets up the free experiment information
+        if has_free_data:
+            # initialises the cluster parameters and free-cell ID's
+            free_cid = self.get_free_cell_ids(data, free_exp[0])
+
+            # retrieves the freely moving trial types
+            tt_free = dcopy(list(data.externd.free_data.t_type))
+
+            # significance rotation filter dictionary setup
+            rot_filt_sig = dcopy(rot_filt0)
+            rot_filt_sig['t_type'] = ['Black', 'Uniform']
+
+            cond_type = ['DARK'] + lcond_type
+            fcell_type = ['All Cells', 'AHV', 'Speed', 'HD', 'HDMod']
 
         # ====> Fixed/Free Cluster Matching
         para = {
             # calculation parameters
             'calc_comp': {
-                'gtype': 'C', 'type': 'L', 'text': 'Comparison Fixed Expt', 'list': calc_comp, 'def_val': calc_comp[0],
-                'is_enabled': len(calc_comp) > 1, 'para_reset': [[None, self.reset_cluster_para]]
+                'gtype': 'C', 'type': 'L', 'text': 'Comparison Fixed Experiment', 'def_val': calc_comp[0],
+                'para_reset': [[None, self.reset_cluster_para], ['cell_id', self.reset_fix_free_mult_cid]],
+                'list': calc_comp, 'is_enabled': len(calc_comp) > 1
             },
             'd_max': {
                 'gtype': 'C', 'text': 'Max Channel Depth Difference', 'def_val': def_clust_para['d_max'],
@@ -14845,8 +15017,15 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster',True]},
+            'cell_id': {
+                'type': 'CL', 'text': 'Fix/Free Cell ID#', 'other_para': '--- Select Fixed/Free ID#''s ---',
+                'list': ff_cid_nm, 'def_val': ff_cid_nm[0]
+            },
+            'match_reqd': {
+                'type': 'B', 'text': 'Only Show Cell Matches', 'def_val': False,
+                'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id',True]},
             'm_type': {'type': 'L', 'text': 'Matching Type', 'def_val': m_type[0], 'list': m_type},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -14859,11 +15038,18 @@ class AnalysisFunctions(object):
         # ====> Matched Signal Comparison
         para = {
             # plotting parameters
-            'plot_comp': {
-                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
-                'is_enabled': len(plot_comp) > 1
+            'cell_id': {
+                'type': 'L', 'text': 'Fix/Free Cell ID#', 'other_para': '--- Select Fixed/Free ID#''s ---',
+                'list': ff_cid, 'def_val': ff_cid[0]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'plot_comp': {
+                'text': 'Comparison Fixed Experiment', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1, 'para_reset': [['cell_id', self.reset_fix_free_cid]]
+            },
+            'match_reqd': {
+                'type': 'B', 'text': 'Only Show Cell Matches', 'def_val': False,
+                'para_reset': [['cell_id', self.reset_fix_free_cid]]
+            },
             'n_trace': {'text': 'Raw Trace Count', 'def_val': 500},
             'is_horz': {'type': 'B', 'text': 'Plot Subplots Horizontally', 'def_val': False},
             'rej_outlier': {'type': 'B', 'text': 'Reject Outlier Traces', 'def_val': True},
@@ -14898,12 +15084,19 @@ class AnalysisFunctions(object):
         # ====> Matched Cluster ISI Metrics (New Method)
         para = {
             # plotting parameters
-            'plot_comp': {
-                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
-                'is_enabled': len(plot_comp) > 1
+            'cell_id': {
+                'type': 'CL', 'text': 'Fix/Free Cell ID#', 'other_para': '--- Select Fixed/Free ID#''s ---',
+                'list': ff_cid_nm, 'def_val': ff_cid_nm[0]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
+            'plot_comp': {
+                'text': 'Comparison Fixed Experiment', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1, 'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'match_reqd': {
+                'type': 'B', 'text': 'Only Show Cell Matches', 'def_val': False,
+                'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id', True]},
             'sig_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'Intersection', 'list': plt_list},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -14916,12 +15109,19 @@ class AnalysisFunctions(object):
         # ====> Inter-Spike Interval Distributions
         para = {
             # plotting parameters
-            'plot_comp': {
-                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
-                'is_enabled': len(plot_comp) > 1
+            'cell_id': {
+                'type': 'CL', 'text': 'Fix/Free Cell ID#', 'other_para': '--- Select Fixed/Free ID#''s ---',
+                'list': ff_cid_nm, 'def_val': ff_cid_nm[0]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
+            'plot_comp': {
+                'text': 'Comparison Fixed Experiment', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1, 'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'match_reqd': {
+                'type': 'B', 'text': 'Only Show Cell Matches', 'def_val': False,
+                'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             't_lim': {'text': 'Upper Time Limit', 'def_val': 500, 'min_val': 10},
             'plot_all_bin': {'type': 'B', 'text': 'Plot All Histogram Time Bins',
                              'def_val': False, 'link_para': ['t_lim', True]},
@@ -14938,12 +15138,19 @@ class AnalysisFunctions(object):
         # ====> Matched Cluster Metrics (Old Method)
         para = {
             # plotting parameters
-            'plot_comp': {
-                'text': 'Comparison Fixed Expt', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
-                'is_enabled': len(plot_comp) > 1
+            'cell_id': {
+                'type': 'CL', 'text': 'Fix/Free Cell ID#', 'other_para': '--- Select Fixed/Free ID#''s ---',
+                'list': ff_cid_nm, 'def_val': ff_cid_nm[0]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_cluster', True]},
+            'plot_comp': {
+                'text': 'Comparison Fixed Experiment', 'type': 'L', 'list': plot_comp, 'def_val': plot_comp[0],
+                'is_enabled': len(plot_comp) > 1, 'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'match_reqd': {
+                'type': 'B', 'text': 'Only Show Cell Matches', 'def_val': False,
+                'para_reset': [['cell_id', self.reset_fix_free_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Cluster Matching',
@@ -14966,7 +15173,7 @@ class AnalysisFunctions(object):
         # ====> Cluster Classification
         para = {
             # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['exp_name', True]
             },
@@ -14987,8 +15194,9 @@ class AnalysisFunctions(object):
         # ====> Cluster Cross-Correlogram
         para = {
             # calculation parameters
-            'calc_exp_name': {'gtype': 'C', 'type': 'L', 'text': 'Experiment',
-                              'def_val': None, 'list': 'Experiments'},
+            'calc_exp_name': {
+                'gtype': 'C', 'type': 'L', 'text': 'Experiment', 'def_val': all_exp[0], 'list': all_exp
+            },
             'calc_all_expt': {'gtype': 'C', 'type': 'B', 'text': 'Analyse All Experiments',
                          'def_val': True, 'link_para': ['calc_exp_name', True]},
             'f_cutoff': {'gtype': 'C', 'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
@@ -15000,7 +15208,7 @@ class AnalysisFunctions(object):
                          'min_val': 1, 'max_val': 4},
 
             # plotting parameters
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'action_type': {'type': 'L', 'text': 'Classification Type', 'def_val': act_type[0], 'list': act_type},
             'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
             'i_plot': {'text': 'Plot Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
@@ -15019,14 +15227,6 @@ class AnalysisFunctions(object):
 
         # only initialise these functions if there is free data
         if has_free_data:
-            # list initialisations
-            disp_met = ['Significantly Correlated Cells', 'Fixed/Free Matched Cells']
-            fcell_type = ['All Cells', 'AHV', 'Speed', 'HD', 'HDMod']
-            cond_type = ['DARK'] + lcond_type
-
-            # retrieves the free cell ID#'s for the first expt
-            free_cid = self.get_free_cell_ids(data, free_exp[0])
-
             # ====> Freely Moving Cell Type Statistics
             para = {
                 # plotting parameters
@@ -15239,7 +15439,6 @@ class AnalysisFunctions(object):
         ######################################
 
         # correlation plot type
-        tt_eye_track = ['Black', 'Uniform']
         corr_type = ['Violin/Swarmplot', 'Boxplot']
         grp_plot_type = ['Boxplot', 'Separated Bar', 'Violin/Swarmplot', 'Violinplot', 'Stacked Bar']
 
@@ -15367,6 +15566,7 @@ class AnalysisFunctions(object):
         hist_type = ['Temporal', 'Velocity']
 
         # sets up the fixed correlation rotational filter
+        rot_filt_para = cf.init_rotation_filter_data(False)
         rot_filt_corr_fixed = cf.init_rotation_filter_data(False)
         if not hasattr(data.rotation, 'vel_sf_mean'):
             data.rotation.vel_sf_mean = None
@@ -15382,6 +15582,8 @@ class AnalysisFunctions(object):
         mean_type = ['Mean', 'Median']
         norm_type = ['Baseline Median Subtraction', 'Min/Max Normalisation', 'None']
         sort_type_ahv = ['Pearson Coefficient (CW)', 'Pearson Coefficient (CCW)', 'Pearson Coefficient (Avg)']
+        err_type = ['Covariance', 'Sum-of-Squares', 'Standard Error']
+        plot_type_corr = ['Correlation', 'Linear Fit']
 
         # retrieves the correlation default parameters
         corr_def_para = cfcn.init_corr_para(data.rotation)
@@ -15430,11 +15632,18 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'def_val': dcopy(rot_filt0),
                 'para_gui_var': {'rmv_fields': ['match_type', 'region_name', 'record_layer', 'sig_type', 'free_ctype']},
-                'para_gui': RotationFilter
+                'para_gui': RotationFilter, 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
+            'plot_type': {
+                'type': 'L', 'text': 'Plot Type', 'list': plot_type_corr, 'def_val': plot_type_corr[0],
+                'link_para': [['plot_shuffle', 'Linear Fit']]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -15643,6 +15852,9 @@ class AnalysisFunctions(object):
         # ====> Correlation Comparison (Fixed)
         para = {
             # calculation parameters
+            'err_type': {
+                'gtype': 'C', 'type': 'L', 'text': 'Error Calculation Type', 'list': err_type, 'def_val': err_type[0]
+            },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'
             },
@@ -15672,16 +15884,18 @@ class AnalysisFunctions(object):
                 'def_val': 'All', 'is_visible': False
             },
             'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 0, 'is_visible': False},
+            'norm_sf': {'gtype': 'C', 'type': 'B', 'text': 'Normalise SF', 'def_val': False, 'is_visible': False},
 
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['match_type']}, 'def_val': None
+                'para_gui_var': {'rmv_fields': ['match_type']}, 'def_val': rot_filt_para
             },
             'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': corr_stype, 'def_val': corr_stype[0]},
             'ahv_met_type': {
                 'type': 'L', 'text': 'Metric Type', 'list': ahv_met_type, 'def_val': ahv_met_type[0]
             },
+            'is_comb': {'type': 'B', 'text': 'Combine Metrics Between Phases', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -15727,11 +15941,12 @@ class AnalysisFunctions(object):
                 'def_val': 'All', 'is_visible': False
             },
             'n_shuffle': {'gtype': 'C', 'text': 'Trial Shuffle Count', 'def_val': 0, 'is_visible': False},
+            'norm_sf': {'gtype': 'C', 'type': 'B', 'text': 'Normalise SF', 'def_val': True, 'is_visible': False},
 
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['match_type']}, 'def_val': None
+                'para_gui_var': {'rmv_fields': ['match_type']}, 'def_val': rot_filt_para
             },
             'fit_ptype': {'type': 'L', 'text': 'Plot Type', 'list': fit_ptype, 'def_val': fit_ptype[1]},
             'plot_indiv': {'type': 'B', 'text': 'Plot Individual Cell Fits', 'def_val': True},
@@ -15791,7 +16006,7 @@ class AnalysisFunctions(object):
                 'def_val': dcopy(rot_filt0), 'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
@@ -15825,13 +16040,6 @@ class AnalysisFunctions(object):
 
         # only initialise these functions if there is free data
         if has_free_data:
-            # retrieves the freely moving trial types
-            tt_free = dcopy(list(data.externd.free_data.t_type))
-
-            # plotting parameters
-            rot_filt_sig = dcopy(rot_filt0)
-            rot_filt_sig['t_type'] = ['Black', 'Uniform']
-
             # ====> Correlation Distributions (Freely Moving)
             para = {
                 # calculation parameters
@@ -16054,10 +16262,7 @@ class AnalysisFunctions(object):
         # type lists
         p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
-        s_type = ['Direction Selectivity', 'Motion Sensitivity']
-        ksig_type = ['Individual Cell', 'Correlation Histogram', 'Correlation Scatterplot', 'Correlation Significance']
-        cell_type = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
-        comp_type = ['CW vs BL', 'CCW vs BL']
+        comp_type_phs = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
         norm_type_sf = ['First Speed Bin', 'Overall Max SF', 'None']
 
@@ -16075,20 +16280,22 @@ class AnalysisFunctions(object):
         para = {
             # calculation parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'],
-                              ['plot_all_expt', 'Individual Cell']]
+                'link_para': [['cell_id', 'Whole Experiment'], ['plot_all_expt', 'Individual Cell']]
             },
             'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
-
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 20, 'min_val': 10},
             'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -16102,11 +16309,13 @@ class AnalysisFunctions(object):
         para = {
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': False, 'is_visible': False
@@ -16131,6 +16340,7 @@ class AnalysisFunctions(object):
 
             # invisible plotting parameters
             'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
+            'is_comb': {'type': 'B', 'text': 'Combine Active Cells', 'def_val': False, 'is_visible': False},
 
             # output variables
 
@@ -16146,9 +16356,9 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0], 'is_visible': False},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments', 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
@@ -16162,6 +16372,7 @@ class AnalysisFunctions(object):
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
             'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+            'is_comb': {'type': 'B', 'text': 'Combine Active Cells', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
@@ -16181,10 +16392,13 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
-                'para_reset': [['sort_cond', self.reset_sort_cond]]
+                'para_reset': [['sort_cond', self.reset_sort_cond], ['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
@@ -16201,7 +16415,7 @@ class AnalysisFunctions(object):
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                'link_para': [['cell_id', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
                               ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
             },
             'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
@@ -16220,20 +16434,21 @@ class AnalysisFunctions(object):
             # plotting parameters
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': None
+                'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None,
-                              'list': 'RotationExperimentMD'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md[0], 'list': fix_exp_md,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
-
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                'link_para': [['cell_id', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
                               ['plot_all_expt', 'Individual Cell']]
             },
-
             'plot_cond': {
                 'type': 'CL', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': np.ones(len(p_cond), dtype=bool)
             },
@@ -16255,14 +16470,15 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None,
-                              'list': 'RotationExperimentMD'},
-            'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
-                              'def_val': True, 'link_para': ['plot_exp_name', True]},
-            'comp_type': {
-                'type': 'L', 'text': 'Phase Comparison Type', 'list': comp_type, 'def_val': comp_type[0]
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md[0], 'list': fix_exp_md
             },
-
+            'plot_all_expt': {
+                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
+            },
+            'comp_type': {
+                'type': 'L', 'text': 'Phase Comparison Type', 'list': comp_type_phs, 'def_val': comp_type_phs[0]
+            },
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
             'smooth_hist': {
                 'type': 'B', 'text': 'Smooth Firing Rate Histogram', 'def_val': False, 'link_para': ['n_smooth', False],
@@ -16285,10 +16501,14 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'spread_type': {
@@ -16296,10 +16516,9 @@ class AnalysisFunctions(object):
             },
             'plot_scope': {
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                'link_para': [['cell_id', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
                               ['plot_all_expt', 'Individual Cell'], ['spread_type', 'Whole Experiment']]
             },
-
             'pos_bin': {'type': 'L', 'text': 'Position Bin Size (deg)', 'list': pos_bin, 'def_val': '10'},
             'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'},
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
@@ -16373,7 +16592,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments', 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
@@ -16391,7 +16610,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -16406,159 +16625,176 @@ class AnalysisFunctions(object):
         ####    UNIFORM DRIFT ANALYSIS FUNCTIONS   ####
         ###############################################
 
-        # ====> Trial Spike Rate Rasterplot/Histograms
-        para = {
-            # plotting parameters
-            'rot_filt': {
-                'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
-            },
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell']]
-            },
+        if has_ud:
+            # ====> UniformDrift Trial Spiking Rates
+            para = {
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
+                    'def_val': None, 'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+                'plot_exp_name': {
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'plot_all_expt': {
+                    'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
+                    'link_para': ['plot_exp_name', True]
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
+                    'link_para': [['cell_id', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                                  ['plot_all_expt', 'Individual Cell']]
+                },
+                'n_bin': {'text': 'Histogram Bin Count', 'def_val': 100, 'min_val': 10},
+                'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+                'rmv_median': {'type': 'B', 'text': 'Remove Baseline Median', 'def_val': True, 'is_visible': False},
+                'show_pref_dir': {
+                    'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': False, 'is_visible': False
+                },
+            }
+            self.add_func(type='UniformDrift Analysis',
+                          name='UniformDrift Trial Spiking Rates',
+                          func='plot_unidrift_trial_spikes',
+                          para=para)
 
-            'n_bin': {'text': 'Histogram Bin Count', 'def_val': 100, 'min_val': 10},
-            'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            # ====> UniformDrift Phase Spiking Rate Comparison (Individual Cell)
+            para = {
+                # calculation parameters
+                't_phase_vis': {
+                    'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                },
+                't_ofs_vis': {
+                    'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                },
 
-            'rmv_median': {'type': 'B', 'text': 'Remove Baseline Median', 'def_val': True, 'is_visible': False},
-            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': False, 'is_visible': False},
-        }
-        self.add_func(type='UniformDrift Analysis',
-                      name='UniformDrift Trial Spiking Rates',
-                      func='plot_unidrift_trial_spikes',
-                      para=para)
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
+                    'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None,
+                    'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+                'plot_exp_name': {
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+                'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
+                'is_comb': {'type': 'B', 'text': 'Combine Active Cells', 'def_val': False},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+                'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
 
-        # ====> UniformDrift Phase Spiking Rate Comparison (Individual Cell)
-        para = {
-            # calculation parameters
-            't_phase_vis': {
-                'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
-            },
-            't_ofs_vis': {
-                'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
-            },
+                # invisible plotting parameters
+                'plot_all_expt': {
+                    'type': 'B', 'text': 'Analyse All Experiments', 'def_val': False, 'is_visible': False
+                },
+                'ms_prop': {
+                    'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population',
+                    'def_val': False, 'is_visible': False
+                },
+                'grp_plot_type': {
+                    'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[0],
+                    'is_visible': False
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0], 
+                    'is_visible': False
+                },
+                'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True, 'is_visible': False},
+                'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
+                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
+            }
+            self.add_func(type='UniformDrift Analysis',
+                          name='UniformDrift Phase Spiking Rate Comparison (Individual Cell)',
+                          func='plot_unidrift_spike_freq',
+                          para=para)
 
-            # plotting parameters
-            'rot_filt': {
-                'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperimentUD'},
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': False, 'is_visible': False
-            },
-            'ms_prop': {
-                'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population',
-                'def_val': False, 'is_visible': False
-            },
-            'grp_plot_type': {
-                'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[0],
-                'is_visible': False
-            },
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0], 'is_visible': False
-            },
-            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
-            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
-            'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True, 'is_visible': False},
-            'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
+            # ====> UniformDrift Phase Spiking Rate Comparison (Whole Experiment)
+            para = {
+                # calculation parameters
+                't_phase_vis': {
+                    'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
+                },
+                't_ofs_vis': {
+                    'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
+                },
 
-            # invisible plotting parameters
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
-        }
-        self.add_func(type='UniformDrift Analysis',
-                      name='UniformDrift Phase Spiking Rate Comparison (Individual Cell)',
-                      func='plot_unidrift_spike_freq',
-                      para=para)
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
+                    'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None
+                },
+                'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
+                'plot_exp_name': {
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud, 'is_visible': False
+                },
+                'plot_all_expt': {
+                    'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False,
+                    'link_para': ['plot_exp_name', True]
+                },
+                'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
+                'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 
+                    'is_visible': False
+                },
+                'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
+                'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
+                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+                'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
+                'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
+                'show_stats': {
+                    'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                    'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
+                                  ['m_size', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
+                },
+            }
+            self.add_func(type='UniformDrift Analysis',
+                          name='UniformDrift Phase Spiking Rate Comparison (Whole Experiment)',
+                          func='plot_unidrift_spike_freq',
+                          para=para)
 
-        # ====> UniformDrift Phase Spiking Rate Comparison (Whole Experiment)
-        para = {
-            # calculation parameters
-            't_phase_vis': {
-                'gtype': 'C', 'text': 'Analysis Phase Duration (s)', 'def_val': t_phase, 'min_val': 0.10
-            },
-            't_ofs_vis': {
-                'gtype': 'C', 'text': 'Analysis Phase Offset (s)', 'def_val': t_ofs, 'min_val': 0.00
-            },
-
-            # plotting parameters
-            'rot_filt': {
-                'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
-                'para_gui_var': {'rmv_fields': ['t_freq_dir']}, 'def_val': None
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
-            'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperimentUD', 'is_visible': False
-            },
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
-                'is_visible': False
-            },
-            'ms_prop': {'type': 'B', 'text': 'Show DS Cell Proportion Of MS Cell Population', 'def_val': True},
-            'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
-            },
-            'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
-            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
-            'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
-            'show_stats': {
-                'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
-                              ['m_size', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
-            },
-        }
-        self.add_func(type='UniformDrift Analysis',
-                      name='UniformDrift Phase Spiking Rate Comparison (Whole Experiment)',
-                      func='plot_unidrift_spike_freq',
-                      para=para)
-
-        # ====> Trial Spike Rate Heatmap
-        para = {
-            # plotting parameters
-            'rot_filt': {
-                'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
-            },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all_expt': {
-                'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
-            },
-            'norm_type': {
-                'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
-            },
-            'mean_type': {
-                'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
-            },
-            'sort_type': {
-                'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type, 'def_val': sort_type[0],
-                'is_visible': False
-            },
-            'plot_scope': {
-                'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
-                'link_para': [['i_cluster', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
-                              ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
-            },
-            'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
-        }
-        self.add_func(type='UniformDrift Analysis',
-                      name='UniformDrift Spiking Rate Heatmap',
-                      func='plot_unidrift_spike_heatmap',
-                      para=para)
+            # ====> Trial Spike Rate Heatmap
+            para = {
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'UniformDrifting Filter Parameters', 'para_gui': RotationFilter,
+                    'def_val': None, 'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+                'plot_exp_name': {
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'para_reset': [['cell_id', self.reset_fix_cid]]
+                },
+                'plot_all_expt': {
+                    'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 
+                    'link_para': ['plot_exp_name', True]
+                },
+                'norm_type': {
+                    'text': 'Heatmap Normalisation Type', 'type': 'L', 'list': norm_type, 'def_val': norm_type[0]
+                },
+                'mean_type': {
+                    'text': 'Histogram Averaging Type', 'type': 'L', 'list': mean_type, 'def_val': mean_type[0]
+                },
+                'sort_type': {
+                    'text': 'Heatmap Sort Type', 'type': 'L', 'list': sort_type, 'def_val': sort_type[0],
+                    'is_visible': False
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'link_para': [['cell_id', 'Whole Experiment'], ['plot_exp_name', 'Individual Cell'],
+                                  ['plot_all_expt', 'Individual Cell'], ['norm_type', 'Individual Cell']]
+                },
+                'dt': {'text': 'Heatmap Resolution (ms)', 'def_val': 100, 'min_val': 10},
+            }
+            self.add_func(type='UniformDrift Analysis',
+                          name='UniformDrift Spiking Rate Heatmap',
+                          func='plot_unidrift_spike_heatmap',
+                          para=para)
 
         #####################################
         ####    ROC ANALYSIS FUNCTIONS   ####
@@ -16623,10 +16859,14 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible parameters
@@ -16667,7 +16907,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -16725,7 +16965,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -16777,7 +17017,7 @@ class AnalysisFunctions(object):
                 'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
@@ -16831,10 +17071,14 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
             },
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'plot_exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id', self.reset_fix_cid]]
+            },
 
             'vel_y_rng': {'type': 'L', 'text': 'Free Velocity Range', 'list': vc_rng, 'def_val': sc_rng[0]},
             'spd_y_rng': {'type': 'L', 'text': 'Free Speed Range', 'list': sc_rng, 'def_val': sc_rng[0]},
@@ -16886,7 +17130,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp, 'list': fix_exp[0]},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -16940,7 +17184,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17003,9 +17247,8 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-
             'plot_err': {'type': 'B', 'text': 'Plot Error Patch', 'def_val': True},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
                 'link_para': [['plot_exp_name', True], ['plot_err', True]]
@@ -17014,7 +17257,6 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Pool All Experiments', 'def_val': False,
                 'link_para': [['plot_exp_name', True], ['plot_all_expt', True], ['plot_err', True]]
             },
-
             'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond_vel, 'def_val': 'Uniform'},
             'i_bin': {
                 'type': 'L', 'text': 'Speed/Velocity Bin Index', 'list': vc_rng_sig + ['All Bins'],
@@ -17068,7 +17310,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_comp
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': 'Uniform'},
@@ -17128,7 +17370,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_grp
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17204,7 +17446,7 @@ class AnalysisFunctions(object):
                 'para_gui_var': {'rmv_fields': ['t_freq_dir', 't_type', 't_cycle']}
             },
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments', 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False
@@ -17269,7 +17511,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17465,7 +17707,7 @@ class AnalysisFunctions(object):
             'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
             's_factor': {'text': 'Cell Marker Size Scale Factor', 'def_val': 2, 'min_val': 1},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
                 'is_enabled': has_multi_expt
             },
             'plot_all_expt': {
@@ -17554,7 +17796,7 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
                 'is_enabled': has_multi_expt
             },
             'plot_all_expt': {
@@ -17585,7 +17827,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'para_reset': [['dir_type_1', self.reset_dir_acc_type], ['dir_type_2', self.reset_dir_acc_type]],
+                'para_reset': [['dir_type_1', self.reset_dir_acc_type], ['dir_type_2', self.reset_dir_acc_type],
+                               ['plot_exp_name', self.reset_lda_exp]],
                 'def_val': shuff_lda_para
             },
             't_phase_rot': {
@@ -17607,14 +17850,15 @@ class AnalysisFunctions(object):
             },
 
             # plotting parameters
-            'i_cell_1': {'text': 'First Cell Index Number', 'def_val': 1, 'min_val': 1},
-            'i_cell_2': {'text': 'Second Cell Index Number', 'def_val': 2, 'min_val': 1},
+            'cell_id1': {'type': 'L', 'text': 'First Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'cell_id2': {'type': 'L', 'text': 'Second Cell ID#', 'list': fix_cid, 'def_val': fix_cid[1]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments',
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['cell_id1', self.reset_fix_cid], ['cell_id2', self.reset_fix_cid]]
             },
             'plot_corr': {
                 'type': 'B', 'text': 'Plot Z-Score Correlations', 'def_val': False,
-                'link_para': [['i_cell_1', False], ['i_cell_2', False], ['plot_exp_name', False]]
+                'link_para': [['cell_id1', False], ['cell_id2', False], ['plot_exp_name', False]]
             },
             'dir_type_1': {
                 'type': 'L', 'text': '1st Direction Trial Type', 'list': indiv_lda_para['comp_cond'],
@@ -18012,36 +18256,54 @@ class AnalysisFunctions(object):
         # ====> Mean Spike Signal (All Clusters)
         para = {
             # plotting parameters
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list':True},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster',True]},
+            'cell_id': {
+                'type': 'CL', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': cf.set_binary_groups(len(fix_cid), 0),
+                'other_para': '--- Select Plot Cell ID#''s ---'
+            },
+            'exp_name': {
+                'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
+                'para_reset': [['cell_id', self.reset_fix_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id', True]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Single Experiment Analysis',
                       name='Mean Spike Signals',
                       func='plot_signal_means',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         # ====> Auto Cross-Correlogram
         para = {
             # plotting parameters
-            'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_cluster', True]},
+            'cell_id': {
+                'type': 'CL', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': cf.set_binary_groups(len(fix_cid), 0),
+                'other_para': '--- Select Plot Cell ID#''s ---'
+            },
+            'exp_name': {
+                'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
+                'para_reset': [['cell_id', self.reset_fix_mult_cid]]
+            },
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id', True]},
             'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
         }
         self.add_func(type='Single Experiment Analysis',
                       name='Auto-Correlogram',
                       func='plot_cluster_auto_ccgram',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         para = {
             # plotting parameters
-            'i_ref': {'text': 'Reference Cluster Index', 'def_val': 1, 'min_val': 1},
-            'i_comp': {'text': 'Comparison Cluster Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': None, 'list': 'RotationExperiments'},
+            'i_ref': {'type': 'L', 'text': 'Reference Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'i_comp': {
+                'type': 'CL', 'text': 'Comparison Cell ID#', 'def_val': cf.set_binary_groups(len(fix_cid), 0),
+                'list': fix_cid, 'other_para': '--- Select Comparison Cell ID#''s ---'
+            },
+            'exp_name': {
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'para_reset': [['i_ref', self.reset_fix_cid], ['i_comp', self.reset_fix_mult_cid]]
+            },
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp', True]},
             'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
             'plot_type': {
@@ -18199,11 +18461,8 @@ class AnalysisFunctions(object):
                             # retrieves the current index
                             i_sel0 = h_list[0].currentIndex()
 
-                            # removes the existing items
-                            for i in range(h_list[0].count()):
-                                h_list[0].removeItem(0)
-
                             # adds the new range
+                            h_list[0].clear()
                             for txt in ex_name[i_pp]:
                                 h_list[0].addItem(txt)
 
@@ -18373,8 +18632,15 @@ class AnalysisFunctions(object):
 
         # creates the calculation/plotting parameter objects
         is_calc_sel = self.grp_para_tabs.tabText(self.grp_para_tabs.currentIndex()) == 'Calculation Parameters'
-        self.create_group_para(self.grp_para_calc, fcn_para, 'Calculation Parameters', is_calc_sel)
-        self.create_group_para(self.grp_para_plot, fcn_para, 'Plotting Parameters', not is_calc_sel)
+        try:
+            self.create_group_para(self.grp_para_calc, fcn_para, 'Calculation Parameters', is_calc_sel)
+        except:
+            a = 1
+
+        try:
+            self.create_group_para(self.grp_para_plot, fcn_para, 'Plotting Parameters', not is_calc_sel)
+        except:
+            a = 1
 
     def create_group_para(self, h_grp, fcn_para, gtext, is_sel):
         '''
@@ -18527,8 +18793,14 @@ class AnalysisFunctions(object):
 
         # connects the callback function to the checkbox
         h_chk.setChecked(self.curr_para[p_name])
-        if fcn_para['link_para'] is not None:
+
+        # runs the link parameter functions (if not None)
+        if link_para is not None:
             self.update_bool_para(p_name, link_para, para_reset, self.curr_para[p_name])
+
+        # runs the parameter reset functions (if not None)
+        if para_reset is not None:
+            self.run_reset_func(para_reset, self.curr_para[p_name])
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -18554,6 +18826,10 @@ class AnalysisFunctions(object):
         h_but = cf.create_button(None, None, txt_font_bold, '*** {0} ***'.format(fcn_para['text']), cb_fcn=cb_fcn)
         h_but.setStyleSheet("background-color: red")
 
+        # runs the reset parameter functions (if not None)
+        if fcn_para['para_reset'] is not None:
+            self.run_reset_func(fcn_para['para_reset'], self.curr_para[p_name])
+
         # adds the widgets to the layout
         h_layout.addRow(h_but)
 
@@ -18570,30 +18846,8 @@ class AnalysisFunctions(object):
         para_reset, reset_func = fcn_para['para_reset'], fcn_para['reset_func']
 
         # resets the list text if a special type
-        if list_txt == 'Experiments':
-            # case is the experiment names
-            list_txt = self.exp_name
-
-        elif list_txt == 'RotationExperiments':
-            # case is the rotation experiment names
-            is_rot_expt = cf.det_valid_rotation_expt(self.get_data_fcn())
-            list_txt = [x for x, y in zip(self.exp_name, is_rot_expt) if y]
-
-        elif list_txt == 'RotationExperimentUD':
-            # case is the uniform drifting experiment names
-            is_ud_expt = cf.det_valid_rotation_expt(self.get_data_fcn(), is_ud=True)
-            list_txt = [x for x, y in zip(self.exp_name, is_ud_expt) if y]
-
-        elif list_txt == 'RotationExperimentMD':
-            # case is the rotation experiment names
-            t_type = ['Black', 'Uniform', 'LandmarkLeft', 'LandmarkRight']
-            is_rot_expt = cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=t_type)
-            list_txt = [x for x, y in zip(self.exp_name, is_rot_expt) if y]
-
-        elif list_txt == 'EyeTrackExperiments':
-            # case is the eye tracking experiment names
-            list_txt = self.get_data_fcn().externd.eye_track.exp_name
-
+        if isinstance(list_txt, str):
+            list_txt = self.get_exp_name_list(list_txt)
         else:
             recheck_list = True
 
@@ -18625,6 +18879,10 @@ class AnalysisFunctions(object):
         if reset_func is not None:
             reset_func(h_list, h_lbl, self.get_data_fcn())
 
+        # runs the reset parameter functions (if not None)
+        if para_reset is not None:
+            self.run_reset_func(para_reset, self.curr_para[p_name])
+
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
             h_lbl.setVisible(False)
@@ -18650,7 +18908,7 @@ class AnalysisFunctions(object):
         para_text = '{0}: '.format(fcn_para['text'])
         link_para, list_txt, def_val = fcn_para['link_para'], fcn_para['list'], fcn_para['def_val']
 
-        #
+        # sets the
         first_line, para_reset = fcn_para['other_para'], fcn_para['para_reset']
         if first_line is None:
             first_line = '--- Select Trial Conditions ---'
@@ -18671,6 +18929,10 @@ class AnalysisFunctions(object):
         # sets the initial values
         for index in np.where(def_val)[0]:
             h_chklist.setState(index+1, True)
+
+        # runs the reset parameter functions (if not None)
+        if para_reset is not None:
+            self.run_reset_func(para_reset, self.curr_para[p_name])
 
         # if the visiblity flag is set to false, then hide the objects
         if not fcn_para['is_visible']:
@@ -18713,17 +18975,9 @@ class AnalysisFunctions(object):
             # updates the current parameter value
             self.curr_para[p_name] = exp_info
 
-            # resets the parameters based on the
+            # resets the parameters based on the current selection
             if para_reset is not None:
-                # flag that the parameters are updating
-                self.is_updating = True
-
-                # runs the parameter reset functions
-                for pr in para_reset:
-                    pr[1](exp_info, pr[0])
-
-                # flag that the parameters are finished updating
-                self.is_updating = False
+                self.run_reset_func(para_reset, exp_info)
 
         if h_sp.update_plot:
             self.update_plot()
@@ -18830,17 +19084,9 @@ class AnalysisFunctions(object):
 
                 h_obj[0].setEnabled(bool(state) != lp[1])
 
-        # resets the parameters based on the
+        # resets the parameters based on the current selection
         if para_reset is not None:
-            # flag that the parameters are updating
-            self.is_updating = True
-
-            # runs the parameter reset functions
-            for pr in para_reset:
-                pr[1](pr[0], state)
-
-            # flag that the parameters are finished updating
-            self.is_updating = False
+            self.run_reset_func(para_reset, state)
 
         # updates the parameter value
         self.curr_para[p_name] = bool(state)
@@ -18855,8 +19101,8 @@ class AnalysisFunctions(object):
             return
 
         if recheck_list:
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
             p_list = d_grp[i_grp]['para'][p_name]['list']
 
         # sets the enabled properties for the linked parameters (if they exist)
@@ -18894,17 +19140,9 @@ class AnalysisFunctions(object):
                         if len(para_d['link_para']) == 2:
                             self.update_bool_para(lp[0], para_d['link_para'], None, False)
 
-        # resets the parameters based on the
+        # resets the parameters based on the current selection
         if para_reset is not None:
-            # flag that the parameters are updating
-            self.is_updating = True
-
-            # runs the parameter reset functions
-            for pr in para_reset:
-                pr[1](pr[0], p_list[index])
-
-            # flag that the parameters are finished updating
-            self.is_updating = False
+            self.run_reset_func(para_reset, p_list[index])
 
         # updates the parameter value
         self.curr_para[p_name] = p_list[index]
@@ -18925,17 +19163,9 @@ class AnalysisFunctions(object):
         # retrieves the currently selected items
         self.curr_para[p_name] = h_chklist.getSelectedItems()
 
-        # resets the parameters based on the
+        # resets the parameters based on the current selection
         if para_reset is not None:
-            # flag that the parameters are updating
-            self.is_updating = True
-
-            # runs the parameter reset functions
-            for pr in para_reset:
-                pr[1](pr[0], self.curr_para[p_name])
-
-            # flag that the parameters are finished updating
-            self.is_updating = False
+            self.run_reset_func(para_reset, self.curr_para[p_name])
 
     #########################################
     ####    PARAMETER RESET FUNCTIONS    ####
@@ -18959,22 +19189,18 @@ class AnalysisFunctions(object):
         # flag that the parameters are updating
         self.is_updating = True
 
-        # determines the plot function that is currently selected
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
 
-        # retrieves the free cell ID#'s for the first expt
+        # retrieves the free cell ID#'s for the current expt
         i_bin = ['5', '10'].index(self.curr_para['vel_bin'])
         c_type = in_value if isinstance(in_value, list) else self.curr_para['cell_type']
         use_all = in_value > 0 if isinstance(in_value, int) else self.curr_para['use_all_cells']
         free_exp = in_value if isinstance(in_value, str) else self.curr_para['free_exp_name']
         free_cid = self.get_free_cell_ids(self.get_data_fcn(), free_exp, i_bin, use_all, c_type)
 
-        # removes the existing items
-        for i in range(h_list.count()):
-            h_list.removeItem(0)
-
-        # adds the new range
+        # clears then adds the new item range
+        h_list.clear()
         for cid in free_cid:
             h_list.addItem(cid)
 
@@ -18986,11 +19212,184 @@ class AnalysisFunctions(object):
         # flag that the parameters are finished updating
         self.is_updating = False
 
-    def reset_sort_cond(self, exp_info, p_name):
+    def reset_fix_cid(self, p_name, in_value):
         '''
 
         :param p_name:
-        :param exp_info:
+        :param exp_name:
+        :return:
+        '''
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # sets the rotation filter (if not provided)
+        if isinstance(in_value, dict):
+            r_filt = in_value
+        else:
+            r_filt = None if 'rot_filt' not in self.curr_para else self.curr_para['rot_filt']
+
+        # retrieves the experiment name parameter
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
+        fix_exp = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+
+        # retrieves the fixed cell ID#'s for the current expt
+        fix_cid = self.get_fix_cell_ids(self.get_data_fcn(), fix_exp, r_filt=r_filt)
+
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            # sets the selection index (if there is a match with the current selection)
+            c_txt = h_list[0].currentText()
+            i_sel = fix_cid.index(c_txt) if c_txt in fix_cid else 0
+        else:
+            # sets the selection index
+            i_sel_match = re.findall('\d', p_name)
+            i_sel = 0 if (len(i_sel_match) == 0) else min(int(i_sel_match[0]) - 1, len(fix_cid) - 1)
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = fix_cid[i_sel]
+        d_grp[i_grp]['para'][p_name]['list'] = fix_cid
+
+        # if there is no object handle, then exit the function
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new item range
+        h_list.clear()
+        for cid in fix_cid:
+            h_list.addItem(cid)
+
+        # sets the list's selected index
+        h_list.setCurrentIndex(i_sel)
+
+        # flag that the parameters are finished updating
+        self.is_updating = False
+
+    def reset_fix_mult_cid(self, p_name, in_value):
+        '''
+        
+        :param p_name: 
+        :param in_value: 
+        :return: 
+        '''
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # sets the rotation filter (if not provided)
+        if isinstance(in_value, dict):
+            r_filt = in_value
+        else:
+            r_filt = None if 'rot_filt' not in self.curr_para else self.curr_para['rot_filt']
+
+        # retrieves the experiment name parameter
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
+        fix_exp = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+
+        # retrieves the fixed cell ID#'s for the current expt
+        fix_cid = self.get_fix_cell_ids(self.get_data_fcn(), fix_exp, r_filt=r_filt)
+
+        # retrieves the indices of the currently selected items
+        pr_cid = [h_list.itemText(i) for i in range(h_list.count())]
+        i_sel_c = np.array([pr_cid[1:].index(s) for s in h_list.getSelectedItems()])
+        nw_state = cf.set_binary_groups(len(fix_cid), i_sel_c[i_sel_c < len(fix_cid)])
+        nw_list = [pr_cid[0]] + fix_cid
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = list(np.array(nw_list[1:])[nw_state])
+        d_grp[i_grp]['para'][p_name]['def_val'] = nw_state
+        d_grp[i_grp]['para'][p_name]['list'] = nw_list
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for i, cid in enumerate(nw_list):
+            h_list.addItem(cid, i > 0)
+            if i > 0:
+                # sets the state values if not the first line
+                h_list.setState(i, nw_state[i - 1])
+
+        # flag that the parameters are updating
+        self.is_updating = False
+
+    def reset_fix_free_cid(self, p_name, in_value):
+        '''
+
+        :param p_name:
+        :param in_value:
+        :return:
+        '''
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
+
+        # sets/retrieves the input parameters
+        exp_name = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+        match_reqd = in_value > 0 if isinstance(in_value, int) else self.curr_para['match_reqd']
+
+        # retrieves the comparison dataset matching the fixed/free experiment
+        data = self.get_data_fcn()
+        if hasattr(data.comp, 'data'):
+            # if there is a comparison dataset, then determine if the matches have been calculated
+            i_comp = cf.det_comp_dataset_index(data.comp.data, exp_name)
+            is_set = False if i_comp is None else data.comp.data[i_comp].is_set
+        else:
+            # otherwise flag that there are no matches
+            is_set = False
+
+        # retrieves the free/fixed cell ID array
+        if is_set:
+            ff_cid = self.get_fix_free_cell_ids(self.get_data_fcn(), exp_name, match_reqd=match_reqd)
+        else:
+            ff_cid = ['No Valid Fixed/Free Cells']
+
+        # resets the associated parameter value
+        i_sel = 0
+        self.curr_para[p_name] = ff_cid[i_sel]
+        d_grp[i_grp]['para'][p_name]['def_val'] = ff_cid[0]
+        d_grp[i_grp]['para'][p_name]['list'] = ff_cid
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new item range
+        h_list.clear()
+        for cid in ff_cid:
+            h_list.addItem(cid)
+
+        # sets the list's selected index
+        h_list.setCurrentIndex(i_sel)
+
+        # flag that the parameters are finished updating
+        self.is_updating = False
+
+    def reset_fix_free_mult_cid(self, p_name, in_value):
+        '''
+
+        :param p_name:
+        :param in_value:
         :return:
         '''
 
@@ -19001,38 +19400,72 @@ class AnalysisFunctions(object):
         else:
             return
 
-        # determines the plot function that is currently selected
-        c_txt = h_list.currentText()
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+        f_line = d_grp[i_grp]['para'][p_name]['other_para']
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
 
-        # sets the new list text
-        if len(exp_info['t_type']) > 1:
-            nw_txt = ['Own Condition'] + exp_info['t_type']
+        # sets/retrieves the input parameters
+        exp_name = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+        match_reqd = in_value > 0 if isinstance(in_value, int) else self.curr_para['match_reqd']
+
+        # retrieves the comparison dataset matching the fixed/free experiment
+        data = self.get_data_fcn()
+        if hasattr(data.comp, 'data'):
+            # if there is a comparison dataset, then determine if the matches have been calculated
+            i_comp = cf.det_comp_dataset_index(data.comp.data, exp_name)
+            is_set = False if i_comp is None else data.comp.data[i_comp].is_set
         else:
-            nw_txt = exp_info['t_type']
+            # otherwise flag that there are no matches
+            is_set = False
 
-        # removes the existing items
-        for i in range(h_list.count()):
-            h_list.removeItem(0)
+        # determines if the matching calculations have been made
+        if is_set:
+            # if so, then determine if the old match type is to be used
+            c_fcn = self.curr_fcn
+            old_fcn = ['Matched Cluster ISI Metrics (Old Method)']
+            is_old = next((True for oldf in old_fcn if oldf == c_fcn), False)
 
-        # adds the new range
-        for txt in nw_txt:
-            h_list.addItem(txt)
+            # retrieves the free/fixed cell ID array
+            ff_cid = self.get_fix_free_cell_ids(self.get_data_fcn(), exp_name, match_reqd=match_reqd, is_old=is_old)
 
-        # retrieves the selected list index value
-        if c_txt in nw_txt:
-            # previous selection is in new list
-            i_sel = nw_txt.index(c_txt)
-            h_list.setCurrentIndex(i_sel)
+            # retrieves the indices of the currently selected items
+            pr_cid = [h_list.itemText(i) for i in range(h_list.count())]
+            i_sel_c = np.array([pr_cid[1:].index(s) for s in h_list.getSelectedItems()])
+            if len(i_sel_c):
+                nw_state = cf.set_binary_groups(len(ff_cid), i_sel_c[i_sel_c < len(ff_cid)])
+            else:
+                nw_state = cf.set_binary_groups(len(ff_cid), 0)
+
+            # resets the parameter value
+            nw_list = [f_line] + ff_cid
+            self.curr_para[p_name] = list(np.array(nw_list[1:])[nw_state])
+
         else:
-            # previous selection was not in list, so reset to index to 0
-            i_sel = 0
-            h_list.setCurrentIndex(0)
+            # otherwise, flag that there are no fixed/free cell matches
+            nw_state = np.zeros(1, dtype=bool)
+            nw_list = ['No Valid Fixed/Free Cells']
+            
+            # resets the parameter value
+            self.curr_para[p_name] = []
 
         # resets the associated parameter value
-        self.curr_para[p_name] = nw_txt[i_sel]
-        d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+        d_grp[i_grp]['para'][p_name]['def_val'] = nw_state
+        d_grp[i_grp]['para'][p_name]['list'] = nw_list
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for i, cid in enumerate(nw_list):
+            h_list.addItem(cid, i > 0)
+            if i > 0:
+                # sets the state values if not the first line
+                h_list.setState(i, nw_state[i - 1])
+
+        # flag that the parameters are updating
+        self.is_updating = False
 
     def reset_vel_rng(self, p_name, dv0):
         '''
@@ -19058,11 +19491,8 @@ class AnalysisFunctions(object):
             # retrieves the list object
             h_list = self.find_obj_handle([QComboBox], pp)
             if len(h_list):
-                # removes the existing items
-                for i in range(h_list[0].count()):
-                    h_list[0].removeItem(0)
-
-                # adds the new range
+                # clears then adds the new checklist values
+                h_list[0].clear()
                 for txt in vc_rng:
                     h_list[0].addItem(txt)
 
@@ -19077,9 +19507,8 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # determines the plot function that is currently selected
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
 
         # parameters
         v_rng, dv = 80, int(dv0)
@@ -19094,11 +19523,8 @@ class AnalysisFunctions(object):
             # retrieves the list object
             h_list = self.find_obj_handle([QComboBox], pp)
             if len(h_list):
-                # removes the existing items
-                for i in range(h_list[0].count()):
-                    h_list[0].removeItem(0)
-
-                # adds the new range
+                # clears then adds the new checklist values
+                h_list[0].clear()
                 for txt in sc_rng:
                     h_list[0].addItem(txt)
 
@@ -19121,9 +19547,8 @@ class AnalysisFunctions(object):
         else:
             return
 
-        # determines the plot function that is currently selected
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
 
         # parameters
         v_rng, dv = 80, int(h_vb.currentText())
@@ -19142,11 +19567,8 @@ class AnalysisFunctions(object):
             # retrieves the list object
             h_list = self.find_obj_handle([QComboBox], pp)
             if len(h_list):
-                # removes the existing items
-                for i in range(h_list[0].count()):
-                    h_list[0].removeItem(0)
-
-                # adds the new range
+                # clears then adds the new checklist values
+                h_list[0].clear()
                 for txt in nw_rng:
                     h_list[0].addItem(txt)
 
@@ -19168,9 +19590,8 @@ class AnalysisFunctions(object):
         gtype_list = ['Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
         ig_type = gtype_list.index(g_type)
 
-        # determines the plot function that is currently selected
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
 
         # sets the new list values based on the selected type
         if gtype_list[ig_type] == 'Direction Selectivity':
@@ -19186,11 +19607,8 @@ class AnalysisFunctions(object):
         # retrieves the list object
         h_list = self.find_obj_handle([QComboBox], p_name)
         if len(h_list):
-            # removes the existing items
-            for i in range(h_list[0].count()):
-                h_list[0].removeItem(0)
-
-            # adds the new range
+            # clears then adds the new checklist values
+            h_list[0].clear()
             for txt in nw_list:
                 h_list[0].addItem(txt)
 
@@ -19209,7 +19627,57 @@ class AnalysisFunctions(object):
         h_lbl.setEnabled(data.classify.is_set)
         h_list.setEnabled(data.classify.is_set)
 
-    def reset_decode_type(self, exp_info, p_name):
+    def reset_sort_cond(self, p_name, exp_info):
+        '''
+
+        :param p_name:
+        :param exp_info:
+        :return:
+        '''
+
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # determines the plot function that is currently selected
+        c_txt = h_list.currentText()
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # sets the new list text
+        if len(exp_info['t_type']) > 1:
+            nw_txt = ['Own Condition'] + exp_info['t_type']
+        else:
+            nw_txt = exp_info['t_type']
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for txt in nw_txt:
+            h_list.addItem(txt)
+
+        # retrieves the selected list index value
+        if c_txt in nw_txt:
+            # previous selection is in new list
+            i_sel = nw_txt.index(c_txt)
+            h_list.setCurrentIndex(i_sel)
+        else:
+            # previous selection was not in list, so reset to index to 0
+            i_sel = 0
+            h_list.setCurrentIndex(0)
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = nw_txt[i_sel]
+        d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
+    def reset_decode_type(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19217,25 +19685,31 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # checks if there is a change in the comparison conditions
         nw_txt = ['Condition'] + ['Dir ({0})'.format(x) for x in dcopy(exp_info['comp_cond'])]
         if set(nw_txt) != set(curr_txt):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
 
-            # removes the existing items
-            for i in range(h_list.count()):
-                h_list.removeItem(0)
-
-            # adds the new range
+            # clears then adds the new checklist values
+            h_list.clear()
             for txt in nw_txt:
                 h_list.addItem(txt)
 
@@ -19244,7 +19718,7 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = nw_txt[i_sel]
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
-    def reset_dir_acc_type(self, exp_info, p_name):
+    def reset_dir_acc_type(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19252,26 +19726,32 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # checks if there is a change in the comparison conditions
         nw_txt = dcopy(exp_info['comp_cond'])
         if set(nw_txt) != set(curr_txt):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             i_sel0 = int(p_name[-1]) - 1
             i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), i_sel0)
 
-            # removes the existing items
-            for i in range(h_list.count()):
-                h_list.removeItem(0)
-
-            # adds the new range
+            # clears then adds the new checklist values
+            h_list.clear()
             for txt in nw_txt:
                 h_list.addItem(txt)
 
@@ -19280,7 +19760,60 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = nw_txt[i_sel]
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
-    def reset_plot_cond(self, exp_info, p_name):
+    def reset_lda_exp(self, p_name, exp_info):
+        '''
+
+        :param p_name:
+        :param exp_info:
+        :return:
+        '''
+
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # sets up the important arrays for the LDA
+        data, calc_para = self.get_data_fcn(), dcopy(self.curr_para)
+        calc_para['lda_para'] = exp_info
+
+        # determines the indices of the valid experiments
+        _, i_expt, _, _, _ = cfcn.setup_lda(data, calc_para, d_data=None, return_reqd_arr=True)
+        if i_expt is None:
+            # if there are no valid experiments, then set an empty array
+            exp_name, i_sel = ['No Valid Experiments'], 0
+
+        else:
+            # if there are valid experiments, then extract the names of these experiments
+            exp_name = [cf.extract_file_name(data._cluster[i_ex]['expFile']) for i_ex in i_expt]
+            i_sel = 0 if self.curr_para[p_name] not in exp_name else exp_name.index(self.curr_para[p_name])
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # updates the parameters lists/values
+        self.curr_para[p_name] = exp_name[i_sel]
+        d_grp[i_grp]['para'][p_name]['list'] = exp_name
+
+        # resets the cell ID's based on experiment name (if there is a valid experiment)
+        self.reset_fix_cid('cell_id1', exp_name[i_sel])
+        self.reset_fix_cid('cell_id2', exp_name[i_sel])
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for txt in exp_name:
+            h_list.addItem(txt)
+
+        # resets the associated parameter value
+        h_list.setCurrentIndex(i_sel)
+
+    def reset_plot_cond(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19288,25 +19821,31 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # checks if there is a change in the comparison conditions
         nw_txt = dcopy(exp_info['comp_cond'])
         if set(nw_txt) != set(curr_txt):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             i_sel = next((i for i in range(len(nw_txt)) if nw_txt[i] == h_list.currentText()), 0)
 
-            # removes the existing items
-            for i in range(h_list.count()):
-                h_list.removeItem(0)
-
-            # adds the new range
+            # clears then adds the new checklist values
+            h_list.clear()
             for txt in nw_txt:
                 h_list.addItem(txt)
 
@@ -19315,7 +19854,7 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = nw_txt[i_sel]
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
-    def reset_plot_cond_cl(self, exp_info, p_name):
+    def reset_plot_cond_cl(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19323,8 +19862,18 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # retrieves the new text list
@@ -19332,9 +19881,8 @@ class AnalysisFunctions(object):
 
         # checks if there is a change in the comparison conditions
         if set(nw_txt) != set(curr_txt[1:]):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             is_match = [x in self.curr_para[p_name] for x in nw_txt]
@@ -19354,7 +19902,7 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
-    def reset_plot_layer(self, exp_info, p_name):
+    def reset_plot_layer(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19362,8 +19910,18 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # retrieves the new text list
@@ -19371,9 +19929,8 @@ class AnalysisFunctions(object):
 
         # checks if there is a change in the comparison conditions
         if set(nw_txt) != set(curr_txt[1:]):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             is_match = [x in self.curr_para[p_name] for x in nw_txt]
@@ -19393,7 +19950,7 @@ class AnalysisFunctions(object):
             self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
 
-    def reset_plot_cell_cl(self, exp_info, p_name):
+    def reset_plot_cell_cl(self, p_name, exp_info):
         '''
 
         :param exp_info:
@@ -19401,8 +19958,18 @@ class AnalysisFunctions(object):
         :return:
         '''
 
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list0):
+            h_list = h_list0[0]
+        else:
+            return
+
         # retrieves the list object corresponding to the parameter
-        h_list = self.find_obj_handle([QComboBox], p_name)[0]
         curr_txt = [h_list.itemText(i) for i in range(h_list.count())]
 
         # retrieves the new text list
@@ -19410,9 +19977,8 @@ class AnalysisFunctions(object):
 
         # checks if there is a change in the comparison conditions
         if set(nw_txt) != set(curr_txt[1:]):
-            # determines the plot function that is currently selected
-            d_grp = self.details[self.get_plot_grp_fcn()]
-            i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+            # retrieves the details for the currently selected function
+            d_grp, i_grp = self.get_curr_func_details()
 
             # sets the list selection index (if current selection is gone, then set to zero)
             is_match = [x in self.curr_para[p_name] for x in nw_txt]
@@ -19432,6 +19998,104 @@ class AnalysisFunctions(object):
             h_list.setCurrentIndex(0)
             self.curr_para[p_name] = list(np.array(nw_txt)[is_match])
             d_grp[i_grp]['para'][p_name]['list'] = nw_txt
+
+    def reset_comb_all(self, p_name, exp_info):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # resets the combine all field
+        self.reset_comb_all_field(exp_info)
+
+    def reset_trial_sel(self, p_name, exp_info):
+        '''
+
+        :param exp_info:
+        :param p_name:
+        :return:
+        '''
+
+        # if there is no experiment information, then exit the function
+        if exp_info is None:
+            return
+
+        # resets the combine all field
+        self.reset_comb_all_field(exp_info)
+
+        # retrieves the new trial type
+        tt_new = exp_info['t_type']
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # updates the list parameters
+        d_grp[i_grp]['para']['x_plot']['list'] = dcopy(tt_new)
+        d_grp[i_grp]['para']['y_plot']['list'] = dcopy(tt_new)
+
+        # retrieves the x plot checkbox objects
+        h_chk_x0 = self.find_obj_handle([QComboBox], 'x_plot')
+        if len(h_chk_x0):
+            h_chk_x = h_chk_x0[0]
+        else:
+            return
+
+        # retrieves the y plot checkbox objects
+        h_chk_y0 = self.find_obj_handle([QComboBox], 'y_plot')
+        if len(h_chk_y0):
+            h_chk_y = h_chk_y0[0]
+        else:
+            return
+
+        # updates the x/y axis indices based on the user's selection
+        if len(tt_new) == 1:
+            i_sel_x = i_sel_y = 0
+            self.curr_para['x_plot'] = self.curr_para['y_plot'] = dcopy(tt_new[0])
+        else:
+            # determines if the x/y-axis trial types are in the new trial type selection
+            x_in, y_in = self.curr_para['x_plot'] in tt_new, self.curr_para['y_plot'] in tt_new
+
+            # updates the x-axis trial type index
+            if x_in:
+                # if the trial type is in the trial type selections, then determine the index
+                i_sel_x = tt_new.index(self.curr_para['x_plot'])
+
+            elif y_in:
+                # if the x-axis is not, but the y-axis trial type is, then reset the index
+                i_sel_x = 1 if (tt_new.index(self.curr_para['y_plot']) == 0) else 0
+
+            else:
+                # otherwise, set the new index to the first trial type
+                i_sel_x = 0
+
+            # updates the y-axis trial type index
+            if y_in:
+                # if the trial type is in the trial type selections, then determine the index
+                i_sel_y = tt_new.index(self.curr_para['y_plot'])
+
+            else:
+                # otherwise, set the index based on the x-axis index
+                i_sel_y = 1 if (i_sel_x == 0) else 0
+
+        # updates the x-axis checklist values
+        h_chk_x.clear()
+        for tt in tt_new:
+            h_chk_x.addItem(tt)
+
+        # updates the y-axis checklist values
+        h_chk_y.clear()
+        for tt in tt_new:
+            h_chk_y.addItem(tt)
+
+        # updates the indices
+        h_chk_x.setCurrentIndex(i_sel_x)
+        h_chk_y.setCurrentIndex(i_sel_y)
 
     def reset_matched_index(self, p_name, exp_name):
         '''
@@ -19469,11 +20133,8 @@ class AnalysisFunctions(object):
         # updates the experiment list items (if currently visible)
         h_list = self.find_obj_handle([QComboBox], p_name)
         if len(h_list):
-            # removes the existing items
-            for i in range(h_list[0].count()):
-                h_list[0].removeItem(0)
-
-            # adds the new range
+            # clears then adds the new checklist values
+            h_list[0].clear()
             for txt in nw_txt:
                 h_list[0].addItem(txt)
 
@@ -19490,8 +20151,11 @@ class AnalysisFunctions(object):
 
         # initialisations
         data = self.get_data_fcn()
-        h_list0 = self.find_obj_handle([QComboBox], 'calc_comp')
+        if not data.comp.is_set:
+            return
 
+        # retrieves the list object handle
+        h_list0 = self.find_obj_handle([QComboBox], 'calc_comp')
         if len(h_list0) == 0:
             return
         else:
@@ -19538,87 +20202,6 @@ class AnalysisFunctions(object):
         if len(h_list):
             h_list[0].setEnabled(state)
 
-    def reset_comb_all(self, exp_info, p_name):
-        '''
-
-        :param exp_info:
-        :param p_name:
-        :return:
-        '''
-
-        # resets the combine all field
-        self.reset_comb_all_field(exp_info)
-
-    def reset_trial_sel(self, exp_info, p_name):
-        '''
-
-        :param exp_info:
-        :param p_name:
-        :return:
-        '''
-
-        # resets the combine all field
-        self.reset_comb_all_field(exp_info)
-
-        # retrieves the new trial type
-        tt_new = exp_info['t_type']
-
-        # updates the parameter enabled value for all associated parameters
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
-
-        # updates the list parameters
-        d_grp[i_grp]['para']['x_plot']['list'] = dcopy(tt_new)
-        d_grp[i_grp]['para']['y_plot']['list'] = dcopy(tt_new)
-
-        # retrieves the x/y plot checkbox objects
-        h_chk_x = self.find_obj_handle([QComboBox], 'x_plot')[0]
-        h_chk_y = self.find_obj_handle([QComboBox], 'y_plot')[0]
-
-        # updates the x/y axis indices based on the user's selection
-        if len(tt_new) == 1:
-            i_sel_x = i_sel_y = 0
-            self.curr_para['x_plot'] = self.curr_para['y_plot'] = dcopy(tt_new[0])
-        else:
-            # determines if the x/y-axis trial types are in the new trial type selection
-            x_in, y_in = self.curr_para['x_plot'] in tt_new, self.curr_para['y_plot'] in tt_new
-
-            # updates the x-axis trial type index
-            if x_in:
-                # if the trial type is in the trial type selections, then determine the index
-                i_sel_x = tt_new.index(self.curr_para['x_plot'])
-
-            elif y_in:
-                # if the x-axis is not, but the y-axis trial type is, then reset the index
-                i_sel_x = 1 if (tt_new.index(self.curr_para['y_plot']) == 0) else 0
-
-            else:
-                # otherwise, set the new index to the first trial type
-                i_sel_x = 0
-
-            # updates the y-axis trial type index
-            if y_in:
-                # if the trial type is in the trial type selections, then determine the index
-                i_sel_y = tt_new.index(self.curr_para['y_plot'])
-
-            else:
-                # otherwise, set the index based on the x-axis index
-                i_sel_y = 1 if (i_sel_x == 0) else 0
-
-        # updates the x-axis checklist values
-        h_chk_x.clear()
-        for tt in tt_new:
-            h_chk_x.addItem(tt)
-
-        # updates the y-axis checklist values
-        h_chk_y.clear()
-        for tt in tt_new:
-            h_chk_y.addItem(tt)
-
-        # updates the indices
-        h_chk_x.setCurrentIndex(i_sel_x)
-        h_chk_y.setCurrentIndex(i_sel_y)
-
     def reset_pool_cells(self, p_data, state):
         '''
 
@@ -19635,9 +20218,8 @@ class AnalysisFunctions(object):
         else:
             return
 
-        # updates the parameter enabled value for all associated parameters
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
 
         # determines the cell counts based on whether the experiments are being pooled or not
         cl_inc = [cfcn.get_inclusion_filt_indices(c, data.exc_gen_filt) for c in data._cluster]
@@ -19822,15 +20404,19 @@ class AnalysisFunctions(object):
         # sets the number of selections for each filter type (except trial type and key)
         multi_sel = np.any(np.array([len(exp_info[x]) for x in exp_info if x not in ['t_type', 't_key']]) > 1)
 
+        h_chk0 = self.find_obj_handle([QCheckBox], 'comb_all')
+        if len(h_chk0):
+            h_chk = h_chk0[0]
+        else:
+            return
+
         # updates the checkbox properties based on the user rotation filter selections
-        h_chk = self.find_obj_handle([QCheckBox], 'comb_all')[0]
         h_chk.setEnabled(multi_sel)
         if not multi_sel:
             h_chk.setChecked(False)
 
         # updates the parameter enabled value for all associated parameters
-        d_grp = self.details[self.get_plot_grp_fcn()]
-        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+        d_grp, i_grp = self.get_curr_func_details()
         d_grp[i_grp]['para']['comb_all']['is_enabled'] = multi_sel
 
     def get_para_details(self, p_name):
@@ -19846,6 +20432,46 @@ class AnalysisFunctions(object):
         # returns the parameter dictionary for the current parameter
         return fcn_d[i_fcn]['para'][p_name]
 
+    def get_fix_cell_ids(self, data, fix_exp, r_filt=None):
+        '''
+
+        :param data:
+        :param fix_exp:
+        :return:
+        '''
+
+        if fix_exp == 'No Valid Experiments':
+            # if there are no valid experiments, then return an array indicating no valid cells
+            return ['No Valid Cells']
+
+        if r_filt is None:
+            # if not provided, then retrieve the filtered data object using the default filter settings
+            r_filt_base = cf.init_rotation_filter_data(False)
+            r_obj = RotationFilteredData(data, r_filt_base, None, fix_exp, False, 'Whole Experiment', False,
+                                         rmv_empty=False, use_raw=True)
+        else:
+            # otherwise, retrieve the filtered data object from the settings provided
+            is_ud = r_filt['is_ud'][0] if isinstance(r_filt['is_ud'], list) else r_filt['is_ud']
+            r_obj = RotationFilteredData(data, r_filt, None, fix_exp, False, 'Whole Experiment', is_ud,
+                                         rmv_empty=False, use_raw=True)
+
+        # determines the index of the experiment being analysed
+        i_expt = [cf.extract_file_name(x['expFile']) for x in data._cluster].index(fix_exp)
+        if np.all([i_expt in i_ex for i_ex in r_obj.i_expt0]):
+            # if the experiment index is in all the experiment, then retrieve the cell ID#'s
+            cl_ind = cfcn.get_inclusion_filt_indices(data._cluster[i_expt], data.exc_gen_filt)
+            if np.any(cl_ind):
+                # if there are valid cells, then return the cell ID array
+                cl_id = np.array(data._cluster[i_expt]['clustID'])[cl_ind]
+                return ['Cell #{0}'.format(cid) for cid in np.sort(cl_id)]
+            else:
+                # otherwise, then return an array indicating no valid cells
+                return ['No Valid Cells']
+
+        else:
+            # otherwise, then return an array indicating no valid cells
+            return ['No Valid Cells']
+
     def get_free_cell_ids(self, data, free_exp, i_bin=0, use_all=True, cell_type=['AHV']):
         '''
 
@@ -19854,7 +20480,7 @@ class AnalysisFunctions(object):
         :return:
         '''
 
-        # determines the
+        # determines the index of the experiment being anaylsed
         f_data = data.externd.free_data
         i_expt = f_data.exp_name.index(free_exp)
 
@@ -19872,7 +20498,148 @@ class AnalysisFunctions(object):
         if not np.any(cl_inc):
             return ['No Valid Cells']
         else:
-            return ['Cell #{0}'.format(x) for x in np.sort(np.array(f_data.cell_id[i_expt])[cl_inc])]
+            return ['Cell #{0}'.format(cid) for cid in np.sort(np.array(f_data.cell_id[i_expt])[cl_inc])]
+
+    def get_fix_free_cell_ids(self, data, ff_exp, match_reqd=True, is_old=False):
+        '''
+
+        :param data:
+        :param ff_exp:
+        :return:
+        '''
+
+        # if there are no valid fixed/free cell matches, then return an array denoting this
+        if ('No Matching' in ff_exp) or ('No Fixed/Free' in ff_exp):
+            return ['No Valid Fixed/Free Cells']
+
+        # retrieves the comparison dataset matching the fixed/free experiment
+        data = self.get_data_fcn()
+        i_comp = cf.det_comp_dataset_index(data.comp.data, ff_exp)
+        c_data = data.comp.data[i_comp]
+
+        # retrieves the fixed/free match cell ID#'s
+        data_fix, data_free = cf.get_comp_datasets(data, c_data=c_data, is_full=True)
+        cl_fix, cl_free = np.array(data_fix['clustID']), np.array(data_free['clustID'])
+        cl_ind = cfcn.get_inclusion_filt_indices(data_fix, data.exc_gen_filt)
+
+        # retrieves the inclusion/matching indices (removes the non-included indices)
+        i_match = dcopy(c_data.i_match_old) if is_old else dcopy(c_data.i_match)
+
+        # returns the combined matching fixed/free cell ID#s
+        if match_reqd:
+            # if matches are required, then determine which cells have matches
+            i_match[~cl_ind] = -1
+            ii = i_match >= 0
+            if np.any(ii):
+                # if there are valid cells, then return the fixed/free combine ID#'s
+                return ['Cell #{0}/#{1}'.format(i_fix, i_free) for
+                                    i_fix, i_free in zip(cl_fix[ii], cl_free[i_match[ii]])]
+            else:
+                # if there are no valid fixed/free cell matches, then return an array denoting this
+                return ['No Valid Fixed/Free Cells']
+        else:
+            # if there matches are not required, then set either the matches or individual fixed cell ID#s
+            cl_fix, i_match = cl_fix[cl_ind], i_match[cl_ind]
+            return ['Cell #{0}/#{1}'.format(i_fix, cl_free[i_m]) if i_m >= 0 else
+                                    'Cell #{0}'.format(i_fix) for i_fix, i_m in zip(cl_fix, i_match)]
+
+    def get_exp_name_list(self, exp_type):
+        '''
+
+        :param exp_type:
+        :return:
+        '''
+
+        # initialisations
+        recheck_list = False
+
+        # sets the experiment names (if not already set)
+        if self.exp_name is None:
+            self.exp_name = [cf.extract_file_name(x['expFile']) for x in self.get_data_fcn()._cluster]
+
+        if exp_type == 'Experiments':
+            # case is the experiment names
+            exp_list = self.exp_name
+
+        elif exp_type == 'RotationExperiments':
+            # case is the rotation experiment names
+            is_rot_expt = cf.det_valid_rotation_expt(self.get_data_fcn())
+            exp_list = [x for x, y in zip(self.exp_name, is_rot_expt) if y]
+
+        elif exp_type == 'RotationExperimentUD':
+            # case is the uniform drifting experiment names
+            is_ud_expt = cf.det_valid_rotation_expt(self.get_data_fcn(), is_ud=True)
+            exp_list = [x for x, y in zip(self.exp_name, is_ud_expt) if y]
+
+        elif exp_type == 'RotationExperimentMD':
+            # case is the rotation experiment names
+            t_type = ['Black', 'Uniform', 'LandmarkLeft', 'LandmarkRight']
+            is_rot_expt = cf.det_valid_rotation_expt(self.get_data_fcn(), t_type=t_type)
+            exp_list = [x for x, y in zip(self.exp_name, is_rot_expt) if y]
+
+        elif exp_type == 'EyeTrackExperiments':
+            # case is the eye tracking experiment names
+            exp_list = self.get_data_fcn().externd.eye_track.exp_name
+
+        else:
+            # case is an actual list
+            exp_list = exp_type
+
+        # returns the experiment name list and recheck boolean value
+        return exp_list
+
+    def get_curr_func_details(self):
+        '''
+
+        :return:
+        '''
+
+        d_grp = self.details[self.get_plot_grp_fcn()]
+        i_grp = next(i for i in range(len(d_grp)) if d_grp[i]['name'] == self.get_plot_fcn())
+
+        # returns the detail group and currently selected function index
+        return d_grp, i_grp
+
+    def run_reset_para_func(self):
+        '''
+
+        :return:
+        '''
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # runs any parameter reset functions that may exist for the current functions parameters
+        p_func = d_grp[i_grp]['para']
+        for pp in p_func:
+            if ('para_reset' in p_func[pp]) and (p_func[pp]['para_reset'] is not None):
+                # runs the parameter reset functions
+                for pr in p_func[pp]['para_reset']:
+                    pr[1](pr[0], self.curr_para[pp])
+
+        # flag that the parameters are finished updating
+        self.is_updating = False
+
+    def run_reset_func(self, para_reset, p_val):
+        '''
+
+        :param para_reset:
+        :param pr_func:
+        :return:
+        '''
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # runs each of the update functions
+        for pr in para_reset:
+            pr[1](pr[0], p_val)
+
+        # flag that the parameters are updating
+        self.is_updating = False
 
     @staticmethod
     def set_missing_para_field(para):
@@ -20404,6 +21171,7 @@ class RotationData(object):
         # correlation linear parameters
         self.sf_fix_slope = None
         self.sf_fix_int = None
+        self.sf_fix_err = None
         self.peak_hz_fix = None
 
         # sets the depth class specific fields
