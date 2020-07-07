@@ -2832,7 +2832,7 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
 ############################################
 
 
-def calc_all_psychometric_curves(d_data, d_vel):
+def calc_all_psychometric_curves(d_data, d_vel, use_all=True):
     '''
 
     :param d_data:
@@ -2854,6 +2854,12 @@ def calc_all_psychometric_curves(d_data, d_vel):
     i_bin_spd = d_data.i_bin_spd
     xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
 
+    if use_all:
+        i_fit = np.arange(n_xi).astype(int)
+    else:
+        i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
+
+
     # calculates the psychometric fits for each condition trial type
     for i_tt in range(n_tt):
         # sets the mean accuracy values (across all cell counts)
@@ -2862,18 +2868,19 @@ def calc_all_psychometric_curves(d_data, d_vel):
         else:
             y_acc_mn_exp = np.nanmedian(y_acc[i_tt], axis=3)
 
+        # sets the values for the psychometric fits
         y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
                                          100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
 
         # calculates/sets the psychometric fit values
         y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
-                            calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_bin_spd)
+                            calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
 
     # updates the class fields
     d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi
 
 
-def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
+def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
     '''
 
     :param y_acc_mn:
@@ -2952,10 +2959,9 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_bin_spd):
     p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
 
     # sets the indices of the values to be fit
-    ii = np.ones(len(xi), dtype=bool)
+    ii = np.zeros(len(xi), dtype=bool)
+    ii[i_fit] = True
     ii[i_bin_spd] = False
-
-    # gmodel = Model(fit_func)
 
     # loops through each of the conditions calculating the psychometric fits
     for i_c in range(n_cond):

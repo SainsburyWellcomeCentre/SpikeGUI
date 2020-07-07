@@ -3447,7 +3447,7 @@ def get_cell_index_and_id(h_main, cell_id, exp_name, use_raw=False, arr_out=True
     '''
 
     # retrieves the experiment index and cluster ID#'s
-    i_expt = h_main.fcn_data.get_exp_name_list('RotationExperiments').index(exp_name)
+    i_expt = h_main.fcn_data.get_exp_name_list('Experiments').index(exp_name)
     cl_id = h_main.data._cluster[i_expt]['clustID'] if use_raw else h_main.data.cluster[i_expt]['clustID']
 
     # converts the cell ID integers to a list (if not already so)

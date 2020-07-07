@@ -846,6 +846,10 @@ class WorkerThread(QThread):
                         self.work_finished.emit(thread_data)
                         return
 
+                # # calculates the psychometric curves
+                # w_prog.emit('Calculating Pyschometric Curves', 100.)
+                # cfcn.calc_all_psychometric_curves(data.discrim.spdcp, float(calc_para['vel_bin']), calc_para['use_all'])
+
             elif self.thread_job_secondary == 'Velocity Direction Discrimination LDA':
                 # checks to see if any base LDA calculation parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['lda'], other_para=data.discrim.spddir)
@@ -3133,10 +3137,6 @@ class WorkerThread(QThread):
         d_data.equal_time = calc_para['equal_time']
         d_data.nshuffle = calc_para['n_shuffle']
         d_data.poolexpt = calc_para['pool_expt']
-
-        # calculates the psychometric curves
-        w_prog.emit('Calculating Pyschometric Curves', 100.)
-        cfcn.calc_all_psychometric_curves(d_data, float(calc_para['vel_bin']))
 
         # returns a true value indicating success
         return True

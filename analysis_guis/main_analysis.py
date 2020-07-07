@@ -6980,14 +6980,6 @@ class AnalysisGUI(QMainWindow):
             # returns the p-value array
             return auc_stats
 
-        # # checks cluster index if plotting all clusters
-        # i_expt = cf.get_expt_index(plot_exp_name, self.data.cluster)
-        # i_cluster, e_str = self.check_cluster_index_input(i_cluster, False, self.data.cluster[i_expt]['nC'])
-        # if e_str is not None:
-        #     cf.show_error(e_str,'Infeasible Cluster Indices')
-        #     self.calc_ok = False
-        #     return
-
         # initialises the rotation filter (if not set)
         if rot_filt is None:
             rot_filt = cf.init_rotation_filter_data(False)
@@ -10840,7 +10832,8 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.grid(plot_grid)
 
-    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, plot_grid):
+    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, 
+                                   use_all, plot_grid):
         '''
 
         :param show_fit:
@@ -10869,8 +10862,7 @@ class AnalysisGUI(QMainWindow):
         n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
 
         # calculates the psychometric curves (if not present)
-        if not hasattr(d_data, 'p_acc'):
-            cfcn.calc_all_psychometric_curves(d_data, np.diff(d_data.spd_xi[0, :])[0])
+        cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin), use_all)
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
@@ -12960,9 +12952,7 @@ class AnalysisGUI(QMainWindow):
 
                 # calculates the fitted values
                 y_plt = np.vstack([
-                    np.vstack(
-                        [p_fit([_fs, 0])(x_plt) / phz for _fs, phz in zip(fs[i], peak_hz[i_c][i])]
-                    ) for fs, i in zip(f_slope[:, i_c], is_plt)
+                    np.vstack([p_fit([_fs, 0])(x_plt) for _fs in fs[i]]) for fs, i in zip(f_slope[:, i_c], is_plt)
                 ])
 
                 # ensures the values are within bounds
@@ -18196,6 +18186,7 @@ class AnalysisFunctions(object):
                 'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False,
                 'link_para': [['plot_cell', True], ['plot_type', True]]
             },
+            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
@@ -18632,15 +18623,8 @@ class AnalysisFunctions(object):
 
         # creates the calculation/plotting parameter objects
         is_calc_sel = self.grp_para_tabs.tabText(self.grp_para_tabs.currentIndex()) == 'Calculation Parameters'
-        try:
-            self.create_group_para(self.grp_para_calc, fcn_para, 'Calculation Parameters', is_calc_sel)
-        except:
-            a = 1
-
-        try:
-            self.create_group_para(self.grp_para_plot, fcn_para, 'Plotting Parameters', not is_calc_sel)
-        except:
-            a = 1
+        self.create_group_para(self.grp_para_calc, fcn_para, 'Calculation Parameters', is_calc_sel)
+        self.create_group_para(self.grp_para_plot, fcn_para, 'Plotting Parameters', not is_calc_sel)
 
     def create_group_para(self, h_grp, fcn_para, gtext, is_sel):
         '''
