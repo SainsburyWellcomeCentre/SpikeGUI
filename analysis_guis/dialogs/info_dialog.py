@@ -11,7 +11,7 @@ import numpy as np
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (QHBoxLayout, QDialog, QFormLayout, QPushButton, QGridLayout, QGroupBox,
-                             QHeaderView, QMessageBox)
+                             QHeaderView, QMessageBox, QTableWidget)
 
 # custom module import
 import analysis_guis.common_func as cf
@@ -52,7 +52,7 @@ dcopy = copy.deepcopy
 
 
 class InfoDialog(QDialog):
-    def __init__(self, main_obj, parent=None, width=1450, height=600, rot_filt=None):
+    def __init__(self, main_obj, parent=None, width=1600, height=600, rot_filt=None):
         # creates the gui object
         super(InfoDialog, self).__init__(parent)
 
@@ -137,9 +137,9 @@ class InfoDialog(QDialog):
         '''
 
         # initialisations
-        b_txt = ['Refresh', 'Close Window']
-        cb_fcn = [self.refresh_fields, self.close_window]
-        b_name = ['refresh_fields', 'close_window']
+        b_txt = ['Refresh', 'Output Information Data', 'Close Window']
+        cb_fcn = [self.refresh_fields, self.output_info, self.close_window]
+        b_name = ['refresh_fields', 'output_info', 'close_window']
 
         # group box object
         self.h_grpbx[1] = QGroupBox("")
@@ -289,6 +289,10 @@ class InfoDialog(QDialog):
             ['Action\nType', 'special'],
             ['Free Cell\nType (5deg/s)', 'special'],
             ['Free Cell\nType (10deg/s)', 'special'],
+            ['AHV Pearson\n(Pos)', 'special'],
+            ['AHV Pearson\n(Neg)', 'special'],
+            ['Velocity\nPearson', 'special'],
+            ['Mean Vec.\nLength', 'special'],
         ]
 
         # removes all parameters from the layout
@@ -391,6 +395,18 @@ class InfoDialog(QDialog):
                             else:
                                 nw_data[i_row] = '/'.join(c_name[c_type[i_row_ff, :]])
 
+                    elif 'AHV Pearson' in tt[0]:
+                        if hasattr(self.data.externd, 'free_data'):
+                            a = 1
+
+                    elif tt[0] == 'Velocity\nPearson':
+                        if hasattr(self.data.externd, 'free_data'):
+                            a = 1
+
+                    elif tt[0] == 'Mean Vec.\nLength':
+                        if hasattr(self.data.externd, 'free_data'):
+                            a = 1
+
                     else:
                         nw_data = np.array(['---'] * nC)
 
@@ -452,6 +468,29 @@ class InfoDialog(QDialog):
         # resets the close flag and closes the GUI
         pass
 
+    def output_info(self):
+        '''
+
+        :return:
+        '''
+
+        # memory allocation
+        exp_type = ['Free', 'Fixed']
+        t_data = [[] for _ in range(2)]
+        is_rot = cf.det_valid_rotation_expt(self.data)
+        exp_name = [cf.extract_file_name(x['expFile']) for x in self.data._cluster]
+
+        # retrieves the table for each experiment (splitting the data into fixed/free experiments)
+        for i_expt in range(self.n_expt):
+            t_data[int(is_rot[i_expt])].append(self.get_table_data(i_expt, exp_name[i_expt]))
+
+        # outputs the experiments based on the type (i.e., fixed or free)
+        for i_t, ex_t in enumerate(exp_type):
+            # outputs the data file (only if there were any experiments of that type)
+            if len(t_data[i_t]):
+                f_name = 'Experiment Info ({0} Expts).csv'.format(ex_t)
+                self.main_obj.output_data_file(f_name, np.vstack(t_data[i_t]))
+
     def close_window(self):
         '''
 
@@ -469,6 +508,45 @@ class InfoDialog(QDialog):
         else:
             evnt.ignore()
 
+    def get_table_data(self, i_expt, exp_name):
+        '''
+
+        :param i_expt:
+        :return:
+        '''
+
+        # retrieves the table handle
+        h_table = self.h_info[i_expt, 1].findChildren(QTableWidget)[0]
+
+        # memory allocation
+        n_row, n_col, i_ofs = h_table.rowCount(), h_table.columnCount(), 1
+        is_inc = np.ones(n_row + (i_ofs + 1), dtype=bool)
+        t_data = np.empty((n_row + (i_ofs + 1), n_col), dtype=object)
+
+        # sets the experiment name
+        t_data[i_ofs + 1, 0] = exp_name
+
+        # sets the table header
+        for i_col in range(1, n_col):
+            t_data[i_ofs, i_col] = h_table.horizontalHeaderItem(i_col).text().replace('\n', ' ')
+            if '\u03bc' in t_data[i_ofs, i_col]:
+                t_data[i_ofs, i_col] = t_data[i_ofs, i_col].replace('\u03bc', 'u')
+
+        # loops through each of the rows/column retrieving the table data
+        for i_col in range(n_col):
+            for i_row in range(n_row):
+                if i_col == 0:
+                    # retrieves the inclusion value
+                    is_inc[i_row + (i_ofs + 1)] = h_table.cellWidget(i_row, 0).isEnabled()
+                else:
+                    # retrieves the data from the table
+                    t_data[i_row + (i_ofs + 1), i_col] = h_table.item(i_row, i_col).text()
+
+        # removes any None values
+        t_data[t_data == None] = ''
+
+        # returns the table data
+        return t_data[is_inc, :][:, ~np.all(t_data[(1 + i_ofs):, :] == '---', axis=0)]
 
 ########################################################################################################################
 ########################################################################################################################
