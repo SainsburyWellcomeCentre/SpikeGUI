@@ -5831,9 +5831,6 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
-            # module import
-            r_stats = importr("stats")
-
             # parameters
             p_value = 0.05
             plt_type = ['CW Motion Sensitivity', 'CCW Motion Sensitivity', 'Direction Selectivity']

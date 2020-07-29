@@ -52,7 +52,7 @@ dcopy = copy.deepcopy
 
 
 class InfoDialog(QDialog):
-    def __init__(self, main_obj, parent=None, width=1600, height=600, rot_filt=None):
+    def __init__(self, main_obj, parent=None, width=1700, height=600, rot_filt=None):
         # creates the gui object
         super(InfoDialog, self).__init__(parent)
 
@@ -269,6 +269,8 @@ class InfoDialog(QDialog):
         # retrieves the cluster data
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
+        has_free_data = hasattr(self.data.externd, 'free_data')
+        f_name_nw = cf.extract_file_name(c_data['expFile'])
 
         # determines the indices that are excluded due to the general filter
         cl_inc = cfcn.get_inclusion_filt_indices(c_data, self.main_obj.data.exc_gen_filt)
@@ -301,6 +303,40 @@ class InfoDialog(QDialog):
             h_layout.removeRow(0)
 
         #
+        if has_free_data:
+            # retrieves the freely moving data class object
+            f_data = self.data.externd.free_data
+
+            # retrieves the free experiment index (which matches the current tab)
+            i_expt_ff = f_data.exp_name.index(cf.det_closest_file_match(f_data.exp_name, f_name_nw)[0])
+
+            # retrieves the cell information for the current experiment
+            v_grp = 0                   # velocity group (0 for 5 deg/s, 1 for 10 deg/s)
+            t_type = 'LIGHT1'           # trial type (default is "LIGHT1"
+            c_info = f_data.c_info[i_expt_ff][v_grp][t_type]
+
+            # sets the matching cell/external free data file cell indices (based on experiment type)
+            if is_fixed:
+                # case is a fixed experiment
+                _, f2f_map = cf.det_matching_fix_free_cells(self.data,
+                                                            exp_name=[f_data.exp_name[i_expt_ff]], apply_filter=True)
+
+                i0_ff = np.where(f2f_map[0][:, 0] >= 0)[0]
+                i_free_ff = f2f_map[0][i0_ff, 1]
+            else:
+                # case is a free experiment
+                _, i0_ff, i_free_ff = np.intersect1d(c_data['clustID'], f_data.cell_id[i_expt_ff],
+                                                            return_indices=True)
+
+            # sets up the freely moving data table header to the column headers from the data files
+            ff_dict = {
+                'AHV Pearson\n(Pos)': 'ahv_pearson_r_pos',
+                'AHV Pearson\n(Neg)': 'ahv_pearson_r_neg',
+                'Velocity\nPearson': 'velocity_pearson_r',
+                'Mean Vec.\nLength': 'mean_vec_length',
+            }
+
+        #
         t_data = np.empty((nC, len(cl_info)), dtype=object)
         for itt, tt in enumerate(cl_info):
             # sets the label value
@@ -308,7 +344,7 @@ class InfoDialog(QDialog):
                 if tt[0] == 'Include?':
                     nw_data = cl_inc
 
-                if tt[0] == 'Channel\nDepth ({0}m)'.format(cf._mu):
+                elif tt[0] == 'Channel\nDepth ({0}m)'.format(cf._mu):
                     ch_map = c_data['expInfo']['channel_map']
                     nw_data = np.array([ch_map[ch_map[:, 1] == x, 3][0] for x in c_data['chDepth']]).astype(str)
 
@@ -321,7 +357,6 @@ class InfoDialog(QDialog):
                 elif tt[0] == 'Matching\nCluster':
                     if self.data.comp.is_set:
                         #
-                        f_name_nw = cf.extract_file_name(c_data['expFile'])
                         i_comp = cf.det_comp_dataset_index(self.data.comp.data, f_name_nw, is_fixed)
                         c_data_nw = self.data.comp.data[i_comp]
 
@@ -362,53 +397,34 @@ class InfoDialog(QDialog):
                         nw_data = np.array(['---'] * nC)
 
                 elif 'Free Cell\nType' in tt[0]:
-                    if hasattr(self.data.externd, 'free_data'):
+                    if has_free_data:
+                        # memory allocation
+                        nw_data = np.array(['---'] * nC, dtype='U15')
+
                         # initialisations and memory allocation
                         c_name = np.array(['HD', 'HDM', 'AHV', 'Spd'])
-                        nw_data = np.array(['---'] * nC, dtype='U15')
-                        f_data = self.data.externd.free_data
-                        i_grp = int('10' in tt[0])
-
-                        # retrieves the free experiment index (which matches the current tab)
-                        f_name = cf.extract_file_name(c_data['expFile'])
-                        i_expt_ff = f_data.exp_name.index(cf.det_closest_file_match(f_data.exp_name, f_name)[0])
-                        c_type = np.array(f_data.cell_type[i_expt_ff][i_grp])
-
-                        # sets the matching cell/external free data file cell indices (based on experiment type)
-                        if is_fixed:
-                            # case is a fixed experiment
-                            _, f2f_map = cf.det_matching_fix_free_cells(self.data,
-                                        exp_name=[f_data.exp_name[i_expt_ff]], apply_filter=True)
-
-                            i0 = np.where(f2f_map[0][:, 0] >= 0)[0]
-                            i_free = f2f_map[0][i0, 1]
-                        else:
-                            # case is a free experiment
-                            _, i0, i_free = np.intersect1d(c_data['clustID'], f_data.cell_id[i_expt_ff],
-                                                           return_indices=True)
+                        c_type = np.array(f_data.cell_type[i_expt_ff][int('10' in tt[0])])
 
                         # sets the column data
-                        for i_row, i_row_ff in zip(i0, i_free):
+                        for i_row, i_row_ff in zip(i0_ff, i_free_ff):
                             # sets the free cell type
                             if not np.any(c_type[i_row_ff, :]):
                                 nw_data[i_row] = 'None'
                             else:
                                 nw_data[i_row] = '/'.join(c_name[c_type[i_row_ff, :]])
 
-                    elif 'AHV Pearson' in tt[0]:
-                        if hasattr(self.data.externd, 'free_data'):
-                            a = 1
+                elif tt[0] in ff_dict:
+                    if has_free_data:
+                        # memory allocation
+                        nw_data = np.array(['---'] * nC, dtype='U15')
+                        fr_data = c_info[ff_dict[tt[0]]]
 
-                    elif tt[0] == 'Velocity\nPearson':
-                        if hasattr(self.data.externd, 'free_data'):
-                            a = 1
+                        # sets the column data
+                        for i_row, i_row_ff in zip(i0_ff, i_free_ff):
+                            nw_data[i_row] = '{:.4f}'.format(fr_data[i_row_ff])
 
-                    elif tt[0] == 'Mean Vec.\nLength':
-                        if hasattr(self.data.externd, 'free_data'):
-                            a = 1
-
-                    else:
-                        nw_data = np.array(['---'] * nC)
+                else:
+                    nw_data = np.array(['---'] * nC)
 
             else:
                 nw_data = np.array(eval('c_data["{0}"]'.format(tt[1]))).astype(str)
@@ -482,7 +498,12 @@ class InfoDialog(QDialog):
 
         # retrieves the table for each experiment (splitting the data into fixed/free experiments)
         for i_expt in range(self.n_expt):
-            t_data[int(is_rot[i_expt])].append(self.get_table_data(i_expt, exp_name[i_expt]))
+            # retrieves the current table data
+            t_data_nw = self.get_table_data(i_expt)
+            t_data_nw[2, 0] = exp_name[i_expt]
+
+            # appends the data to the storage lists
+            t_data[int(is_rot[i_expt])].append(t_data_nw)
 
         # outputs the experiments based on the type (i.e., fixed or free)
         for i_t, ex_t in enumerate(exp_type):
@@ -508,7 +529,7 @@ class InfoDialog(QDialog):
         else:
             evnt.ignore()
 
-    def get_table_data(self, i_expt, exp_name):
+    def get_table_data(self, i_expt):
         '''
 
         :param i_expt:
@@ -522,9 +543,6 @@ class InfoDialog(QDialog):
         n_row, n_col, i_ofs = h_table.rowCount(), h_table.columnCount(), 1
         is_inc = np.ones(n_row + (i_ofs + 1), dtype=bool)
         t_data = np.empty((n_row + (i_ofs + 1), n_col), dtype=object)
-
-        # sets the experiment name
-        t_data[i_ofs + 1, 0] = exp_name
 
         # sets the table header
         for i_col in range(1, n_col):
