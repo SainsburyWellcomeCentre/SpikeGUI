@@ -3587,3 +3587,17 @@ def get_all_fix_free_indices(data, c_data, data_fix, data_free, match_reqd=False
         # if there was an error, then output the error message to screen and return Nones
         show_error(e_str, 'Invalid Cell Selection')
         return None, None
+
+
+def is_final_row(i_row, i_col, n_row, n_col, n_plot):
+    '''
+
+    :param i_row:
+    :param i_col:
+    :param n_row:
+    :param n_col:
+    :param n_plot:
+    :return:
+    '''
+
+    return (i_row + 1) == n_row - int((i_col + 1) > (n_plot % n_col))

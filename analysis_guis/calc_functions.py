@@ -1314,7 +1314,8 @@ def calc_noise_correl(d_data, n_sp):
                 x, y = n_sp_pair[:, 0, :].flatten(), n_sp_pair[:, 1, :].flatten()
 
                 # calculates the x/y z-scored values
-                x_z, y_z = (x - np.mean(x)) / np.std(x), (y - np.mean(y)) / np.std(y)
+                x_z = (x - np.nanmean(x)) / np.nanstd(x) if np.any(x > 0) else x
+                y_z = (y - np.nanmean(y)) / np.nanstd(y) if np.any(y > 0) else y
                 is_acc = np.logical_and(np.abs(x_z) < z_tol, np.abs(y_z) < z_tol)
 
                 # calculates the pair-wise pearson correlations
@@ -2585,11 +2586,6 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
         d_data.n_sample = calc_para['n_sample']
         d_data.equal_time = calc_para['equal_time']
 
-        # calculates the psychometric curves
-        y_acc_mn, d_vel, vel_mx = np.mean(y_acc, axis=0), float(calc_para['vel_bin']), 80.
-        xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
-        d_data.y_acc_fit, _, _, _ = calc_psychometric_curves(y_acc_mn, xi_fit, n_c, i_bin_spd)
-
         # returns a true value indicating success
         return True
     else:
@@ -2859,7 +2855,6 @@ def calc_all_psychometric_curves(d_data, d_vel, use_all=True):
     else:
         i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
 
-
     # calculates the psychometric fits for each condition trial type
     for i_tt in range(n_tt):
         # sets the mean accuracy values (across all cell counts)
@@ -2874,7 +2869,7 @@ def calc_all_psychometric_curves(d_data, d_vel, use_all=True):
 
         # calculates/sets the psychometric fit values
         y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
-                            calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
+                                        calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
 
     # updates the class fields
     d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi

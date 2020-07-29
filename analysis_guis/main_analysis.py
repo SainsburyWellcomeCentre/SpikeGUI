@@ -3158,6 +3158,11 @@ class AnalysisGUI(QMainWindow):
             cf.show_error(e_str, 'Infeasible Cluster Indices')
             self.calc_ok = False
             return
+        elif len(i_plot) == 0:
+            m_str = 'There are no classification matches for the currently selected experiment.'
+            cf.show_error(m_str, 'No Match Types')
+            self.calc_ok = False
+            return
 
         # fixed/calculation parameters
         i_plot = np.array(i_plot) - 1
@@ -5530,6 +5535,8 @@ class AnalysisGUI(QMainWindow):
 
                 # retrieves the cluster IDs/experiment names
                 i_expt_match = np.unique(r_obj_wc.i_expt[i_grp[0]])
+                j_ex = [list(r_obj_wc.i_expt0[i]).index(x) for x in i_expt_match]
+
                 cl_inc = [cfcn.get_inclusion_filt_indices(c, self.data.exc_gen_filt) for c in self.data._cluster]
                 clustID = [np.array(self.data._cluster[i_ex]['clustID'])[cl_inc[i_ex]] for i_ex in i_expt_match]
                 exp_name = [cf.extract_file_name(self.data.cluster[j]['expFile']) for j in i_expt_match]
@@ -5537,7 +5544,7 @@ class AnalysisGUI(QMainWindow):
                 for i_ex in range(n_ex):
                     # memory allocation and initialisations
                     v_sf_grp = [v_sf_sig_ex0[i][i_ex] for i in i_grp]
-                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][i_ex]]
+                    clustIDex = np.array(clustID[i_ex])[r_obj_wc.clust_ind[i][j_ex[i_ex]]]
                     if len(clustIDex):
                         data_tmp[i_ex + 1] = np.zeros((len(clustIDex) + 1, n_col), dtype=object)
 
@@ -10713,7 +10720,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_grid, plot_chance=False)
 
-    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, plot_grid):
+    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, use_all, plot_grid):
         '''
 
         :param m_size:
@@ -10790,6 +10797,20 @@ class AnalysisGUI(QMainWindow):
             sz_cell = [m_size * (x / n_cell_mx) if show_cell_sz else m_size for x in n_cell_ex]
             y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
 
+            if show_fit:
+                # sets the indices for fitting the curves
+                n_xi = len(d_data.spd_xi)
+                if use_all:
+                    i_fit = np.arange(n_xi).astype(int)
+                else:
+                    i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
+
+                # calculates the psychometric curves
+                y_acc_mn, d_vel, vel_mx = np.mean(d_data.y_acc, axis=0), float(float(d_data.vel_bin)), 80.
+                xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+                y_acc_fit, _, _, _ = cfcn.calc_psychometric_curves(y_acc_mn, xi_fit, n_cond, i_fit, d_data.i_bin_spd)
+
+
             ################################
             ####    SUBPLOT CREATION    ####
             ################################
@@ -10809,7 +10830,7 @@ class AnalysisGUI(QMainWindow):
 
                 # plots the psychometric fit (if required)
                 if show_fit:
-                    ax.plot(x_nw, 100. * d_data.y_acc_fit[:, i_cond], c=col[i_cond], linewidth=2)
+                    ax.plot(x_nw, 100. * y_acc_fit[:, i_cond], c=col[i_cond], linewidth=2)
 
                 # creates the legend
                 ax.legend(h_plt, d_data.ttype, loc=4)
@@ -10861,7 +10882,7 @@ class AnalysisGUI(QMainWindow):
         is_plot = np.array([x in plot_cond for x in d_data.ttype])
         n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
 
-        # calculates the psychometric curves (if not present)
+        # calculates the psychometric curves
         cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin), use_all)
 
         #######################################
@@ -11036,7 +11057,7 @@ class AnalysisGUI(QMainWindow):
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
     ####################################################
 
-    def plot_signal_means(self, cell_id, plot_all, exp_name, plot_grid=True):
+    def plot_signal_means(self, cell_id, exp_name, plot_all, plot_grid):
         '''
 
         :param i_cluster:
@@ -11067,9 +11088,13 @@ class AnalysisGUI(QMainWindow):
         # sets up the figure/axis
         n_plot = len(i_cell)
         self.init_plot_axes(n_plot=n_plot)
+        n_col, n_row = cf.det_subplot_dim(n_plot)
 
         # plots the values over all subplots
         for i_plot in range(n_plot):
+            # sets the column/row indices
+            i_row, i_col = i_plot // n_col, i_plot % n_col
+            
             # plots the mean signal
             self.plot_fig.ax[i_plot].plot(T, data_plot['vMu'][:, i_cell[i_plot]], linewidth=3.0)
 
@@ -11077,15 +11102,21 @@ class AnalysisGUI(QMainWindow):
             self.plot_fig.ax[i_plot].grid(plot_grid)
             self.plot_fig.ax[i_plot].set_xlim(T[0], T[-1])
             self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(c_id[i_plot]))
-            self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
-            self.plot_fig.ax[i_plot].set_ylabel('Voltage ({0}V)'.format(cf._mu))
+            
+            # sets the y-axis label (first column only)
+            if i_col == 0:
+                self.plot_fig.ax[i_plot].set_ylabel('Voltage ({0}V)'.format(cf._mu))
 
-    def plot_cluster_auto_ccgram(self, cell_id, plot_all, window_size, exp_name):
+            # sets the x-axis label (last row only)
+            if cf.is_final_row(i_row, i_col, n_row, n_col, n_plot):
+                self.plot_fig.ax[i_plot].set_xlabel('Time (ms)')
+
+    def plot_cluster_auto_ccgram(self, cell_id, exp_name, plot_all, window_size):
         '''
 
-        :param i_cluster:
-        :param plot_all:
-        :param c_type:
+        :param cell_id:
+        :param window_size:
+        :param exp_name:
         :return:
         '''
 
@@ -11107,12 +11138,13 @@ class AnalysisGUI(QMainWindow):
 
         # sets the indices of the clusters to plot and creates the figure/axis objects
         n_bin_tot = int(len(data_plot['ccGramXi']) / 2)
-        ind = np.arange(n_bin_tot - window_size, n_bin_tot + window_size)
+        ind = np.arange(n_bin_tot - window_size, n_bin_tot + (window_size + 1))
 
         # sets up the figure/axis
         n_plot = len(i_cell)
         self.init_plot_axes(n_plot=n_plot)
         xi_hist = data_plot['ccGramXi'][ind]
+        n_col, n_row = cf.det_subplot_dim(n_plot)
 
         # sets the x-axis limits
         bin_sz = xi_hist[1] - xi_hist[0]
@@ -11120,6 +11152,9 @@ class AnalysisGUI(QMainWindow):
 
         # plots the values over all subplots
         for i_plot in range(n_plot):
+            # sets the column/row indices
+            i_row, i_col = i_plot // n_col, i_plot % n_col
+
             # creates the bar-graph and the centre marker
             n_hist = data_plot['ccGram'][i_cell[i_plot], i_cell[i_plot], ind]
             self.plot_fig.ax[i_plot].bar(xi_hist, height=n_hist, width=bin_sz)
@@ -11131,9 +11166,15 @@ class AnalysisGUI(QMainWindow):
 
             # sets the axis properties
             self.plot_fig.ax[i_plot].set_title('Cluster #{0}'.format(c_id[i_plot]))
-            self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
-            self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
+
+            # sets the y-axis label (first column only)
+            if i_col == 0:
+                self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
+
+            # sets the x-axis label (last row only)
+            if cf.is_final_row(i_row, i_col, n_row, n_col, n_plot):
+                self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
 
     def plot_cluster_cross_ccgram(self, exp_name, i_ref, i_comp, plot_all, m_size, plot_type,
                                   window_size, p_lim, f_cutoff):
@@ -11169,6 +11210,7 @@ class AnalysisGUI(QMainWindow):
 
         # sets up the figure/axis
         self.init_plot_axes(n_plot=n_plot)
+        n_col, n_row = cf.det_subplot_dim(n_plot)
 
         # sets the x-axis limits
         bin_sz = xi_hist[1] - xi_hist[0]
@@ -11183,6 +11225,9 @@ class AnalysisGUI(QMainWindow):
         for i_plot in range(n_plot):
             # sets the actual fixed/free plot indices
             search_lim = []
+
+            # sets the column/row indices
+            i_row, i_col = i_plot // n_col, i_plot % n_col
 
             # calculates the confidence intervals
             n_hist = data_plot['ccGram'][i_cell_ref, i_cell_comp[i_plot], ind]
@@ -11211,10 +11256,16 @@ class AnalysisGUI(QMainWindow):
 
             # sets the axis properties
             self.plot_fig.ax[i_plot].set_title('Cluster #{0} vs #{1}'.format(c_id_ref, c_id_comp[i_plot]))
-            self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
-            self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')
             self.plot_fig.ax[i_plot].set_xlim(x_lim)
             self.plot_fig.ax[i_plot].set_ylim(y_lim)
+            
+            # sets the y-axis label (first column only)
+            if i_col == 0:
+                self.plot_fig.ax[i_plot].set_ylabel('Frequency (Hz)')
+
+            # sets the x-axis label (last row only)
+            if cf.is_final_row(i_row, i_col, n_row, n_col, n_plot):
+                self.plot_fig.ax[i_plot].set_xlabel('Time Lag (ms)')            
 
     #########################################
     ####    COMMON ANALYSIS FUNCTIONS    ####
@@ -18115,6 +18166,7 @@ class AnalysisFunctions(object):
                               ['show_cell_sz', 'Inter-Quartile Ranges'],
                               ['m_size', 'Inter-Quartile Ranges']]
             },
+            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
@@ -18255,7 +18307,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
                 'para_reset': [['cell_id', self.reset_fix_mult_cid]]
             },
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id', True]},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Single Experiment Analysis',
@@ -18275,7 +18327,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
                 'para_reset': [['cell_id', self.reset_fix_mult_cid]]
             },
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['cell_id', True]},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
         }
         self.add_func(type='Single Experiment Analysis',
@@ -18295,7 +18347,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
                 'para_reset': [['i_ref', self.reset_fix_cid], ['i_comp', self.reset_fix_mult_cid]]
             },
-            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para':['i_comp', True]},
+            'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_comp', True]},
             'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot'],
@@ -19256,10 +19308,10 @@ class AnalysisFunctions(object):
 
     def reset_fix_mult_cid(self, p_name, in_value):
         '''
-        
-        :param p_name: 
-        :param in_value: 
-        :return: 
+
+        :param p_name:
+        :param in_value:
+        :return:
         '''
 
         # retrieves the dropdown list object handles
@@ -19429,7 +19481,7 @@ class AnalysisFunctions(object):
             # otherwise, flag that there are no fixed/free cell matches
             nw_state = np.zeros(1, dtype=bool)
             nw_list = ['No Valid Fixed/Free Cells']
-            
+
             # resets the parameter value
             self.curr_para[p_name] = []
 

@@ -920,7 +920,7 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             if i_expt_f2f is None:
                                 # determines the experiment/mapping indices for each of the freely moving data files
                                 if use_raw:
-                                    cl_ind_0 = [np.array(x['nC']) for x in d_clust]
+                                    cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
                                 else:
                                     c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
                                     cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
@@ -994,13 +994,20 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         if i_expt_f2f is None:
                             # determines the experiment/mapping indices for each of the freely moving data files
                             if use_raw:
-                                cl_ind_0 = [np.array(x['nC']) for x in d_clust]
+                                cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
                             else:
                                 c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
                                 cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
 
-                            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
-                                                exp_name=data.externd.free_data.exp_name, cl_ind=cl_ind_0)
+
+                            # determines the free experiments matching the cluster experiment names
+                            fix_name_comp, ex_data = [x.fix_name for x in data.comp.data], data.externd
+                            free_name = [data.comp.data[fix_name_comp.index(x)].free_name for x in
+                                                       [cf.extract_file_name(x['expFile']) for x in d_clust]]
+                            free_exp = [cf.det_closest_file_match(ex_data.free_data.exp_name, x)[0] for x in free_name]
+
+                            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data,
+                                                                                 exp_name=free_exp, cl_ind=cl_ind_0)
 
                             # retrieves the fixed data files corresponding to the matches above
                             fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]

@@ -673,12 +673,8 @@ class RotationFilteredData(object):
         '''
 
         # sets the experiment indices
+        is_rot = cf.det_valid_rotation_expt(data)
         clust_ind, trial_ind, e_str = self.clust_ind, self.trial_ind, None
-
-        if self.use_raw:
-            cluster = data._cluster
-        else:
-            cluster = data.cluster
 
         if len(clust_ind) == 0:
             # if the cluster index is not valid, then output an error to screen
@@ -692,11 +688,15 @@ class RotationFilteredData(object):
                 e_str = 'There are no valid cells for this experiment. Retry again with another experiment.'
             else:
                 # otherwise, deteremine the index of the current experiment
-                i_expt0 = cf.get_expt_index(self.plot_exp_name, cluster, cf.det_valid_rotation_expt(data))
+                i_expt0 = cf.get_expt_index(self.plot_exp_name, data._cluster, np.ones(len(data._cluster)))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
 
                 # sets the index values for the given experiment
-                i_cluster = data.cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+                if self.use_raw:
+                    i_cluster = data._cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+                else:
+                    i_cluster = data.cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+
                 clust_ind = [[np.array([i_cluster], dtype=int)] for _ in range(self.n_filt)]
 
         # if there was an error then output a message to screen and exit the function
