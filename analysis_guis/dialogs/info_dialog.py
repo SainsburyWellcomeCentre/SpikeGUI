@@ -266,6 +266,9 @@ class InfoDialog(QDialog):
         :return:
         '''
 
+        # initialisations
+        ff_dict = {}
+
         # retrieves the cluster data
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
@@ -293,6 +296,8 @@ class InfoDialog(QDialog):
             ['Free Cell\nType (10deg/s)', 'special'],
             ['AHV Pearson\n(Pos)', 'special'],
             ['AHV Pearson\n(Neg)', 'special'],
+            ['AHV %Tile\n(Pos)', 'special'],
+            ['AHV %Tile\n(Neg)', 'special'],
             ['Velocity\nPearson', 'special'],
             ['Mean Vec.\nLength', 'special'],
         ]
@@ -332,6 +337,8 @@ class InfoDialog(QDialog):
             ff_dict = {
                 'AHV Pearson\n(Pos)': 'ahv_pearson_r_pos',
                 'AHV Pearson\n(Neg)': 'ahv_pearson_r_neg',
+                'AHV %Tile\n(Pos)': 'pearson_pos_percentile',
+                'AHV %Tile\n(Neg)': 'pearson_neg_percentile',
                 'Velocity\nPearson': 'velocity_pearson_r',
                 'Mean Vec.\nLength': 'mean_vec_length',
             }
@@ -503,7 +510,11 @@ class InfoDialog(QDialog):
             t_data_nw[2, 0] = exp_name[i_expt]
 
             # appends the data to the storage lists
-            t_data[int(is_rot[i_expt])].append(t_data_nw)
+            i = int(is_rot[i_expt])
+            if len(t_data[i]):
+                t_data[i].append(t_data_nw[2:, :])
+            else:
+                t_data[i].append(t_data_nw)
 
         # outputs the experiments based on the type (i.e., fixed or free)
         for i_t, ex_t in enumerate(exp_type):

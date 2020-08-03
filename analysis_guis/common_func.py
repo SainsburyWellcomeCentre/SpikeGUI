@@ -99,6 +99,27 @@ def flat_list(l):
     else:
         return l
 
+def set_pvalue_string(p_value, p_lim=0.05):
+    '''
+
+    :param p_value:
+    :param p_lim:
+    :return:
+    '''
+
+    if p_value < 1e-20:
+        # case is the p-value is <1e-20. so use a fixed value instead
+        return '{:5.3e}*'.format(1e-20)
+
+    elif p_value < 1e-2:
+        # case is very small p-values, so use compact form
+        return '{:5.3e}{}'.format(p_value, sig_str_fcn(p_value, p_lim))
+
+    else:
+        # otherwise, use normal form
+        return '{:5.3f}{}'.format(p_value, sig_str_fcn(p_value, p_lim))
+
+
 def calc_rel_prop(x, n, N=None, return_counts=False, ind=None):
     '''
 
@@ -2199,7 +2220,8 @@ def add_plot_table(fig, ax, font, data, row_hdr, col_hdr, row_cols, col_cols, t_
             n_line += 1
 
     # parameters and other dimensioning
-    n_rowhdr_line, n_colhdr_line = row_hdr[0].count('\n') + 1, col_hdr[0].count('\n') + 1
+    n_rowhdr_line = 0 if row_hdr is None else row_hdr[0].count('\n') + 1
+    n_colhdr_line = 0 if col_hdr is None else col_hdr[0].count('\n') + 1
 
     ############################################
     ####    CELL ROW/HEIGHT CALCULATIONS    ####

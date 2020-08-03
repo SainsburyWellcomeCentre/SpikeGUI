@@ -47,11 +47,7 @@ rpy2.robjects.numpy2ri.activate()
 # r-library import
 r_pair = importr("pairwise")
 r_stats = importr("stats")
-
-# try:
-#     r_pHOC = importr("PMCMRplus")
-# except:
-#     pass
+r_ART = importr("ARTool")
 
 # scipy module imports
 from scipy.signal import medfilt
@@ -4864,8 +4860,7 @@ class AnalysisGUI(QMainWindow):
                     else:
                         # case is the comparison is against another cdf distribution
                         ks_val = cfcn.calc_ks2_stat(sf_cdf[i_grp], sf_cdf[j_grp])
-                        ks_stats_nw = '{:.3f}{}'.format(ks_val, cf.sig_str_fcn(ks_val, p_val))
-                        ks_stats[i_grp, j_grp] = ks_stats[j_grp, i_grp] = ks_stats_nw
+                        ks_stats[i_grp, j_grp] = ks_stats[j_grp, i_grp] = cf.set_pvalue_string(ks_val, p_val)
 
             # returns the final stats array
             return ks_stats
@@ -5296,8 +5291,7 @@ class AnalysisGUI(QMainWindow):
                         kw_stats[i_filt, j_filt] = kw_stats[j_filt, i_filt] = '1.000'
                     else:
                         _, kw_val = kruskal(p_sig[i_filt], p_sig[j_filt])
-                        kw_str = '{:.3f}{}'.format(kw_val, cf.sig_str_fcn(kw_val, p_val))
-                        kw_stats[i_filt, j_filt] = kw_stats[j_filt, i_filt] = kw_str
+                        kw_stats[i_filt, j_filt] = kw_stats[j_filt, i_filt] = cf.set_pvalue_string(kw_val, p_val)
 
             # returns the stats array
             return kw_stats
@@ -5831,6 +5825,9 @@ class AnalysisGUI(QMainWindow):
             :return:
             '''
 
+            # module import
+            r_stats = importr("stats")
+
             # parameters
             p_value = 0.05
             plt_type = ['CW Motion Sensitivity', 'CCW Motion Sensitivity', 'Direction Selectivity']
@@ -5916,7 +5913,7 @@ class AnalysisGUI(QMainWindow):
 
                             # calculates the non-paired wilcoxon test between the 2 conditions
                             results = r_stats.wilcox_test(FloatVector(x), FloatVector(y), paired=False, exact=True)
-                            pv_str = '{:5.3f}'.format(cf.get_r_stats_values(results, 'p.value'))
+                            pv_str = cf.set_pvalue_string(cf.get_r_stats_values(results, 'p.value'))
 
                             # sets the title (first row only)
                             if i_type == 0:
@@ -6976,7 +6973,7 @@ class AnalysisGUI(QMainWindow):
                         p_value = cf.calc_inter_roc_significance(roc[i_filt][0], roc[j_filt][0],
                                                                r_data.cond_auc_stats_type, r_data.n_boot_cond_grp)
 
-                        p_value_str = '{:5.3f}{}'.format(p_value, cf.sig_str_fcn(p_value, 0.05))
+                        p_value_str = cf.set_pvalue_string(p_value)
                         auc_stats[i_filt, j_filt] = auc_stats[j_filt, i_filt] = p_value_str
                     else:
                         auc_stats[i_filt, j_filt] = 'N/A'
@@ -8087,7 +8084,7 @@ class AnalysisGUI(QMainWindow):
                     if np.isnan(p_value):
                         p_stats[i_comp, i_bin] = 'NaN'
                     else:
-                        p_stats[i_comp, i_bin] = '{:5.3f}{}'.format(p_value, cf.sig_str_fcn(p_value, 0.05))
+                        p_stats[i_comp, i_bin] = cf.set_pvalue_string(p_value)
 
             # returns the stats array
             return p_stats
@@ -8297,8 +8294,7 @@ class AnalysisGUI(QMainWindow):
                                 _, p_val_nw = ks_2samp(y[i_tt], y[j_tt])
 
                         # retrieves the results and stores them in the results array
-                        p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = \
-                            '{:5.3f}{}'.format(p_val_nw, cf.sig_str_fcn(p_val_nw, p_value))
+                        p_str[i_tt, j_tt] = p_str[j_tt, i_tt] = cf.set_pvalue_string(p_val_nw, p_value)
 
             # returns the array
             return p_str
@@ -8600,7 +8596,7 @@ class AnalysisGUI(QMainWindow):
     ###########################################
 
     def plot_combined_stimuli_stats(self, rot_filt, plot_exp_name, plot_all_expt, plot_scope, plot_type,
-                                    grp_plot_type, plot_grid, grp_by_filt, show_stats):
+                                    met_stats, grp_plot_type, plot_grid, grp_by_filt, show_stats):
         '''
 
         :return:
@@ -8771,38 +8767,59 @@ class AnalysisGUI(QMainWindow):
             ####    METRIC COUNT TABLES    ####
             ###################################
 
-            # # enforces tight layout format
-            # self.plot_fig.fig.tight_layout()
-
-            # sets the initial motion sensitivity/congruency table values
-            n_MS0 = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
-
-            # sets the final table values
-            n_MS = np.vstack((n_MS0[0, :], np.sum(n_MS0[1:, ], axis=0)))
-            n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
-            n_PD = np.vstack(r_data.pd_type_N)
-            t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
-
-            # creates the title text object
-            t_str = ['{0} N-Values'.format(x) for x in stats_type]
-            col_hdr = [['Insensitive', 'Sensitive', 'Total'],
-                       ['None', 'Rotation', 'Visual', 'Both', 'Total'],
-                       ['Incongruent', 'Congruent', 'Total']]
+            # initialisations
+            is_cc = met_stats == 'Cell Counts'
             t_font = cf.get_table_font_size(3)
 
-            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
-                row_hdr = ['All Cells', 'Total']
+            if is_cc:
+                # sets the values for the table
+                n_MS = np.vstack([r_data.ms_gtype_N] * 4) * r_data.ms_gtype_pr / 100
+                n_DS = np.vstack([r_data.ds_gtype_N] * 4) * r_data.ds_gtype_pr / 100
+                n_PD = np.vstack(r_data.pd_type_N)
+
+                # sets the final table values
+                t_data = [cf.add_rowcol_sum(n_MS).T, cf.add_rowcol_sum(n_DS).T, cf.add_rowcol_sum(n_PD)]
+                t_data = [td.astype(int) for td in t_data]
+
+                # creates the title text object
+                col_hdr = [['None', 'Rotation', 'Visual', 'Both', 'Total'],
+                           ['None', 'Rotation', 'Visual', 'Both', 'Total'],
+                           ['Incongruent', 'Congruent', 'Total']]
+
             else:
-                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + ['Total']
+                # sets the column header strings
+                col_hdr = [['None', 'Rotation', 'Visual', 'Both']] * 2 + [['Incongruent', 'Congruent']]
+
+                # sets the metric table values
+                if met_stats == 'Mean & SEM':
+                    # case is the mean +/- SEM
+                    t_data = [self.setup_table_mean_plus_sem(x) for x in type_pr_ex0]
+
+                elif met_stats == 'Median':
+                    # case is the mean +/- SEM
+                    t_data = [self.setup_table_median(x) for x in type_pr_ex0]
+
+                else:
+                    # case is the IQR range
+                    t_data = [self.setup_table_iqr_range(x) for x in type_pr_ex0]
+
+            # sets the total row/column header colour (no colour if not cell count)
+            tot_col = [(0.75, 0.75, 0.75)] if is_cc else []
+
+            # sets the row header strings
+            row_hdr_suf = ['Total'] if is_cc else []
+            if (n_filt == 1) and (lg_str_f[0] == 'Black'):
+                row_hdr = ['All Cells'] + row_hdr_suf
+            else:
+                row_hdr = ['#{0}'.format(x + 1) for x in range(n_filt)] + row_hdr_suf
 
             # creates the graphs for the motion sensitive/direction selectivity plots
             for i in range(n_plt):
                 # creates the new table
                 j, nT = i + n_plt, len(col_hdr[i])
                 cT = cf.get_plot_col(max(n_filt, nT), max(n_grp))
-                cf.add_plot_table(self.plot_fig, ax[j], t_font, t_data[i].astype(int), row_hdr, col_hdr[i],
-                                  cT[:n_filt] + [(0.75, 0.75, 0.75)], cT[:nT] + [(0.75, 0.75, 0.75)],
-                                  'fixed', n_col=n_plt)
+                cf.add_plot_table(self.plot_fig, ax[j], t_font, t_data[i], row_hdr, col_hdr[i],
+                                  cT[:n_filt] + tot_col, cT[:nT] + tot_col, 'fixed', n_col=n_plt)
 
         ###########################
         ####    DATA OUTPUT    ####
@@ -8811,6 +8828,9 @@ class AnalysisGUI(QMainWindow):
         # initialisations and memory allocation
         n_col, n_filt = 6, len(r_data.ms_gtype_comb)
         data_all = np.empty(n_filt, dtype=object)
+
+        # creates the rotation filter object
+        r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
 
         # combines the data for each filter type
         for i in range(n_filt):
@@ -8825,7 +8845,7 @@ class AnalysisGUI(QMainWindow):
 
             # retrieves the cluster IDs
             i_expt_match = np.unique(r_data.r_obj_vis.i_expt[i])
-            clustID = [self.data.cluster[i]['clustID'] for i in i_expt_match]
+            clustID = [np.array(r_obj.cl_id)[i][r_obj.i_expt[i] == i_ex] for i_ex in i_expt_match]
             exp_name = [cf.extract_file_name(self.data.cluster[i]['expFile']) for i in i_expt_match]
 
             for i_ex in range(n_ex):
@@ -9514,13 +9534,12 @@ class AnalysisGUI(QMainWindow):
                                 # case is the trial condition direction accuracy statistics
                                 _p_vals = p_vals[i_row - 2, i_col - 1]
 
-                            #
-                            p_str_nw = '{:5.3f}{}'.format(_p_vals, cf.sig_str_fcn(_p_vals, 0.05))
-                            p_str[i_row, i_col] = p_str[i_col, i_row] = p_str_nw
+                            # sets the p-value string into the array
+                            p_str[i_row, i_col] = p_str[i_col, i_row] = cf.set_pvalue_string(_p_vals)
 
                 # sets up the n-value table
                 col = cf.get_plot_col(n_cond + 1)
-                cf.add_plot_table(self.plot_fig, self.plot_fig.ax[3], table_font, p_str, lg_str, lg_str,
+                cf.add_plot_table(self.plot_fig, self.plot_fig.ax[3], table_font_smaller, p_str, lg_str, lg_str,
                                   col, col, 'bottom', p_wid=1.5, n_col=1)
                 self.plot_fig.ax[3].set_xlabel('Decoding Type')
 
@@ -9557,7 +9576,7 @@ class AnalysisGUI(QMainWindow):
                     # creates the datacursor
                     datacursor(h_trend, formatter=formatter_lbl, point_labels=lbl_trend, hover=True)
 
-    def plot_temporal_lda(self, use_stagger, plot_err, plot_grid):
+    def plot_temporal_lda(self, use_stagger, plot_err, plot_grid, show_stats):
         '''
 
         :param plot_exp_name:
@@ -9565,6 +9584,34 @@ class AnalysisGUI(QMainWindow):
         :param plot_grid:
         :return:
         '''
+
+        def setup_plot_axis(plot_fig, n_filt):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            n_r, n_c = 2, 2
+            top, bottom, wspace, hspace = 0.98, 0.04, 0.25, 0.10
+            tbl_hght = 0.025 + 0.025 * n_filt
+            height_ratios = [tbl_hght, 1 - tbl_hght]
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_r * n_c, dtype=object)
+            for i_r in range(n_r):
+                for i_c in range(n_c):
+                    # sets the subplot
+                    i_plt = i_r * n_c + i_c
+                    plot_fig.ax[i_plt] = plot_fig.figure.add_subplot(gs[i_r, i_c])
+                    plot_fig.ax[i_plt].axis('off')
 
         def create_multi_plot(ax, xi, y_acc, use_stagger, plot_err):
             '''
@@ -9629,12 +9676,12 @@ class AnalysisGUI(QMainWindow):
             '''
 
             # memory allocation
-            n_ex, n_tt = np.size(y_acc_phs, axis=0), len(ttype)
+            n_ex, n_tt = np.size(y_acc, axis=0), len(ttype)
             _ttype = np.array(ttype).reshape(-1, 1)
 
             # converts the xi/condition type values into a FactorVector
-            ttype_st = FactorVector(np.tile(_ttype, [n_ex, 1, np.size(y_acc, axis=2)]).flatten())
-            xi_st = FactorVector(np.tile(xi, [n_ex, n_tt, 1]).flatten())
+            ttype_st = np.tile(_ttype, [n_ex, 1, np.size(y_acc, axis=2)]).flatten()
+            xi_st = np.tile(xi, [n_ex, n_tt, 1]).flatten()
 
             # returns the values for analysis
             return ttype_st, xi_st, y_acc[:, 1:, :].flatten()
@@ -9650,26 +9697,65 @@ class AnalysisGUI(QMainWindow):
         ####    DATA VISUALISATION    ####
         ##################################
 
-        # initialises the plot axes
-        self.init_plot_axes(n_row=1, n_col=2)
-        ax = self.plot_fig.ax
+        if show_stats:
+            #################################
+            ####    STATISTICS TABLES    ####
+            #################################
 
-        #################################
-        ####    SUBPLOT CREATIONS    ####
-        #################################
+            # initialisations
+            r_hdr_phs = ['Cond', 'Duration', 'Cond:Duration']
+            r_hdr_ofs = ['Cond', 'Offset', 'Cond:Offset']
+            wc_hdr_phs = ['Comparison', 'Duration', 'P-Value']
+            wc_hdr_ofs = ['Comparison', 'Offset', 'P-Value']
+            t_col = cf.get_plot_col(len(r_hdr_phs))
 
-        # creates the multiple boxplot
-        create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], use_stagger, plot_err)
-        create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], use_stagger, plot_err)
+            # initialises the plot axes
+            setup_plot_axis(self.plot_fig, len(r_hdr_ofs))
+            ax = self.plot_fig.ax
 
-        # sets the titles for both subplots
-        ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
-        ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+            # creates the phase duration ANOVA stats table
+            x1_phs, x2_phs, y_phs = setup_bin_stats_values(d_data.xi_phs, d_data.ttype, y_acc_phs)
+            p_str_phs = cfcn.calc_art_stats(x1_phs, x2_phs, y_phs, c_type='ANOVA')
+            cf.add_plot_table(self.plot_fig, ax[0], table_font_smaller, p_str_phs[1], r_hdr_phs,
+                              p_str_phs[0], t_col, cf.get_plot_col(np.shape(p_str_phs[1])[1]), 'fixed')
 
-        # sets the axis properties for both subplots
-        for _ax, _x_lbl in zip(ax, ['Phase Duration (s)', 'Phase Offset (s)']):
-            _ax.set_xlabel(_x_lbl)
-            _ax.grid(plot_grid)
+            # calculates the duration/offset wilcoxon pairwise test p-values
+            wc_test_phs = self.calc_wilcox_stats(x1_phs, x2_phs, y_phs, ttype, d_data.xi_phs)
+            cf.add_plot_table(self.plot_fig, ax[2], table_font_smaller, wc_test_phs, None,
+                              wc_hdr_phs, None, cf.get_plot_col(len(wc_hdr_phs)), 'fixed')
+
+            # creates the phase offset ANOVA stats table
+            x1_ofs, x2_ofs, y_ofs = setup_bin_stats_values(d_data.xi_ofs, d_data.ttype, y_acc_ofs)
+            p_str_ofs = cfcn.calc_art_stats(x1_ofs, x2_ofs, y_ofs, c_type='ANOVA')
+            cf.add_plot_table(self.plot_fig, ax[1], table_font_smaller, p_str_ofs[1], r_hdr_ofs,
+                              p_str_ofs[0], t_col, cf.get_plot_col(np.shape(p_str_ofs[1])[1]), 'fixed')
+
+            # calculates the duration/offset wilcoxon pairwise test p-values
+            wc_test_ofs = self.calc_wilcox_stats(x1_ofs, x2_ofs, y_ofs, ttype, d_data.xi_ofs)
+            cf.add_plot_table(self.plot_fig, ax[3], table_font_smaller, wc_test_ofs, None,
+                              wc_hdr_ofs, None, cf.get_plot_col(len(wc_hdr_ofs)), 'fixed')
+
+        else:
+            #################################
+            ####    SUBPLOT CREATIONS    ####
+            #################################
+
+            # initialises the plot axes
+            self.plot_fig.setup_plot_axis(n_row=1, n_col=2)
+            ax = self.plot_fig.ax
+
+            # creates the multiple boxplot
+            create_multi_plot(ax[0], d_data.xi_phs, y_acc_phs[:, 1:, :], use_stagger, plot_err)
+            create_multi_plot(ax[1], d_data.xi_ofs, y_acc_ofs[:, 1:, :], use_stagger, plot_err)
+
+            # sets the titles for both subplots
+            ax[0].set_title('Decoding Accuracy vs Phase Duration\n(Offset = 0s)')
+            ax[1].set_title('Decoding Accuracy vs Phase Offset\n(Duration = {:5.2f}s)'.format(d_data.phs_const))
+
+            # sets the axis properties for both subplots
+            for _ax, _x_lbl in zip(ax, ['Phase Duration (s)', 'Phase Offset (s)']):
+                _ax.set_xlabel(_x_lbl)
+                _ax.grid(plot_grid)
 
         ###########################
         ####    DATA OUTPUT    ####
@@ -9686,8 +9772,8 @@ class AnalysisGUI(QMainWindow):
 
         i_expt_phs = 0
         for i in range(len(tt_phs)):
-            data_out_phs[i + 1, 1] = ttype[int(tt_phs[i]) - 1]
-            data_out_phs[i + 1, 2] = d_data.xi_phs[int(xi_phs[i]) - 1]
+            data_out_phs[i + 1, 1] = tt_phs[i]
+            data_out_phs[i + 1, 2] = xi_phs[i]
 
             # sets the experiment name
             if i % (len(ttype) * len(d_data.xi_phs)) == 0:
@@ -9708,8 +9794,8 @@ class AnalysisGUI(QMainWindow):
 
         i_expt_ofs = 0
         for i in range(len(tt_ofs)):
-            data_out_ofs[i + 1, 1] = ttype[int(tt_ofs[i]) - 1]
-            data_out_ofs[i + 1, 2] = d_data.xi_ofs[int(xi_ofs[i]) - 1]
+            data_out_ofs[i + 1, 1] = tt_ofs[i]
+            data_out_ofs[i + 1, 2] = xi_ofs[i]
 
             # sets the experiment name
             if i % (len(ttype) * len(d_data.xi_ofs)) == 0:
@@ -9979,7 +10065,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets the p-value string
                 p_val = bartlett(h_pw_s, h_pw_ns)[1]
-                p_str[0, i] = '{:5.3e}{}'.format(p_val, cf.sig_str_fcn(p_val, 0.05))
+                p_str[0, i] = cf.set_pvalue_string(p_val)
 
                 if i == 0:
                     ax[i + 1].bar(xi_h - d_xi / 4, h_pw_s, color=col[0], width=d_xi / 2)
@@ -10717,7 +10803,7 @@ class AnalysisGUI(QMainWindow):
         # initialisations
         self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_grid, plot_chance=False)
 
-    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, use_all, plot_grid):
+    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, use_all, plot_grid, show_stats):
         '''
 
         :param m_size:
@@ -10729,126 +10815,216 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def setup_plot_axis(plot_fig, n_grp, n_filt):
+            '''
+
+            :param plot_fig:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the axes dimensions
+            n_r, n_c = 2, int(n_filt * (n_filt - 1) / 2)
+            top, bottom, wspace, hspace = 0.98, 0.04, 0.25, 0.10
+            tbl_hght = 0.025 + 0.025 * n_grp
+            height_ratios = [tbl_hght, 1 - tbl_hght]
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=[1 / n_c] * n_c, height_ratios=height_ratios,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=0.075, right=0.98,
+                                   bottom=bottom, top=top)
+
+            # memory allocation
+            plot_fig.ax = np.empty(n_r * n_c, dtype=object)
+
+            # creates the anova test table axes
+            plot_fig.ax[0] = plot_fig.figure.add_subplot(gs[0, :])
+            plot_fig.ax[0].axis('off')
+
+            # sets the wilcoxon test table axes
+            for i_c in range(n_c):
+                i_plt = 1 + i_c
+                plot_fig.ax[i_plt] = plot_fig.figure.add_subplot(gs[1, i_c])
+                plot_fig.ax[i_plt].axis('off')
+
+        def setup_bin_stats_values(xi, ttype, y_acc):
+            '''
+
+            :param xi:
+            :param ttype:
+            :param y_acc:
+            :return:
+            '''
+
+            # memory allocation
+            n_ex, n_tt = np.size(y_acc, axis=0), len(ttype)
+            _ttype = np.array(ttype).reshape(-1, 1)
+
+            # converts the xi/condition type values into flattened vector
+            ttype_st = np.tile(_ttype, [n_ex, 1, np.size(y_acc, axis=1)]).flatten()
+            xi_st = np.tile(xi, [n_ex, n_tt, 1]).flatten()
+
+            # converts the accuracy values into a flattened vector
+            y_st = np.array(cf.flat_list([y_acc[i_cond, :, :].T.flatten() for i_cond in range(np.shape(y_acc)[0])]))
+            ii = ~np.isnan(y_st)
+
+            # returns the values for analysis
+            return ttype_st[ii], xi_st[ii], y_st[ii]
+
         # initialisations
         d_data = self.data.discrim.spdc
         n_cond = len(d_data.ttype)
         col = cf.get_plot_col(n_cond)
 
-        # sets the x-tick labels
-        spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
-        spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
-        x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+        if show_stats:
+            #################################
+            ####    STATISTICS TABLES    ####
+            #################################
 
-        #######################################
-        ####    SUBPLOT INITIALISATIONS    ####
-        #######################################
+            # initialisations
+            r_hdr = ['Cond', 'Speed', 'Cond:Speed']
+            wc_hdr = ['Speed', 'P-Value']
+            t_col = cf.get_plot_col(len(r_hdr))
+            spd_xi = np.mean(d_data.spd_xi, axis=1)
 
-        # sets up the plot axis
-        self.plot_fig.setup_plot_axis()
-        ax = self.plot_fig.ax[0]
+            # initialises the plot axes
+            setup_plot_axis(self.plot_fig, len(r_hdr), len(d_data.ttype))
+            ax = self.plot_fig.ax
 
-        ##################################
-        ####    DATA VISUALISATION    ####
-        ##################################
+            # creates the ANOVA stats table
+            x1, x2, y = setup_bin_stats_values(spd_xi, d_data.ttype, d_data.y_acc)
+            p_str = cfcn.calc_art_stats(x1, x2, y, c_type='ANOVA')
+            cf.add_plot_table(self.plot_fig, ax[0], table_font_smaller, p_str[1], r_hdr,
+                              p_str[0], t_col, cf.get_plot_col(np.shape(p_str[1])[1]), 'fixed')
 
-        if plot_type == 'Inter-Quartile Ranges':
+            # calculates the wilcoxon pairwise test p-values
+            spd_xi_wc = spd_xi[np.arange(len(spd_xi)) != d_data.i_bin_spd]
+            wc_test = self.calc_wilcox_stats(x1, x2, y, d_data.ttype, spd_xi_wc, stack_output=False)
 
-            ###################################
-            ####    DATA PRE-PROCESSING    ####
-            ###################################
-
-            # sets the plotting data values
-            y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
-            y_acc_lq = 100. * np.percentile(d_data.y_acc, 25, axis=0)
-            y_acc_uq = 100. * np.percentile(d_data.y_acc, 75, axis=0)
-
-            ################################
-            ####    SUBPLOT CREATION    ####
-            ################################
-
-            # plots the plot/errorbar for each condition
-            for i_cond in range(n_cond):
-                # sets the plot x locations and error bar values
-                x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
-
-                # creates the plot/errorbar
-                h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
-                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
-
-            # creates the legend
-            ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
+            # creates the statistics table
+            for i in range(len(wc_test)):
+                h_title = ax[i + 1].text(0.5, 1, wc_test[i][0, 0], fontsize=15, horizontalalignment='center')
+                cf.add_plot_table(self.plot_fig, ax[i + 1], table_font_smaller, wc_test[i][:, 1:], None,
+                                  wc_hdr, None, cf.get_plot_col(len(wc_hdr)), 'fixed', h_title=h_title)
 
         else:
+            #######################################
+            ####    SUBPLOT INITIALISATIONS    ####
+            #######################################
 
-            ###################################
-            ####    DATA PRE-PROCESSING    ####
-            ###################################
+            # sets up the plot axis
+            self.plot_fig.setup_plot_axis()
+            ax = self.plot_fig.ax[0]
 
-            # array dimensioning
-            n_ex = np.size(d_data.y_acc, axis=0)
+            # sets the x-tick labels
+            spd_x = int(d_data.spd_xi[d_data.i_bin_spd, 1])
+            spd_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
+            x = np.arange(np.size(d_data.spd_xi, axis=0))
+            xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
 
-            # sets cell count for each of the experiments (sets to 1 if not showing cell size)
-            n_cell_ex = [sum(x) for x in d_data.i_cell]
-            n_cell_mx = np.max(n_cell_ex)
-            sz_cell = [m_size * (x / n_cell_mx) if show_cell_sz else m_size for x in n_cell_ex]
-            y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
+            ##################################
+            ####    DATA VISUALISATION    ####
+            ##################################
 
-            if show_fit:
-                # sets the indices for fitting the curves
-                n_xi = len(d_data.spd_xi)
-                if use_all:
-                    i_fit = np.arange(n_xi).astype(int)
-                else:
-                    i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
+            if plot_type == 'Inter-Quartile Ranges':
 
-                # calculates the psychometric curves
-                y_acc_mn, d_vel, vel_mx = np.mean(d_data.y_acc, axis=0), float(float(d_data.vel_bin)), 80.
-                xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
-                y_acc_fit, _, _, _ = cfcn.calc_psychometric_curves(y_acc_mn, xi_fit, n_cond, i_fit, d_data.i_bin_spd)
+                ###################################
+                ####    DATA PRE-PROCESSING    ####
+                ###################################
 
+                # sets the plotting data values
+                y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
+                y_acc_lq = 100. * np.percentile(d_data.y_acc, 25, axis=0)
+                y_acc_uq = 100. * np.percentile(d_data.y_acc, 75, axis=0)
 
-            ################################
-            ####    SUBPLOT CREATION    ####
-            ################################
+                ################################
+                ####    SUBPLOT CREATION    ####
+                ################################
 
-            # plots the data for all points
-            for i_cond in range(n_cond):
-                # sets the plot x locations and error bar values
-                x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
+                # plots the plot/errorbar for each condition
+                for i_cond in range(n_cond):
+                    # sets the plot x locations and error bar values
+                    x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
 
-                # plots the mean marker points
-                h_plt.append(ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_size))
-
-                # plots the individual points
-                for i_ex in range(n_ex):
-                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
-                                   edgecolors=col[i_cond], s=sz_cell[i_ex])
-
-                # plots the psychometric fit (if required)
-                if show_fit:
-                    ax.plot(x_nw, 100. * y_acc_fit[:, i_cond], c=col[i_cond], linewidth=2)
+                    # creates the plot/errorbar
+                    h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+                    cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond],
+                                               col[i_cond], y_err2=y_acc_uq[:, i_cond])
 
                 # creates the legend
-                ax.legend(h_plt, d_data.ttype, loc=4)
+                ax.legend([x[0] for x in h_plt], d_data.ttype, loc=4)
 
-            ax.set_title('# of Experiments = {0}'.format(n_ex))
+            else:
 
-        # creates the vertical marker lines
-        for xx in np.arange(xL[0] + 1, xL[1]):
-            ax.plot(xx * np.ones(2), yL, 'k--')
+                ###################################
+                ####    DATA PRE-PROCESSING    ####
+                ###################################
 
-        # plots the chance line
-        ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+                # array dimensioning
+                n_ex = np.size(d_data.y_acc, axis=0)
 
-        # sets the axis properties
-        ax.set_xlim(xL)
-        ax.set_ylim(yL)
-        ax.set_xticks(x + 0.5)
-        ax.set_xticklabels(spd_str)
-        ax.set_xlabel('Speed Bin Comparison (deg/s)')
-        ax.set_ylabel('Decoding Accuracy (%)')
-        ax.grid(plot_grid)
+                # sets cell count for each of the experiments (sets to 1 if not showing cell size)
+                n_cell_ex = [sum(x) for x in d_data.i_cell]
+                n_cell_mx = np.max(n_cell_ex)
+                sz_cell = [m_size * (x / n_cell_mx) if show_cell_sz else m_size for x in n_cell_ex]
+                y_acc_mn = 100. * np.mean(d_data.y_acc, axis=0)
+
+                if show_fit:
+                    # sets the indices for fitting the curves
+                    n_xi = len(d_data.spd_xi)
+                    if use_all:
+                        i_fit = np.arange(n_xi).astype(int)
+                    else:
+                        i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
+
+                    # calculates the psychometric curves
+                    y_acc_mn, d_vel, vel_mx = np.mean(d_data.y_acc, axis=0), float(float(d_data.vel_bin)), 80.
+                    xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+                    y_acc_fit, _, _, _ = cfcn.calc_psychometric_curves(y_acc_mn, xi_fit, n_cond,
+                                                                       i_fit, d_data.i_bin_spd)
+
+
+                ################################
+                ####    SUBPLOT CREATION    ####
+                ################################
+
+                # plots the data for all points
+                for i_cond in range(n_cond):
+                    # sets the plot x locations and error bar values
+                    x_nw = x + ((i_cond + 1) / (n_cond + 1) if sep_resp else 0.5)
+
+                    # plots the mean marker points
+                    h_plt.append(ax.scatter(x_nw, y_acc_mn[:, i_cond], marker='.', c=col[i_cond], s=m_size))
+
+                    # plots the individual points
+                    for i_ex in range(n_ex):
+                        ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+                                       edgecolors=col[i_cond], s=sz_cell[i_ex])
+
+                    # plots the psychometric fit (if required)
+                    if show_fit:
+                        ax.plot(x_nw, 100. * y_acc_fit[:, i_cond], c=col[i_cond], linewidth=2)
+
+                    # creates the legend
+                    ax.legend(h_plt, d_data.ttype, loc=4)
+
+                ax.set_title('# of Experiments = {0}'.format(n_ex))
+
+            # creates the vertical marker lines
+            for xx in np.arange(xL[0] + 1, xL[1]):
+                ax.plot(xx * np.ones(2), yL, 'k--')
+
+            # plots the chance line
+            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+
+            # sets the axis properties
+            ax.set_xlim(xL)
+            ax.set_ylim(yL)
+            ax.set_xticks(x + 0.5)
+            ax.set_xticklabels(spd_str)
+            ax.set_xlabel('Speed Bin Comparison (deg/s)')
+            ax.set_ylabel('Decoding Accuracy (%)')
+            ax.grid(plot_grid)
 
     def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, 
                                    use_all, plot_grid):
@@ -11609,7 +11785,7 @@ class AnalysisGUI(QMainWindow):
                 #
                 if sp_stats is not None:
                     sig_str = ['No', 'Yes']
-                    lbl_str[:, k_ofs] = np.array(['P-Value = {:5.3f}'.format(x) for x in sp_stats])
+                    lbl_str[:, k_ofs] = np.array(['P-Value = {0}'.cf.set_pvalue_string(x) for x in sp_stats])
                     lbl_str[:, k_ofs + 1] = np.array(
                         ['Significant = {0}'.format(sig_str[x < p_value]) for x in sp_stats])
                     lbl_str[:, k_ofs + 2] = np.array([sep_str] * n_trial)
@@ -11888,7 +12064,7 @@ class AnalysisGUI(QMainWindow):
                     row_hdr = r_obj.lg_str
 
                 # sets up the statistics table values
-                t_data = np.vstack([['{:5.3f}{}'.format(y, cf.sig_str_fcn(y, p_value)) for y in x] for x in sf_stats]).T
+                t_data = np.vstack([[cf.set_pvalue_string(y, p_value) for y in x] for x in sf_stats]).T
 
                 # calculates the table dimensions
                 cf.add_plot_table(self.plot_fig, len(ax)-1, table_font, t_data, row_hdr,
@@ -12810,9 +12986,7 @@ class AnalysisGUI(QMainWindow):
                         results = r_stats.wilcox_test(FloatVector(roc_auc[i_row]), FloatVector(roc_auc[i_col]),
                                                       paired=is_paired, exact=True)
                         p_value = cf.get_r_stats_values(results, 'p.value')
-
-                        p_value_str = '{:5.3f}{}'.format(p_value, cf.sig_str_fcn(p_value, 0.05))
-                        auc_stats[i_row, i_col] = auc_stats[i_col, i_row] = p_value_str
+                        auc_stats[i_row, i_col] = auc_stats[i_col, i_row] = cf.set_pvalue_string(p_value)
                     else:
                         auc_stats[i_row, i_col] = 'N/A'
 
@@ -13242,8 +13416,7 @@ class AnalysisGUI(QMainWindow):
                                                                p_adjust_method='bonferroni', paired=True)
 
                         # sets the p=value string into the table
-                        p_val_nw = cf.get_r_stats_values(results, 'p.value')
-                        t_str = '{:.3f}{}'.format(p_val_nw, cf.sig_str_fcn(p_val_nw, p_value))
+                        t_str = cf.set_pvalue_string(cf.get_r_stats_values(results, 'p.value'), p_value)
                         table_data[i_filt, j_filt] = table_data[j_filt, i_filt] = t_str
 
             # returns the stats array
@@ -13687,7 +13860,7 @@ class AnalysisGUI(QMainWindow):
                             sig_str = '*****'
                         else:
                             # case is a legitimate p-value
-                            sig_str = '{:5.3f}{}'.format(chi_pval, cf.sig_str_fcn(chi_pval, p_value_sig))
+                            sig_str = cf.set_pvalue_string(chi_pval, p_value_sig)
 
                         chi_stats[i_row, i_col] = chi_stats[i_col, i_row] = sig_str
 
@@ -14013,12 +14186,64 @@ class AnalysisGUI(QMainWindow):
                 stats_nw = y[i_r, i_c, 1]
                 nr_nw = np.shape(stats_nw)[0]
 
-                # creates the table
-                suf_str = cf.sig_str_fcn(y[i_r, i_c, 0], p_value)
-                t_str = '{}\n(KW Stats = {:.3e}{})'.format(t_str0[i_c][i_r], y[i_r, i_c, 0], suf_str)
+                # creates the table header and the final table
+                t_str = '{0}\n(KW Stats = {1})'.format(t_str0[i_c][i_r], cf.set_pvalue_string(y[i_r, i_c, 0], p_value))
                 h_title = ax[i_plot].text(0.5, 1, t_str, fontsize=f_size, horizontalalignment='center')
                 cf.add_plot_table(self.plot_fig, ax[i_plot], t_font, stats_nw, hdr_str[i_c],
                                   hdr_str[i_c], col[:nr_nw], col[:nr_nw], 'fixed', h_title=h_title)
+
+    def calc_wilcox_stats(self, x1, x2, y, ttype, xi, stack_output=True):
+        '''
+
+        :param x1:
+        :param x2:
+        :param y:
+        :param ttype:
+        :param xi:
+        :return:
+        '''
+
+        # memory allocation
+        n_tt, n_xi = len(ttype), len(xi)
+        n_grp, n_col = int(n_tt * (n_tt - 1) / 2), 3
+        p_str = np.empty(n_grp, dtype=object)
+        tt_abb = [cf.cond_abb(x) for x in ttype]
+
+        # sets the pair-wise trial types groupings
+        ind, k = np.ones((n_grp, 2), dtype=int), 0
+        for i in range(n_tt):
+            for j in range(i + 1, n_tt):
+                ind[k, :] = np.array([i, j])
+                k += 1
+
+        #
+        for i_grp in range(n_grp):
+            # memory allocation
+            p_str[i_grp] = np.empty((n_xi, n_col), dtype=object)
+            p_str[i_grp][:, 0] = '{0}-{1}'.format(ttype[ind[i_grp, 0]], ttype[ind[i_grp, 1]])
+            p_str[i_grp][:, 1] = xi
+
+            # sets the values for the trial type grouping
+            ttype_grp = list(np.array(ttype)[ind[i_grp, :]])
+            ii = np.array([x in ttype_grp for x in x1])
+            x1_grp, x2_grp, y_grp = x1[ii], x2[ii], y[ii]
+
+            # calculates the pair-wise test for each bin
+            for i_xi in range(n_xi):
+                # sets the grouping indices and accuracy values
+                jj = x2_grp == xi[i_xi]
+                x1_bin0, y_bin0 = np.array([ttype.index(x) for x in x1_grp[jj]]), y_grp[jj]
+
+                # runs the wilcoxon test and then retrieves the p-values
+                results = r_stats.pairwise_wilcox_test(y_bin0, x1_bin0, paired=True)
+                p_value = cf.get_r_stats_values(results, 'p.value')
+                p_str[i_grp][i_xi, 2] = cf.set_pvalue_string(p_value)
+
+        # returns the stack array
+        if stack_output:
+            return np.vstack(p_str)
+        else:
+            return p_str
 
     ###############################################
     ####    GENERAL ANALYSIS PLOT FUNCTIONS    ####
@@ -14255,6 +14480,71 @@ class AnalysisGUI(QMainWindow):
         else:
             # otherwise, plot type is feasible
             return True
+
+    def setup_table_median(self, t_vals=None, val_md=None, n_dp=1):
+        '''
+
+        :param t_vals:
+        :param val_md:
+        :param n_dp:
+        :return:
+        '''
+
+        # calculates the mean/SEM values for the table (if not provided)
+        if val_md is None:
+            val_md = [np.nanmedian(x, axis=0) for x in t_vals]
+
+        elif not isinstance(val_md[0], list):
+            val_md = [val_md]
+
+        # combines the mean/SEM values for each grouping and returns the final array
+        if n_dp == 1:
+            return np.vstack([['{:.1f}'.format(_md) for _md in md] for md in val_md])
+
+        elif n_dp == 2:
+            return np.vstack([['{:.2f}'.format(_md) for _md in md] for md in val_md])
+
+        elif n_dp == 3:
+            return np.vstack([['{:.3f}'.format(_md) for _md in md] for md in val_md])
+
+        elif n_dp == 4:
+            return np.vstack([['{:.4f}'.format(_md) for _md in md] for md in val_md])
+
+    def setup_table_iqr_range(self, t_vals=None, val_lq=None, val_uq=None, n_dp=1):
+        '''
+
+        :param t_vals:
+        :param val_lq:
+        :param val_uq:
+        :param n_dp:
+        :return:
+        '''
+
+        # calculates the mean/SEM values for the table (if not provided)
+        if val_lq is None:
+            val_lq = [np.percentile(x, 25, axis=0) for x in t_vals]
+            val_uq = [np.percentile(x, 75, axis=0) for x in t_vals]
+
+        elif not isinstance(val_lq[0], list):
+            val_lq, val_uq = [val_lq], [val_uq]
+
+        # combines the mean/SEM values for each grouping and returns the final array
+        if n_dp == 1:
+            return np.vstack([['{:.1f}-{:.1f}'.format(_lq, _uq)
+                             for _lq, _uq in zip(lq, uq)] for lq, uq in zip(val_lq, val_uq)])
+
+        elif n_dp == 2:
+            return np.vstack([['{:.2f}-{:.2f}'.format(_lq, _uq)
+                             for _lq, _uq in zip(lq, uq)] for lq, uq in zip(val_lq, val_uq)])
+
+        elif n_dp == 3:
+            return np.vstack([['{:.3f}-{:.3f}'.format(_lq, _uq)
+                             for _lq, _uq in zip(lq, uq)] for lq, uq in zip(val_lq, val_uq)])
+
+        elif n_dp == 4:
+            return np.vstack([['{:.4f}-{:.4f}'.format(_lq, _uq)
+                             for _lq, _uq in zip(lq, uq)] for lq, uq in zip(val_lq, val_uq)])
+
 
     def setup_table_mean_plus_sem(self, t_vals=None, val_mu=None, val_sem=None, n_dp=1):
         '''
@@ -16853,6 +17143,7 @@ class AnalysisFunctions(object):
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
         resp_grp_type = ['Rotation/Visual Response', 'Motion Sensitivity/Direction Selectivity', 'Congruency']
         auc_plt_type = ['Violinplot + Swarmplot', 'Bubbleplot']
+        met_stats = ['Mean & SEM', 'IQR Range', 'Median', 'Cell Counts']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
@@ -17497,11 +17788,12 @@ class AnalysisFunctions(object):
                 'other_para': '--- Select Plot Metrics ---'
             },
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type, 'def_val': grp_plot_type[1]},
+            'met_stats': {'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
-                'link_para': [['plot_type', True], ['grp_plot_type', True], ['plot_grid', True]]
+                'link_para': [['plot_type', True], ['grp_plot_type', True], ['met_stats', True], ['plot_grid', True]]
             },
         }
         self.add_func(type='Combined Analysis',
@@ -17803,6 +18095,10 @@ class AnalysisFunctions(object):
             'use_stagger': {'type': 'B', 'text': 'Horizontally Separate Conditions', 'def_val': False},
             'plot_err': {'type': 'B', 'text': 'Show Error Shaded Region', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                'link_para': [['use_stagger', True], ['plot_err', True], ['plot_grid', True]]
+            },
         }
         self.add_func(type='Direction LDA',
                       name='Temporal Duration/Offset LDA',
@@ -17889,7 +18185,8 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'cell_id1': {'type': 'L', 'text': 'First Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
-            'cell_id2': {'type': 'L', 'text': 'Second Cell ID#', 'list': fix_cid, 'def_val': fix_cid[1]},
+            'cell_id2': {'type': 'L', 'text': 'Second Cell ID#', 'list': fix_cid,
+                         'def_val': fix_cid[1] if len(fix_cid) > 1 else fix_cid[0]},
             'plot_exp_name': {
                 'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
                 'para_reset': [['cell_id1', self.reset_fix_cid], ['cell_id2', self.reset_fix_cid]]
@@ -18165,6 +18462,11 @@ class AnalysisFunctions(object):
             },
             'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            'show_stats': {
+                'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
+                'link_para': [['m_size', True], ['show_cell_sz', True], ['show_fit', True], ['sep_resp', True],
+                              ['plot_type', True], ['use_all', True], ['plot_grid', True]]
+            },
         }
         self.add_func(type='Speed LDA',
                       name='Speed LDA Comparison (Individual Experiments)',
@@ -20573,8 +20875,12 @@ class AnalysisFunctions(object):
         else:
             # if there matches are not required, then set either the matches or individual fixed cell ID#s
             cl_fix, i_match = cl_fix[cl_ind], i_match[cl_ind]
-            return ['Cell #{0}/#{1}'.format(i_fix, cl_free[i_m]) if i_m >= 0 else
+            if len(cl_fix):
+                return ['Cell #{0}/#{1}'.format(i_fix, cl_free[i_m]) if i_m >= 0 else
                                     'Cell #{0}'.format(i_fix) for i_fix, i_m in zip(cl_fix, i_match)]
+            else:
+                # if there are no valid fixed/free cell matches, then return an array denoting this
+                return ['No Valid Fixed/Free Cells']
 
     def get_exp_name_list(self, exp_type):
         '''
@@ -21532,7 +21838,7 @@ class FreelyMovingData(object):
         dark_type = self.t_type[next(i for i, x in enumerate(self.t_type) if 'DARK' in x)]
 
         # AHV and Speed significant condition type
-        # ahv_spd_sig_type = ['LIGHT1']                   # sets values in list to what you want AHV cells to be defined by
+        #ahv_spd_sig_type = [dark_type]                   # sets values in list to what you want AHV cells to be defined by
         ahv_spd_sig_type = ['LIGHT1', dark_type]      # another example of how to use the list
 
         # retrieves the necessary information from trial condition/velocity bin size

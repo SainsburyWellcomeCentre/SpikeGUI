@@ -7,6 +7,7 @@ import peakutils
 import math as m
 import numpy as np
 import pickle as _p
+import pandas as pd
 from fastdtw import fastdtw
 import scikit_posthocs as sp
 from numpy.matlib import repmat
@@ -590,12 +591,31 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
     :return:
     '''
 
-    def get_art_test_values(s_data):
+    def get_art_test_values(s_data, c_type):
         '''
 
         :param s_data:
         :return:
         '''
+
+        def convert_anova_values(s_data0, d_type, cg):
+            '''
+
+            :param s_data:
+            :param d_type:
+            :param cg:
+            :return:
+            '''
+
+            # converts the data to an np-array
+            s_data = np.array(s_data0, dtype=d_type)
+
+            if cg in ['F value', 'Pr(>F)']:
+                for j in range(len(s_data)):
+                    s_data[j] = cf.set_pvalue_string(s_data[j])
+
+            # returns the array
+            return s_data
 
         # parameters
         p_tol = 0.05
@@ -604,7 +624,37 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
         p_str, c_grp = None, None
 
         # runs the stats based on the type
-        if isinstance(s_data, RS4):
+        if c_type == 'ANOVA':
+            # initialisations
+            c_grp = ['Df', 'Df.res', 'F value', 'Pr(>F)']
+            d_type = [int, int, object, object]
+
+            if isinstance(s_data, pd.core.frame.DataFrame):
+                # memory allocation
+                p_str = np.empty((s_data.shape[0], len(c_grp)), dtype=object)
+
+                # sets the summary values for all group types
+                for i, cg in enumerate(c_grp):
+                    p_str[:, i] = convert_anova_values(s_data[cg], d_type[i], cg)
+
+            else:
+                # initialisations
+                s_name = list(s_data.names)
+
+                # sets the summary values for all group types
+                for i, cg in enumerate(c_grp):
+                    # retrieves the new data field
+                    i_name = s_name.index(cg)
+                    s_data_nw = convert_anova_values(s_data[i_name], d_type[i], cg)
+
+                    # memory allocation (first value only)
+                    if i == 0:
+                        p_str = np.empty((len(s_data_nw), len(c_grp)), dtype=object)
+
+                    # sets the value
+                    p_str[:, i] = s_data_nw
+
+        else:
             # retrieves the summary dataframe
             summ_df = pandas2ri.ri2py(robjects.r['summary'](s_data))
 
@@ -633,24 +683,10 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
                             # case is the symmetric case
                             p_str[i, j] = 'N/A'
                         else:
-                            # case is the non-symmetric case
-                            if p_value[k] < 1e-20:
-                                # case is the p-value is <1e-10. so use a fixed value instead
-                                p_str_nw = '{:5.3e}*'.format(1e-20)
-                            elif p_value[k] < 1e-3:
-                                # case is very small p-values, so use compact form
-                                p_str_nw = '{:5.3e}*'.format(p_value[k])
-                            else:
-                                # otherwise, use normal form
-                                p_str_nw = '{:5.3f}{}'.format(p_value[k], cf.stats_suffix(p_value[k], p_tol))
-
                             # sets the final string and increments the counter
+                            p_str_nw = cf.set_pvalue_string(p_value.iloc[k])
                             p_str[i_grp[k][0], i_grp[k][1]] = p_str[i_grp[k][1], i_grp[k][0]] = p_str_nw
                             k += 1
-
-        else:
-            # case is the ANOVA analysis
-            pass
 
         # returns the comparison group/statistics string
         return c_grp, p_str
@@ -658,23 +694,28 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
     # calculates the ART anova
     calc_art_anova = robjects.r(
         """
-            function(x1, x2, y, s_type){
+            f <- function(x1f, x2f, y, s_type){
                 library("ARTool")
                 library(emmeans)
                 library(phia)
 
+                x1 <- factor(x1f)
+                x2 <- factor(x2f)
                 df <- data.frame(x1, x2, y)
-                m <- art(y ~ x1 * x2, data = df)
+
+                m <- art(y ~ x1 + x2 + x1:x2, data = df)
                 m_anova <- anova(m)
 
                 if (s_type == 0) {
-                out <- contrast(emmeans(artlm(m, "x1"), ~ x1), method="pairwise")                
+                out <- pairs(emmeans(artlm(m, "x1"), ~ x1), adjust="tukey")                
                 } else if (s_type == 1) {
-                out <- contrast(emmeans(artlm(m, "x2"), ~ x2), method="pairwise")                
+                out <- pairs(emmeans(artlm(m, "x2"), ~ x2), adjust="tukey")               
                 } else if (s_type == 2) {
-                out <- contrast(emmeans(artlm(m, "x1:x2"), ~ x1:x2), method="pairwise", interaction=TRUE)
+                out <- contrast(emmeans(artlm(m, "x1:x2"), ~ x1:x2), method="pairwise", adjust="none")   
+                } else if (s_type == 3) {
+                out <- anova(m)
                 } else {
-                out <- m_anova
+                out <- m
                 }
             }
         """
@@ -682,7 +723,7 @@ def calc_art_stats(x1, x2, y, c_type='X1'):
 
     # returns the stats category groupings/p-values (for the desired stats type)
     ind = ['X1', 'X2', 'X1_X2', 'ANOVA'].index(c_type)
-    return get_art_test_values(calc_art_anova(x1, x2, y, ind))
+    return get_art_test_values(calc_art_anova(x1, x2, y, ind), c_type)
 
 ###################################################
 ####    NORMALISATION CALCULATION FUNCTIONS    ####
@@ -2412,6 +2453,9 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
     ####    LDA CALCULATIONS    ####
     ################################
 
+    # memory allocation
+    c_mat = np.empty(n_ex, dtype=object)
+
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
         # sets the progress strings (if progress bar handle is provided)
@@ -2440,11 +2484,11 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
             return False
 
         # calculates the grouping accuracy values
-        c_mat = lda['c_mat'] / n_trial
+        c_mat[i_ex] = lda['c_mat'] / n_trial
 
         # calculates the direction accuracy values (over each condition)
         for i_c in range(n_c):
-            c_mat_sub = c_mat[(i_c * n_bin):((i_c + 1) * n_bin), :]
+            c_mat_sub = c_mat[i_ex][(i_c * n_bin):((i_c + 1) * n_bin), :]
             for i_bin in range(n_bin):
                 BD_sub = set_binary_mask(i_bin, n_c, n_bin)
                 y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(c_mat_sub[i_bin, :], BD_sub))
@@ -4267,8 +4311,7 @@ def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
         for i_grp in range(n_grp):
             for j_grp in range(i_grp + 1, n_grp):
                 p_val = p_dunn[i_grp + 1][j_grp + 1]
-                p_str = '{:.3f}{}'.format(p_val, cf.sig_str_fcn(p_val, p_value))
-                d_stats[i_grp, j_grp] = d_stats[j_grp, i_grp] = p_str
+                d_stats[i_grp, j_grp] = d_stats[j_grp, i_grp] = cf.set_pvalue_string(p_val, p_value)
 
         # returns the stats array
         return d_stats
