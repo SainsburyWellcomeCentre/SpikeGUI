@@ -1603,7 +1603,7 @@ def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=Non
                     e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
                             'Either choose a different solver or alter the solver parameters before retrying'
                     w_prog.emit('LDA Analysis Error', 0.)
-                return None, False
+                return None, None, False
 
             # resets the acceptance array
             if is_OTO:
@@ -2453,9 +2453,6 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
     ####    LDA CALCULATIONS    ####
     ################################
 
-    # memory allocation
-    c_mat = np.empty(n_ex, dtype=object)
-
     # loops through each of the experiments performing the lda calculations
     for i_ex in range(n_ex):
         # sets the progress strings (if progress bar handle is provided)
@@ -2484,11 +2481,11 @@ def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
             return False
 
         # calculates the grouping accuracy values
-        c_mat[i_ex] = lda['c_mat'] / n_trial
+        c_mat = lda['c_mat'] / n_trial
 
         # calculates the direction accuracy values (over each condition)
         for i_c in range(n_c):
-            c_mat_sub = c_mat[i_ex][(i_c * n_bin):((i_c + 1) * n_bin), :]
+            c_mat_sub = c_mat[(i_c * n_bin):((i_c + 1) * n_bin), :]
             for i_bin in range(n_bin):
                 BD_sub = set_binary_mask(i_bin, n_c, n_bin)
                 y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(c_mat_sub[i_bin, :], BD_sub))

@@ -5255,7 +5255,7 @@ class AnalysisGUI(QMainWindow):
                 ax[i_plot].set_ylabel('{0} Correlation'.format(y_plot))
                 ax[i_plot].legend(h_sig, ['{0} Sig.'.format(x_plot), '{0} Sig.'.format(y_plot), 'Both Sig.'])
 
-    def plot_freq_corr_significance(self, rot_filt, grp_plot_type, p_value, grp_by_filt, show_count, plot_grid,
+    def plot_freq_corr_significance(self, rot_filt, grp_plot_type, p_value, grp_by_filt, met_stats, plot_grid,
                                     show_stats, plot_scope, is_fixed):
         '''
 
@@ -5476,6 +5476,7 @@ class AnalysisGUI(QMainWindow):
                 tt_filt_N = ['(#{0})'.format(i + 1) for i in range(n_filt)]
 
             # table parameters
+            show_count = met_stats == 'Cell Counts'
             t_font, tot_col = cf.get_table_font_size(2), [(0.75, 0.75, 0.75)]
             col_hdr = (['None'] + tt_class + ['Total Cell Count'] if show_count else tt_class)
             row_hdr = tt_filt_N + (['Total Count'] if show_count else [])
@@ -5494,11 +5495,23 @@ class AnalysisGUI(QMainWindow):
                 row_col, col_col = col_table[:n_filt] + tot_col, col_table[:(len(col_hdr) - 1)] + tot_col
 
             else:
-                # sets the table values and properties for the mean/SEM values
-                table_data = self.setup_table_mean_plus_sem(t_vals=sf_type_pr[0])
+                # sets the row/column header colours
                 row_col, col_col = col_table[:n_filt], col_table[:len(col_hdr)]
+                
+                # sets the table values based on the output type
+                if met_stats == 'Mean & SEM':
+                    # case is the mean/SEM values
+                    table_data = self.setup_table_mean_plus_sem(t_vals=sf_type_pr[0])      
+                    
+                elif met_stats == 'IQR Range':
+                    # case is the inter-quartile range
+                    table_data = self.setup_table_iqr_range(t_vals=sf_type_pr[0])
 
-            # creates the table
+                elif met_stats == 'Median':
+                    # case is the median values
+                    table_data = self.setup_table_median(t_vals=sf_type_pr[0])
+
+                    # creates the table
             cf.add_plot_table(self.plot_fig, ax[1], t_font, table_data, row_hdr, col_hdr, row_col, col_col, 'fixed')
 
             ###########################
@@ -5764,7 +5777,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_phase_spike_freq(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type, plot_scope,
-                              plot_trend, m_size, show_count, is_comb, plot_grid, p_value, grp_by_filt, show_stats):
+                              plot_trend, m_size, met_stats, is_comb, plot_grid, p_value, grp_by_filt, show_stats):
         '''
 
         :param rot_filt:
@@ -5784,7 +5797,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # creates the spike frequency plot/statistics tables
-        self.create_spike_freq_plot(r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, met_stats, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats)
 
     def plot_spike_freq_heatmap(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, norm_type,
@@ -6880,7 +6893,7 @@ class AnalysisGUI(QMainWindow):
         self.create_raster_hist(r_obj, n_bin, show_pref_dir, show_err, plot_grid)
 
     def plot_unidrift_spike_freq(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, ms_prop, grp_plot_type,
-                                 plot_scope, plot_trend, m_size, show_count, is_comb, plot_grid, p_value,
+                                 plot_scope, plot_trend, m_size, met_stats, is_comb, plot_grid, p_value,
                                  grp_by_filt, show_stats):
         '''
 
@@ -6919,7 +6932,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # applies the rotation filter to the dataset
-        self.create_spike_freq_plot(r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+        self.create_spike_freq_plot(r_obj, met_stats, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                     m_size, grp_by_filt, show_stats, ind_type=ind_type)
 
     def plot_unidrift_spike_heatmap(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, norm_type,
@@ -10417,6 +10430,24 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.set_ylim([0, 105])
         ax.grid(plot_grid)
+        
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # outputs the accuracy values to file (pooled experiments only)
+        if d_data_p.poolexpt:
+            # memory allocation
+            data_out = np.empty((len(d_data_p.ttype) + 1, len(xi)), dtype=object)
+    
+            # sets the data values for output
+            data_out[:] = ''
+            data_out[1:, 0] = np.array(d_data_p.ttype)
+            data_out[0, 1:] = np.array(xi[1:])
+            data_out[1:, 1:] = y_acc_mu[1:, :][:, 1:]
+    
+            # saves the data to file
+            self.output_data_file('Pooled Neuron LDA.csv', data_out)
 
     def plot_acc_filt_lda(self, s_factor, acc_type, plot_grid):
         '''
@@ -11026,6 +11057,37 @@ class AnalysisGUI(QMainWindow):
             ax.set_ylabel('Decoding Accuracy (%)')
             ax.grid(plot_grid)
 
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # memory allocation
+        n_expt, n_bin, n_cond = np.shape(d_data.y_acc)
+        data_tmp = np.empty(n_cond, dtype=object)
+        spd_xi = np.mean(d_data.spd_xi, axis=1).astype(str)
+
+        # sets the accuracy information for each experiment
+        for i_cond in range(n_cond):
+            # memory allocation
+            data_tmp[i_cond] = np.empty((n_expt + 1, n_bin + 2), dtype=object)
+
+            # field initialisations
+            data_tmp[i_cond][:] = ''
+            data_tmp[i_cond][1, 0] = d_data.ttype[i_cond]
+            data_tmp[i_cond][1:, 1] = np.array(d_data.exp_name)
+
+            # sets the speed values (first condition only)
+            if i_cond == 0:
+                data_tmp[i_cond][0, 2:] = spd_xi
+
+            # sets the accuracy values
+            for i_expt in range(n_expt):
+                data_tmp[i_cond][i_expt + 1, 2:] = d_data.y_acc[i_expt, :, i_cond].astype(str)
+
+        # saves the data to file
+        data_out = np.vstack(data_tmp)
+        self.output_data_file('Speed LDA (Individual Expt).csv', data_out)
+
     def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, 
                                    use_all, plot_grid):
         '''
@@ -11214,6 +11276,41 @@ class AnalysisGUI(QMainWindow):
         for _ax in self.plot_fig.ax:
             _ax.set_xlim(xL)
             _ax.grid(plot_grid)
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # outputs the data (only for pooled experiments)
+        if d_data.poolexpt:
+            # initialisations
+            n_cond, n_bin, n_grp = np.shape(y_acc_mn)
+            spd_xi = np.mean(d_data.spd_xi, axis=1).astype(str)
+
+            # memory allocation
+            data_tmp = np.empty(n_cond, dtype=object)
+
+            # sets the output values
+            for i_cond in range(n_cond):
+                # memory allocation
+                data_tmp[i_cond] = np.empty((n_grp + 1, n_bin + 2), dtype=object)
+
+                # field initialisations
+                data_tmp[i_cond][:] = ''
+                data_tmp[i_cond][1:, 1] = np.array(n_cell)
+                data_tmp[i_cond][1, 0] = d_data.ttype[i_cond]
+
+                # sets the column headers (first condition only)
+                if i_cond == 0:
+                    data_tmp[i_cond][0, 1] = 'N(cell)'
+                    data_tmp[i_cond][0, 2:] = spd_xi
+
+                # sets the accuracy values
+                data_tmp[i_cond][1:, 2:] = y_acc_mn[i_cond].T
+
+            # saves the data to file
+            data_out = np.vstack(data_tmp)
+            self.output_data_file('Speed LDA Comparison (Pooled Experiments).csv', data_out)
 
     def plot_speed_dir_lda(self, use_stagger, s_factor, marker_type, plot_grid, show_stats):
         '''
@@ -11715,7 +11812,7 @@ class AnalysisGUI(QMainWindow):
                                        fontsize=16, fontweight='bold')
             self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.955])
 
-    def create_spike_freq_plot(self, r_obj, show_count, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
+    def create_spike_freq_plot(self, r_obj, met_stats, is_comb, plot_grid, plot_trend, p_value, grp_plot_type, ms_prop,
                                m_size, grp_by_filt, show_stats, ind_type=None):
         '''
 
@@ -11785,7 +11882,7 @@ class AnalysisGUI(QMainWindow):
                 #
                 if sp_stats is not None:
                     sig_str = ['No', 'Yes']
-                    lbl_str[:, k_ofs] = np.array(['P-Value = {0}'.cf.set_pvalue_string(x) for x in sp_stats])
+                    lbl_str[:, k_ofs] = np.array(['P-Value = {0}'.format(cf.set_pvalue_string(x)) for x in sp_stats])
                     lbl_str[:, k_ofs + 1] = np.array(
                         ['Significant = {0}'.format(sig_str[x < p_value]) for x in sp_stats])
                     lbl_str[:, k_ofs + 2] = np.array([sep_str] * n_trial)
@@ -12130,6 +12227,7 @@ class AnalysisGUI(QMainWindow):
             #################################
 
             # initialisations
+            show_count = met_stats == 'Cell Counts'
             t_font = cf.get_table_font_size(3)
             tot_col = [(0.75, 0.75, 0.75)] if show_count else []
 
@@ -12139,9 +12237,17 @@ class AnalysisGUI(QMainWindow):
                 n_type_N0 = [np.hstack((x, np.sum(x, axis=1).reshape(-1, 1))) for x in n_type_tot]
                 table_data = [np.vstack((x, np.sum(x, axis=0))).astype(int) for x in n_type_N0]
 
-            else:
+            elif met_stats == 'Mean & SEM':
                 # case is showing mean +/- SEM
                 table_data = [self.setup_table_mean_plus_sem(x) for x in sf_type_plt]
+                
+            elif met_stats == 'IQR Range':
+                # case is showing inter-quartile range
+                table_data = [self.setup_table_iqr_range(x) for x in sf_type_plt]
+
+            elif met_stats == 'Median':
+                # case is showing median
+                table_data = [self.setup_table_median(x) for x in sf_type_plt]
 
             # creates the title text object
             col_hdr = [x + (['Total Cells'] if show_count else []) for x in class_str0]
@@ -14522,8 +14628,8 @@ class AnalysisGUI(QMainWindow):
 
         # calculates the mean/SEM values for the table (if not provided)
         if val_lq is None:
-            val_lq = [np.percentile(x, 25, axis=0) for x in t_vals]
-            val_uq = [np.percentile(x, 75, axis=0) for x in t_vals]
+            val_lq = [np.nanpercentile(x, 25, axis=0) for x in t_vals]
+            val_uq = [np.nanpercentile(x, 75, axis=0) for x in t_vals]
 
         elif not isinstance(val_lq[0], list):
             val_lq, val_uq = [val_lq], [val_uq]
@@ -15892,6 +15998,7 @@ class AnalysisFunctions(object):
         dist_type = ['Cumulative Distribution', 'Histogram']
         free_type = ['HD', 'HDMod', 'AHV', 'Speed']
         hist_type = ['Temporal', 'Velocity']
+        met_stats = ['Mean & SEM', 'IQR Range', 'Median', 'Cell Counts']
 
         # sets up the fixed correlation rotational filter
         rot_filt_para = cf.init_rotation_filter_data(False)
@@ -16159,7 +16266,7 @@ class AnalysisFunctions(object):
             'grp_plot_type': {'type': 'L', 'text': 'Plot Type', 'list': grp_plot_type[:-1], 'def_val': grp_plot_type[1]},
             'p_value': {'text': 'KW Stats Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
             'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+            'met_stats': {'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
@@ -16456,7 +16563,7 @@ class AnalysisFunctions(object):
                 },
                 'p_value': {'text': 'KW Stats Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
                 'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
-                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+                'met_stats': {'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0]},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
                 'show_stats': {
                     'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
@@ -16667,7 +16774,10 @@ class AnalysisFunctions(object):
             'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
 
             # invisible plotting parameters
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
+            'met_stats': {
+                'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0],
+                'is_visible': False
+            },
             'is_comb': {'type': 'B', 'text': 'Combine Active Cells', 'def_val': False, 'is_visible': False},
 
             # output variables
@@ -16699,7 +16809,7 @@ class AnalysisFunctions(object):
             },
             'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
             'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
-            'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+            'met_stats': {'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0]},
             'is_comb': {'type': 'B', 'text': 'Combine Active Cells', 'def_val': False},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
@@ -16707,7 +16817,7 @@ class AnalysisFunctions(object):
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
                 'link_para': [['ms_prop', True], ['grp_plot_type', True], ['plot_trend', True],
-                              ['m_size', True], ['plot_grid', True], ['p_value', False], ['show_count', True]]
+                              ['m_size', True], ['plot_grid', True], ['p_value', False], ['met_stats', True]]
             },
         }
         self.add_func(type='Rotation Analysis',
@@ -17033,7 +17143,10 @@ class AnalysisFunctions(object):
                 },
                 'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True, 'is_visible': False},
                 'show_stats': {'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False, 'is_visible': False},
-                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True, 'is_visible': False},
+                'met_stats': {
+                    'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0],
+                    'is_visible': False
+                },
             }
             self.add_func(type='UniformDrift Analysis',
                           name='UniformDrift Phase Spiking Rate Comparison (Individual Cell)',
@@ -17071,7 +17184,7 @@ class AnalysisFunctions(object):
                 },
                 'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
                 'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 30},
-                'show_count': {'type': 'B', 'text': 'Show Cell Counts', 'def_val': True},
+                'met_stats': {'type': 'L', 'text': 'Metric Statistics Type', 'list': met_stats, 'def_val': met_stats[0]},
                 'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
                 'p_value': {'text': 'Significance Level', 'def_val': 0.05, 'min_val': 0.00, 'max_val': 0.05},
                 'grp_by_filt': {'type': 'B', 'text': 'Group Data by Filter Type', 'def_val': True},
@@ -17143,7 +17256,6 @@ class AnalysisFunctions(object):
         phase_comp_type = ['CW vs BL', 'CCW vs BL', 'CCW vs CW']
         resp_grp_type = ['Rotation/Visual Response', 'Motion Sensitivity/Direction Selectivity', 'Congruency']
         auc_plt_type = ['Violinplot + Swarmplot', 'Bubbleplot']
-        met_stats = ['Mean & SEM', 'IQR Range', 'Median', 'Cell Counts']
 
         # determines if any uniform/motor drifting experiments exist + sets the visual experiment type
         has_vis_expt, has_ud_expt, has_md_expt = cf.det_valid_vis_expt(self.get_data_fcn())
