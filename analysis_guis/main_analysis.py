@@ -10824,7 +10824,7 @@ class AnalysisGUI(QMainWindow):
     ####    SPEED DISCRIMINATION ANALYSIS FUNCTIONS   ####
     ######################################################
 
-    def plot_speed_accuracy_lda(self, s_factor, marker_type, plot_grid):
+    def plot_speed_accuracy_lda(self, s_factor, marker_type, plot_cond, plot_type, plot_grid):
         '''
 
         :param plot_grid:
@@ -10832,7 +10832,8 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_grid, plot_chance=False)
+        self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_cond, plot_grid,
+                                        plot_chance=False, plot_type=plot_type)
 
     def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, use_all, plot_grid, show_stats):
         '''
@@ -11312,7 +11313,7 @@ class AnalysisGUI(QMainWindow):
             data_out = np.vstack(data_tmp)
             self.output_data_file('Speed LDA Comparison (Pooled Experiments).csv', data_out)
 
-    def plot_speed_dir_lda(self, use_stagger, s_factor, marker_type, plot_grid, show_stats):
+    def plot_speed_dir_lda(self, use_stagger, s_factor, marker_type, plot_cond, plot_grid):
         '''
 
         :param plot_grid:
@@ -11320,8 +11321,8 @@ class AnalysisGUI(QMainWindow):
         '''
 
         # initialisations
-        self.create_kinematic_lda_plots(self.data.discrim.spddir, s_factor, marker_type, plot_grid, use_stagger,
-                                        show_stats, plot_chance=True)
+        self.create_kinematic_lda_plots(self.data.discrim.spddir, s_factor, marker_type, plot_cond, plot_grid,
+                                        use_stagger=use_stagger, plot_chance=True)
 
     ####################################################
     ####    SINGLE EXPERIMENT ANALYSIS FUNCTIONS    ####
@@ -12690,10 +12691,6 @@ class AnalysisGUI(QMainWindow):
         else:
             t_str = r_obj.phase_lbl
 
-        # p_min = 0.8
-        # A = np.vstack(Y_sort)
-        # ii = np.logical_and(np.all(np.abs(A) > p_min, axis=0), np.sum(np.sign(A), axis=0) != 0)
-
         # creates the heatmaps for each filter/phase
         I_hm = np.empty(r_obj.n_filt, dtype=object)
         for i_filt in range(r_obj.n_filt):
@@ -12720,7 +12717,6 @@ class AnalysisGUI(QMainWindow):
                     # memory allocation (first iteration only)
                     if i_filt == 0:
                         I_hm_med = np.empty(r_obj.n_filt, dtype=object)
-
 
                     # calculates the median baseline
                     t_sp_bl = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, 0]
@@ -13147,8 +13143,8 @@ class AnalysisGUI(QMainWindow):
         cf.add_plot_table(self.plot_fig, 1, table_font, n_sig_grp, row_hdr,
                           col_hdr, row_cols, [cc[0]] * len(col_hdr), t_loc='bottom')
 
-    def create_kinematic_lda_plots(self, d_data, s_factor, marker_type, plot_grid, use_stagger=False,
-                                   show_stats=False, plot_chance=False):
+    def create_kinematic_lda_plots(self, d_data, s_factor, marker_type, plot_cond, plot_grid, use_stagger=False,
+                                   show_stats=False, plot_chance=False, plot_type='Line Plot'):
         '''
 
         :param d_data:
@@ -13157,78 +13153,197 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
+        def setup_plot_axes(plot_fig, n_cond):
+            '''
+
+            :param plot_fig:
+            :param n_cond:
+            :return:
+            '''
+
+            # memory allocation
+            n_r, n_c, w_cbar = 1, 1 + n_cond, 0.05
+            w_ratio = [(1 - w_cbar) / n_cond] * n_cond + [w_cbar]
+            left, right, top, bottom, pH, wspace = 0.06, 0.95, 0.925, 0.06, 0.01, 0.05
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c, width_ratios=w_ratio, figure=plot_fig.fig, wspace=wspace,
+                                   left=left, right=right, bottom=bottom, top=top)
+
+            # creates the subplots
+            plot_fig.ax = np.empty(n_c, dtype=object)
+            for i_c in range(n_c):
+                plot_fig.ax[i_c] = plot_fig.figure.add_subplot(gs[0, i_c])
+
+        def create_heatmap_markers(ax, c_mat, spd_xi):
+            '''
+
+            :param ax:
+            :param lbl_str:
+            :return:
+            '''
+
+            # initialisations
+            h, lbl, dXY, xL0, yL0 = [], [], 0.1, -0.5, -0.5
+            WH = 1 - 2 * dXY
+
+            #
+            for i_row in range(np.size(c_mat, axis=0)):
+                for i_col in range(np.size(c_mat, axis=0)):
+                    # creates the new patch object
+                    x0, y0 = (xL0 + i_col) + dXY, (yL0 + i_row) + dXY
+                    h.append(Rectangle((x0, y0), WH, WH))
+
+                    # creates the new string
+                    lbl.append('True = {}\nDecoded = {}\nPercentage = {:5.2f}%'.format(
+                        spd_xi[i_row], spd_xi[i_col], c_mat[i_row, i_col]
+                    ))
+
+            # creates the cursor object
+            pc = PatchCollection(h, facecolor='g', alpha=0.0, zorder=10)
+            ax.add_collection(pc)
+            datacursor(pc, formatter=formatter, point_labels=lbl, hover=True)
+
         # initialisations
+        is_line_plot = plot_type == 'Line Plot'
         n_cond, n_ex = len(d_data.ttype), np.size(d_data.y_acc, axis=0)
-        col = cf.get_plot_col(n_cond)
 
-        # sets the x-tick labels
-        spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
-        x = np.arange(np.size(d_data.spd_xi, axis=0))
-        xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+        if is_line_plot:
+            #######################################
+            ####    SUBPLOT INITIALISATIONS    ####
+            #######################################
+    
+            # sets up the plot axis
+            self.plot_fig.setup_plot_axis()
+            ax = self.plot_fig.ax[0]
+            
+            # initialisations
+            col = cf.get_plot_col(n_cond)
+            
+            # sets the x-tick labels
+            spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
+            x = np.arange(np.size(d_data.spd_xi, axis=0))
+            xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
+    
+            ###################################
+            ####    DATA PRE-PROCESSING    ####
+            ###################################
+    
+            # sets the plotting data values
+            y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
+            y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
+            y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
+    
+            # sets the number of cells/expt
+            n_cell = [sum(x) for x in d_data.i_cell]
 
-        #######################################
-        ####    SUBPLOT INITIALISATIONS    ####
-        #######################################
+            ##################################
+            ####    DATA VISUALISATION    ####
+            ##################################
+    
+            # plots the data for all points
+            for i_cond in range(n_cond):
+                # if the current trial is not in the plot conditions then continue
+                if d_data.ttype[i_cond] not in plot_cond:
+                    continue
+                
+                # sets the plot x locations and error bar values
+                x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
+    
+                # plots the mean marker points
+                h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+    
+                # plots the individual points
+                if marker_type == 'Individual Experiment Markers':
+                    # case is the individual experiment
+                    for i_ex in range(n_ex):
+                        ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
+                                   edgecolors=col[i_cond], s=s_factor * n_cell[i_ex])
+    
+                elif marker_type == 'Experiment IQR Area':
+                    # case is the experiment SEM Area
+                    cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], 
+                                               y_err2=y_acc_uq[:, i_cond])
+    
+            # creates the legend
+            ax.legend([x[0] for x in h_plt], plot_cond, loc=0)
+    
+            # creates the vertical marker lines
+            for xx in np.arange(xL[0] + 1, xL[1]):
+                ax.plot(xx * np.ones(2), yL, 'k--')
+    
+            # plots the chance line
+            if plot_chance:
+                ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
+    
+            # sets the axis properties
+            ax.set_xlim(xL)
+            ax.set_ylim(yL)
+            ax.set_xticks(x + 0.5)
+            ax.set_xticklabels(spd_str)
+            ax.set_xlabel('Speed Bin (deg/s)')
+            ax.set_ylabel('Decoding Accuracy (%)')
+            ax.grid(plot_grid)
+            
+        else:
+            #######################################
+            ####    SUBPLOT INITIALISATIONS    ####
+            #######################################
 
-        # sets up the plot axis
-        self.plot_fig.setup_plot_axis()
-        ax = self.plot_fig.ax[0]
+            # sets up the plot axes
+            n_cond, c_ofs_y, c_lim_mx = len(plot_cond), 2, 0
+            setup_plot_axes(self.plot_fig, n_cond)
+            ax = self.plot_fig.ax
 
-        ###################################
-        ####    DATA PRE-PROCESSING    ####
-        ###################################
+            # other initialisations
+            n_bin = np.size(d_data.spd_xi, axis=0)
+            xi = ['{0}'.format(int(x)) for x in d_data.spd_xi[:, 1]]
 
-        # sets the plotting data values
-        y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
-        y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
-        y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
+            # memory allocation
+            im = np.empty(n_cond, dtype=object)
+            c_mn = np.mean(np.dstack(d_data.c_mat), axis=2)
 
-        # sets the number of cells/expt
-        n_cell = [sum(x) for x in d_data.i_cell]
+            for i_cond in range(n_cond):
+                # sets the confusion matrix for the current condition
+                i1, i2 = i_cond * n_bin, (i_cond + 1) * n_bin
+                c_mn_cond = 100. * c_mn[i1:i2, :][:, i1:i2]
+                c_lim_mx = max([c_lim_mx, np.max(c_mn_cond)])
 
+                # creates the heatmap markers
+                create_heatmap_markers(ax[i_cond], c_mn_cond, xi)
 
-        ##################################
-        ####    DATA VISUALISATION    ####
-        ##################################
+                # sets up the heatmap markers
+                cf.set_axis_limits(ax[i_cond], [-0.5, n_bin - 0.5], [-0.5, n_bin - 0.5])
+                im[i_cond] = ax[i_cond].imshow(c_mn_cond, aspect='auto', cmap='hot', origin='upper')
 
-        # plots the data for all points
-        for i_cond in range(n_cond):
-            # sets the plot x locations and error bar values
-            x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
+                # sets the heatmap axis properties
+                ax[i_cond].grid(False)
+                ax[i_cond].set_xticks(np.arange(n_bin))
+                ax[i_cond].set_xticklabels(xi)
 
-            # plots the mean marker points
-            h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
+                ax[i_cond].get_xaxis().set_ticks_position('top')
+                ax[i_cond].tick_params(length=0)
+                ax[i_cond].text((n_bin - 1) / 2, -1, 'Decoded Condition', size=12,
+                                         horizontalalignment='center', weight='bold')
 
-            # plots the individual points
-            if marker_type == 'Individual Experiment Markers':
-                # case is the individual experiment
-                for i_ex in range(n_ex):
-                    ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
-                               edgecolors=col[i_cond], s=s_factor * n_cell[i_ex])
+                if i_cond == 0:
+                    ax[i_cond].set_yticks(np.arange(n_bin))
+                    ax[i_cond].set_yticklabels(xi)
+                    ax[i_cond].text(-(n_cond + 0.5), (n_bin - 1) / 2, 'True Condition', size=12,
+                                             verticalalignment='center', rotation=90, weight='bold')
+                else:
+                    ax[i_cond].set_yticklabels([])
+                    
+                # sets the condition titles
+                ax[i_cond].set_title(plot_cond[i_cond], fontweight='bold', fontsize=16)
 
-            elif marker_type == 'Experiment IQR Area':
-                # case is the experiment SEM Area
-                cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], y_err2=y_acc_uq[:, i_cond])
+            # resets the confusion matrix colour limits
+            for _im in im:
+                _im.set_clim(0, c_lim_mx)
 
-        # creates the legend
-        ax.legend([x[0] for x in h_plt], d_data.ttype, loc=0)
-
-        # creates the vertical marker lines
-        for xx in np.arange(xL[0] + 1, xL[1]):
-            ax.plot(xx * np.ones(2), yL, 'k--')
-
-        # plots the chance line
-        if plot_chance:
-            ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-
-        # sets the axis properties
-        ax.set_xlim(xL)
-        ax.set_ylim(yL)
-        ax.set_xticks(x + 0.5)
-        ax.set_xticklabels(spd_str)
-        ax.set_xlabel('Speed Bin (deg/s)')
-        ax.set_ylabel('Decoding Accuracy (%)')
-        ax.grid(plot_grid)
+            # creates the colorbar
+            cbar = self.plot_fig.figure.colorbar(im[0], cax=ax[-1])
+            cbar.set_clim([0., c_lim_mx])
 
     def create_ahv_fit_para_plot(self, fit_ptype, plot_indiv, plot_grid, is_fixed, rot_filt=None, cell_type=None,
                                  vel_bin=None, lcond_type=None):
@@ -14650,7 +14765,6 @@ class AnalysisGUI(QMainWindow):
         elif n_dp == 4:
             return np.vstack([['{:.4f}-{:.4f}'.format(_lq, _uq)
                              for _lq, _uq in zip(lq, uq)] for lq, uq in zip(val_lq, val_uq)])
-
 
     def setup_table_mean_plus_sem(self, t_vals=None, val_mu=None, val_sem=None, n_dp=1):
         '''
@@ -18469,9 +18583,11 @@ class AnalysisFunctions(object):
 
         # combobox parameter lists
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
+        lda_plot_acc = spdacc_lda_para['comp_cond']
         lda_plot_cond = spdcp_lda_para['comp_cond']
         lda_ptype = ['Mean + SEM', 'Psychometric Curves']
         spr_type = ['Experiment IQR Area', 'Individual Experiment Markers', 'No Markers']
+        lda_plot_type = ['Line Plot', 'Confusion Matrix']
 
         # determines the cell count checklist values
         spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', True)
@@ -18488,9 +18604,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': spdacc_lda_para
+                'def_val': spdacc_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl]]
             },
-
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
                 'def_val': cfcn.set_def_para(spdacc_def_para, 'vel_bin', '5'),
@@ -18518,6 +18633,12 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0],
                 'link_para': [['s_factor', ['Experiment IQR Area', 'No Markers']]]
             },
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_acc,
+                'def_val': np.ones(len(lda_plot_acc), dtype=bool),
+            },
+            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': lda_plot_type, 'def_val': lda_plot_type[0], 
+                          'link_para': [['s_factor', 'Confusion Matrix'], ['marker_type', 'Confusion Matrix']]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
@@ -18662,9 +18783,8 @@ class AnalysisFunctions(object):
             # calculation parameters
             'lda_para': {
                 'gtype': 'C', 'type': 'Sp', 'text': 'LDA Solver Parameters', 'para_gui': LDASolverPara,
-                'def_val': spdacc_lda_para
+                'def_val': spdacc_lda_para, 'para_reset': [['plot_cond', self.reset_plot_cond_cl]]
             },
-
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
                 'def_val': cfcn.set_def_para(spddir_def_para, 'vel_bin', '5'),
@@ -18693,10 +18813,11 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Spread Plot Type', 'list': spr_type, 'def_val': spr_type[0],
                 'link_para': [['s_factor', ['Experiment IQR Area', 'No Markers']]]
             },
-            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-            'show_stats': {
-                'type': 'B', 'text': 'Show Statistics Table', 'def_val': False, 'link_para': ['plot_grid', True]
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_acc,
+                'def_val': np.ones(len(lda_plot_acc), dtype=bool),
             },
+            'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
                       name='Velocity Direction Discrimination LDA',
@@ -21670,7 +21791,9 @@ class SubDiscriminationData(object):
         # sets the type flag
         self.type = type
 
+        # initialises the other fields
         self.lda = None
+        self.c_mat = None
         self.i_expt = None
         self.i_cell = None
         self.y_acc = None
