@@ -5497,12 +5497,12 @@ class AnalysisGUI(QMainWindow):
             else:
                 # sets the row/column header colours
                 row_col, col_col = col_table[:n_filt], col_table[:len(col_hdr)]
-                
+
                 # sets the table values based on the output type
                 if met_stats == 'Mean & SEM':
                     # case is the mean/SEM values
-                    table_data = self.setup_table_mean_plus_sem(t_vals=sf_type_pr[0])      
-                    
+                    table_data = self.setup_table_mean_plus_sem(t_vals=sf_type_pr[0])
+
                 elif met_stats == 'IQR Range':
                     # case is the inter-quartile range
                     table_data = self.setup_table_iqr_range(t_vals=sf_type_pr[0])
@@ -10430,7 +10430,7 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Decoding Accuracy (%)')
         ax.set_ylim([0, 105])
         ax.grid(plot_grid)
-        
+
         ###########################
         ####    DATA OUTPUT    ####
         ###########################
@@ -10439,13 +10439,13 @@ class AnalysisGUI(QMainWindow):
         if d_data_p.poolexpt:
             # memory allocation
             data_out = np.empty((len(d_data_p.ttype) + 1, len(xi)), dtype=object)
-    
+
             # sets the data values for output
             data_out[:] = ''
             data_out[1:, 0] = np.array(d_data_p.ttype)
             data_out[0, 1:] = np.array(xi[1:])
             data_out[1:, 1:] = y_acc_mu[1:, :][:, 1:]
-    
+
             # saves the data to file
             self.output_data_file('Pooled Neuron LDA.csv', data_out)
 
@@ -11089,7 +11089,7 @@ class AnalysisGUI(QMainWindow):
         data_out = np.vstack(data_tmp)
         self.output_data_file('Speed LDA (Individual Expt).csv', data_out)
 
-    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para, 
+    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para,
                                    use_all, plot_grid):
         '''
 
@@ -12241,7 +12241,7 @@ class AnalysisGUI(QMainWindow):
             elif met_stats == 'Mean & SEM':
                 # case is showing mean +/- SEM
                 table_data = [self.setup_table_mean_plus_sem(x) for x in sf_type_plt]
-                
+
             elif met_stats == 'IQR Range':
                 # case is showing inter-quartile range
                 table_data = [self.setup_table_iqr_range(x) for x in sf_type_plt]
@@ -12748,8 +12748,12 @@ class AnalysisGUI(QMainWindow):
                     sort_d, is_double = np.argsort(-Y_sort_tmp), True
 
                     # sorts the baseline (if removing median baseline)
-                    if norm_type == 'Baseline Median Subtraction':
-                        I_hm_med[i_filt] = I_hm_med[i_filt][sort_d]
+                    if (norm_type == 'Baseline Median Subtraction'):
+                        if len(sort_d) == len(I_hm_med[i_filt]):
+                            I_hm_med[i_filt] = I_hm_med[i_filt][sort_d]
+                        else:
+                            I_hm_med[i_filt] = repmat(I_hm_med[i_filt], 1, 2)[0][sort_d]
+
                 else:
                     sort_d, is_double = np.argsort(-np.array(Y_sort[i_filt])), False
 
@@ -13175,7 +13179,7 @@ class AnalysisGUI(QMainWindow):
             for i_c in range(n_c):
                 plot_fig.ax[i_c] = plot_fig.figure.add_subplot(gs[0, i_c])
 
-        def create_heatmap_markers(ax, c_mat, spd_xi):
+        def create_heatmap_markers(ax, c_mat, xi_t, xi_d):
             '''
 
             :param ax:
@@ -13196,7 +13200,7 @@ class AnalysisGUI(QMainWindow):
 
                     # creates the new string
                     lbl.append('True = {}\nDecoded = {}\nPercentage = {:5.2f}%'.format(
-                        spd_xi[i_row], spd_xi[i_col], c_mat[i_row, i_col]
+                        xi_t[i_row], xi_d[i_col], c_mat[i_row, i_col]
                     ))
 
             # creates the cursor object
@@ -13212,70 +13216,70 @@ class AnalysisGUI(QMainWindow):
             #######################################
             ####    SUBPLOT INITIALISATIONS    ####
             #######################################
-    
+
             # sets up the plot axis
             self.plot_fig.setup_plot_axis()
             ax = self.plot_fig.ax[0]
-            
+
             # initialisations
             col = cf.get_plot_col(n_cond)
-            
+
             # sets the x-tick labels
             spd_str = ['{0}'.format(int(s)) for s in d_data.spd_xi[:, 1]]
             x = np.arange(np.size(d_data.spd_xi, axis=0))
             xL, yL, h_plt = [x[0], x[-1] + 1.], [0., 100.], []
-    
+
             ###################################
             ####    DATA PRE-PROCESSING    ####
             ###################################
-    
+
             # sets the plotting data values
             y_acc_md = 100. * np.median(d_data.y_acc, axis=0)
             y_acc_lq = 100. * np.percentile(d_data.y_acc, 25., axis=0)
             y_acc_uq = 100. * np.percentile(d_data.y_acc, 75., axis=0)
-    
+
             # sets the number of cells/expt
             n_cell = [sum(x) for x in d_data.i_cell]
 
             ##################################
             ####    DATA VISUALISATION    ####
             ##################################
-    
+
             # plots the data for all points
             for i_cond in range(n_cond):
                 # if the current trial is not in the plot conditions then continue
                 if d_data.ttype[i_cond] not in plot_cond:
                     continue
-                
+
                 # sets the plot x locations and error bar values
                 x_nw = x + ((i_cond + 1) / (n_cond + 1) if use_stagger else 0.5)
-    
+
                 # plots the mean marker points
                 h_plt.append(ax.plot(x_nw, y_acc_md[:, i_cond], c=col[i_cond]))
-    
+
                 # plots the individual points
                 if marker_type == 'Individual Experiment Markers':
                     # case is the individual experiment
                     for i_ex in range(n_ex):
                         ax.scatter(x_nw, 100. * d_data.y_acc[i_ex, :, i_cond], facecolors='none',
                                    edgecolors=col[i_cond], s=s_factor * n_cell[i_ex])
-    
+
                 elif marker_type == 'Experiment IQR Area':
                     # case is the experiment SEM Area
-                    cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond], 
+                    cf.create_error_area_patch(ax, x_nw, None, y_acc_lq[:, i_cond], col[i_cond],
                                                y_err2=y_acc_uq[:, i_cond])
-    
+
             # creates the legend
             ax.legend([x[0] for x in h_plt], plot_cond, loc=0)
-    
+
             # creates the vertical marker lines
             for xx in np.arange(xL[0] + 1, xL[1]):
                 ax.plot(xx * np.ones(2), yL, 'k--')
-    
+
             # plots the chance line
             if plot_chance:
                 ax.plot(xL, 50. * np.ones(2), c='gray', linewidth=2)
-    
+
             # sets the axis properties
             ax.set_xlim(xL)
             ax.set_ylim(yL)
@@ -13284,7 +13288,7 @@ class AnalysisGUI(QMainWindow):
             ax.set_xlabel('Speed Bin (deg/s)')
             ax.set_ylabel('Decoding Accuracy (%)')
             ax.grid(plot_grid)
-            
+
         else:
             #######################################
             ####    SUBPLOT INITIALISATIONS    ####
@@ -13306,11 +13310,11 @@ class AnalysisGUI(QMainWindow):
             for i_cond in range(n_cond):
                 # sets the confusion matrix for the current condition
                 i1, i2 = i_cond * n_bin, (i_cond + 1) * n_bin
-                c_mn_cond = 100. * c_mn[i1:i2, :][:, i1:i2]
+                c_mn_cond = 100. * c_mn[i1:i2, :][:, i1:i2][::-1, :]
                 c_lim_mx = max([c_lim_mx, np.max(c_mn_cond)])
 
                 # creates the heatmap markers
-                create_heatmap_markers(ax[i_cond], c_mn_cond, xi)
+                create_heatmap_markers(ax[i_cond], c_mn_cond, xi[::-1], xi)
 
                 # sets up the heatmap markers
                 cf.set_axis_limits(ax[i_cond], [-0.5, n_bin - 0.5], [-0.5, n_bin - 0.5])
@@ -13328,12 +13332,12 @@ class AnalysisGUI(QMainWindow):
 
                 if i_cond == 0:
                     ax[i_cond].set_yticks(np.arange(n_bin))
-                    ax[i_cond].set_yticklabels(xi)
+                    ax[i_cond].set_yticklabels(xi[::-1])
                     ax[i_cond].text(-(n_cond + 0.5), (n_bin - 1) / 2, 'True Condition', size=12,
                                              verticalalignment='center', rotation=90, weight='bold')
                 else:
                     ax[i_cond].set_yticklabels([])
-                    
+
                 # sets the condition titles
                 ax[i_cond].set_title(plot_cond[i_cond], fontweight='bold', fontsize=16)
 
@@ -18637,7 +18641,7 @@ class AnalysisFunctions(object):
                 'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_acc,
                 'def_val': np.ones(len(lda_plot_acc), dtype=bool),
             },
-            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': lda_plot_type, 'def_val': lda_plot_type[0], 
+            'plot_type': {'type': 'L', 'text': 'Plot Type', 'list': lda_plot_type, 'def_val': lda_plot_type[0],
                           'link_para': [['s_factor', 'Confusion Matrix'], ['marker_type', 'Confusion Matrix']]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }

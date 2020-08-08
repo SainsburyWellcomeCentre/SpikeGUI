@@ -2650,7 +2650,7 @@ class WorkerThread(QThread):
         :return:
         '''
 
-        def run_pooled_lda_expt(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_cell, n_sp):
+        def run_pooled_lda_expt(data, calc_para, r_filt, i_expt0, i_cell0, n_trial_max, n_cell, n_sp0):
             '''
 
             :param data:
@@ -2663,30 +2663,35 @@ class WorkerThread(QThread):
             :return:
             '''
 
-            # sets the required number of cells for the LDA analysis
-            if calc_para['pool_expt']:
+            while 1:
+                # sets the required number of cells for the LDA analysis
+                if calc_para['pool_expt']:
+                    n_sp = n_sp0[:, np.random.permutation(np.size(n_sp0, axis=1))[:n_cell]]
+                    i_cell, i_expt = i_cell0, i_expt0
 
-                n_sp = n_sp[:, np.random.permutation(np.size(n_sp, axis=1))[:n_cell]]
+                else:
+                    i_cell = dcopy(i_cell0)
+                    is_keep = np.ones(len(i_expt0), dtype=bool)
 
-            else:
-                is_keep = np.ones(len(i_expt), dtype=bool)
+                    for i_ex in range(len(i_expt0)):
+                        # determines the original valid cells for the current experiment
+                        ii = np.where(i_cell0[i_ex])[0]
+                        if len(ii) < n_cell:
+                            is_keep[i_ex] = False
+                            continue
 
-                for i_ex in range(len(i_expt)):
-                    # determines the original valid cells for the current experiment
-                    ii = np.where(i_cell[i_ex])[0]
-                    if len(ii) < n_cell:
-                        is_keep[i_ex] = False
-                        continue
+                        # from these cells, set n_cell cells as being valid (for analysis purposes)
+                        i_cell[i_ex][:] = False
+                        i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
 
-                    # from these cells, set n_cell cells as being valid (for analysis purposes)
-                    i_cell[i_ex][:] = False
-                    i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+                    # removes the experiments which did not have the min number of cells
+                    i_expt, i_cell, n_sp = i_expt0[is_keep], i_cell[is_keep], n_sp0
 
-                # removes the experiments which did not have the min number of cells
-                i_expt, i_cell = i_expt[is_keep], i_cell[is_keep]
-
-            # runs the LDA
-            results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_sp0=n_sp)
+                # runs the LDA
+                results = cfcn.run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, n_sp0=n_sp)
+                if not isinstance(results, bool):
+                    # if successful, then exit the loop
+                    break
 
             # returns the decoding accuracy values
             if calc_para['pool_expt']:
