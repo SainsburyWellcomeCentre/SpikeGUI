@@ -3623,3 +3623,20 @@ def is_final_row(i_row, i_col, n_row, n_col, n_plot):
     '''
 
     return (i_row + 1) == n_row - int((i_col + 1) > (n_plot % n_col))
+
+
+def get_scatterplot_colour(c, x):
+    '''
+
+    :param c:
+    :param x:
+    :return:
+    '''
+
+    # sets the scatterplot colours (based on type)
+    if isinstance(c, str):
+        # colour is a string, so return the values
+        return c
+    else:
+        # colour is an array, so repeat for as many elements being plotted
+        return repmat(c, len(x), 1)

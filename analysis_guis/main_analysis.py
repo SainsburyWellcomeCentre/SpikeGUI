@@ -3009,7 +3009,7 @@ class AnalysisGUI(QMainWindow):
         ###################################
 
         #
-        cm, x_clust_plt = np.array([col[0] if gs == 'Narrow' else col[1] for gs in grp_str]), x_clust[:, m_ind]
+        cm, x_clust_plt = np.vstack([col[0] if gs == 'Narrow' else col[1] for gs in grp_str]), x_clust[:, m_ind]
         x_label, y_label, z_label = c_met1, c_met2, c_met3
 
         # sets the scatterplot tooltip strings
@@ -3031,9 +3031,9 @@ class AnalysisGUI(QMainWindow):
         if use_3met:
             if self.data.classify.action_set:
                 self.plot_fig.ax[0].scatter(x_clust_plt[i1, 0], x_clust_plt[i1, 1], x_clust_plt[i1, 2],
-                                            marker='o', c=col[2], s=p_size*m_size_s)
+                                            marker='o', c=repmat(col[2], sum(i1), 1), s=p_size*m_size_s)
                 self.plot_fig.ax[0].scatter(x_clust_plt[i2, 0], x_clust_plt[i2, 1], x_clust_plt[i2, 2],
-                                            marker='o', c=col[3], s=p_size*m_size_s)
+                                            marker='o', c=repmat(col[3], sum(i2), 1), s=p_size*m_size_s)
 
             # case is a 3D plot
             h = self.plot_fig.ax[0].scatter(x_clust_plt[:, 0], x_clust_plt[:, 1], x_clust_plt[:, 2],
@@ -3043,9 +3043,9 @@ class AnalysisGUI(QMainWindow):
         else:
             if self.data.classify.action_set:
                 self.plot_fig.ax[0].scatter(x_clust_plt[i1, 0], x_clust_plt[i1, 1],
-                                            marker='o', c=col[2], s=p_size*m_size_s)
+                                            marker='o', c=repmat(col[2], sum(i1), 1), s=p_size*m_size_s)
                 self.plot_fig.ax[0].scatter(x_clust_plt[i2, 0], x_clust_plt[i2, 1],
-                                            marker='o', c=col[3], s=p_size*m_size_s)
+                                            marker='o', c=repmat(col[3], sum(i2), 1), s=p_size*m_size_s)
 
             # case is a 2D plot
             h = self.plot_fig.ax[0].scatter(x_clust_plt[:, 0], x_clust_plt[:, 1], marker='o', c=cm, s=m_size_s)
@@ -3055,22 +3055,28 @@ class AnalysisGUI(QMainWindow):
         x_lim = self.plot_fig.ax[0].get_xlim()
         y_lim = self.plot_fig.ax[0].get_ylim()
 
+        # creates the legend plots
         if use_3met:
-            # creates the legend plots
+            # case is the 3D plot is being displayed
             z_lim = self.plot_fig.ax[0].get_zlim()
-            h1 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1, marker='o', c=col[0])
-            h2 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1, marker='o', c=col[1])
+            h1 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1,
+                                             marker='o', c=col[0].reshape(1, -1))
+            h2 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1,
+                                             marker='o', c=col[1].reshape(1, -1))
 
             if self.data.classify.action_set:
-                h3 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1, marker='o', c=col[2])
-                h4 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1, marker='o', c=col[3])
+                h3 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1,
+                                                 marker='o', c=col[2].reshape(1, -1))
+                h4 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, z_lim[0] - 1,
+                                                 marker='o', c=col[3].reshape(1, -1))
         else:
-            h1 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[0])
-            h2 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[1])
+            # case is the 2D plot is being displayed
+            h1 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[0].reshape(1, -1))
+            h2 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[1].reshape(1, -1))
 
             if self.data.classify.action_set:
-                h3 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[2])
-                h4 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[3])
+                h3 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[2].reshape(1, -1))
+                h4 = self.plot_fig.ax[0].scatter(x_lim[0] - 1, y_lim[0] - 1, marker='o', c=col[3].reshape(1, -1))
 
         # creates the legend object
         if self.data.classify.action_set:
@@ -10835,7 +10841,8 @@ class AnalysisGUI(QMainWindow):
         self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_cond, plot_grid,
                                         plot_chance=False, plot_type=plot_type)
 
-    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, use_all, plot_grid, show_stats):
+    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, fit_vals,
+                            use_all, plot_grid, show_stats):
         '''
 
         :param m_size:
@@ -11009,12 +11016,19 @@ class AnalysisGUI(QMainWindow):
                     else:
                         i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
 
-                    # calculates the psychometric curves
-                    y_acc_mn, d_vel, vel_mx = np.mean(d_data.y_acc, axis=0), float(float(d_data.vel_bin)), 80.
-                    xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
-                    y_acc_fit, _, _, _ = cfcn.calc_psychometric_curves(y_acc_mn, xi_fit, n_cond,
-                                                                       i_fit, d_data.i_bin_spd)
+                    # sets the fit values 9dependent on type)
+                    if fit_vals == 'Mean':
+                        # case is using mean values
+                        y_acc_fit = np.nanmean(d_data.y_acc, axis=0)
+                    else:
+                        # case is using median values
+                        y_acc_fit = np.nanmedian(d_data.y_acc, axis=0)
 
+                    # calculates the psychometric curves
+                    d_vel, vel_mx = float(float(d_data.vel_bin)), 80.
+                    xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+                    y_acc_fit, _, _, _ = cfcn.calc_psychometric_curves(y_acc_fit, xi_fit, n_cond,
+                                                                       i_fit, d_data.i_bin_spd)
 
                 ################################
                 ####    SUBPLOT CREATION    ####
@@ -11090,7 +11104,7 @@ class AnalysisGUI(QMainWindow):
         self.output_data_file('Speed LDA (Individual Expt).csv', data_out)
 
     def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para,
-                                   use_all, plot_grid):
+                                   fit_vals, use_all, plot_grid):
         '''
 
         :param show_fit:
@@ -11119,7 +11133,7 @@ class AnalysisGUI(QMainWindow):
         n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
 
         # calculates the psychometric curves
-        cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin), use_all)
+        cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin), use_all=use_all, fit_vals=fit_vals)
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
@@ -11222,9 +11236,12 @@ class AnalysisGUI(QMainWindow):
                     if str(n_c) in plot_cell:
                         # plots the mean marker points
                         if plot_markers:
-                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=l_col[k], s=m_size)
+                            # case is plotting the individual points
+                            c = cf.get_scatterplot_colour(l_col[k], x_nw)
+                            h_plt_cell_nw = ax.scatter(x_nw, y_acc_mn[i_cond][:, j], marker='.', c=c, s=m_size)
                             if i == 0:
                                 h_plt_cell.append(h_plt_cell_nw)
+
                         elif i == 0:
                             h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[k], s=m_size))
 
@@ -18592,6 +18609,7 @@ class AnalysisFunctions(object):
         lda_ptype = ['Mean + SEM', 'Psychometric Curves']
         spr_type = ['Experiment IQR Area', 'Individual Experiment Markers', 'No Markers']
         lda_plot_type = ['Line Plot', 'Confusion Matrix']
+        fit_vals = ['Mean', 'Median']
 
         # determines the cell count checklist values
         spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', True)
@@ -18689,20 +18707,26 @@ class AnalysisFunctions(object):
             'show_cell_sz': {
                 'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': False,
             },
-            'show_fit': {'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True},
+            'fit_vals': {'type': 'L', 'text': 'Fit Value Type', 'list': fit_vals, 'def_val': fit_vals[0]},
+            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
+            'show_fit': {
+                'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True,
+                'link_para': [['use_all', False], ['fit_vals', False]]
+            },
             'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': False},
             'plot_type': {
-                'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[0],
+                'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[1],
                 'link_para': [['show_fit', 'Inter-Quartile Ranges'],
                               ['show_cell_sz', 'Inter-Quartile Ranges'],
-                              ['m_size', 'Inter-Quartile Ranges']]
+                              ['m_size', 'Inter-Quartile Ranges'],
+                              ['fit_vals', 'Inter-Quartile Ranges'],
+                              ['use_all', 'Inter-Quartile Ranges']]
             },
-            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
                 'type': 'B', 'text': 'Show Statistics Tables', 'def_val': False,
                 'link_para': [['m_size', True], ['show_cell_sz', True], ['show_fit', True], ['sep_resp', True],
-                              ['plot_type', True], ['use_all', True], ['plot_grid', True]]
+                              ['plot_type', True], ['use_all', True], ['plot_grid', True], ['fit_vals', True]]
             },
         }
         self.add_func(type='Speed LDA',
@@ -18770,11 +18794,12 @@ class AnalysisFunctions(object):
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': lda_ptype, 'def_val': lda_ptype[0]
             },
+            'fit_vals': {'type': 'L', 'text': 'Fit Value Type', 'list': fit_vals, 'def_val': fit_vals[0]},
+            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_para': {
                 'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False,
                 'link_para': [['plot_cell', True], ['plot_type', True]]
             },
-            'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
         self.add_func(type='Speed LDA',
@@ -19642,6 +19667,13 @@ class AnalysisFunctions(object):
         if self.is_updating:
             return
 
+        # resets the parameters based on the current selection
+        if para_reset is not None:
+            self.run_reset_func(para_reset, state)
+
+        # updates the parameter value
+        self.curr_para[p_name] = bool(state)
+
         # sets the enabled properties for the linked parameters (if they exist)
         if link_para is not None:
             # ensures the link parameters are a list of lists
@@ -19654,18 +19686,18 @@ class AnalysisFunctions(object):
                 if len(h_obj) == 0:
                     continue
 
-                h_obj[0].setEnabled(bool(state) != lp[1])
-
-        # resets the parameters based on the current selection
-        if para_reset is not None:
-            self.run_reset_func(para_reset, state)
-
-        # updates the parameter value
-        self.curr_para[p_name] = bool(state)
+                # updates the linked parameters
+                self.update_linked_para(h_obj[0], lp[0])
 
     def update_list_para(self, p_name, p_list, link_para, para_reset, recheck_list, index):
         '''
 
+        :param p_name:
+        :param p_list:
+        :param link_para:
+        :param para_reset:
+        :param recheck_list:
+        :param index:
         :return:
         '''
 
@@ -19676,6 +19708,9 @@ class AnalysisFunctions(object):
             # retrieves the details for the currently selected function
             d_grp, i_grp = self.get_curr_func_details()
             p_list = d_grp[i_grp]['para'][p_name]['list']
+
+        # updates the parameter value
+        self.curr_para[p_name] = p_list[index]
 
         # sets the enabled properties for the linked parameters (if they exist)
         if link_para is not None:
@@ -19689,35 +19724,12 @@ class AnalysisFunctions(object):
                 if len(h_obj) == 0:
                     continue
 
-                # self.get_para_details(lp[0])
-                if isinstance(lp[1], list):
-                    is_enabled = p_list[index] not in lp[1]
-                else:
-                    is_enabled = p_list[index] != lp[1]
-
-                # updates the enabled properties of the object
-                h_obj[0].setEnabled(is_enabled)
-
-                # checks to see if the link parameter is a checkbox and is being disabled
-                if isinstance(h_obj[0],QCheckBox) and (not is_enabled):
-                    # if so, then uncheck the checkbox
-                    self.is_updating = True
-                    h_obj[0].setCheckState(False)
-                    self.is_updating = False
-
-                    # determines if the checkbox has any other link parameters
-                    para_d = self.get_para_details(lp[0])
-                    if para_d['link_para'] is not None:
-                        # if so, then update the link parameter of the link parameter
-                        if len(para_d['link_para']) == 2:
-                            self.update_bool_para(lp[0], para_d['link_para'], None, False)
+                # updates the linked parameters
+                self.update_linked_para(h_obj[0], lp[0])
 
         # resets the parameters based on the current selection
         if para_reset is not None:
             self.run_reset_func(para_reset, p_list[index])
-
-        # updates the parameter value
-        self.curr_para[p_name] = p_list[index]
 
     def update_checklist_para(self, p_name, para_reset, h_chklist=None):
         '''
@@ -19738,6 +19750,40 @@ class AnalysisFunctions(object):
         # resets the parameters based on the current selection
         if para_reset is not None:
             self.run_reset_func(para_reset, self.curr_para[p_name])
+
+    def update_linked_para(self, h_obj, p_name):
+        '''
+
+        :param h_obj:
+        :param p_name:
+        :return:
+        '''
+
+        # lambda function
+        i_fcn = lambda x, p: next((i for i, y in enumerate(x) if p in y), None)
+
+        # retrieves the parameter info for the current function
+        d_grp, i_grp = self.get_curr_func_details()
+        p_info = d_grp[i_grp]['para']
+
+        # determines all parameters linked to the parameter object
+        l_para = []
+        for x in p_info:
+            # only proceed if there are any link parameters
+            if p_info[x]['link_para'] is not None:
+                # if so, then determine if the linked parameter is in the list
+                if isinstance(p_info[x]['link_para'][0], list):
+                    # case is there are multiple linked parameters
+                    i_match = i_fcn(p_info[x]['link_para'], p_name)
+                    if i_match is not None:
+                        l_para.append([x, p_info[x]['link_para'][i_match][1]])
+
+                elif (p_info[x]['link_para'][0] == p_name):
+                    # case is there is only one linked parameter
+                    l_para.append([x, p_info[x]['link_para'][1]])
+
+        # sets the enabled properties of the object
+        h_obj.setEnabled(all([self.curr_para[x[0]] != x[1] for x in l_para]))
 
     #########################################
     ####    PARAMETER RESET FUNCTIONS    ####

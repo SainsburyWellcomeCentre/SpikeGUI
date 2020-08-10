@@ -2873,7 +2873,7 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
 ############################################
 
 
-def calc_all_psychometric_curves(d_data, d_vel, use_all=True):
+def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean'):
     '''
 
     :param d_data:
@@ -2884,7 +2884,7 @@ def calc_all_psychometric_curves(d_data, d_vel, use_all=True):
     # parameters and array indexing
     vel_mx = 80.
     nC, n_tt, n_xi = len(d_data.n_cell), len(d_data.ttype), len(d_data.spd_xi)
-    use_mean = True         # set to True to fit thru mean, otherwise False for median fit
+    use_mean = fit_vals == 'Mean'
 
     # memory allocation
     y_acc_fit, A = np.zeros((n_xi, nC, n_tt)), np.empty(n_tt, dtype=object)
