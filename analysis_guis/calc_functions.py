@@ -2264,8 +2264,8 @@ def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
             spd_sf0 = dcopy(r_data.spd_sf)
 
         # reduces the arrays to only include the first n_trial_max trials (averages pos/neg phases)
-        n_t = int(np.size(spd_sf0[tt[0]], axis=0) / 2)
-        sf = [0.5 * (spd_sf0[ttype][:n_t, :, :] + spd_sf0[ttype][n_t:, :, :])[:n_trial_max, :, :] for ttype in tt]
+        sf = [0.5 * (spd_sf0[ttype][:n, :, :] + spd_sf0[ttype][n:, :, :])[:n_trial_max, :, :]
+                        for n, ttype in zip([int(np.size(spd_sf0[ttype], axis=0) / 2) for ttype in tt], tt)]
     else:
         # initialisations and memory allocation
         sf, _calc_para = np.empty(2, dtype=object), dcopy(calc_para)
@@ -2578,6 +2578,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
                 w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
 
         # sets the experiment name and runs the LDA prediction calculations
+        c_mat = np.empty(n_bin, dtype=object)
         for i_bin in range(n_bin):
             # updates the progressbar (if provided)
             if w_prog is not None:
@@ -2597,11 +2598,11 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
                     return False
 
                 # calculates the grouping accuracy values
-                c_mat = lda['c_mat'] / n_trial
+                c_mat[i_bin] = lda['c_mat'] / n_trial
 
                 # calculates the direction accuracy values (over each condition)
                 for i_c in range(n_c):
-                    y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+                    y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[i_bin][(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
     #######################################
     ####    HOUSE-KEEPING EXERCISES    ####
@@ -2611,6 +2612,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
         # sets the lda values
         d_data.lda = 1
         d_data.y_acc = y_acc
+        d_data.c_mat = c_mat
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
         d_data.lda_trial_type = get_glob_para('lda_trial_type')
 

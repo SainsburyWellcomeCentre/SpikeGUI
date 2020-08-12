@@ -11103,7 +11103,7 @@ class AnalysisGUI(QMainWindow):
         data_out = np.vstack(data_tmp)
         self.output_data_file('Speed LDA (Individual Expt).csv', data_out)
 
-    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, plot_type, plot_para,
+    def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, sig_type, err_type,
                                    fit_vals, use_all, plot_grid):
         '''
 
@@ -11127,6 +11127,7 @@ class AnalysisGUI(QMainWindow):
         d_data = self.data.discrim.spdcp
         n_cell, y_acc = d_data.n_cell, d_data.y_acc
         n_expt = np.size(d_data.y_acc[0], axis=3)
+        plot_para = sig_type == 'Psychometric Fit Parameters'
 
         # sets up the plot parameters
         is_plot = np.array([x in plot_cond for x in d_data.ttype])
@@ -11190,6 +11191,9 @@ class AnalysisGUI(QMainWindow):
             ax[0].set_xscale('log')
             ax[1].set_xscale('log')
 
+            # exits the function (don't output data)
+            return
+
         else:
 
             ##################################
@@ -11197,10 +11201,11 @@ class AnalysisGUI(QMainWindow):
             ##################################
 
             # parameters and initialisations
+            n_sh = d_data.nshuffle
             ax, h_plt_cond = self.plot_fig.ax[0], []
             l_col, l_style = cf.get_plot_col(len(plot_cell)), ['-', '--', '-.', ':']
             y_acc_fit = d_data.y_acc_fit
-            plot_sem = (plot_type == 'Mean + SEM') and (n_expt > 1)
+            plot_err = (sig_type != 'Psychometric Curves')
 
             # sets the x-tick labels and axis limits
             x = np.arange(np.size(d_data.spd_xi, axis=0))
@@ -11208,14 +11213,46 @@ class AnalysisGUI(QMainWindow):
             x_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
             xL, yL, h_plt, k = [x[0], x[-1] + 1.], [0., 100.], [], 0
 
-            # calculates the mean accuracy values (averaged over all shuffles then over each experiment)
-            y_acc_mn_exp = [100. * np.nanmean(x, axis=0) for x in y_acc]
-            y_acc_mn = [np.nanmean(x, axis=2) for x in y_acc_mn_exp]
+            # #
+            # if d_data.poolexpt:
+            #     # calculates the mean accuracy values (averaged over all shuffles)
+            #     if sig_type in ['Mean Accuracy Signal', 'Psychometric Curves']:
+            #         y_acc_mn_exp = [100. * np.nanmean(x, axis=0)[:, :, 0] for x in y_acc]
+            #     elif sig_type == 'Median Accuracy Signal':
+            #         y_acc_mn_exp = [100. * np.nanmedian(x, axis=0)[:, :, 0] for x in y_acc]
+            # 
+            # else:
 
-            # calculates the SEM values (if plotting the errorbars)
+            # calculates the mean accuracy values (averaged over all shuffles then over each experiment)
+            if sig_type in ['Mean Accuracy Signal', 'Psychometric Curves']:
+                # case is the signal type is the mean signal
+                y_acc_mn_exp = [100. * np.nanmean(x, axis=0) for x in y_acc]
+                y_acc_mn = [np.nanmean(x, axis=2) for x in y_acc_mn_exp]
+            elif sig_type == 'Median Accuracy Signal':
+                # case is the signal type is the median signal
+                y_acc_mn_exp = [100. * np.nanmedian(x, axis=0) for x in y_acc]
+                y_acc_mn = [np.nanmedian(x, axis=2) for x in y_acc_mn_exp]
+
+            # calculates the SEM sqrt multiplier
             n_acc_exp = [np.sqrt(np.sum(~np.all(np.isnan(x), axis=0), axis=1)) for x in y_acc_mn_exp]
-            if plot_sem:
-                y_acc_sem = [np.divide(np.nanstd(x, axis=2), n) for x, n in zip(y_acc_mn_exp, n_acc_exp)]
+
+            # calculates the error values (if required)
+            if plot_err:
+                if err_type == 'SEM':
+                    # case is the SEM
+                    if d_data.poolexpt:
+                        y_acc_err = [100. * np.nanstd(x, axis=0)[:, :, 0] / (n_sh ** 0.5) for x in y_acc]
+                    else:
+                        y_acc_err = [np.divide(np.nanstd(x, axis=2), n) for x, n in zip(y_acc_mn_exp, n_acc_exp)]
+
+                elif err_type == 'IQR':
+                    # case is the IQR
+                    if d_data.poolexpt:
+                        y_acc_err = [100. * np.dstack((np.nanpercentile(x, 25, axis=0)[:, :, 0],
+                                                       np.nanpercentile(x, 75, axis=0)[:, :, 0])) for x in y_acc]
+                    else:
+                        y_acc_err = [np.dstack((np.nanpercentile(x, 25, axis=2),
+                                                np.nanpercentile(x, 75, axis=2))) for x in y_acc_mn_exp]
 
             # plots the data for all points
             for i, i_cond in enumerate(np.where(is_plot)[0]):
@@ -11223,7 +11260,7 @@ class AnalysisGUI(QMainWindow):
                 x_nw, k = x + ((i + 1) / (n_cond + 1)), 0
 
                 # retrieves the plot values (if plotting the psychometric fits)
-                if not plot_sem:
+                if not plot_err:
                     _y_acc_fit = y_acc_fit[:, :, i_cond]
 
                 # plots the dummy condition marker lines
@@ -11246,14 +11283,19 @@ class AnalysisGUI(QMainWindow):
                             h_plt_cell.append(ax.scatter([-1], [-1], marker='.', c=l_col[k], s=m_size))
 
                         # creates the main plot based on type
-                        if plot_sem:
-                            # case is the mean + SEM
+                        if plot_err:
                             if n_c == n_cell[-1]:
                                 ax.plot(x_nw, y_acc_mn[i_cond][:, j], l_style[i], c=l_col[k], linewidth=3)
-                            else:
+
+                            elif err_type == 'SEM':
                                 cf.create_error_area_patch(ax, x_nw, y_acc_mn[i_cond][:, j],
-                                                           y_acc_sem[i_cond][:, j], l_col[k], l_style=l_style[i],
+                                                           y_acc_err[i_cond][:, j], l_col[k], l_style=l_style[i],
                                                            edge_color='k')
+                            elif err_type == 'IQR':
+                                cf.create_error_area_patch(ax, x_nw, None, y_acc_err[i_cond][:, j, 0], l_col[k],
+                                                           l_style=l_style[i], edge_color='k',
+                                                           y_err2=y_acc_err[i_cond][:, j, 1])
+
                         else:
                             # case is the psychometric plots
                             ax.plot(x_nw, _y_acc_fit[:, j], l_style[i], c=l_col[k], linewidth=2)
@@ -18606,13 +18648,15 @@ class AnalysisFunctions(object):
         plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
         lda_plot_acc = spdacc_lda_para['comp_cond']
         lda_plot_cond = spdcp_lda_para['comp_cond']
-        lda_ptype = ['Mean + SEM', 'Psychometric Curves']
+        lda_ptype = ['Psychometric Curves', 'Mean Accuracy Signal',
+                     'Median Accuracy Signal', 'Psychometric Fit Parameters']
         spr_type = ['Experiment IQR Area', 'Individual Experiment Markers', 'No Markers']
         lda_plot_type = ['Line Plot', 'Confusion Matrix']
         fit_vals = ['Mean', 'Median']
+        err_type = ['SEM', 'IQR']
 
         # determines the cell count checklist values
-        spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', True)
+        spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', False)
         cl_inc = [cfcn.get_inclusion_filt_indices(c, data.exc_gen_filt) for c in data._cluster]
 
         # determines the cell counts based on whether the experiments are being pooled or not
@@ -18707,7 +18751,9 @@ class AnalysisFunctions(object):
             'show_cell_sz': {
                 'type': 'B', 'text': 'Show Relative Cell Size', 'def_val': False,
             },
-            'fit_vals': {'type': 'L', 'text': 'Fit Value Type', 'list': fit_vals, 'def_val': fit_vals[0]},
+            'fit_vals': {
+                'type': 'L', 'text': 'Psychometric Curve Fit Values', 'list': fit_vals, 'def_val': fit_vals[0]
+            },
             'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'show_fit': {
                 'type': 'B', 'text': 'Show Psychometric Fit', 'def_val': True,
@@ -18782,23 +18828,27 @@ class AnalysisFunctions(object):
             'plot_markers': {
                 'type': 'B', 'text': 'Plot Mean Value Markers', 'def_val': True, 'link_para': ['m_size', False]
             },
-            'plot_cond': {
-                'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_cond,
-                'def_val': np.ones(len(lda_plot_cond), dtype=bool),
-            },
             'plot_cell': {
                 'type': 'CL', 'text': 'Plot Cell Counts', 'list': n_cell_list[int(spd_lda_pool)],
                 'def_val': np.ones(len(n_cell_list[int(spd_lda_pool)]), dtype=bool),
                 'other_para': '--- Select Plot Cell Counts ---'
             },
-            'plot_type': {
-                'type': 'L', 'text': 'Plot Type', 'list': lda_ptype, 'def_val': lda_ptype[0]
+            'err_type': {
+                'type': 'L', 'text': 'Signal Error Type', 'list': err_type, 'def_val': err_type[0]
             },
-            'fit_vals': {'type': 'L', 'text': 'Fit Value Type', 'list': fit_vals, 'def_val': fit_vals[0]},
+            'fit_vals': {
+                'type': 'L', 'text': 'Psychometric Curve Fit Values', 'list': fit_vals, 'def_val': fit_vals[0]
+            },
             'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
-            'plot_para': {
-                'type': 'B', 'text': 'Plot Fit Parameters', 'def_val': False,
-                'link_para': [['plot_cell', True], ['plot_type', True]]
+            'sig_type': {
+                'type': 'L', 'text': 'Plotting Type', 'list': lda_ptype, 'def_val': lda_ptype[0],
+                'link_para': [['err_type', [lda_ptype[0], lda_ptype[-1]]], ['fit_vals', lda_ptype[1:]],
+                              ['use_all', lda_ptype[1:]], ['plot_cell', lda_ptype[3]],
+                              ['m_size', lda_ptype[3]], ['plot_markers', lda_ptype[3]]]
+            },
+            'plot_cond': {
+                'type': 'CL', 'text': 'Plot Conditions', 'list': lda_plot_cond,
+                'def_val': np.ones(len(lda_plot_cond), dtype=bool),
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -19783,7 +19833,8 @@ class AnalysisFunctions(object):
                     l_para.append([x, p_info[x]['link_para'][1]])
 
         # sets the enabled properties of the object
-        h_obj.setEnabled(all([self.curr_para[x[0]] != x[1] for x in l_para]))
+        h_obj.setEnabled(all([(self.curr_para[x[0]] not in x[1]) if isinstance(x[1], list) else
+                              (self.curr_para[x[0]] != x[1]) for x in l_para]))
 
     #########################################
     ####    PARAMETER RESET FUNCTIONS    ####
