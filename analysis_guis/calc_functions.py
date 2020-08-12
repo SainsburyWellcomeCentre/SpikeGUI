@@ -2566,6 +2566,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
         BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
 
     # loops through each of the experiments performing the lda calculations
+    c_mat = np.empty(n_ex, dtype=object)
     for i_ex in range(n_ex):
         # sets the progress strings (if progress bar handle is provided)
         if w_prog is not None:
@@ -2578,7 +2579,7 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
                 w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
 
         # sets the experiment name and runs the LDA prediction calculations
-        c_mat = np.empty(n_bin, dtype=object)
+        c_mat[i_ex] = []
         for i_bin in range(n_bin):
             # updates the progressbar (if provided)
             if w_prog is not None:
@@ -2598,11 +2599,12 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
                     return False
 
                 # calculates the grouping accuracy values
-                c_mat[i_bin] = lda['c_mat'] / n_trial
+                c_mat_nw = lda['c_mat'] / n_trial
+                c_mat[i_ex].append(c_mat_nw)
 
                 # calculates the direction accuracy values (over each condition)
                 for i_c in range(n_c):
-                    y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat[i_bin][(2 * i_c):(2 * (i_c + 1)), :])) / 2
+                    y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat_nw[(2 * i_c):(2 * (i_c + 1)), :])) / 2
 
     #######################################
     ####    HOUSE-KEEPING EXERCISES    ####
@@ -2612,9 +2614,13 @@ def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_s
         # sets the lda values
         d_data.lda = 1
         d_data.y_acc = y_acc
-        d_data.c_mat = c_mat
         d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
         d_data.lda_trial_type = get_glob_para('lda_trial_type')
+
+        # calculates the average confusion matrices (averaged over all experiments)
+        d_data.c_mat = np.empty(n_bin - 1, dtype=object)
+        for i in range(n_bin - 1):
+            d_data.c_mat[i] = np.mean(np.dstack([c[i] for c in c_mat]), axis=2)
 
         # sets the rotation values
         d_data.spd_xi = r_data.spd_xi
@@ -3413,13 +3419,13 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
 
     if d_data_f is None:
         # case is there are no additional field information to be added
-        d_data = d_data_0
+        d_data = dcopy(d_data_0)
     elif hasattr(d_data_0, d_data_f):
         # case is there is an additional field to be added. if the field exists, then overwrite it
-        d_data = getattr(d_data_0, d_data_f)
+        d_data = dcopy(getattr(d_data_0, d_data_f))
     else:
         # otherwise, simply add the new field to the class
-        d_data = d_data_def
+        d_data = dcopy(d_data_def)
         setattr(d_data_0, d_data_f, d_data_def)
 
     # retrieves the default parameter values
@@ -3546,7 +3552,7 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
     # sets the LDA solver parameters
     for ldp in lda_para:
         if ldp not in ignore_list:
-            setattr(d_data, conv_str[ldp], _lda_para[ldp])
+            setattr(d_data, conv_str[ldp], dcopy(_lda_para[ldp]))
 
 #####################################
 ####    GENERAL LDA FUNCTIONS    ####

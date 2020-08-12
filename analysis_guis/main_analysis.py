@@ -10841,7 +10841,7 @@ class AnalysisGUI(QMainWindow):
         self.create_kinematic_lda_plots(self.data.discrim.spdacc, s_factor, marker_type, plot_cond, plot_grid,
                                         plot_chance=False, plot_type=plot_type)
 
-    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, sep_resp, plot_type, fit_vals,
+    def plot_speed_comp_lda(self, m_size, show_cell_sz, show_fit, cm_comp, sep_resp, plot_type, fit_vals,
                             use_all, plot_grid, show_stats):
         '''
 
@@ -10854,7 +10854,7 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def setup_plot_axis(plot_fig, n_grp, n_filt):
+        def setup_stats_table_axes(plot_fig, n_grp, n_filt):
             '''
 
             :param plot_fig:
@@ -10885,6 +10885,104 @@ class AnalysisGUI(QMainWindow):
                 i_plt = 1 + i_c
                 plot_fig.ax[i_plt] = plot_fig.figure.add_subplot(gs[1, i_c])
                 plot_fig.ax[i_plt].axis('off')
+
+        def setup_cf_mat_axes(plot_fig, cm_comp, t_type):
+            '''
+
+            :param plot_fig:
+            :param n_bin:
+            :param n_filt:
+            :return:
+            '''
+
+            # sets up the table dimensions
+            n_cond, n_bin = len(t_type), len(cm_comp)
+            n_c, n_r = cf.det_subplot_dim(n_bin)
+            left, right, top, bottom = 0.09, 0.95, 0.925, 0.06
+            ax0, w_cbar, xx1, xx2, yy1, yy2 = -0.5, 0.05, 0.03, 0.01, 0.035, 0.01
+            w_ratio = [(1 - w_cbar) / n_c] * n_c + [w_cbar]
+
+            #
+            d_sz, pw = max([n_c, n_r]), 1
+            sz_lbl1, sz_lbl2, sz_title, sz_ax = 15 - pw * d_sz, 17 - pw * d_sz, 19 - pw * d_sz, 13 - pw * d_sz
+            wspace, hspace = 0.05, (0.05 * n_r) / (top - bottom)
+
+            # sets up the axis tick labels
+            tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
+
+            # creates the gridspec object
+            gs = gridspec.GridSpec(n_r, n_c + 1, width_ratios=w_ratio, height_ratios=[1 / n_r] * n_r,
+                                   figure=plot_fig.fig, wspace=wspace, hspace=hspace, left=left, right=right,
+                                   bottom=bottom, top=top)
+
+            # memory allocation
+            plot_fig.ax = np.empty(n_r * n_c + 1, dtype=object)
+            plot_fig.ax[-1] = plot_fig.figure.add_subplot(gs[:, -1])
+
+            # creates the subplot for each bin
+            for i_r in range(n_r):
+                for i_c in range(n_c):
+                    # sets the plot index
+                    i_plt = i_r * n_c + i_c
+
+                    # creates the subplot axes
+                    plot_fig.ax[i_plt] = plot_fig.figure.add_subplot(gs[i_r, i_c])
+                    if i_plt >= n_bin:
+                        # turns the axes off (if greater than the number of plots)
+                        plot_fig.ax[i_plt].axis('off')
+
+                    else:
+                        # sets the heatmap axis properties
+                        ax = plot_fig.ax[i_plt]
+
+                        # sets the axis limits
+                        cf.set_axis_limits(ax, [ax0, 2 * n_cond - 0.5], [ax0, 2 * n_cond - 0.5])
+
+                        # sets the axis properties
+                        ax.grid(False)
+                        ax.get_xaxis().set_ticks_position('top')
+                        ax.tick_params(length=0)
+                        ax.set_title(cm_comp[i_plt], fontweight='bold', fontsize=sz_title)
+
+                        # sets the y-axis titles/labels
+                        if i_c == 0:
+                            # case is the first column, so set the y-axis ticklabels/labels
+                            ax.set_yticks(range(2 * n_cond))
+                            ax.set_yticklabels(tick_lbls, size=sz_ax)
+
+                            x0, wid = ax.bbox._bbox.x0, ax.bbox._bbox.width
+                            ax.text(ax0 + 2 * n_cond * (xx2 - x0) / wid, n_cond - 0.5, 'True', size=sz_lbl2,
+                                    verticalalignment='center', rotation=90, weight='bold')
+
+                            # sets the condition titles
+                            for itt, tt in enumerate(t_type):
+                                tt_abb = cf.cond_abb(tt)
+                                ax.text(ax0 + 2 * n_cond * (xx1 - x0) / wid, 2 * itt + 0.5, tt_abb, size=sz_lbl1,
+                                        verticalalignment='center',
+                                        rotation=90, weight='bold')
+                        else:
+                            # case is the other columns, so remove the y-axis ticklabels
+                            ax.set_yticks([])
+
+                        # sets the y-axis titles/labels
+                        if i_r == 0:
+                            # case is the first row
+                            ax.set_xticks(range(2 * n_cond))
+                            ax.set_xticklabels(tick_lbls, size=sz_ax)
+                        else:
+                            ax.set_xticks([])
+
+                        if (i_r + 1) == n_r:
+                            #
+                            y0, hght = ax.bbox._bbox.y0, ax.bbox._bbox.height
+                            ax.text(n_cond - 0.5, ax0 + 2 * n_cond * (yy2 - y0) / hght, 'Decoded', size=sz_lbl2,
+                                    horizontalalignment='center', weight='bold')
+
+                            # sets the condition titles
+                            for itt, tt in enumerate(t_type):
+                                tt_abb = cf.cond_abb(tt)
+                                ax.text(2 * itt + 0.5, ax0 + 2 * n_cond * (yy1 - y0) / hght, tt_abb, size=sz_lbl1,
+                                        horizontalalignment='center', weight='bold')
 
         def setup_bin_stats_values(xi, ttype, y_acc):
             '''
@@ -10927,7 +11025,7 @@ class AnalysisGUI(QMainWindow):
             spd_xi = np.mean(d_data.spd_xi, axis=1)
 
             # initialises the plot axes
-            setup_plot_axis(self.plot_fig, len(r_hdr), len(d_data.ttype))
+            setup_stats_table_axes(self.plot_fig, len(r_hdr), len(d_data.ttype))
             ax = self.plot_fig.ax
 
             # creates the ANOVA stats table
@@ -10945,6 +11043,39 @@ class AnalysisGUI(QMainWindow):
                 h_title = ax[i + 1].text(0.5, 1, wc_test[i][0, 0], fontsize=15, horizontalalignment='center')
                 cf.add_plot_table(self.plot_fig, ax[i + 1], table_font_smaller, wc_test[i][:, 1:], None,
                                   wc_hdr, None, cf.get_plot_col(len(wc_hdr)), 'fixed', h_title=h_title)
+
+        elif plot_type == 'Confusion Matrices':
+            ##################################
+            ####    CONFUSION MATRICES    ####
+            ##################################
+
+            # initialisations
+            x = np.arange(2, 2 * n_cond, 2)
+            xy_lim = [-0.5, 2 * n_cond - 0.5]
+
+            # determines the indices of the velocity bins to be plotted
+            v_bin = float(d_data.vel_bin)
+            i_bin = [int(int(cc.split(':')[1]) / v_bin) - 1 for cc in cm_comp]
+
+            # initialises the plot axes
+            setup_cf_mat_axes(self.plot_fig, cm_comp, d_data.ttype)
+            ax = self.plot_fig.ax
+
+            # creates each of the confusion matrices
+            for i, j in enumerate(i_bin):
+                # creates the confusion matrix heatmap
+                k = j - int(j > d_data.i_bin_spd)
+                im = ax[i].imshow(100. * d_data.c_mat[k][::-1, :], aspect='auto', cmap='hot', origin='upper')
+                im.set_clim(0, 100.)
+
+                # plots the region marker lines
+                for i_cond in range(len(x)):
+                    ax[i].plot(xy_lim, (x[i_cond] - 0.5) * np.ones(2), 'w', linewidth=2)
+                    ax[i].plot((x[i_cond] - 0.5) * np.ones(2), xy_lim, 'w', linewidth=2)
+
+            # creates the colorbar
+            cbar = self.plot_fig.figure.colorbar(im, cax=ax[-1])
+            cbar.set_clim([0., 100,])
 
         else:
             #######################################
@@ -18645,7 +18776,7 @@ class AnalysisFunctions(object):
         spddir_lda_para, spddir_def_para = init_lda_para(data.discrim, 'spddir', SubDiscriminationData('SpdCompDir'))
 
         # combobox parameter lists
-        plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses']
+        plot_type_spd = ['Inter-Quartile Ranges', 'Individual Cell Responses', 'Confusion Matrices']
         lda_plot_acc = spdacc_lda_para['comp_cond']
         lda_plot_cond = spdcp_lda_para['comp_cond']
         lda_ptype = ['Psychometric Curves', 'Mean Accuracy Signal',
@@ -18658,6 +18789,11 @@ class AnalysisFunctions(object):
         # determines the cell count checklist values
         spd_lda_pool = cfcn.set_def_para(spdcp_def_para, 'poolexpt', False)
         cl_inc = [cfcn.get_inclusion_filt_indices(c, data.exc_gen_filt) for c in data._cluster]
+
+        # sets up the confusion matrix comparison list
+        spdc_x_rng = cfcn.set_def_para(spdc_def_para, 'spd_xrng', '0 to 5')
+        spd_vel_bin = cfcn.set_def_para(spdc_def_para, 'vel_bin', '5')
+        cm_comp_list = self.setup_cm_comp_list(spdc_x_rng, spd_vel_bin)
 
         # determines the cell counts based on whether the experiments are being pooled or not
         n_cell_list = [
@@ -18722,12 +18858,12 @@ class AnalysisFunctions(object):
 
             'spd_x_rng': {
                 'gtype': 'C', 'type': 'L', 'text': 'Dependent Speed Range', 'list': sc_rng,
-                'def_val': cfcn.set_def_para(spdc_def_para, 'spd_xrng', '0 to 5')
+                'def_val': spdc_x_rng, 'para_reset': [['cm_comp', self.reset_cm_comp]]
             },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Speed Bin Size (deg/sec)', 'list': roc_vel_bin,
-                'def_val': cfcn.set_def_para(spdc_def_para, 'vel_bin', '5'),
-                'para_reset': [['spd_x_rng', self.reset_spd_rng]]
+                'para_reset': [['spd_x_rng', self.reset_spd_rng], ['cm_comp', self.reset_cm_comp]],
+                'def_val': spd_vel_bin
             },
             'n_sample': {
                 'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
@@ -18760,13 +18896,21 @@ class AnalysisFunctions(object):
                 'link_para': [['use_all', False], ['fit_vals', False]]
             },
             'sep_resp': {'type': 'B', 'text': 'Separate Condition Type Responses', 'def_val': False},
+            'cm_comp': {
+                'type': 'CL', 'text': 'Confusion Matrix Comparisons', 'list': cm_comp_list,
+                'def_val': cf.set_binary_groups(len(cm_comp_list), 0),
+                'other_para': '--- Select Comparisons ---'
+            },
             'plot_type': {
                 'type': 'L', 'text': 'Plot Type', 'list': plot_type_spd, 'def_val': plot_type_spd[1],
-                'link_para': [['show_fit', 'Inter-Quartile Ranges'],
-                              ['show_cell_sz', 'Inter-Quartile Ranges'],
-                              ['m_size', 'Inter-Quartile Ranges'],
-                              ['fit_vals', 'Inter-Quartile Ranges'],
-                              ['use_all', 'Inter-Quartile Ranges']]
+                'link_para': [['show_fit', ['Inter-Quartile Ranges', 'Confusion Matrices']],
+                              ['show_cell_sz', ['Inter-Quartile Ranges', 'Confusion Matrices']],
+                              ['m_size', ['Inter-Quartile Ranges', 'Confusion Matrices']],
+                              ['fit_vals', ['Inter-Quartile Ranges', 'Confusion Matrices']],
+                              ['use_all', ['Inter-Quartile Ranges', 'Confusion Matrices']],
+                              ['plot_grid', ['Confusion Matrices']],
+                              ['sep_resp', ['Confusion Matrices']],
+                              ['cm_comp', ['Inter-Quartile Ranges', 'Individual Cell Responses']]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
             'show_stats': {
@@ -20197,9 +20341,56 @@ class AnalysisFunctions(object):
                 for txt in sc_rng:
                     h_list[0].addItem(txt)
 
-                # resets the associated parameter value
-                self.curr_para[pp] = sc_rng[h_list[0].currentIndex()]
+                # updates the list index/parameter
+                if self.curr_para[pp] in sc_rng:
+                    h_list[0].setCurrentIndex(sc_rng.index(self.curr_para[pp]))
+                else:
+                    self.curr_para[pp] = sc_rng[h_list[0].currentIndex()]
+
+                # resets the parameter list
                 d_grp[i_grp]['para'][pp]['list'] = sc_rng
+
+    def reset_cm_comp(self, p_name, dv0):
+        '''
+
+        :param p_name:
+        :param dv0:
+        :return:
+        '''
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # sets the new list/state values
+        cm_list = self.setup_cm_comp_list(self.curr_para['spd_x_rng'], self.curr_para['vel_bin'])
+        nw_list = [h_list.itemText(0)] + cm_list
+        nw_state = cf.set_binary_groups(len(cm_list), 0)
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = list(np.array(nw_list[1:])[nw_state])
+        d_grp[i_grp]['para'][p_name]['def_val'] = nw_state
+        d_grp[i_grp]['para'][p_name]['list'] = nw_list
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for i, cid in enumerate(nw_list):
+            h_list.addItem(cid, i > 0)
+            if i > 0:
+                # sets the state values if not the first line
+                h_list.setState(i, nw_state[i - 1])
+
+        # flag that the parameters are updating
+        self.is_updating = False
 
     def reset_plot_index(self, p_name, dv0):
         '''
@@ -21313,6 +21504,27 @@ class AnalysisFunctions(object):
 
         # flag that the parameters are updating
         self.is_updating = False
+
+    def setup_cm_comp_list(self, spdc_x_rng, spd_vel_bin):
+        '''
+
+        :param spdc_x_rng:
+        :param spd_vel_bin:
+        :return:
+        '''
+
+        # initialisations
+        cm_list = []
+        v_max, dv = 80., float(spd_vel_bin)
+        n_bin, i_bin = int(v_max / dv), int(int(spdc_x_rng.split()[0]) / dv)
+
+        # sets the list values for each comparison (except for comparing against itself)
+        for i in range(n_bin):
+            if i != i_bin:
+                cm_list.append('{0}:{1}'.format(int((i_bin + 1) * dv), int((i + 1) * dv)))
+
+        # returns the list
+        return cm_list
 
     @staticmethod
     def set_missing_para_field(para):
