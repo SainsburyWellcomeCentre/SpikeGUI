@@ -10898,17 +10898,17 @@ class AnalysisGUI(QMainWindow):
             # sets up the table dimensions
             n_cond, n_bin = len(t_type), len(cm_comp)
             n_c, n_r = cf.det_subplot_dim(n_bin)
-            left, right, top, bottom = 0.09, 0.95, 0.925, 0.06
-            ax0, w_cbar, xx1, xx2, yy1, yy2 = -0.5, 0.05, 0.03, 0.01, 0.035, 0.01
+            left, right, top, bottom = 0.1, 0.95, 0.925, 0.06
+            ax0, w_cbar, xx1, xx2, yy1, yy2 = -0.5, 0.05, 0.035, 0.01, 0.035, 0.01
             w_ratio = [(1 - w_cbar) / n_c] * n_c + [w_cbar]
 
-            #
+            # sets the fontsizes based on the number of rows/columns
             d_sz, pw = max([n_c, n_r]), 1
             sz_lbl1, sz_lbl2, sz_title, sz_ax = 15 - pw * d_sz, 17 - pw * d_sz, 19 - pw * d_sz, 13 - pw * d_sz
             wspace, hspace = 0.05, (0.05 * n_r) / (top - bottom)
 
             # sets up the axis tick labels
-            tick_lbls = cf.flat_list(['CW', 'CCW'] * n_cond)
+            tick_lbls = cf.flat_list(['V(D)', 'V(B)'] * n_cond)
 
             # creates the gridspec object
             gs = gridspec.GridSpec(n_r, n_c + 1, width_ratios=w_ratio, height_ratios=[1 / n_r] * n_r,
@@ -10955,7 +10955,7 @@ class AnalysisGUI(QMainWindow):
                                     verticalalignment='center', rotation=90, weight='bold')
 
                             # sets the condition titles
-                            for itt, tt in enumerate(t_type):
+                            for itt, tt in enumerate(t_type[::-1]):
                                 tt_abb = cf.cond_abb(tt)
                                 ax.text(ax0 + 2 * n_cond * (xx1 - x0) / wid, 2 * itt + 0.5, tt_abb, size=sz_lbl1,
                                         verticalalignment='center',
@@ -11344,22 +11344,13 @@ class AnalysisGUI(QMainWindow):
             x_str = ['{0}:{1}'.format(spd_x, int(s)) for s in d_data.spd_xi[:, 1]]
             xL, yL, h_plt, k = [x[0], x[-1] + 1.], [0., 100.], [], 0
 
-            # #
-            # if d_data.poolexpt:
-            #     # calculates the mean accuracy values (averaged over all shuffles)
-            #     if sig_type in ['Mean Accuracy Signal', 'Psychometric Curves']:
-            #         y_acc_mn_exp = [100. * np.nanmean(x, axis=0)[:, :, 0] for x in y_acc]
-            #     elif sig_type == 'Median Accuracy Signal':
-            #         y_acc_mn_exp = [100. * np.nanmedian(x, axis=0)[:, :, 0] for x in y_acc]
-            # 
-            # else:
-
             # calculates the mean accuracy values (averaged over all shuffles then over each experiment)
-            if sig_type in ['Mean Accuracy Signal', 'Psychometric Curves']:
+            calc_fit = sig_type == 'Psychometric Curves'
+            if (sig_type == 'Mean Accuracy Signal') or (calc_fit and fit_vals == 'Mean'):
                 # case is the signal type is the mean signal
                 y_acc_mn_exp = [100. * np.nanmean(x, axis=0) for x in y_acc]
                 y_acc_mn = [np.nanmean(x, axis=2) for x in y_acc_mn_exp]
-            elif sig_type == 'Median Accuracy Signal':
+            elif (sig_type == 'Median Accuracy Signal') or (calc_fit and fit_vals == 'Median'):
                 # case is the signal type is the median signal
                 y_acc_mn_exp = [100. * np.nanmedian(x, axis=0) for x in y_acc]
                 y_acc_mn = [np.nanmedian(x, axis=2) for x in y_acc_mn_exp]
@@ -12898,8 +12889,10 @@ class AnalysisGUI(QMainWindow):
                 # retrieves the time spikes
                 if r_obj.is_single_cell:
                     t_spike = r_obj.t_spike[i_filt]
-                else:
+                elif len(i_cell_b[i_filt]) != np.shape(r_obj.t_spike[i_filt])[0]:
                     t_spike = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, :]
+                else:
+                    t_spike = r_obj.t_spike[i_filt]
 
             else:
                 # retrieves the time spikes baseline
@@ -12909,14 +12902,21 @@ class AnalysisGUI(QMainWindow):
                         I_hm_med = np.empty(r_obj.n_filt, dtype=object)
 
                     # calculates the median baseline
-                    t_sp_bl = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, 0]
+                    if len(i_cell_b[i_filt]) != np.shape(r_obj.t_spike[i_filt])[0]:
+                        t_sp_bl = r_obj.t_spike[i_filt][i_cell_b[i_filt], :, 0]
+                    else:
+                        t_sp_bl = r_obj.t_spike[i_filt][:, :, 0]
+
                     I_hm_bl = setup_spiking_heatmap(t_sp_bl, np.vstack(xi_h0), r_obj.is_single_cell,
                                                     None, mean_type, False, is_bl=True)
                     I_hm_med[i_filt] = np.median(I_hm_bl[:, :, 0], axis=1)
 
                 # sets up the spiking frequency arrays
                 t_sp0, _, _ = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, r_obj.is_single_cell)
-                t_spike = np.dstack((t_sp0[i_cell_b[i_filt], :][:, ~is_CCW], t_sp0[i_cell_b[i_filt], :][:, is_CCW]))
+                if np.shape(i_cell_b[i_filt])[0] != len(i_cell_b[i_filt]):
+                    t_spike = np.dstack((t_sp0[i_cell_b[i_filt], :][:, ~is_CCW], t_sp0[i_cell_b[i_filt], :][:, is_CCW]))
+                else:
+                    t_spike = np.dstack((t_sp0[:, ~is_CCW], t_sp0[:, is_CCW]))
 
                 # sets up the xi-value array
                 xi_h0 = [np.unique(xi_bin[is_CCW, :])] * len(ind)

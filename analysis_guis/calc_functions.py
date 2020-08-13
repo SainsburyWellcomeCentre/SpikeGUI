@@ -2912,13 +2912,15 @@ def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean'):
     for i_tt in range(n_tt):
         # sets the mean accuracy values (across all cell counts)
         if use_mean:
+            # case is using the mean values
             y_acc_mn_exp = np.nanmean(y_acc[i_tt], axis=3)
+            y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
+                                             100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
         else:
+            # case is using the median values
             y_acc_mn_exp = np.nanmedian(y_acc[i_tt], axis=3)
-
-        # sets the values for the psychometric fits
-        y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
-                                         100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
+            y_acc_mn = np.hstack((np.nanmedian(100. * y_acc_mn_exp[:, :, :-1], axis=0),
+                                               100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
 
         # calculates/sets the psychometric fit values
         y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
