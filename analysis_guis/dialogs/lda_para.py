@@ -104,6 +104,14 @@ class LDASolverPara(QDialog):
         comp_cond = list(np.unique(cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])))
         # comp_cond = [x for x in t_list0 if (x != 'Black')]
 
+        if cf.has_free_ctype(self.data):
+            # case is there is freely moving cell type data
+            has_free_cell, f_data = True, self.data.externd.free_data
+            c_type = ['All'] + cf.get_unique_group_types(d_clust, 'c_type', c_type=f_data.cell_type)
+        else:
+            # case is there is no freely moving cell type data
+            c_type, has_free_cell = None, False
+
         # sets the field combobox lists
         solver_type = ['eigen', 'lsqr', 'svd']
         cell_types = ['All Cells', 'Narrow Spike Cells', 'Wide Spike Cells']
@@ -121,6 +129,7 @@ class LDASolverPara(QDialog):
             ['LDA Solver Type', 'ListGroup', 'solver_type', solver_type, True, ['use_shrinkage', 'svd']],
             ['Comparison Conditions', 'CheckCombo', 'comp_cond', comp_cond, True, None],
             ['Cell Signal Types', 'ListGroup', 'cell_types', cell_types, self.data.classify.is_set, None],
+            ['Freely Moving Cell Types', 'ListGroup', 'free_ctype', c_type, has_free_cell, None],
             ['', 'NumberGroup', ['y_acc_max'], max_acc_types, d_data.lda is not None, None],
             ['', 'NumberGroup', ['y_acc_min'], min_acc_types, d_data.lda is not None, None],
             ['', 'NumberGroup', ['y_auc_max'], max_auc_types, r_data.phase_roc_auc is not None, None],

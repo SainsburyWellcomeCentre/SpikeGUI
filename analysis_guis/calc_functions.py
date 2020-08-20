@@ -3092,6 +3092,7 @@ def init_lda_solver_para():
         'solver_type': 'eigen',
         'comp_cond': ['Black', 'Uniform'],
         'cell_types': 'All Cells',
+        'free_ctype': 'All',
         'y_acc_max': 100,
         'y_acc_min': 0,
         'y_auc_max': 100,
@@ -3445,6 +3446,11 @@ def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
         lda_para['cell_types'] = set_lda_para(lda_para['cell_types'], d_data.ctype)
         lda_para['y_acc_max'] = set_lda_para(lda_para['y_acc_max'], d_data.yaccmx)
 
+        if hasattr(d_data, 'fctype'):
+            lda_para['free_ctype'] = set_lda_para(lda_para['free_ctype'], d_data.fctype)
+        else:
+            lda_para['free_ctype'] = 'All'
+
         if hasattr(d_data, 'yaccmn'):
             lda_para['y_acc_min'] = set_lda_para(lda_para['y_acc_min'], d_data.yaccmn)
         else:
@@ -3545,6 +3551,7 @@ def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
         'y_auc_max': 'yaucmx',
         'y_auc_min': 'yaucmn',
         'comp_cond': 'ttype',
+        'free_ctype': 'fctype',
     }
 
     # sets the trial count and trial types
@@ -3653,6 +3660,30 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
             # case is wide spikes have been selected
             is_valid[np.logical_not(data.classify.grp_str[ind][ind_m] == 'Wid')] = False
 
+        # applies the freely moving cell types (if not set to "All")
+        if lda_para['free_ctype'] != 'All':
+            # retrieves the free moving cell types for the current experiment
+            f_data = data.externd.free_data
+            free_exp = cf.det_closest_file_match(f_data.exp_name, cf.extract_file_name(cluster['expFile']))[0]
+
+            # retrieves the fixed/free cell maps
+            ind_cl = get_inclusion_filt_indices(data._cluster[ind], data.exc_gen_filt)
+            _, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=[free_exp])
+
+            # removes the cells based on cell type
+            c_type = f_data.cell_type[f_data.exp_name.index(free_exp)][0]
+            if lda_para['free_ctype'] == 'No Type':
+                # case are cells with no cell types
+                is_ok = np.any(np.array(c_type), axis=1)
+            else:
+                # case is a specific freely moving cell type
+                is_ok = np.array(c_type[lda_para['free_ctype']])
+
+            # removes the cells that fixed cells that don't match the free cell type
+            fc_match, has_match = np.zeros(np.shape(f2f_map[0])[0], dtype=bool), f2f_map[0][:, 0] >= 0
+            fc_match[has_match] = is_ok[f2f_map[0][has_match, 1]]
+            is_valid[~fc_match[ind_cl]] = False
+
         # determines if the individual LDA has been calculated
         d_data_i = data.discrim.indiv
         if d_data_i.lda is not None:
@@ -3735,8 +3766,8 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
                 return None, None, None, None, s_flag
 
     # determines the valid cells from each of the loaded experiments
-    n_clust = len(data._cluster) if cf.use_raw_clust(data) else len(data.cluster)
-    i_cell = np.array([det_valid_cells(data, ic, lda_para) for ic in range(n_clust)])
+    i_cell = np.array([det_valid_cells(data, ic, lda_para) if is_r else
+                               np.array([False]) for ic, is_r in enumerate(cf.det_valid_rotation_expt(data))])
 
     # determines if there are any valid loaded experiments
     i_expt = np.where([(np.any(x) and np.min(n_trial[:, i_ex]) >= lda_para['n_trial_min'])
