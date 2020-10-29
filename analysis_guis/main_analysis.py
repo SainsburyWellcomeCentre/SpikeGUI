@@ -952,7 +952,13 @@ class AnalysisGUI(QMainWindow):
                     self.data.comp.is_set = np.any([x.is_set for x in self.data.comp.data])
 
                     # resets fixed/free cell ID#s
-                    self.fcn_data.reset_fix_free_mult_cid('cell_id', self.fcn_data.curr_para['calc_comp'])
+                    self.fcn_data.init_all_func()
+
+                    # updates the parameter/function values and re-runs function parameter object creation
+                    self.fcn_data.curr_para = self.fcn_data.para[self.get_plot_func()]
+                    self.fcn_data.prev_calc_para = self.fcn_data.curr_para
+                    self.fcn_data.prev_fcn = self.get_plot_func()
+                    self.func_select()
 
                 # re-runs the plotting function
                 self.update_click()
@@ -3991,7 +3997,7 @@ class AnalysisGUI(QMainWindow):
             i_expt = f_data.exp_name.index(free_exp_name)
             if plot_scope == 'Individual Cell':
                 # retrieves the cell index (if plotting a single cell response)
-                i_cell = self.get_free_cell_index(cell_id, free_exp_name, is_fix=False)
+                i_cell = self.get_free_cell_index(cell_id, free_exp_name)
 
                 # sets the graph title for the single cell
                 t_str = '{0}\n({1} - {2})'.format(t_str0, free_exp_name, cell_id)
@@ -4275,15 +4281,18 @@ class AnalysisGUI(QMainWindow):
         ##############################################
 
         # initialisations
+        N = dt_et / 2
         y_lim = [1e6, -1e6]
 
         for i_ax, _ax in enumerate(ax[:2]):
             # plots the error area (if required)
             if show_err:
-                cf.create_step_area_patch(_ax, t_ex, sp_evnt_mn[i_ax], sp_evnt_sem[i_ax], 'b')
+                cf.create_step_area_patch(_ax, t_ex + N, sp_evnt_mn[i_ax], sp_evnt_sem[i_ax], 'b')
 
             # plots the mean spiking rate
-            _ax.step(t_ex, sp_evnt_mn[i_ax], color='k', where='mid')
+            t_ex_plt = np.append(t_ex, t_ex[-1] + dt_et)
+            y_ex_plt = np.append(sp_evnt_mn[i_ax], sp_evnt_mn[i_ax][-1])
+            _ax.step(t_ex_plt, y_ex_plt, color='k', where='post')
 
             # determines the overall axis limits
             yL = _ax.get_ylim()
@@ -4301,9 +4310,9 @@ class AnalysisGUI(QMainWindow):
 
             # resets the x-axis limits
             if show_err:
-                _ax.set_xlim([(t_ex[0] - dt_et / 2), (t_ex[-1] + dt_et / 2)])
+                _ax.set_xlim([(t_ex[0] - dt_et / 2), (t_ex_plt[-1] + dt_et / 2)])
             else:
-                _ax.set_xlim([t_ex[0], t_ex[-1]])
+                _ax.set_xlim([t_ex[0], t_ex_plt[-1]])
 
         ############################################
         ####    SPIKE RATE/POSITION SUBPLOTS    ####
@@ -6307,7 +6316,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.ax[1].set_ylim([0, yL_1[1]])
 
     def plot_spike_freq_kinematics(self, rot_filt, cell_id, plot_exp_name, plot_all_expt, spread_type, plot_scope,
-                                   pos_bin, vel_bin, n_smooth, is_smooth, plot_grid):
+                                   pos_bin, vel_bin, n_smooth, smooth_type, plot_grid):
         '''
 
         :param rot_filt:
@@ -6320,13 +6329,13 @@ class AnalysisGUI(QMainWindow):
         :return:
         '''
 
-        def create_kinematic_plots(r_obj, b_sz, n_smooth, is_smooth, plot_scope, plot_grid):
+        def create_kinematic_plots(r_obj, b_sz, n_smooth, smooth_type, plot_scope, plot_grid):
             '''
 
             :param r_obj:
             :param b_sz:
             :param n_smooth:
-            :param is_smooth:
+            :param smooth_type:
             :param is_single_cell:
             :param plot_grid:
             :return:
@@ -6385,7 +6394,7 @@ class AnalysisGUI(QMainWindow):
                     _ax.set_thetamin(0)
                     _ax.set_thetamax(180)
 
-            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, is_smooth, is_single_cell, plot_indiv):
+            def create_vel_line_plots(ax, r_obj, k_sf, xi_bin, k_rng, smooth_type, is_single_cell, plot_indiv):
                 '''
 
                 :param ax:
@@ -6406,6 +6415,7 @@ class AnalysisGUI(QMainWindow):
                 # sets the bin values
                 xi_mid = np.mean(xi_bin, axis=1)
                 x_tick = np.linspace(-k_rng, k_rng, 9)
+                n_sm_indiv = n_smooth if smooth_type == 'Individual Traces' else None
 
                 # creates the radial plots for each of the filter types
                 for i_plot in range(n_plot):
@@ -6415,10 +6425,11 @@ class AnalysisGUI(QMainWindow):
                     # creates the plots for each of the
                     for i_filt in range(r_obj.n_filt):
                         # retrieves the plot values
-                        k_sf_raw, k_sf_mn, k_sf_sem = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell)
+                        k_sf_raw, k_sf_mn, k_sf_sem = \
+                                    self.get_kinematic_plot_values(k_sf[i_filt], i_plot, is_single_cell, n_sm_indiv)
 
                         # smooths the signal (if required)
-                        if is_smooth:
+                        if smooth_type == 'Mean Trace Only':
                             k_sf_mn = medfilt(k_sf_mn, n_smooth)
 
                         # creates the line plot
@@ -6426,10 +6437,8 @@ class AnalysisGUI(QMainWindow):
                         if is_single_cell and plot_indiv:
                             #
                             for i_trial in range(np.shape(k_sf_raw)[0]):
-                                # outputs the trace
+                                # sets the raw trace for the current trial
                                 k_sf_raw_nw = k_sf_raw[i_trial, :]
-                                if is_smooth:
-                                    k_sf_raw_nw = medfilt(k_sf_raw_nw, n_smooth)
 
                                 # creates the new raw trace
                                 sf_min, sf_max = min([sf_min, np.min(k_sf_raw_nw)]), max([sf_max, np.max(k_sf_raw_nw)])
@@ -6472,7 +6481,7 @@ class AnalysisGUI(QMainWindow):
 
             # creates the position polar/velocity line plots
             create_pos_polar_plots(self.plot_fig.ax[:3], r_obj, k_sf[0], xi_bin[0], k_rng[0], b_sz[0], is_single_cell)
-            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], is_smooth,
+            create_vel_line_plots(self.plot_fig.ax[3:], r_obj, k_sf[1], xi_bin[1], k_rng[1], smooth_type,
                                   is_single_cell, plot_indiv)
 
             # resets the subplot layout
@@ -6492,7 +6501,7 @@ class AnalysisGUI(QMainWindow):
         ################################################################################################################
 
         # ensures the smoothing window is an odd integer
-        if is_smooth:
+        if smooth_type != 'No Smoothing':
             if n_smooth % 2 != 1:
                 # if not, then exit with an error
                 e_str = 'The median smoothing filter window span must be an odd integer.'
@@ -6508,7 +6517,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # creates the kinematic spiking frequency plot
-        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, is_smooth, plot_scope, plot_grid)
+        create_kinematic_plots(r_obj, [float(pos_bin), float(vel_bin)], n_smooth, smooth_type, plot_scope, plot_grid)
 
     def plot_norm_spike_freq(self, rot_filt, vel_bin, n_smooth, is_smooth, norm_type, split_plt, plot_grid, plot_scope):
         '''
@@ -7634,6 +7643,136 @@ class AnalysisGUI(QMainWindow):
             # creates the auc stats figure
             self.create_auc_stats_figure(r_obj, rot_filt, plot_cond, plot_grid, i_bin=i_bin_plt, use_vel=use_vel)
 
+        ######################################
+        ####    AUC SCATTERPLOT GRAPHS    ####
+        ######################################
+
+        elif plot_type == 'auROC Scatterplot':
+
+            # initialisations
+            t_type = cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
+            if 'Black' not in t_type:
+                # if Black isn't selected, then output an error to screen
+                e_str = 'Error! The "Black" trial condition must be selected before running this function.'
+                cf.show_error(e_str, 'Invalid Function Parameters')
+
+                # exit flagging an error
+                self.calc_ok = False
+                return
+
+            elif plot_cond not in t_type:
+                # if the plot condition isn't selected, then output an error to screen
+                e_str = 'Error! The "{0}" trial condition must be selected before running this function.'.format(plot_cond)
+                cf.show_error(e_str, 'Invalid Function Parameters')
+
+                # exit flagging an error
+                self.calc_ok = False
+                return
+
+            else:
+                # otherwise, determine the indices of the black/plot_cond trial types
+                ind_match = [[t_type.index('Black'), t_type.index(plot_cond)]]
+
+            # parameters
+            m_size = 50
+            use_all_bin = i_bin == 'All Bins'
+            m = ['o', 's', 'D', 'H', 'x', '^', '*']
+            h_plt, lg_str = [], ['Not Sig.', 'Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
+
+            # significance colours
+            sig_col = [cf.convert_rgb_col([147, 149, 152])[0],  # non-significant markers
+                       cf.convert_rgb_col([33, 72, 98])[0],     # black-only significant markers
+                       cf.convert_rgb_col([222, 126, 93])[0],   # uniform-only significant markers
+                       cf.convert_rgb_col([147, 126, 148])[0]]  # both condition significant spikes
+
+            # sets the analysis values based on the analysis type
+            if use_vel:
+                # case is analysing velocity roc
+                xi = r_data.vel_xi
+                i_bin_comp = r_data.i_bin_vel
+                roc_auc = r_data.vel_roc_auc
+                roc_sig = r_data.vel_roc_sig
+
+            else:
+                # case is analysing speed roc
+                xi = r_data.spd_xi
+                i_bin_comp = r_data.i_bin_spd
+                roc_auc = r_data.spd_roc_auc
+                roc_sig = r_data.spd_roc_sig
+
+            # determines the velocity bin column(s) to be analysed
+            if use_all_bin:
+                # sets the search columns to be all columns except the comparison column
+                xi_col = np.ones(np.shape(xi)[0], dtype=bool)
+                xi_col[i_bin_comp] = False
+
+            else:
+                # sets the search column to be the specific analysis velocity bin
+                i_bin_sp = np.array(i_bin.split(' '))[np.array([0, 2])].astype(int)
+                xi_col = np.where(np.sum(np.abs(np.subtract(xi, i_bin_sp)),axis=1)==0)[0][0]
+
+            # retrieves the condition filtered rotation data
+            i_cell_b, r_obj_tt = cfcn.get_cond_filt_data(self.data, r_obj)
+
+            # initialises the plot axes
+            self.init_plot_axes(n_plot=1)
+            ax = self.plot_fig.ax[0]
+
+            # initialises the plot axes region
+            ax.plot([0, 1], [0, 1], 'k--', linewidth=2)
+            ax.grid(plot_grid)
+
+            # retrieves the auc/stats values for each cell grouping between the two plotting conditions
+            for i, im in enumerate(ind_match):
+                # sets the black/comparison trial condition cell group type values (for the current match)
+                if len(i_cell_b[im[1]]):
+                    # retrieves the auc and statistical significance values
+                    x_auc = roc_auc['Black'][i_cell_b[im[0]], :][:, xi_col]
+                    y_auc = roc_auc[plot_cond][i_cell_b[im[1]], :][:, xi_col]
+                    x_sig = roc_sig[im[0], is_boot][i_cell_b[im[0]], :][:, xi_col]
+                    y_sig = roc_sig[im[1], is_boot][i_cell_b[im[1]], :][:, xi_col]
+                    xy_sig = x_sig.astype(int) + 2 * y_sig.astype(int)
+
+                    # flattens the arrays (
+                    if np.ndim(x_auc) > 1:
+                        x_auc = x_auc.flatten()
+                        y_auc = y_auc.flatten()
+                        xy_sig = xy_sig.flatten()
+
+                    # ensures all auc values are greater than 0.5
+                    ii, jj = x_auc < 0.5, y_auc < 0.5
+                    x_auc[ii], y_auc[jj] = 1 - x_auc[ii], 1 - y_auc[jj]
+
+                    # determines the significance/facecolour strings will be for each cell
+                    sig_col_plt = np.empty(len(xy_sig), dtype=object)
+                    face_col_plt = np.empty(len(xy_sig), dtype=object)
+                    for j in range(len(xy_sig)):
+                        sig_col_plt[j] = sig_col[xy_sig[j]]
+                        face_col_plt[j] = sig_col_plt[j] if xy_sig[j] > 0 else 'None'
+
+                    # creates the significance markers
+                    ax.scatter(x_auc, y_auc, marker=m[i], s=m_size,
+                                  facecolor=face_col_plt, edgecolor=sig_col_plt)
+
+                    # creates the significance legend plot markers
+                    if i == 0:
+                        lg_ind = np.unique(xy_sig)
+                        for j in lg_ind:
+                            h_plt.append(ax.scatter(-1, -1, marker=m[i], s=m_size,
+                                                    facecolor='None' if j == 0 else sig_col[j],
+                                                    edgecolor=sig_col[j]))
+
+            # resets the figure size
+            self.plot_fig.fig.set_tight_layout(False)
+            self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.980])
+
+            # updates the axis limits
+            cf.set_axis_limits(ax, [0.5, 1], [0.5, 1])
+            ax.set_xlabel('Black auROC Scores')
+            ax.set_ylabel('{0} auROC Scores'.format(plot_cond))
+            ax.legend(h_plt, lg_str, loc=9, ncol=len(lg_str), bbox_to_anchor=(0.5, 0.98))
+            ax.set_title('Velocity ROC Comparison ({0})'.format(i_bin), fontsize=16, fontweight='bold')
+
     def plot_cond_grouping_scatter(self, rot_filt, plot_exp_name, plot_all_expt, plot_cond, m_size, show_grp_markers,
                                    show_sig_markers, mark_type, plot_trend, plot_type, plot_grid, plot_scope):
         '''
@@ -7704,14 +7843,17 @@ class AnalysisGUI(QMainWindow):
             elif (not _show_grp_markers) or (mark_type == 'Motion Sensitivity/Direction Selectivity'):
                 st_type = st_type_name.index(r_data.phase_grp_stats_type)
                 grp_type, g_type = ['MS/DS', 'MS/Not DS', 'Not MS'], r_data.phase_gtype[:, st_type]
+
             elif mark_type == 'Rotation/Visual Response':
                 grp_type, g_type = ['None', 'Rotation', 'Visual', 'Both'], r_data.ds_gtype
 
             if mark_type == 'Congruency':
                 e_col = [cf.convert_rgb_col(_light_gray), cf.convert_rgb_col(_black), sig_col[2]]
                 f_col = ['None', cf.convert_rgb_col(_black), sig_col[2]]
+
             elif mark_type == 'Rotation/Visual Response':
                 e_col = f_col = cf.get_plot_col(len(grp_type), len(sig_col))
+
             elif mark_type == 'Motion Sensitivity/Direction Selectivity':
                 e_col = f_col = cf.get_plot_col(len(grp_type), len(sig_col))
 
@@ -8302,7 +8444,7 @@ class AnalysisGUI(QMainWindow):
                             # runs the pair-wise wilcoxon test
                             i_grp, y_grp = [0] * n_ex[i_tt] + [1] * n_ex[j_tt], y[i_tt] + y[j_tt]
                             results = r_stats.pairwise_wilcox_test(FloatVector(y_grp), FloatVector(i_grp),
-                                                                   p_adjust_method='bonf', paired=False)
+                                                                   p_adjust_method='bonf', paired=True)
                             p_val_nw = cf.get_r_stats_values(results, 'p.value')
 
                         else:
@@ -10612,7 +10754,7 @@ class AnalysisGUI(QMainWindow):
 
             # retrieves the channel layer/depths for each valid cluster
             chL0 = [c['chLayer'][_ic] for c, _ic in zip(_data._cluster, i_c)]
-            chD0 = [np.array([_chM[_chM[:, 1] == x, 3][0] for x in _chD]) for _chM, _chD in zip(chMap, chDepth)]
+            chD0 = [list(_chM[_chD.astype(int), 3]) for _chM, _chD in zip(chMap, chDepth)]
 
             # reorders the channel layer/depth values by decreasing
             for i_tt in range(n_tt):
@@ -12610,7 +12752,7 @@ class AnalysisGUI(QMainWindow):
             # retrieves the depths from each experiment
             for c, pd in zip(cluster, probe_depth):
                 chMap = c['expInfo']['channel_map']
-                cell_depth.append([pd - chMap[chMap[:, 1] == x, 3][0] for x in c['chDepth']])
+                cell_depth.append(list(pd - chMap[c['chDepth'].astype(int), 3]))
 
             # returns the
             return np.array(cell_depth)
@@ -12788,7 +12930,7 @@ class AnalysisGUI(QMainWindow):
                 for i_filt, rr in enumerate(r_obj.rot_filt_tot):
                     # retrieves the significance flags for the current filter type
                     if is_avg:
-                        Y_sort[i_filt] = -np.mean(r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], :], axis=1)
+                        Y_sort[i_filt] = -np.nanmean(r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], :], axis=1)
                     elif is_temp:
                         Y_sort[i_filt] = -r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], is_pos]
                     else:
@@ -12796,6 +12938,10 @@ class AnalysisGUI(QMainWindow):
                             r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], 1],
                             r_data.vel_sf_corr_mn[rr['t_type'][0]][i_cell_b2[i_filt], 0]
                         ))
+
+                    # removes any NaN values
+                    is_nan = np.isnan(Y_sort[i_filt])
+                    Y_sort[i_filt][is_nan] = 0
 
                 if (not is_temp) and (not is_avg):
                     # combines the sorting values over all filter types
@@ -12913,7 +13059,7 @@ class AnalysisGUI(QMainWindow):
 
                 # sets up the spiking frequency arrays
                 t_sp0, _, _ = self.get_kinematic_plot_values(k_sf[i_filt], i_plot, r_obj.is_single_cell)
-                if np.shape(i_cell_b[i_filt])[0] != len(i_cell_b[i_filt]):
+                if np.shape(t_sp0)[0] != len(i_cell_b[i_filt]):
                     t_spike = np.dstack((t_sp0[i_cell_b[i_filt], :][:, ~is_CCW], t_sp0[i_cell_b[i_filt], :][:, is_CCW]))
                 else:
                     t_spike = np.dstack((t_sp0[:, ~is_CCW], t_sp0[:, is_CCW]))
@@ -14419,7 +14565,7 @@ class AnalysisGUI(QMainWindow):
         # returns the arrays
         return r_obj_wc, sf_corr, sf_sig, sf_sig_all, ind_cl_match
 
-    def get_kinematic_plot_values(self, k_sf, i_plot, is_single_cell):
+    def get_kinematic_plot_values(self, k_sf, i_plot, is_single_cell, n_sm_indiv=None):
         '''
 
         :param k_sf:
@@ -14441,6 +14587,11 @@ class AnalysisGUI(QMainWindow):
         else:
             # case is pooled position
             k_sf_raw = np.mean(k_sf, axis=2)
+
+        # smoothes the individual traces (if the smoothing window size is specified)
+        if n_sm_indiv is not None:
+            for i in range(np.size(k_sf_raw, axis=0)):
+                k_sf_raw[i, :] = medfilt(k_sf_raw[i, :], n_sm_indiv)
 
         # calculates the mean spiking frequency over all cells
         n_cell = np.size(k_sf_raw, axis=0)
@@ -14650,7 +14801,8 @@ class AnalysisGUI(QMainWindow):
                 x1_bin0, y_bin0 = np.array([ttype.index(x) for x in x1_grp[jj]]), y_grp[jj]
 
                 # runs the wilcoxon test and then retrieves the p-values
-                results = r_stats.pairwise_wilcox_test(y_bin0, x1_bin0, paired=True)
+                # RUNS TEMPORAL LDA WILCOX PAIRWISE TEST
+                results = r_stats.pairwise_wilcox_test(y_bin0, x1_bin0, paired=True, p_adjust_method="none")
                 p_value = cf.get_r_stats_values(results, 'p.value')
                 p_str[i_grp][i_xi, 2] = cf.set_pvalue_string(p_value)
 
@@ -15689,10 +15841,16 @@ class AnalysisFunctions(object):
         if has_eyetrack_data:
             etrack_exp = self.get_exp_name_list('EyeTrackExperiments')
 
+        # sets the first fixed experiment name (set no valid experiments if no fixed experiments)
+        fix_exp0 = fix_exp[0] if len(fix_exp) else 'No Valid Experiments'
+        fix_exp_ud0 = fix_exp_ud[0] if len(fix_exp_ud) else 'No Valid Experiments'
+        fix_exp_md0 = fix_exp_md[0] if len(fix_exp_md) else 'No Valid Experiments'
+
         # retrieves the fixed cell IDs
-        fix_cid = self.get_fix_cell_ids(data, fix_exp[0])
+        fix_cid = self.get_fix_cell_ids(data, fix_exp0)
         ff_cid = self.get_fix_free_cell_ids(data, plot_comp[0])
         ff_cid_nm = self.get_fix_free_cell_ids(data, plot_comp[0], match_reqd=False)
+        all_cid = self.get_all_cell_ids(data, all_exp[0])
 
         # list initialisations and other parameters
         free_exp, ff_cluster = self.get_ff_cluster_details()
@@ -15774,7 +15932,7 @@ class AnalysisFunctions(object):
         self.add_func(type='Cluster Matching',
                       name='Fixed/Free Cluster Matching',
                       func='plot_cluster_match_signals',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         # ====> Matched Signal Comparison
@@ -15800,7 +15958,7 @@ class AnalysisFunctions(object):
         self.add_func(type='Cluster Matching',
                       name='Matched Signal Comparison',
                       func='plot_single_match_mean',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         # ====> Cluster Match Metrics
@@ -15845,7 +16003,7 @@ class AnalysisFunctions(object):
         self.add_func(type='Cluster Matching',
                       name='Matched Cluster ISI Metrics (New Method)',
                       func='plot_new_cluster_signals',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         # ====> Inter-Spike Interval Distributions
@@ -15874,7 +16032,7 @@ class AnalysisFunctions(object):
         self.add_func(type='Cluster Matching',
                       name='Inter-Spike Interval Distributions',
                       func='plot_cluster_isi',
-                      multi_fig=['i_cluster'],
+                      multi_fig=['cell_id'],
                       para=para)
 
         # ====> Matched Cluster Metrics (Old Method)
@@ -15915,7 +16073,7 @@ class AnalysisFunctions(object):
         # ====> Cluster Classification
         para = {
             # plotting parameters
-            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['exp_name', True]
             },
@@ -15950,7 +16108,7 @@ class AnalysisFunctions(object):
                          'min_val': 1, 'max_val': 4},
 
             # plotting parameters
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'action_type': {'type': 'L', 'text': 'Classification Type', 'def_val': act_type[0], 'list': act_type},
             'plot_type': {'type': 'L', 'text': 'Plot Type', 'def_val': 'bar', 'list': ['bar', 'scatterplot']},
             'i_plot': {'text': 'Plot Indices', 'def_val': 1, 'min_val': 1, 'is_list': True},
@@ -16379,7 +16537,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_shuffle': {'type': 'B', 'text': 'Plot Shuffled Spiking Frequency Traces', 'def_val': False},
@@ -16749,7 +16907,7 @@ class AnalysisFunctions(object):
                 'def_val': dcopy(rot_filt0), 'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
@@ -17008,6 +17166,7 @@ class AnalysisFunctions(object):
         comp_type_phs = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
         norm_type_sf = ['First Speed Bin', 'Overall Max SF', 'None']
+        vel_sm_type = ['Mean Trace Only', 'Individual Traces', 'No Smoothing']
 
         # sets the LDA comparison types
         comp_type = np.unique(
@@ -17028,7 +17187,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {
@@ -17057,7 +17216,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {
@@ -17104,7 +17263,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0], 'is_visible': False},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
@@ -17142,7 +17301,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment Name', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
@@ -17185,7 +17344,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md[0], 'list': fix_exp_md,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md0, 'list': fix_exp_md,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
@@ -17217,7 +17376,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md[0], 'list': fix_exp_md
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_md0, 'list': fix_exp_md
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
@@ -17252,7 +17411,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
@@ -17268,8 +17427,9 @@ class AnalysisFunctions(object):
             'pos_bin': {'type': 'L', 'text': 'Position Bin Size (deg)', 'list': pos_bin, 'def_val': '10'},
             'vel_bin': {'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': vel_bin, 'def_val': '5'},
             'n_smooth': {'text': 'Smoothing Window', 'def_val': 5, 'min_val': 3},
-            'is_smooth': {
-                'type': 'B', 'text': 'Smooth Velocity Trace', 'def_val': True, 'link_para': ['n_smooth', False]
+            'smooth_type': {
+                'type': 'L', 'text': 'Velocity Smoothing Type', 'list': vel_sm_type, 'def_val': vel_sm_type[0],
+                'link_para': ['n_smooth', 'No Smoothing']
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
         }
@@ -17338,7 +17498,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1], 'is_visible': False
             },
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True],
@@ -17356,7 +17516,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17381,7 +17541,7 @@ class AnalysisFunctions(object):
                 },
                 'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
                 'plot_exp_name': {
-                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud0, 'list': fix_exp_ud,
                     'para_reset': [['cell_id', self.reset_fix_cid]]
                 },
                 'plot_all_expt': {
@@ -17424,7 +17584,7 @@ class AnalysisFunctions(object):
                 },
                 'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
                 'plot_exp_name': {
-                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud0, 'list': fix_exp_ud,
                     'para_reset': [['cell_id', self.reset_fix_cid]]
                 },
                 'plot_trend': {'type': 'B', 'text': 'Plot Group Trendlines', 'def_val': False},
@@ -17478,7 +17638,7 @@ class AnalysisFunctions(object):
                 },
                 'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1, 'is_visible': False},
                 'plot_exp_name': {
-                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud, 'is_visible': False
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud0, 'list': fix_exp_ud, 'is_visible': False
                 },
                 'plot_all_expt': {
                     'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False,
@@ -17516,7 +17676,7 @@ class AnalysisFunctions(object):
                 },
                 'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
                 'plot_exp_name': {
-                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud[0], 'list': fix_exp_ud,
+                    'type': 'L', 'text': 'Experiment', 'def_val': fix_exp_ud0, 'list': fix_exp_ud,
                     'para_reset': [['cell_id', self.reset_fix_cid]]
                 },
                 'plot_all_expt': {
@@ -17570,7 +17730,7 @@ class AnalysisFunctions(object):
         vis_type = list(np.array(['UniformDrifting', 'MotorDrifting'])[np.array([has_ud_expt, has_md_expt])])
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
         cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
-        vel_sig_type = ['auROC Significance', 'auROC CDF/Statistics']
+        vel_sig_type = ['auROC Significance', 'auROC CDF/Statistics', 'auROC Scatterplot']
         ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
         sort_type_auc = ['AUC ROC (CW vs BL)', 'AUC ROC (CCW vs BL)', 'AUC ROC (CCW vs CW)']
 
@@ -17582,6 +17742,12 @@ class AnalysisFunctions(object):
         #
         rot_filt_grp = cf.init_rotation_filter_data(False)
         rot_filt_grp['t_type'] = ['Black'] + ['Uniform'] + ['MotorDrifting'] if has_md_expt else []
+
+        #
+        rot_filt_vel_roc = cf.init_rotation_filter_data(False)
+        if data.rotation.vel_roc_auc is not None:
+            rot_filt_vel_roc['t_type'] = list(data.rotation.vel_roc_auc.keys())
+
 
         #
         vel_roc_para = cfcn.init_roc_para(data.rotation, 'vel_roc_sig')
@@ -17613,7 +17779,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -17656,7 +17822,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17714,7 +17880,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17766,7 +17932,7 @@ class AnalysisFunctions(object):
                 'para_reset': [['sort_cond', self.reset_sort_cond]]
             },
             'i_cluster': {'text': 'Cluster Index', 'def_val': 1, 'min_val': 1},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'norm_type': {
@@ -17825,7 +17991,7 @@ class AnalysisFunctions(object):
             },
             'cell_id': {'type': 'L', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id', self.reset_fix_cid]]
             },
 
@@ -17879,7 +18045,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp, 'list': fix_exp[0]},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp, 'list': fix_exp0},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17933,7 +18099,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -17968,20 +18134,21 @@ class AnalysisFunctions(object):
             },
             'auc_stype': {
                 'gtype': 'C', 'type': 'L', 'text': 'AUC CI Calculation Type', 'list': auc_stype,
-                'def_val': vel_roc_para['auc_stype'], 'link_para': ['n_boot', 'Delong']
+                'def_val': dcopy(vel_roc_para['auc_stype']), 'link_para': ['n_boot', 'Delong']
             },
             'spd_x_rng': {
                 'gtype': 'C', 'type': 'L', 'text': 'Comparison Speed Range', 'list': sc_rng,
-                'def_val': vel_roc_para['spd_x_rng']
+                'def_val': dcopy(vel_roc_para['spd_x_rng'])
             },
             'vel_bin': {
                 'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/sec)', 'list': roc_vel_bin,
                 'para_reset': [['spd_x_rng', self.reset_spd_rng], ['i_bin', self.reset_plot_index]],
-                'def_val': vel_roc_para['vel_bin'],
+                'def_val': dcopy(vel_roc_para['vel_bin']),
             },
-            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count', 'def_val': vel_roc_para['n_sample']},
+            'n_sample': {'gtype': 'C', 'text': 'Equal Timebin Resampling Count',
+                         'def_val': dcopy(vel_roc_para['n_sample'])},
             'equal_time': {
-                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': vel_roc_para['equal_time'],
+                'gtype': 'C', 'type': 'B', 'text': 'Use Equal Timebins', 'def_val': dcopy(vel_roc_para['equal_time']),
                 'link_para': ['n_sample', False]
             },
 
@@ -17994,10 +18161,10 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'rot_filt': {
-                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
+                'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': rot_filt_vel_roc
             },
             'plot_err': {'type': 'B', 'text': 'Plot Error Patch', 'def_val': True},
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True,
                 'link_para': [['plot_exp_name', True], ['plot_err', True]]
@@ -18018,8 +18185,8 @@ class AnalysisFunctions(object):
             'plot_type': {
                 'type': 'L', 'text': 'Analysis Plot Type', 'list': vel_sig_type, 'def_val': vel_sig_type[0],
                 'link_para': [['plot_cond', vel_sig_type[0]], ['i_bin', vel_sig_type[0]],
-                              ['plot_err', vel_sig_type[1]], ['plot_exp_name', vel_sig_type[1]],
-                              ['plot_all_expt', vel_sig_type[1]], ['pool_expt', vel_sig_type[1]]]
+                              ['plot_err', vel_sig_type[1:]], ['plot_exp_name', vel_sig_type[1:]],
+                              ['plot_all_expt', vel_sig_type[1:]], ['pool_expt', vel_sig_type[1:]]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -18059,7 +18226,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_comp
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments',
                               'def_val': True, 'link_para': ['plot_exp_name', True]},
             'plot_cond': {'type': 'L', 'text': 'Plot Conditions', 'list': p_cond, 'def_val': 'Uniform'},
@@ -18119,7 +18286,7 @@ class AnalysisFunctions(object):
                 'type': 'Sp', 'text': 'Rotation Filter Parameters', 'para_gui': RotationFilter,
                 'para_gui_var': {'rmv_fields': ['t_type']}, 'def_val': rot_filt_grp
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -18195,7 +18362,7 @@ class AnalysisFunctions(object):
                 'para_gui_var': {'rmv_fields': ['t_freq_dir', 't_type', 't_cycle']}
             },
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp, 'is_visible': False
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp, 'is_visible': False
             },
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False
@@ -18261,7 +18428,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -18457,7 +18624,7 @@ class AnalysisFunctions(object):
             'plot_transform': {'type': 'B', 'text': 'Plot LDA Transform Values', 'def_val': False},
             's_factor': {'text': 'Cell Marker Size Scale Factor', 'def_val': 2, 'min_val': 1},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'is_enabled': has_multi_expt
             },
             'plot_all_expt': {
@@ -18550,7 +18717,7 @@ class AnalysisFunctions(object):
 
             # plotting parameters
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'is_enabled': has_multi_expt
             },
             'plot_all_expt': {
@@ -18608,7 +18775,7 @@ class AnalysisFunctions(object):
             'cell_id2': {'type': 'L', 'text': 'Second Cell ID#', 'list': fix_cid,
                          'def_val': fix_cid[1] if len(fix_cid) > 1 else fix_cid[0]},
             'plot_exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
+                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp,
                 'para_reset': [['cell_id1', self.reset_fix_cid], ['cell_id2', self.reset_fix_cid]]
             },
             'plot_corr': {
@@ -19055,12 +19222,12 @@ class AnalysisFunctions(object):
         para = {
             # plotting parameters
             'cell_id': {
-                'type': 'CL', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': cf.set_binary_groups(len(fix_cid), 0),
+                'type': 'CL', 'text': 'Cell ID#', 'list': all_cid, 'def_val': cf.set_binary_groups(len(all_cid), 0),
                 'other_para': '--- Select Plot Cell ID#''s ---'
             },
             'exp_name': {
-                'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
-                'para_reset': [['cell_id', self.reset_fix_mult_cid]]
+                'type': 'L', 'text': 'Experiment', 'list': all_exp, 'def_val': all_exp[0],
+                'para_reset': [['cell_id', self.reset_all_mult_cid]]
             },
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -19075,12 +19242,12 @@ class AnalysisFunctions(object):
         para = {
             # plotting parameters
             'cell_id': {
-                'type': 'CL', 'text': 'Cell ID#', 'list': fix_cid, 'def_val': cf.set_binary_groups(len(fix_cid), 0),
+                'type': 'CL', 'text': 'Cell ID#', 'list': all_cid, 'def_val': cf.set_binary_groups(len(all_cid), 0),
                 'other_para': '--- Select Plot Cell ID#''s ---'
             },
             'exp_name': {
-                'type': 'L', 'text': 'Experiment', 'list': fix_exp, 'def_val': fix_exp[0],
-                'para_reset': [['cell_id', self.reset_fix_mult_cid]]
+                'type': 'L', 'text': 'Experiment', 'list': all_exp, 'def_val': all_exp[0],
+                'para_reset': [['cell_id', self.reset_all_mult_cid]]
             },
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['cell_id', True]},
             'window_size': {'text': 'Window Size (ms)', 'def_val': 10, 'min_val': 5, 'max_val': 50},
@@ -19093,14 +19260,14 @@ class AnalysisFunctions(object):
 
         para = {
             # plotting parameters
-            'i_ref': {'type': 'L', 'text': 'Reference Cell ID#', 'list': fix_cid, 'def_val': fix_cid[0]},
+            'i_ref': {'type': 'L', 'text': 'Reference Cell ID#', 'list': all_cid, 'def_val': all_cid[0]},
             'i_comp': {
-                'type': 'CL', 'text': 'Comparison Cell ID#', 'def_val': cf.set_binary_groups(len(fix_cid), 0),
-                'list': fix_cid, 'other_para': '--- Select Comparison Cell ID#''s ---'
+                'type': 'CL', 'text': 'Comparison Cell ID#', 'def_val': cf.set_binary_groups(len(all_cid), 0),
+                'list': all_cid, 'other_para': '--- Select Comparison Cell ID#''s ---'
             },
             'exp_name': {
-                'type': 'L', 'text': 'Experiment', 'def_val': fix_exp[0], 'list': fix_exp,
-                'para_reset': [['i_ref', self.reset_fix_cid], ['i_comp', self.reset_fix_mult_cid]]
+                'type': 'L', 'text': 'Experiment', 'def_val': all_exp[0], 'list': all_exp,
+                'para_reset': [['i_ref', self.reset_all_cid], ['i_comp', self.reset_all_mult_cid]]
             },
             'plot_all': {'type': 'B', 'text': 'Plot All Clusters', 'def_val': True, 'link_para': ['i_comp', True]},
             'm_size': {'text': 'Scatterplot Markersize', 'def_val': 30},
@@ -20025,6 +20192,108 @@ class AnalysisFunctions(object):
         # flag that the parameters are finished updating
         self.is_updating = False
 
+    def reset_all_cid(self, p_name, in_value):
+        '''
+
+        :param p_name:
+        :param in_value:
+        :return:
+        '''
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # retrieves the experiment name parameter
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
+        all_exp = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+
+        # retrieves the fixed cell ID#'s for the current expt
+        all_cid = self.get_all_cell_ids(self.get_data_fcn(), all_exp)
+
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            # sets the selection index (if there is a match with the current selection)
+            c_txt = h_list[0].currentText()
+            i_sel = all_cid.index(c_txt) if c_txt in all_cid else 0
+        else:
+            # sets the selection index
+            i_sel_match = re.findall('\d', p_name)
+            i_sel = 0 if (len(i_sel_match) == 0) else min(int(i_sel_match[0]) - 1, len(all_cid) - 1)
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = all_cid[i_sel]
+        d_grp[i_grp]['para'][p_name]['list'] = all_cid
+
+        # if there is no object handle, then exit the function
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new item range
+        h_list.clear()
+        for cid in all_cid:
+            h_list.addItem(cid)
+
+        # sets the list's selected index
+        h_list.setCurrentIndex(i_sel)
+
+        # flag that the parameters are finished updating
+        self.is_updating = False
+
+    def reset_all_mult_cid(self, p_name, in_value):
+        '''
+
+        :param p_name:
+        :param in_value:
+        :return:
+        '''
+
+        # retrieves the dropdown list object handles
+        h_list = self.find_obj_handle([QComboBox], p_name)
+        if len(h_list):
+            h_list = h_list[0]
+        else:
+            return
+
+        # retrieves the details for the currently selected function
+        d_grp, i_grp = self.get_curr_func_details()
+
+        # retrieves the experiment name parameter
+        p_exp_name = next(pk for pk in d_grp[i_grp]['para'] if 'Experiment' in d_grp[i_grp]['para'][pk]['text'])
+        all_exp = in_value if isinstance(in_value, str) else self.curr_para[p_exp_name]
+
+        # retrieves the fixed cell ID#'s for the current expt
+        all_cid = self.get_all_cell_ids(self.get_data_fcn(), all_exp)
+
+        # retrieves the indices of the currently selected items
+        pr_cid = [h_list.itemText(i) for i in range(h_list.count())]
+        i_sel_c = np.array([pr_cid[1:].index(s) for s in h_list.getSelectedItems()])
+        nw_state = cf.set_binary_groups(len(all_cid), i_sel_c[i_sel_c < len(all_cid)])
+        nw_list = [pr_cid[0]] + all_cid
+
+        # resets the associated parameter value
+        self.curr_para[p_name] = list(np.array(nw_list[1:])[nw_state])
+        d_grp[i_grp]['para'][p_name]['def_val'] = nw_state
+        d_grp[i_grp]['para'][p_name]['list'] = nw_list
+
+        # flag that the parameters are updating
+        self.is_updating = True
+
+        # clears then adds the new checklist values
+        h_list.clear()
+        for i, cid in enumerate(nw_list):
+            h_list.addItem(cid, i > 0)
+            if i > 0:
+                # sets the state values if not the first line
+                h_list.setState(i, nw_state[i - 1])
+
+        # flag that the parameters are updating
+        self.is_updating = False
+
     def reset_fix_cid(self, p_name, in_value):
         '''
 
@@ -20210,6 +20479,10 @@ class AnalysisFunctions(object):
         h_list = self.find_obj_handle([QComboBox], p_name)
         if len(h_list):
             h_list = h_list[0]
+            try:
+                s_list = h_list.getSelectedItems()
+            except:
+                return
         else:
             return
 
@@ -20244,7 +20517,7 @@ class AnalysisFunctions(object):
 
             # retrieves the indices of the currently selected items
             pr_cid = [h_list.itemText(i) for i in range(h_list.count())]
-            i_sel_c = np.array([pr_cid[1:].index(s) for s in h_list.getSelectedItems()])
+            i_sel_c = np.array([pr_cid[1:].index(s) for s in s_list])
             if len(i_sel_c):
                 nw_state = cf.set_binary_groups(len(ff_cid), i_sel_c[i_sel_c < len(ff_cid)])
             else:
@@ -21328,6 +21601,25 @@ class AnalysisFunctions(object):
                 # otherwise, then return an array indicating no valid cells
                 return ['No Valid Cells']
 
+        else:
+            # otherwise, then return an array indicating no valid cells
+            return ['No Valid Cells']
+
+    def get_all_cell_ids(self, data, all_exp):
+        '''
+
+        :param data:
+        :param all_exp:
+        :return:
+        '''
+
+        # determines the index of the experiment being analysed
+        i_expt = [cf.extract_file_name(x['expFile']) for x in data._cluster].index(all_exp)
+        cl_ind = cfcn.get_inclusion_filt_indices(data._cluster[i_expt], data.exc_gen_filt)
+        if np.any(cl_ind):
+            # if there are valid cells, then return the cell ID array
+            cl_id = np.array(data._cluster[i_expt]['clustID'])[cl_ind]
+            return ['Cell #{0}'.format(cid) for cid in np.sort(cl_id)]
         else:
             # otherwise, then return an array indicating no valid cells
             return ['No Valid Cells']

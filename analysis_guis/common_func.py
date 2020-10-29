@@ -2781,17 +2781,17 @@ def create_error_area_patch(ax, x, y_mn, y_err, col, f_alpha=0.2, y_err2=None, l
     # sets up the error patch vertices
     if y_err2 is None:
         if y_mn is None:
-            err_vert = [*zip(x, y_err), *zip(x[::-1], y_err[::-1])]
+            err_vert = [*zip(x, np.maximum(0, y_err)), *zip(x[::-1], np.maximum(0, y_err[::-1]))]
         else:
-            err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err[::-1])]
+            err_vert = [*zip(x, np.maximum(0, y_mn + y_err)), *zip(x[::-1], np.maximum(0, y_mn[::-1] - y_err[::-1]))]
     else:
         # removes the non-NaN values
         y_err2 = dcopy(y_err2)[is_ok]
 
         if y_mn is None:
-            err_vert = [*zip(x, y_err), *zip(x[::-1], y_err2[::-1])]
+            err_vert = [*zip(x, np.maximum(0, y_err)), *zip(x[::-1], np.maximum(0, y_err2[::-1]))]
         else:
-            err_vert = [*zip(x, y_mn + y_err), *zip(x[::-1], y_mn[::-1] - y_err2[::-1])]
+            err_vert = [*zip(x, np.maximum(0, y_mn + y_err)), *zip(x[::-1], np.maximum(0, y_mn[::-1] - y_err2[::-1]))]
 
     # creates the polygon object and adds it to the axis
     poly = Polygon(err_vert, facecolor=col, alpha=f_alpha, edgecolor=edge_color, linewidth=3, linestyle=l_style)

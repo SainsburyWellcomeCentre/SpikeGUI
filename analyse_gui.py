@@ -1,6 +1,7 @@
 # module import
 import os
 import sys
+import time
 
 if sys.platform == 'linux':
     os.environ['R_HOME'] = '/home/skeshav/miniconda3/envs/rotation_analysis/lib/R/'
@@ -20,5 +21,7 @@ if __name__ == '__main__':
 
     # runs the analysis GUIs
     app = QApplication([])
+    time.sleep(0.5)
     h_main = main_analysis.AnalysisGUI()
+    time.sleep(0.5)
     app.exec()

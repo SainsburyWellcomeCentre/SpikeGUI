@@ -266,10 +266,8 @@ class InfoDialog(QDialog):
         :return:
         '''
 
-        # initialisations
-        ff_dict = {}
-
         # retrieves the cluster data
+        ff_dict = {}
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
         has_free_data = hasattr(self.data.externd, 'free_data')
@@ -286,6 +284,7 @@ class InfoDialog(QDialog):
             ['Cluster\nID#', 'clustID'],
             ['Channel\nDepth', 'chDepth'],
             ['Channel\nDepth ({0}m)'.format(cf._mu), 'special'],
+            ['Surface\nDepth ({0}m)'.format(cf._mu), 'special'],
             ['Channel\nRegion', 'chRegion'],
             ['Channel\nLayer', 'chLayer'],
             ['Spiking\nFrequency', 'special'],
@@ -343,7 +342,11 @@ class InfoDialog(QDialog):
                 'Mean Vec.\nLength': 'mean_vec_length',
             }
 
-        #
+        # retrieves the channel map/depth values
+        ch_map = c_data['expInfo']['channel_map']
+        ch_depth = ch_map[c_data['chDepth'].astype(int), 3]
+
+        # sets the data for each cell (over each metric type)
         t_data = np.empty((nC, len(cl_info)), dtype=object)
         for itt, tt in enumerate(cl_info):
             # sets the label value
@@ -352,8 +355,11 @@ class InfoDialog(QDialog):
                     nw_data = cl_inc
 
                 elif tt[0] == 'Channel\nDepth ({0}m)'.format(cf._mu):
-                    ch_map = c_data['expInfo']['channel_map']
-                    nw_data = np.array([ch_map[ch_map[:, 1] == x, 3][0] for x in c_data['chDepth']]).astype(str)
+                    nw_data = ch_depth.astype(int).astype(str)
+
+                elif tt[0] == 'Surface\nDepth ({0}m)'.format(cf._mu):
+                    nw_data = np.array(c_data['expInfo']['probe_depth'] - ch_depth).astype(int).astype(str)
+
 
                 elif tt[0] == 'Cluster\nIndex':
                     nw_data = (np.array(list(range(nC))) + 1).astype(str)

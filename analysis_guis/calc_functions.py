@@ -3729,6 +3729,12 @@ def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, 
 
         # returns a false flag
         return None, None, None, None, 0
+    else:
+        # if there are no valid rotation experiments, then exit with false flag values
+        is_rot = cf.det_valid_rotation_expt(data, False)
+        if ~np.any(is_rot):
+            # returns a false flag
+            return None, None, None, None, 0
 
     # sets up the black phase data filter and returns the time spikes
     r_filt = cf.init_rotation_filter_data(False)

@@ -3341,7 +3341,7 @@ class WorkerThread(QThread):
                         t_spike_phs = t_spike[ind_type[i_phs][i_filt]][i_cell, :, :]
 
                     # calculates the roc curve/auc integral
-                    ig_nw = ig_cell[i_cell]
+                    ig_nw = int(ig_cell[i_cell])
                     roc[ig_nw, i_phs] = cf.calc_roc_curves(t_spike_phs, ind=np.array([0, 1]))
                     roc_auc[ig_nw, i_phs] = cf.get_roc_auc_value(roc[ig_nw, i_phs])
 
@@ -3961,6 +3961,7 @@ class WorkerThread(QThread):
             r_data = data.rotation
 
         # initialisations
+        is_boot = int(calc_para['auc_stype'] == 'Bootstrapping')
         pW1, c_lvl = 100 - pW0, float(g_para['roc_clvl'])
 
         # memory allocation (if the conditions have not been set)
@@ -3972,23 +3973,25 @@ class WorkerThread(QThread):
 
         for i_rr, rr in enumerate(r_data.r_obj_kine.rot_filt_tot):
             tt, _pW1 = rr['t_type'][0], pW1 * (i_rr / r_data.r_obj_kine.n_filt)
-            if tt not in r_data.vel_roc:
-                # array dimensions
-                calc_ci = None
-                if r_data.is_equal_time:
-                    vel_sf = dcopy(r_data.vel_sf_rs[tt])
-                    if not r_data.pn_comp:
-                        spd_sf = dcopy(r_data.spd_sf_rs[tt])
-                else:
-                    vel_sf = dcopy(r_data.vel_sf[tt])
-                    if not r_data.pn_comp:
-                        spd_sf = dcopy(r_data.spd_sf[tt])
+            init_data = tt not in r_data.vel_roc
 
-                # array indexing
-                n_trial, n_bin_vel, n_cell = np.shape(vel_sf)
-                if r_data.pn_comp:
-                    n_bin_vel = int(n_bin_vel / 2)
+            # array dimensions
+            calc_ci = None
+            if r_data.is_equal_time:
+                vel_sf = dcopy(r_data.vel_sf_rs[tt])
+                if not r_data.pn_comp:
+                    spd_sf = dcopy(r_data.spd_sf_rs[tt])
+            else:
+                vel_sf = dcopy(r_data.vel_sf[tt])
+                if not r_data.pn_comp:
+                    spd_sf = dcopy(r_data.spd_sf[tt])
 
+            # array indexing
+            n_trial, n_bin_vel, n_cell = np.shape(vel_sf)
+            if r_data.pn_comp:
+                n_bin_vel = int(n_bin_vel / 2)
+
+            if init_data:
                 # velocity roc memory allocation and initialisations
                 r_data.vel_roc[tt] = np.empty((n_cell, n_bin_vel), dtype=object)
                 r_data.vel_roc_xy[tt] = np.empty((n_cell, n_bin_vel), dtype=object)
@@ -4005,13 +4008,14 @@ class WorkerThread(QThread):
                     r_data.spd_ci_lo[tt] = -np.ones((n_cell, n_bin_spd, 2))
                     r_data.spd_ci_hi[tt] = -np.ones((n_cell, n_bin_spd, 2))
 
-                # calculates the roc curves/integrals for all cells over each phase
-                w_str0 = 'ROC Calculations ({0} - '.format(tt)
-                for ic in range(n_cell):
-                    # updates the progress bar string
-                    w_str = '{0}{1}/{2})'.format(w_str0, ic+1, n_cell)
-                    self.work_progress.emit(w_str, pW0 + _pW1 + (pW1 / r_data.r_obj_kine.n_filt) * ( + (ic/ n_cell)))
+            # calculates the roc curves/integrals for all cells over each phase
+            w_str0 = 'ROC Calculations ({0} - '.format(tt)
+            for ic in range(n_cell):
+                # updates the progress bar string
+                w_str = '{0}{1}/{2})'.format(w_str0, ic+1, n_cell)
+                self.work_progress.emit(w_str, pW0 + _pW1 + (pW1 / r_data.r_obj_kine.n_filt) * ( + (ic/ n_cell)))
 
+                if init_data:
                     # memory allocations
                     vel_auc_ci, ii_v = [], ~np.isnan(vel_sf[:, 0, ic])
 
@@ -4054,7 +4058,7 @@ class WorkerThread(QThread):
                         ii_s = ~np.isnan(spd_sf[:, 0, ic])
                         for i_bin in range(n_bin_spd):
                             calc_roc = True
-                            if (i_bin == r_data.i_bin_spd):
+                            if i_bin == r_data.i_bin_spd:
                                 # spd_sf_x, spd_sf_y = resample_spike_freq(data, r_data, rr, [i_rr, i_bin, ic])
                                 is_resampled = True
                                 spd_sf_x, spd_sf_y, spd_auc_roc, spd_auc_ci = \
@@ -4075,55 +4079,56 @@ class WorkerThread(QThread):
                                 # other cases
                                 r_data.spd_roc_auc[tt][ic, i_bin] = cf.get_roc_auc_value(r_data.spd_roc[tt][ic, i_bin])
 
-                    # calculates the confidence intervals for the current (only if bootstrapping count has changed or
-                    # the confidence intervals has not already been calculated)
-                    if calc_ci is None:
-                        if ('auc_stype' in calc_para):
-                            # updates the auc statistics calculation type
-                            r_data.kine_auc_stats_type = calc_para['auc_stype']
+                # calculates the confidence intervals for the current (only if bootstrapping count has changed or
+                # the confidence intervals has not already been calculated)
+                if calc_ci is None:
+                    if 'auc_stype' in calc_para:
+                        # updates the auc statistics calculation type
+                        r_data.kine_auc_stats_type = dcopy(calc_para['auc_stype'])
 
-                            # determine if the auc confidence intervals need calculation
-                            is_boot = int(calc_para['auc_stype'] == 'Bootstrapping')
-                            if is_boot:
-                                # if bootstrapping, then determine if the
-                                if r_data.n_boot_kine_ci != calc_para['n_boot']:
-                                    # if the count has changed, flag the confidence intervals needs updating
-                                    r_data.n_boot_kine_ci, calc_ci = calc_para['n_boot'], True
-                                else:
-                                    # otherwise, recalculate the confidence intervals if they have not been set
-                                    calc_ci = np.any(r_data.vel_ci_lo[tt][ic, :, 1] < 0)
+                        # determine if the auc confidence intervals need calculation
+                        is_boot = int(calc_para['auc_stype'] == 'Bootstrapping')
+                        if is_boot:
+                            # if bootstrapping, then determine if the
+                            if r_data.n_boot_kine_ci != calc_para['n_boot']:
+                                # if the count has changed, flag the confidence intervals needs updating
+                                r_data.n_boot_kine_ci, calc_ci = dcopy(calc_para['n_boot']), True
                             else:
                                 # otherwise, recalculate the confidence intervals if they have not been set
-                                calc_ci = np.any(r_data.vel_ci_lo[tt][ic, :, 0] < 0)
+                                calc_ci = np.any(r_data.vel_ci_lo[tt][ic, :, 1] < 0)
+                        else:
+                            # otherwise, recalculate the confidence intervals if they have not been set
+                            calc_ci = np.any(r_data.vel_ci_lo[tt][ic, :, 0] < 0)
 
-                    # calculates the confidence intervals (if required)
-                    if calc_ci:
-                        # calculates the velocity confidence intervals
-                        auc_type, n_boot = calc_para['auc_stype'], calc_para['n_boot']
-                        conf_int_vel = self.calc_roc_conf_intervals(pool, r_data.vel_roc[tt][ic, :],
+                # calculates the confidence intervals (if required)
+                if calc_ci:
+                    # calculates the velocity confidence intervals
+                    auc_type, n_boot = calc_para['auc_stype'], calc_para['n_boot']
+                    conf_int_vel = self.calc_roc_conf_intervals(pool, r_data.vel_roc[tt][ic, :],
+                                                                auc_type, n_boot, c_lvl)
+
+                    # resets the resampled confidence interval values
+                    if not r_data.pn_comp and init_data:
+                        conf_int_vel[r_data.i_bin_vel[0], :] = vel_auc_ci[0]
+                        conf_int_vel[r_data.i_bin_vel[1], :] = vel_auc_ci[1]
+
+                    # sets the upper and lower velocity confidence intervals
+                    r_data.vel_ci_lo[tt][ic, :, is_boot] = conf_int_vel[:, 0]
+                    r_data.vel_ci_hi[tt][ic, :, is_boot] = conf_int_vel[:, 1]
+
+                    # calculates the speed confidence intervals
+                    if not r_data.pn_comp:
+                        # calculates the speed confidence intervals
+                        conf_int_spd = self.calc_roc_conf_intervals(pool, r_data.spd_roc[tt][ic, :],
                                                                     auc_type, n_boot, c_lvl)
 
                         # resets the resampled confidence interval values
-                        if not r_data.pn_comp:
-                            conf_int_vel[r_data.i_bin_vel[0], :] = vel_auc_ci[0]
-                            conf_int_vel[r_data.i_bin_vel[1], :] = vel_auc_ci[1]
-
-                        # sets the upper and lower velocity confidence intervals
-                        r_data.vel_ci_lo[tt][ic, :, is_boot] = conf_int_vel[:, 0]
-                        r_data.vel_ci_hi[tt][ic, :, is_boot] = conf_int_vel[:, 1]
-
-                        # calculates the speed confidence intervals
-                        if not r_data.pn_comp:
-                            # calculates the speed confidence intervals
-                            conf_int_spd = self.calc_roc_conf_intervals(pool, r_data.spd_roc[tt][ic, :],
-                                                                        auc_type, n_boot, c_lvl)
-
-                            # resets the resampled confidence interval values
+                        if init_data:
                             conf_int_spd[r_data.i_bin_spd] = spd_auc_ci
 
-                            # sets the upper and lower speed confidence intervals
-                            r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
-                            r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
+                        # sets the upper and lower speed confidence intervals
+                        r_data.spd_ci_lo[tt][ic, :, is_boot] = conf_int_spd[:, 0]
+                        r_data.spd_ci_hi[tt][ic, :, is_boot] = conf_int_spd[:, 1]
 
     def calc_roc_conf_intervals(self, pool, roc, phase_stype, n_boot, c_lvl):
         '''
@@ -4151,7 +4156,7 @@ class WorkerThread(QThread):
 
         # initialisations and other array indexing
         r_data = data.rotation
-        is_boot, r_obj = int(r_data.kine_auc_stats_type == 'Bootstrapping'), r_data.r_obj_kine
+        is_boot, r_obj = int(calc_para['auc_stype'] == 'Bootstrapping'), r_data.r_obj_kine
         n_filt = r_obj.n_filt
 
         # sets the comparison bin for the velocity/speed arrays
@@ -4586,7 +4591,7 @@ class WorkerThread(QThread):
                         r_data.pn_comp, is_change = False, True
 
                     # updates the speed comparison flag
-                    r_data.comp_spd = calc_para['spd_x_rng']
+                    r_data.comp_spd = dcopy(calc_para['spd_x_rng'])
 
                 else:
                     # case is the positive/negative speed comparison
@@ -4599,7 +4604,7 @@ class WorkerThread(QThread):
                     if calc_para['equal_time']:
                         if r_data.n_rs != calc_para['n_sample']:
                             r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
-                            r_data.n_rs, is_change = calc_para['n_sample'], True
+                            r_data.n_rs, is_change = dcopy(calc_para['n_sample']), True
 
                 # if the velocity bin size has changed or isn't initialised, then reset velocity roc values
                 if data.force_calc:
@@ -4611,7 +4616,7 @@ class WorkerThread(QThread):
                         r_data.vel_sf_rs, r_data.spd_sf_rs = None, None
                         r_data.vel_sf, r_data.spd_sf = None, None
                         r_data.vel_bin, is_change = vel_bin, True
-                        r_data.freq_type = calc_para['freq_type']
+                        r_data.freq_type = dcopy(calc_para['freq_type'])
 
                     if r_data.is_equal_time != calc_para['equal_time']:
                         is_change = True
