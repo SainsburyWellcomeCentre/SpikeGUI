@@ -8,8 +8,6 @@ from setuptools import setup, find_packages
 curdir = op.dirname(op.realpath(__file__))
 readme = open(op.join(curdir, 'README.md')).read()
 
-#     "scipy <= 1.2.1",
-
 requirements = [
     "appdirs <= 1.4.3",
     "certifi <= 2020.6.20",
@@ -17,7 +15,7 @@ requirements = [
     "chardet <= 3.0.4",
     "conda <= 4.8.3",
     "conda-package-handling <= 1.7.0",
-    "cryptography <= 2.9.2",
+    "cryptography <= 3.2",
     "decorator <= 4.4.2",
     "idna <= 2.9",
     "Mako <= 1.1.3",
@@ -48,12 +46,12 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires = [
-        requirements,
         # ''               # margrie_libs
-        'probez@git+ssh://git@github.com/stephenlenzi/probez',      # probez repository
+        # 'https://github.com/stephenlenzi/probez.git',      # probez repository
         # ''               # pyphys
         # ''               # rotation_analysis
         # ''               # vest_phys
+        requirements,
     ],
     url="https://github.com/RichardFav/AnalysisGUI",
     author="Richard Faville",
