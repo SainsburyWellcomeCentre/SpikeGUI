@@ -17,7 +17,7 @@ import shapely.geometry as geom
 from scipy import stats
 from scipy.stats import poisson as p
 from scipy.signal import medfilt
-from scipy.stats import pearsonr as pr
+from scipy.stats import pearsonr
 from scipy.spatial.distance import *
 from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d

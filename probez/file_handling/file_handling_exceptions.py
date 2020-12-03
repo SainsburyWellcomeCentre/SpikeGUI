@@ -1,2 +1,0 @@
-class InconsistentNChanError(Exception):
-    pass

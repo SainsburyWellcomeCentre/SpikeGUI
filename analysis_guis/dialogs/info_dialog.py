@@ -52,7 +52,7 @@ dcopy = copy.deepcopy
 
 
 class InfoDialog(QDialog):
-    def __init__(self, main_obj, parent=None, width=1700, height=600, rot_filt=None):
+    def __init__(self, main_obj, parent=None, width=1750, height=600, rot_filt=None):
         # creates the gui object
         super(InfoDialog, self).__init__(parent)
 
@@ -360,7 +360,6 @@ class InfoDialog(QDialog):
                 elif tt[0] == 'Surface\nDepth ({0}m)'.format(cf._mu):
                     nw_data = np.array(c_data['expInfo']['probe_depth'] - ch_depth).astype(int).astype(str)
 
-
                 elif tt[0] == 'Cluster\nIndex':
                     nw_data = (np.array(list(range(nC))) + 1).astype(str)
 
@@ -526,6 +525,22 @@ class InfoDialog(QDialog):
         for i_t, ex_t in enumerate(exp_type):
             # outputs the data file (only if there were any experiments of that type)
             if len(t_data[i_t]):
+                # determines if the column counts match across data sets
+                n_col = np.array([np.shape(x)[1] for x in t_data[i_t]])
+                n_col_mx = np.max(n_col)
+
+                # if there are missing columns, then add them in so all column counts are equal
+                miss_col = n_col != n_col_mx
+                if np.any(miss_col):
+                    for i_col in np.where(miss_col)[0]:
+                        # creates the missing array
+                        t_data_add = np.empty((np.shape(t_data[i_t][i_col])[0], n_col_mx - n_col[i_col]), dtype=object)
+                        t_data_add[:] = '---'
+
+                        # appends the data to the array
+                        t_data[i_t][i_col] = np.hstack((t_data[i_t][i_col], t_data_add))
+
+                # outputs the data to file
                 f_name = 'Experiment Info ({0} Expts).csv'.format(ex_t)
                 self.main_obj.output_data_file(f_name, np.vstack(t_data[i_t]))
 

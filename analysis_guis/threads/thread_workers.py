@@ -2,8 +2,6 @@
 import gc
 import os
 import copy
-import random
-import platform
 import numpy as np
 import pickle as p
 import pandas as pd
@@ -20,7 +18,6 @@ from scipy.optimize import curve_fit
 
 # sklearn module imports
 from sklearn.linear_model import LinearRegression
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
 # statsmodels module imports
 from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -970,7 +967,7 @@ class WorkerThread(QThread):
                             ####    POST-STIMULI SPIKE HALF-WIDTH TIME    ####
                             ##################################################
 
-                            # determines the point/voltage of the pmaximum proceding the minimum
+                            # determines the point/voltage of the maximum proceding the minimum
                             bnd_1 = [(data_nw['sigFeat'][i, 0], data_nw['sigFeat'][i, 1])]
                             bnd_2 = [(data_nw['sigFeat'][i, 1], data_nw['sigFeat'][i, 2])]
                             bnd_3 = [(data_nw['sigFeat'][i, 2], t_min)]
@@ -1556,7 +1553,7 @@ class WorkerThread(QThread):
         n_spike_fix = [len(x) / data_fix['tExp'] for x in data_fix['tSpike']]
         n_spike_free = [len(x) / data_free['tExp'] for x in data_free['tSpike']]
 
-        # calculates the relative spiking rates (note - ratios are coverted so that they are all > 1)
+        # calculates the relative spiking rates (note - ratios are converted so that they are all > 1)
         r_spike = np.divide(repmat(n_spike_fix, data_free['nC'], 1).T,
                             repmat(n_spike_free, data_fix['nC'], 1))
         r_spike[r_spike < 1] = 1 / r_spike[r_spike < 1]
