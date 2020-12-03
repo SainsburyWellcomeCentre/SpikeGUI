@@ -47,11 +47,11 @@ setup(
     include_package_data=True,
     install_requires = [
         # ''               # margrie_libs
-        'https://github.com/stephenlenzi/probez.git',      # probez repository
+        # 'https://github.com/stephenlenzi/probez.git',      # probez repository
         # ''               # pyphys
         # ''               # rotation_analysis
         # ''               # vest_phys
-        #requirements,
+        requirements,
     ],
     url="https://github.com/RichardFav/AnalysisGUI",
     author="Richard Faville",

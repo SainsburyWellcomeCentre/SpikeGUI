@@ -1,7 +1,7 @@
 import struct
 
 """
-classes for handling binary files from probe acquisition without having to think too much about byte number  etc.
+classes for handling binary files from probe acquisition without having to think too much about byte number etc.
 """
 # TODO: inherit from struct instead?
 
