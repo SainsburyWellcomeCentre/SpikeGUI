@@ -10,20 +10,16 @@ from dateutil import parser
 from collections import OrderedDict
 
 # custom module import
-import analysis_guis.calc_functions as cfcn
 import analysis_guis.common_func as cf
 from pyphys.pyphys.pyphys import PxpParser
 from analysis_guis.dialogs import config_dialog
 from rotation_analysis.analysis.probe.probe_io.probe_io import TriggerTraceIo, BonsaiIo, IgorIo
 
-#
-import analysis_guis.testing.diagnostic_plots as diag_plot
-import _pickle as cp
-
 # pyqt5 module import
 from PyQt5.QtWidgets import (QMessageBox)
 
-# lambda function declarations
+# other function declarations
+dcopy = copy.deepcopy
 date2sec = lambda t: np.sum([3600 * t.hour, 60 * t.minute, t.second])
 trig_count = lambda data, cond: len(np.where(np.diff(data[cond]['cpg_ttlStim']) > 1)[0]) + 1
 ss_scale = lambda x: np.min([np.max([x, -1.0]), 1.0])
@@ -142,8 +138,8 @@ def det_igor_to_bonsai_pairing(bonsai_io, igor_data):
     # calculates the point-wise differences between the trial timer and trigger count
     n_trig_igor = [np.array(n_trig_igor)[has_ft]]
     c_igor_grp = np.array(c_igor_grp0)[has_ft]
-    dt_grp = cfcn.calc_pointwise_diff(t_igor_grp, t_bonsai_grp)
-    dn_grp = cfcn.calc_pointwise_diff(n_trig_igor, n_trig_bonsai)
+    dt_grp = cf.calc_pointwise_diff(t_igor_grp, t_bonsai_grp)
+    dn_grp = cf.calc_pointwise_diff(n_trig_igor, n_trig_bonsai)
 
     # ensures that only groups that have equal trigger counts are matched
     dt_max = np.max(dt_grp) + 1
@@ -302,6 +298,7 @@ def get_rot_condition_key(exp_info):
 ####    ROTATIONAL ANALYSIS DATA LOADING    ####
 ################################################
 
+
 def load_rot_analysis_data(A, exp_info, sp_io, w_prog=None, pW0=None, is_diagnostic=False):
     '''
 
@@ -357,7 +354,6 @@ def load_rot_analysis_data(A, exp_info, sp_io, w_prog=None, pW0=None, is_diagnos
     # retrieves the trigger start/end time points for each of the trials
     i_trig_loc, i_trig_start, i_trig_end = get_trial_time_points(tt_io, w_form, ind_trial, s_freq)
     t_spike_trial = get_trial_spike_times(trial_type, clust_id, sp_io, i_trig_start, i_trig_end)
-
 
     # updates the progess-bar (if provided)
     if w_prog is not None:
@@ -568,7 +564,16 @@ def det_waveform_para(y_sig, s_freq, bonsai_io, idx, ind0):
 
         # calculates the base-line time
         dy = s_para['yDir'] * (y_sig - recreate_waveform(s_para))
-        s_para['tBLF'] = next(i for i in range(s_para['nPts']) if np.abs(dy[i]) > 1e-16) - 1
+
+        # calculates the time shift required so the baseline is the same length as the other phases
+        tBLF0 = next(i for i in range(s_para['nPts']) if np.abs(dy[i]) > 1e-16) - 1
+        dt = max(0, int(s_para['tPeriod'] / 2) - tBLF0)
+
+        # resets the baseline/stimuli phase start times and the stimuli start time
+        s_para['tBLF'] = tBLF0 + dt
+        s_para['tSS0'] += dt
+        s_para['ind0'] -= dt
+
     else:
         #
         t_freq = bonsai_io.data['TemporalFrequency'][idx]
@@ -605,10 +610,6 @@ def recreate_waveform(s_para, calc_deriv=False):
             y_sig[i_rng] = -freq * s_para['yAmp'] * s_para['yDir'] * np.sin(freq * (t_rng - s_para['tSS0']))
         else:
             y_sig[i_rng] = s_para['yAmp'] * s_para['yDir'] * np.cos(freq * (t_rng - s_para['tSS0']))
-
-            # # calculates the other components of the signal (if required - only for position values)
-            # if (not sinusoid_only) and (s_para['ppSig'] is not None):
-            #     y_sig += s_para['yDir'] * s_para['ppSig'](np.arange(s_para['nPts']))
 
     # returns the final signal
     return y_sig
@@ -669,7 +670,7 @@ def setup_filter_permutations(d_clust, rot_filt):
     return rot_filt_ex, f_perm, f_key
 
 
-def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
+def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name, use_raw, rmv_empty):
     '''
 
     :param data:
@@ -684,11 +685,18 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
     if exp_name is None:
         # case is filtering multiple experiments
         i_expt_match = np.where(is_rot_expt)[0]
-        d_clust = [data.cluster[x] for x in i_expt_match]
+        if cf.use_raw_clust(data) or use_raw:
+            d_clust = [data._cluster[x] for x in i_expt_match]
+        else:
+            d_clust = [data.cluster[x] for x in i_expt_match]
     else:
         # case is filtering on a single experiment level
-        i_expt_match = [cf.get_expt_index(exp_name, data.cluster, cf.det_valid_rotation_expt(data))]
-        d_clust = [data.cluster[i_expt_match[0]]]
+        if cf.use_raw_clust(data) or use_raw:
+            i_expt_match = [cf.get_expt_index(exp_name, data._cluster)]
+            d_clust = [data._cluster[i_expt_match[0]]]
+        else:
+            i_expt_match = [cf.get_expt_index(exp_name, data.cluster)]
+            d_clust = [data.cluster[i_expt_match[0]]]
 
     # sets up the filter permutation array
     rot_filt_p, f_perm, f_key = setup_filter_permutations(d_clust, copy.deepcopy(rot_filt))
@@ -702,11 +710,11 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
     is_ok = np.zeros(n_filt, dtype=bool)
     for i_filt in range(n_filt):
         t_spike[i_filt], wvm_para[i_filt], trial_ind[i_filt], clust_ind[i_filt], i_expt[i_filt] = \
-                        apply_single_rot_filter(data, d_clust, rot_filt_p[i_filt], expt_filter_lvl, i_expt_match)
+                    apply_single_rot_filter(data, d_clust, rot_filt_p[i_filt], expt_filter_lvl, i_expt_match, use_raw)
         is_ok[i_filt] = not np.all([x is None for x in t_spike[i_filt]])
 
     # determines if any of the filters failed to turn up a match, then output an error message to screen
-    if np.any(np.logical_not(is_ok)):
+    if np.any(np.logical_not(is_ok)) and rmv_empty:
         # # if so, then create the warning message
         # e_str = 'The following filters did not turn up any matches for the experiment "{0}":\n\n'.format(exp_name)
         # for i in np.where(np.logical_not(is_ok))[0]:
@@ -718,13 +726,16 @@ def apply_rot_filter(data, rot_filt, expt_filter_lvl, exp_name):
 
         # removes any of the non-feasible entries
         t_spike, wvm_para, trial_ind = t_spike[is_ok], wvm_para[is_ok], trial_ind[is_ok]
-        clust_ind, i_expt, f_perm = clust_ind[is_ok], i_expt[is_ok], f_perm[is_ok, :]
+        clust_ind, i_expt = clust_ind[is_ok], i_expt[is_ok]
         rot_filt_p = [x for x, y in zip(rot_filt_p, is_ok) if y]
+
+        if f_perm is not None:
+            f_perm = f_perm[is_ok, :]
 
     # returns the spike time/waveform parameter/filter parameter arrays
     return t_spike, wvm_para, trial_ind, clust_ind, i_expt, f_perm, f_key, rot_filt_p
 
-def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_match):
+def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_match, use_raw):
     '''
 
     :param data:
@@ -732,18 +743,26 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     :return:
     '''
 
+    # import declaration
+    import analysis_guis.calc_functions as cfcn
+
     # sets the trial types
     if rot_filt['is_ud'][0]:
         t_type, is_ud = 'UniformDrifting', True
-        exc_filt = data.rotation.exc_ud_filt
+        exc_filt = data.exc_ud_filt
+        if exc_filt is None:
+            exc_filt = cf.init_rotation_filter_data(True, is_empty=True)
     else:
         t_type, is_ud = rot_filt['t_type'][0], False
-        exc_filt = data.rotation.exc_rot_filt
+        exc_filt = data.exc_rot_filt
+        if exc_filt is None:
+            exc_filt = cf.init_rotation_filter_data(False, is_empty=True)
 
     # memory allocation
     n_expt, d_copy = len(d_clust), copy.deepcopy
     is_ok, A = np.zeros(n_expt, dtype=bool), np.empty(n_expt, dtype=object)
     t_spike, wfm_para, trial_ind, clust_ind = d_copy(A), d_copy(A), d_copy(A), d_copy(A)
+    i_expt_f2f, g_filt = None, data.exc_gen_filt
 
     ##########################################
     ####    EXPERIMENT-BASED FILTERING    ####
@@ -791,42 +810,69 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
     ############################################
 
     # sets the filter strings
-    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer']
-    is_check = [(data.classify.class_set and (expt_filter_lvl > 0)),    # signal type must be calculated and not single cell
-                (data.comp.is_set and (expt_filter_lvl > 0)),           # comparison type must be calculated and not single cell
+    cc_filt_str = ['sig_type', 'match_type', 'region_name', 'record_layer', 'lesion', 'record_state']
+    is_check = [False,                                                  # signal type must be calculated and not single cell
+                False,                                                  # comparison type must be calculated and not single cell
+                (expt_filter_lvl > 0),                                  # not single cell
+                (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0),                                  # not single cell
                 (expt_filter_lvl > 0)]                                  # not single cell
+    is_check[0] = False if not hasattr(data, 'classify') else (data.classify.class_set and (expt_filter_lvl > 0))
+    is_check[1] = False if not hasattr(data, 'comp') else (data.comp.is_set and (expt_filter_lvl > 0))
 
     # if uniform drifting, add on the visual stimuli parameters to the filter conditions
     if rot_filt['is_ud'][0]:
         cc_filt_str += ['t_freq', 't_freq_dir', 't_cycle']
         is_check += [True] * 3
 
+    # if the freely moving cell type information is set, then add on the information to the filter conditions
+    if cf.has_free_ctype(data):
+        cc_filt_str += ['free_ctype']
+        is_check += [True]
+
     # applies the field filters to each experiment
     for i_expt in range(n_expt):
         if is_ok[i_expt]:
             # sets the indices of the values that are to be kept
-            ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
             ind_tr = np.ones(np.size(t_spike[i_expt], axis=1), dtype=bool)
-            cl_inc = cfcn.get_inclusion_filt_indices(d_clust[i_expt], data.exc_gen_filt)
+            ind_cl = np.ones(np.size(t_spike[i_expt], axis=0), dtype=bool)
+            if len(ind_cl) == 0:
+                is_ok[i_expt] = False
+                continue
 
             # goes through the filter fields removing entries that don't meet the criteria
             for iccf, ccf in enumerate(cc_filt_str):
                 ind_cl_nw, ind_tr_nw = None, None
 
+                # continue is field key is not in dictionary
+                if ccf not in rot_filt:
+                    rot_filt[ccf] = ['All']
+
                 if (rot_filt[ccf][0] == 'All'):
+                    if ccf not in exc_filt:
+                        exc_filt[ccf] = []
+
                     if len(exc_filt[ccf]):
                         # initialisations
-                        is_cl, is_tr = False, False
+                        is_cl, is_tr, is_calc = False, False, True
 
                         if ccf == 'sig_type':
                             # case is the signal type (wide or narrow spikes)
-                            cv, is_cl = ['{0} Spikes'.format(x) for x in data.classify.grp_str[i_expt]], True
+                            grp_str = data.classify.grp_str[i_expt][data.classify.grp_str[i_expt] != 'N/A']
+                            cv, is_cl = ['{0} Spikes'.format(x) for x in grp_str], True
 
                         elif ccf == 'match_type':
                             # case is the match type (either Matched or Unmatched)
                             is_cl = True
-                            cv = ['Matched Clusters' if x else 'Unmatched Clusters' for x in data.comp.is_accept]
+                            fix_name = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                            i_comp = cf.det_comp_dataset_index(data.comp.data, fix_name)
+
+                            if i_comp is None:
+                                cv = ['Not Applicable'] * len(ind_cl)
+                                ind_cl[:] = False
+                            else:
+                                c_data = data.comp.data[i_comp]
+                                cv = ['Matched Clusters' if x else 'Unmatched Clusters' for x in c_data.is_accept]
 
                         elif ccf == 'region_name':
                             # case is the region name
@@ -835,6 +881,18 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                         elif ccf == 'record_layer':
                             # case is the recording layer
                             cv, is_cl = d_clust[i_expt]['chLayer'], True
+
+                        elif ccf == 'lesion':
+                            # case is the lesion type
+                            is_cl = True
+                            ind_cl_nw = [d_clust[i_expt]['expInfo']['lesion']
+                                                            not in exc_filt[ccf]] * d_clust[i_expt]['nC']
+
+                        elif ccf == 'record_state':
+                            # case is the lesion type
+                            is_cl = True
+                            ind_cl_nw = [d_clust[i_expt]['expInfo']['record_state']
+                                                            not in exc_filt[ccf]] * d_clust[i_expt]['nC']
 
                         elif ccf == 't_freq':
                             # case is the temporal frequency
@@ -848,27 +906,74 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # case is the temporal cycle frequency
                             cv, is_tr = [str(int(x)) for x in wfm_para[i_expt]['tCycle']], True
 
-                        # sets the new cluster/trial acceptance flags (based on type)
-                        if is_cl:
-                            # case is the filter type is cluster based
-                            ind_cl_nw = np.logical_and.reduce([np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
-                        else:
-                            # case is the filter type is trial based
-                            ind_tr_nw = np.logical_and.reduce([np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
+                        elif ccf == 'free_ctype':
+                            # case is the freely moving cell types
+                            is_calc, is_cl = False, True
+                            ind_cl_nw = np.ones(len(ind_cl), dtype=bool)
+
+                            # retrieves the free-to-fixed cell indices
+                            if i_expt_f2f is None:
+                                # determines the experiment/mapping indices for each of the freely moving data files
+                                if use_raw:
+                                    cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                                else:
+                                    c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                                    cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+
+                                i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data, \
+                                                    exp_name=[data.externd.free_data.exp_name], cl_ind=cl_ind_0)
+
+                                # retrieves the fixed data files corresponding to the matches above
+                                fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]
+
+                            # determines if the fixed file matches any of those from the fixed-to-free matches
+                            fix_name_nw = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                            if fix_name_nw not in fix_name_f2f:
+                                continue
+
+                            # otherwise, retrieve the matching mapping index array values
+                            ind_m = fix_name_f2f.index(fix_name_nw)
+                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_m][0]
+                            is_match = i_f2f >= 0
+
+                            # sets the exclusion flags for the current filter flags
+                            ind_cl_ff = ~np.any(np.array(cell_type[exc_filt[ccf]]), axis=1)
+                            ind_cl_nw[is_match] = ind_cl_ff[i_f2f[is_match]]
+
+                        # sets the new cluster/trial acceptance flags (based on type and if not already calculated)
+                        if is_calc:
+                            if is_cl:
+                                # case is the filter type is cluster based
+                                ind_cl_nw = np.logical_and.reduce(
+                                                        [np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
+                            else:
+                                # case is the filter type is trial based
+                                ind_tr_nw = np.logical_and.reduce(
+                                                        [np.array([yy != x for yy in cv]) for x in exc_filt[ccf]])
 
                 elif is_check[iccf] and (rot_filt[ccf][0] != 'All'):
                     if ccf == 'sig_type':
-                        ind_cl_nw = [np.any([x in y for y in rot_filt[ccf]]) for x in data.classify.grp_str[i_expt]]
+                        grp_str = data.classify.grp_str[i_expt][data.classify.grp_str[i_expt] != 'N/A']
+                        ind_cl_nw = [np.any([x in y for y in rot_filt[ccf]]) for x in grp_str]
 
                     elif ccf == 'match_type':
-                        m_flag = (rot_filt[ccf][0].split(' ')[0] != 'Matched')
-                        ind_cl_nw = list(np.where(data.comp.is_accept == m_flag)[0])
+                        m_flag = 'Matched ' in rot_filt[ccf][0]
+                        # ind_cl_nw = list(np.where(data.comp.data[i_expt].is_accept == m_flag)[0])
+                        ind_cl_nw = data.comp.data[i_expt].is_accept == m_flag
 
                     elif ccf == 'region_name':
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chRegion']]
 
                     elif ccf == 'record_layer':
                         ind_cl_nw = [x == rot_filt[ccf][0] for x in d_clust[i_expt]['chLayer']]
+
+                    elif ccf == 'lesion':
+                        ind_cl_nw = [d_clust[i_expt]['expInfo']['lesion'] ==
+                                                                rot_filt[ccf][0]] * d_clust[i_expt]['nC']
+
+                    elif ccf == 'record_state':
+                        ind_cl_nw = [d_clust[i_expt]['expInfo']['record_state'] ==
+                                                                rot_filt[ccf][0]] * d_clust[i_expt]['nC']
 
                     elif ccf == 't_freq':
                         ind_tr_nw = np.abs(wfm_para[i_expt]['tFreq'] - float(rot_filt[ccf][0])) < 1e-6
@@ -879,15 +984,55 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                     elif ccf == 't_cycle':
                         ind_tr_nw = np.abs(wfm_para[i_expt]['tCycle'] - float(rot_filt[ccf][0])) < 1e-6
 
+                    elif ccf == 'free_ctype':
+                        # retrieves the free-to-fixed cell indices
+                        if i_expt_f2f is None:
+                            # determines the experiment/mapping indices for each of the freely moving data files
+                            if use_raw:
+                                cl_ind_0 = [np.arange(x['nC']) for x in d_clust]
+                            else:
+                                c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
+                                cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
+
+
+                            # determines the free experiments matching the cluster experiment names
+                            fix_name_comp, ex_data = [x.fix_name for x in data.comp.data], data.externd
+                            free_name = [data.comp.data[fix_name_comp.index(x)].free_name for x in
+                                                       [cf.extract_file_name(x['expFile']) for x in d_clust]]
+                            free_exp = [cf.det_closest_file_match(ex_data.free_data.exp_name, x)[0] for x in free_name]
+
+                            i_expt_f2f, f2f_map = cf.det_matching_fix_free_cells(data,
+                                                                                 exp_name=free_exp, cl_ind=cl_ind_0)
+
+                            # retrieves the fixed data files corresponding to the matches above
+                            fix_name_f2f = [data.comp.data[x].fix_name for x in i_expt_f2f]
+
+                        # determines if the fixed file matches any of those from the fixed-to-free file matches
+                        fix_name_nw = cf.extract_file_name(d_clust[i_expt]['expFile'])
+                        if fix_name_nw not in fix_name_f2f:
+                            # if not, then set all cluster flags to false
+                            ind_cl[:] = False
+                        else:
+                            # otherwise, retrieve the matching mapping index array values
+                            ind_m = fix_name_f2f.index(fix_name_nw)
+                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_m][0]
+                            is_match = i_f2f >= 0
+
+                            # sets the indices of the cells that match the filter value
+                            ind_cl_nw = np.zeros(len(ind_cl), dtype=bool)
+                            if rot_filt[ccf][0] == 'No Type':
+                                no_ctype = np.sum(cell_type, axis=1) == 0
+                                ind_cl_nw[is_match] = no_ctype[i_f2f[is_match]]
+                            else:
+                                ind_cl_nw[is_match] = cell_type[rot_filt[ccf][0]][i_f2f[is_match]]
+
                 # removes any infeasible trials
                 if ind_tr_nw is not None:
                     ind_tr = np.logical_and(ind_tr, np.array(ind_tr_nw))
 
                 # removes any infeasible clusters
                 if ind_cl_nw is not None:
-                    ind_cl_nw = np.array(ind_cl_nw)[cl_inc]
                     ind_cl = np.logical_and(ind_cl, ind_cl_nw)
-
 
             # removes the infeasible cluster rows/trial columns
             t_spike[i_expt] = t_spike[i_expt][ind_cl, :, :]
@@ -915,7 +1060,7 @@ def calc_waveform_values(A, w, t):
     return A * np.cos(w * t), -A * w * np.sin(w * t)
 
 
-def calc_kinematic_bin_times(b_sz, k_rng, w, i_ofs=0):
+def calc_kinematic_bin_times(b_sz, k_rng, w, calc_type=2):
     '''
 
     :param b_sz:
@@ -924,27 +1069,44 @@ def calc_kinematic_bin_times(b_sz, k_rng, w, i_ofs=0):
     :return:
     '''
 
+    # lambda function declarations
+    rev_func = lambda x: np.concatenate((x, 2 * x[-1] - np.flip(x[:-1], axis=0)))
+    rev_func_2 = lambda x: np.concatenate(
+        (np.concatenate((x, np.flip(x[:-1], axis=0))), -np.concatenate((x, np.flip(x[:-1], axis=0)))[1:]))
+
     # memory allocation
-    n_bin = 1 + (i_ofs == 0)
-    xi_bin, t_bin = np.empty(n_bin, dtype=object), np.empty(n_bin, dtype=object)
+    n_bin = 2
+    A = np.empty(n_bin, dtype=object)
+    xi_bin, xi_bin0, t_bin, i_bin = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
 
-    # calculates the time-bins
-    for j_bin in range(n_bin):
-        # calculates the time offsets for each of the bins
-        i_bin = j_bin + i_ofs
-        xi_bin[j_bin] = np.arange(-k_rng[j_bin], k_rng[j_bin]+1e-6, b_sz[j_bin])
-        if i_bin == 0:
-            # case is position is being considered
-            t_bin[j_bin] = np.array([m.acos(ss_scale(x / k_rng[j_bin])) for x in xi_bin[j_bin]]) / w
-        else:
-            # case is speed is being considered
-            t_bin[j_bin] = np.array([m.asin(ss_scale(-v / k_rng[j_bin])) for v in xi_bin[j_bin]]) / w
+    # sets up the positional time/location arrays
+    xi_binT = np.arange(k_rng[0], -(k_rng[0] + 1e-6), -b_sz[0])
+    xi_bin0[0] = np.concatenate((xi_binT, np.flip(xi_binT[:-1], axis=0)))
+    t_bin[0] = rev_func(np.unique([m.acos(ss_scale(x / k_rng[0])) for x in xi_bin0[0]]) / w)
 
-    # returns the time-bin array
-    return xi_bin, t_bin
+    # sets up the velocity time/location arrays
+    xi_bin0[1] = rev_func_2(np.arange(0, k_rng[1] + 1e-6, b_sz[1]))
+    t_binT = np.unique(np.abs([m.asin(ss_scale(-v / k_rng[1])) for v in xi_bin0[1]])) / w
+    t_bin[1], xi_bin0[1][0] = rev_func(rev_func(t_binT)), 0
+
+    # determines the groupings for each time bin
+    for i in range(n_bin):
+        i_grp = np.vstack([np.sort([xi_bin0[i][k:(k+2)]])[0] for k in range(len(xi_bin0[i])-1)])
+        xi_bin[i], i_bin[i] = np.unique(i_grp, axis=0, return_inverse=True)
+
+    # returns the time-bin array (depending on the calculation type)
+    if calc_type == 0:
+        # case is only position is being considered
+        return xi_bin0[0], xi_bin[0], t_bin[0], i_bin[0]
+    elif calc_type == 1:
+        # case is only velocity is being considered
+        return xi_bin0[1], xi_bin[1], t_bin[1], i_bin[1]
+    else:
+        # case is both position/velocity is being considered
+        return xi_bin0, xi_bin, t_bin, i_bin
 
 
-def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None):
+def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None, r_data=None):
     '''
 
     :param data:
@@ -981,14 +1143,20 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         else:
             return len(t_sp)
 
-    # initialisations
-    r_data, v_rng, w, is_full_rs = data.rotation, 80, np.pi / r_obj.t_phase[0][0], indD is None
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
 
-    # sets up the
-    A, B = np.arange(0, v_rng + 1e-6, b_sz[0]), np.arange(v_rng, -(v_rng + 1e-6), -b_sz[0])
-    xi_bin = np.array(list(A) + list(B[1:-1]) + list(np.flip(-A, axis=0))).astype(int)
-    t_bin = np.array(list(np.arcsin(A / v_rng)) + list(np.pi - np.arcsin(B / v_rng)[1:-1]) + \
-                     list(2 * np.pi - np.arcsin(np.flip(A, axis=0) / v_rng))) / w
+    # initialisations
+    v_rng, w, is_full_rs = 80, np.pi / r_obj.t_phase[0][0], indD is None
+    xi_bin0, xi_bin, t_bin, i_grp = calc_kinematic_bin_times([10, b_sz[0]], [90, v_rng], w, calc_type=1)
+    n_vbin, sd_vel = np.size(xi_bin, axis=0), np.sign(np.diff(xi_bin0))
+
+    # # sets up the
+    # A, B = np.arange(0, v_rng + 1e-6, b_sz[0]), np.arange(v_rng, -(v_rng + 1e-6), -b_sz[0])
+    # xi_bin = np.array(list(A) + list(B[1:-1]) + list(np.flip(-A, axis=0))).astype(int)
+    # t_bin = np.array(list(np.arcsin(A / v_rng)) + list(np.pi - np.arcsin(B / v_rng)[1:-1]) + \
+    #                  list(2 * np.pi - np.arcsin(np.flip(A, axis=0) / v_rng))) / w
 
     # sets the filter indices and the size of the comparison/smallest time bin
     if is_full_rs:
@@ -1012,8 +1180,8 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         ind_filt, dt_min = [indD['ind_filt']], (t_bin[ind_bin[0] + 1] - t_bin[ind_bin[0]] ) / 2.
 
     # memory allocation
-    n_filt = len(ind_filt)
-    vel_n = np.empty(n_filt, dtype=object)
+    n_filt, f_keys = len(ind_filt), list(r_data.vel_sf_rs.keys())
+    vel_f = np.empty(n_filt, dtype=object)
 
     # calculates the position/velocity for each filter type
     for i_filt in ind_filt:
@@ -1021,6 +1189,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         if is_full_rs:
             # if the values have already been calculated, then continue (total resampling only)
             if rr['t_type'][0] in r_data.vel_sf_rs:
+                vel_f[i_filt] = r_data.vel_sf_rs[rr['t_type'][0]]
                 continue
 
         # memory allocation for the current filter
@@ -1030,6 +1199,7 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
         # sets the experiment indices that belong to the current trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
         valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
+        is_md_expt = tt == 'MotorDrifting'
 
         # sets the cell indices to be analysed
         if is_full_rs:
@@ -1055,61 +1225,82 @@ def calc_resampled_vel_spike_freq(data, w_prog, r_obj, b_sz, n_sample, indD=None
             # memory allocation for the position/velocity bins (first cell only)
             if ii == 0:
                 if is_full_rs:
-                    vel_n[i_filt] = np.empty((n_trial_max, int((len(xi_bin)-1) / 2), n_cell))
+                    # case is calculating the resampling for all cells
+                    vel_f[i_filt] = np.empty((n_trial_max, n_vbin, n_cell, 2))
                 else:
-                    vel_n[i_filt] = np.empty(n_trial_max)
+                    # case is calculating for a single cell
+                    vel_f[i_filt] = np.empty(n_trial_max)
 
-                vel_n[i_filt][:] = np.nan
+                # sets all values to NaNs
+                vel_f[i_filt][:] = np.nan
 
             # memory allocation
+            vel_bin = np.zeros((n_trial_c, n_vbin, 2))
             for i_trial in range(n_trial_c):
                 # sets the spike times in the correct order for the current trial
                 if t_sp[i_trial, 1] is None:
                     continue
 
-                if y_dir[i_trial] == -1:
+                if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
                     # case is a CW => CCW trial
-                    t_sp_trial = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase))
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
                 else:
                     # case is a CCW => CW trial
-                    t_sp_trial = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase))
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
 
                 # if there are no spikes for the current trial, then continue
                 if len(t_sp_trial) == 0:
                     continue
 
                 # sets the bin indices and allocates memory for the bin spike counts
-                n_sp_bin = np.zeros(len(t_bin) - 1)
+                n_sp_bin = np.zeros(len(t_bin))
                 for i_bin in ind_bin:
                     # determines the indices of the time spikes within the current time bin
                     i_sp_bin = np.logical_and(t_sp_trial > t_bin[i_bin], t_sp_trial <= t_bin[i_bin + 1])
                     if np.any(i_sp_bin):
+                        # if there are spikes within the time bin, then calculate the resampled count
                         n_sp_bin[i_bin] = calc_resampled_counts(
                             t_sp_trial[i_sp_bin], t_bin[i_bin:i_bin + 2], dt_min, n_sample
                         )
 
-                # sets the groupings for each time bins
-                i_grp, ind_inv = np.unique(
-                    np.sort(np.vstack([-y_dir[i_trial] * xi_bin[i:i + 2] for i in range(len(xi_bin) - 1)]),
-                    axis=1), axis=0, return_inverse=True
-                )
+                # sets the position/velocity values
+                vel_bin_tmp = reorder_array(n_sp_bin, i_grp, sd_vel, m=-m, dtype=float)
+                for k in range(2):
+                    vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
 
-                #
+            # calculates the position/velocity spiking frequencies over all trials
+            for k in range(2):
                 if is_full_rs:
-                    for i_bin in range(np.size(vel_n[i_filt], axis=1)):
-                        vel_n[i_filt][i_trial, :, i_cell] = np.array(
-                            [np.sum(n_sp_bin[ind_inv == i]) for i in range(np.size(vel_n[i_filt], axis=1))])
+                    # case is setting all spiking frequencies
+
+                    # sets the trial indices
+                    if k == 0:
+                        ind_t = np.array(range(n_trial_c))
+
+                    # sets the full velocity/position spiking rates
+                    vel_f[i_filt][ind_t, :, i_cell, k] = vel_bin[:, :, k] / dt_min
                 else:
-                    vel_n[i_filt][i_trial] = np.mean(n_sp_bin[np.array(ind_bin)])
+                    # case is calculating the average spiking frequency
+                    a = 1
+                    # pos_f[i_filt][i_cell, :, k] = np.mean(pos_bin[:, :, k], axis=0) / pos_dt
+                    # vel_f[i_filt][i_cell, :, k] = np.mean(vel_bin[:, :, k], axis=0) / vel_dt
+
+            # #
+            # if is_full_rs:
+            #     for i_bin in range(np.size(vel_n[i_filt], axis=1)):
+            #         vel_n[i_filt][i_trial, :, i_cell] = np.array(
+            #             [np.sum(n_sp_bin[ind_inv == i]) for i in range(np.size(vel_n[i_filt], axis=1))])
+            # else:
+            #     vel_n[i_filt][i_trial] = np.mean(n_sp_bin[np.array(ind_bin)])
 
     # returns the values
     if is_full_rs:
-        return vel_n, -B, 2 * dt_min
+        return vel_f, xi_bin, dt_min
     else:
-        return vel_n[0]
+        return vel_f
 
 
-def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True):
+def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_type=2):
     '''
 
     :param wvm_para:
@@ -1119,8 +1310,7 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True
     '''
 
     # initialisations and memory allocation
-    k_rng = [90, 80]
-    n_filt = len(r_obj.t_spike)
+    k_rng, n_filt, calc_avg_sf = [90, 80], len(r_obj.t_spike), calc_type == 2
     t_bin = np.zeros(2, dtype=object)
     pos_f, vel_f = np.empty(n_filt, dtype=object), np.empty(n_filt, dtype=object)
 
@@ -1129,138 +1319,206 @@ def calc_kinemetic_spike_freq(data, r_obj, b_sz, calc_vel_only, calc_avg_sf=True
         # memory allocation for the current filter
         n_cell = np.size(r_obj.t_spike[i_filt], axis=0)
         n_trial_max = np.max([np.size(x, axis=0) for x in r_obj.wvm_para[i_filt]])
+        i_expt_uniq = np.unique(r_obj.i_expt[i_filt]) if not r_obj.is_single_cell else None
 
         # determines the experiments which contain the trial type
         tt = r_obj.rot_filt_tot[i_filt]['t_type'][0]
-        valid_ind = np.where(valid_ind_func(data.cluster, tt))[0]
+        is_md_expt = tt == 'MotorDrifting'
 
         # calculates the position/velocity for each cell
         for i_cell in range(n_cell):
             # retrieves the experiment index, sampling frequency and phase duration
-            i_expt = np.where(r_obj.i_expt[i_filt][i_cell] == valid_ind)[0][0]
-            t_phase, wvm_p = r_obj.t_phase[i_filt][i_expt], r_obj.wvm_para[i_filt][i_expt]
+            if r_obj.is_single_cell:
+                i_expt = 0
+            else:
+                i_expt = np.where(i_expt_uniq == r_obj.i_expt[i_filt][i_cell])[0][0]
 
             # calculates the position/velocity for each of the trials
+            t_phase, wvm_p = r_obj.t_phase[i_filt][i_expt], r_obj.wvm_para[i_filt][i_expt]
             y_dir, y_amp = wvm_p['yDir'], wvm_p['yAmp'][0]
             t_sp, w, n_trial_c = r_obj.t_spike[i_filt][i_cell, :, :], np.pi / t_phase, np.size(wvm_p, axis=0)
 
-            # calculates the time-bins (first filter/cell only)
+            # calculates the time-bins (only required for first iteration pass)
             if (i_filt == 0) and (i_cell == 0):
-                xi_bin, t_bin = calc_kinematic_bin_times(b_sz, k_rng, w)
+                # retrieves the time/value bins and index groupings
+                xi_bin0, xi_bin, t_bin, i_grp = calc_kinematic_bin_times(b_sz, k_rng, w)
+
+                # memory allocation
+                n_pbin, n_vbin = np.size(xi_bin[0], axis=0), np.size(xi_bin[1], axis=0)
+                sd_pos, sd_vel = np.sign(np.diff(xi_bin0[0])), np.sign(np.diff(np.abs(xi_bin0[1])))
+
+                # calculates the position/velocity time bin durations
+                pos_dt = reorder_array(np.diff(t_bin[0]), i_grp[0], sd_pos, dtype=float)[0, :]
+                vel_dt = reorder_array(np.diff(t_bin[1]), i_grp[1], sd_vel, dtype=float)[0, :]
 
             # memory allocation for the position/velocity bins (first cell only)
             if i_cell == 0:
+                # allocates memory for the inner arrays (dependent on type)
                 if calc_avg_sf:
-                    vel_f[i_filt] = np.zeros((n_cell, len(xi_bin[1]) - 1))
-                    if not calc_vel_only:
-                        pos_f[i_filt] = np.zeros((n_cell, len(xi_bin[0]) - 1))
+                    # case is calculating the average spiking frequency
+                    pos_f[i_filt] = np.zeros((n_cell, n_pbin, 2))
+                    vel_f[i_filt] = np.zeros((n_cell, n_vbin, 2))
                 else:
-                    vel_f[i_filt] = np.empty((n_trial_max, len(xi_bin[1]) - 1, n_cell))
-                    vel_f[i_filt][:] = np.nan
-                    if not calc_vel_only:
-                        pos_f[i_filt] = np.empty((n_trial_max, len(xi_bin[0]) - 1, n_cell))
-                        pos_f[i_filt][:] = np.nan
+                    # case is calculating individual spiking frequencies
+                    pos_f[i_filt] = np.empty((n_trial_max, n_pbin, n_cell, 2))
+                    vel_f[i_filt] = np.empty((n_trial_max, n_vbin, n_cell, 2))
+                    vel_f[i_filt][:], pos_f[i_filt][:] = np.nan, np.nan
 
-            # memory allocation
-            pos_bin, vel_bin = np.zeros((n_trial_c, len(t_bin[0])-1)), np.zeros((n_trial_c, len(t_bin[1])-1))
+            # memory allocation for the position/velocity bins
+            pos_bin = np.zeros((n_trial_c, n_pbin, 2))
+            vel_bin = np.zeros((n_trial_c, n_vbin, 2))
+
             for i_trial in range(n_trial_c):
                 # sets the spike times in the correct order for the current trial
-                if t_sp[i_trial, 1] is not None:
-                    if y_dir[i_trial] == -1:
-                        # case is a CW => CCW trial
-                        t_sp_trial = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase))
-                    else:
-                        # case is a CCW => CW trial
-                        t_sp_trial = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase))
+                if t_sp[i_trial, 1] is None:
+                    continue
 
-                    # only calculate the spike position/velocity values if there were any spikes for the current trial
-                    if len(t_sp_trial):
-                        # determines the position/velocity for the time-spikes
-                        pos_nw, vel_nw = calc_waveform_values(y_amp * y_dir[i_trial], w, t_sp_trial)
+                if (y_dir[i_trial] == -1 and not is_md_expt) or (y_dir[i_trial] == 1 and is_md_expt):
+                    # case is a CW => CCW trial
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 1], t_sp[i_trial, 2] + t_phase)), -1
+                else:
+                    # case is a CCW => CW trial
+                    t_sp_trial, m = np.concatenate((t_sp[i_trial, 2], t_sp[i_trial, 1] + t_phase)), 1
 
-                        # calculates the position/velocity histograms
-                        #   => NEED TO CHANGE THIS TO TAKE INTO ACCOUNT THE TIME AT WHICH THE SPIKE GOES OFF
-                        #      (NEED TO CHANGE FROM HISTOGRAM DEPENDENT ON VELOCITY TO
-                        vel_bin[i_trial, :] = np.histogram(vel_nw, bins=xi_bin[1])[0]
-                        if not calc_vel_only:
-                            pos_bin[i_trial, :] = np.histogram(pos_nw, bins=xi_bin[0])[0]
+                # calculates the counts for each of the time bins
+                if len(t_sp_trial):
+                    # calculates the position/velocity histogram bin values
+                    pos_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[0])[0], i_grp[0], sd_pos, m=m)
+                    vel_bin_tmp = reorder_array(np.histogram(t_sp_trial, bins=t_bin[1])[0], i_grp[1], sd_vel, m=-m)
+
+                    # h_vel = np.arange(64)
+                    # vel_bin_tmp = reorder_array(h_vel, i_grp[1], sd_vel)
+
+                    # sets the position/velocity values
+                    for k in range(2):
+                        pos_bin[i_trial, :, k] = pos_bin_tmp[k, :]
+                        vel_bin[i_trial, :, k] = vel_bin_tmp[k, :]
 
             # calculates the position/velocity spiking frequencies over all trials
-            if calc_avg_sf:
-                vel_f[i_filt][i_cell, :] = np.mean(vel_bin, axis=0) / np.abs(np.diff(t_bin[1]))
-                if not calc_vel_only:
-                    pos_f[i_filt][i_cell, :] = np.mean(pos_bin, axis=0) / np.abs(np.diff(t_bin[0]))
-            else:
-                ind_t = np.array(range(n_trial_c))
-                vel_f[i_filt][ind_t, :, i_cell] = vel_bin
-                if not calc_vel_only:
-                    pos_f[i_filt][ind_t, :, i_cell] = pos_bin
+            for k in range(2):
+                if calc_avg_sf:
+                    # case is calculating the average spiking frequency
+                    pos_f[i_filt][i_cell, :, k] = np.nanmean(pos_bin[:, :, k], axis=0) / pos_dt
+                    vel_f[i_filt][i_cell, :, k] = np.nanmean(vel_bin[:, :, k], axis=0) / vel_dt
+                else:
+                    # case is setting all spiking frequencies
+
+                    # sets the trial indices
+                    if k == 0:
+                        ind_t = np.array(range(n_trial_c))
+                        _pos_dt = np.matlib.repmat(dcopy(pos_dt), len(ind_t), 1)
+                        _vel_dt = np.matlib.repmat(dcopy(vel_dt), len(ind_t), 1)
+
+                    # sets the full velocity/position spiking rates
+                    pos_f[i_filt][ind_t, :, i_cell, k] = pos_bin[:, :, k] / _pos_dt
+                    vel_f[i_filt][ind_t, :, i_cell, k] = vel_bin[:, :, k] / _vel_dt
+
+    # sets the bin duration times
+    dt = [pos_dt, vel_dt]
 
     # returns the position/velocity spiking frequency arrays
-    if calc_vel_only:
-        return vel_f, xi_bin[1], np.abs(t_bin[1])
+    if calc_type == 0:
+        # calculation type is position data only
+        return pos_f, xi_bin[0], dt[0]
+    elif calc_type == 1:
+        # calculation type is velocity data only
+        return vel_f, xi_bin[1], dt[1]
+    elif calc_type == 2:
+        # calculation type is both kinematic types
+        return [pos_f, vel_f], xi_bin, dt
     else:
-        return [pos_f, vel_f], xi_bin, t_bin
+        # calculation type is both kinematic types (but non-averaged values)
+        return [pos_f, vel_f], xi_bin, dt
 
-def calc_wave_kinematic_times(wvm_para, s_freq, i_expt, kb_sz, is_pos, yDir=1):
+
+def reorder_array(h, i_grp, sd, dtype=int, m=1):
     '''
 
-    :param wvm_para:
-    :param kb_sz:
+    :param y0:
+    :param j_grp:
     :return:
     '''
 
-    # initialisations
-    yAmp, tPeriod = wvm_para[int(i_expt)]['yAmp'], wvm_para[int(i_expt)]['tPeriod']
-    w, A = 2 * np.pi * s_freq / tPeriod, yAmp * yDir
+    # memory allocation
+    nH, i_row = int(len(i_grp) / 2), ((sd + 1) / 2).astype(int)
+    y_arr = -np.ones((2, nH), dtype=dtype)
 
-    # if velocity, then convert the amplitude from position to speed
-    if not is_pos:
-        yAmp = np.ceil(yAmp * w)
-
-    # calculates the number of bins for half the full sinusoidal wave
-    n_bin = yAmp / kb_sz
-    # if (n_bin - np.round(n_bin)) > 1e-6:
-    #     # if a non-integer number of bins are being created, then exit with an error output to screen
-    #     e_str = 'The discretisation bin size does not produce an even number of bins:\n\n' \
-    #             '  => Wave Amplitude = {0}\n  => Bin Size = {1}\n'.format(yAmp, kb_sz)
-    #     e_str = e_str + '  => Bin Count = {:4.1f}\n\nAlter the discretisation bin size until an ' \
-    #                     'even number of bins is achieved.'.format(2 * n_bin)
-    #     cf.show_error(e_str, 'Incorrect Discretisation Bin Size')
-    #
-    #     # returns none values
-    #     return None, None, None
-    # else:
-
-    # otherwise, initialise the angle bin array (repeats for the full sinusoid period)
-    xi_bin = np.linspace(-yAmp, yAmp, 1 + np.ceil(2 * n_bin))
-    xi_bin_tot = np.hstack((xi_bin, xi_bin))
-
-    # calculates the time offsets for each of the bins
-    if is_pos:
-        # case is position is being considered
-        phi = np.array([m.acos(ss_scale(x / A)) for x in xi_bin])
-        phi_tot = np.hstack((phi, 2 * np.pi - phi))
+    # sets the ordering of the index array
+    if m == 1:
+        # index array is in the correct order
+        j_grp = dcopy(i_grp)
     else:
-        # case is speed is being considered
-        phi = np.array([m.acos(ss_scale(-v / (w * A))) for v in xi_bin])
+        # index array needs to be reversed
+        j_grp = max(i_grp) - dcopy(i_grp)
+        i_row = 1 - i_row
 
-        # converts the angles to the arc-sin range (from the arc-cosine range) and ensures all angles are positive
-        phi_tot = np.hstack((np.pi / 2 - phi, phi - 3 * np.pi / 2))
-        phi_tot[phi_tot < 0] = 2 * np.pi + phi_tot[phi_tot< 0]
+    # sets the values into the array
+    for i in range(len(j_grp)):
+        y_arr[i_row[i], j_grp[i]] = h[i]
 
-    # sorts the angle bins in chronological order
-    i_sort = np.argsort(phi_tot)
-    xi_bin_tot, phi_tot = xi_bin_tot[i_sort], phi_tot[i_sort]
+    # sets the ordered values and return the final array
+    return y_arr
 
-    # ensures the start/end of the discretisation bins are the same
-    if np.abs(xi_bin_tot[0] - xi_bin_tot[-1]) > 1e-6:
-        xi_bin_tot = np.append(xi_bin_tot, xi_bin_tot[0])
-        phi_tot = np.append(phi_tot, 2 * np.pi)
 
-    # removes any repeats
-    is_ok = np.array([True] + list(np.diff(xi_bin_tot) != 0))
-    xi_bin_tot, t_bin = xi_bin_tot[is_ok], phi_tot[is_ok] / w
-
-    # returns the bin discretisation, bin time points, and the the duration of the CC/CCW phases
-    return xi_bin_tot, t_bin, tPeriod / (s_freq * 2.0)
+# def calc_wave_kinematic_times(wvm_para, s_freq, i_expt, kb_sz, is_pos, yDir=1):
+#     '''
+#
+#     :param wvm_para:
+#     :param kb_sz:
+#     :return:
+#     '''
+#
+#     # initialisations
+#     yAmp, tPeriod = wvm_para[int(i_expt)]['yAmp'], wvm_para[int(i_expt)]['tPeriod']
+#     w, A = 2 * np.pi * s_freq / tPeriod, yAmp * yDir
+#
+#     # if velocity, then convert the amplitude from position to speed
+#     if not is_pos:
+#         yAmp = np.ceil(yAmp * w)
+#
+#     # calculates the number of bins for half the full sinusoidal wave
+#     n_bin = yAmp / kb_sz
+#     # if (n_bin - np.round(n_bin)) > 1e-6:
+#     #     # if a non-integer number of bins are being created, then exit with an error output to screen
+#     #     e_str = 'The discretisation bin size does not produce an even number of bins:\n\n' \
+#     #             '  => Wave Amplitude = {0}\n  => Bin Size = {1}\n'.format(yAmp, kb_sz)
+#     #     e_str = e_str + '  => Bin Count = {:4.1f}\n\nAlter the discretisation bin size until an ' \
+#     #                     'even number of bins is achieved.'.format(2 * n_bin)
+#     #     cf.show_error(e_str, 'Incorrect Discretisation Bin Size')
+#     #
+#     #     # returns none values
+#     #     return None, None, None
+#     # else:
+#
+#     # otherwise, initialise the angle bin array (repeats for the full sinusoid period)
+#     xi_bin = np.linspace(-yAmp, yAmp, 1 + np.ceil(2 * n_bin))
+#     xi_bin_tot = np.hstack((xi_bin, xi_bin))
+#
+#     # calculates the time offsets for each of the bins
+#     if is_pos:
+#         # case is position is being considered
+#         phi = np.array([m.acos(ss_scale(x / A)) for x in xi_bin])
+#         phi_tot = np.hstack((phi, 2 * np.pi - phi))
+#     else:
+#         # case is speed is being considered
+#         phi = np.array([m.acos(ss_scale(-v / (w * A))) for v in xi_bin])
+#
+#         # converts the angles to the arc-sin range (from the arc-cosine range) and ensures all angles are positive
+#         phi_tot = np.hstack((np.pi / 2 - phi, phi - 3 * np.pi / 2))
+#         phi_tot[phi_tot < 0] = 2 * np.pi + phi_tot[phi_tot< 0]
+#
+#     # sorts the angle bins in chronological order
+#     i_sort = np.argsort(phi_tot)
+#     xi_bin_tot, phi_tot = xi_bin_tot[i_sort], phi_tot[i_sort]
+#
+#     # ensures the start/end of the discretisation bins are the same
+#     if np.abs(xi_bin_tot[0] - xi_bin_tot[-1]) > 1e-6:
+#         xi_bin_tot = np.append(xi_bin_tot, xi_bin_tot[0])
+#         phi_tot = np.append(phi_tot, 2 * np.pi)
+#
+#     # removes any repeats
+#     is_ok = np.array([True] + list(np.diff(xi_bin_tot) != 0))
+#     xi_bin_tot, t_bin = xi_bin_tot[is_ok], phi_tot[is_ok] / w
+#
+#     # returns the bin discretisation, bin time points, and the the duration of the CC/CCW phases
+#     return xi_bin_tot, t_bin, tPeriod / (s_freq * 2.0)

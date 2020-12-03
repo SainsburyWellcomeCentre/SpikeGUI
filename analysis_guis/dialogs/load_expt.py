@@ -23,29 +23,41 @@ iconDir = os.path.join(os.getcwd(), 'analysis_guis', 'icons')
 ########################################################################################################################
 ########################################################################################################################
 
+
 class LoadExpt(QDialog):
-    def __init__(self, parent=None, loaded_data=[], def_dir=None):
+    def __init__(self, parent=None, data=[], def_dir=None, f_type=1):
         # creates the object
         super(LoadExpt, self).__init__(parent)
 
-        # other initialisations
+        # initialisations
+        loaded_data, i_type = data._cluster, 0
+
+        # attribute initialisations
         self.can_close = False
         self.is_ok = False
         self.def_dir = def_dir
         self.is_multi = False
+        self.multi_file = True
 
         # sets the loaded experimental file names
         if len(loaded_data):
             # if there is previously loaded data,  then set the experiment file locations/names
-            self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
-            self.exp_files = [x['expFile'] for x in loaded_data]
+            if data.multi.is_multi:
+                i_type = f_type - 1
+                f_extn = {1: 'ccomp', 2: 'mdata', 3: 'mcomp'}[i_type]
+
+                self.exp_name = ['{0}.{1}'.format(cf.extract_file_name(data.multi.names[0]), f_extn)]
+                self.exp_files = data.multi.files
+            else:
+                self.exp_name = [cf.extract_file_name(x['expFile']) for x in loaded_data]
+                self.exp_files = [x['expFile'] for x in loaded_data]
         else:
             # otherwise, then set empty data arrays
             self.exp_name, self.exp_files = [], []
 
         # initialises the experiment/control button objects
         self.init_dialog_obj()
-        self.init_expt_obj()
+        self.init_expt_obj(i_type)
         self.init_control_obj()
 
         # ensures the gui has a fixed size
@@ -70,7 +82,7 @@ class LoadExpt(QDialog):
         self.setWindowTitle("Load Experimental Data")
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
-    def init_expt_obj(self):
+    def init_expt_obj(self, i_type):
         '''
 
         :return:
@@ -97,14 +109,21 @@ class LoadExpt(QDialog):
 
         # experiment type combobox
         expt_text = ['Single Processed Experimental Data File (*.cdata)',
-                     'Multiple Processed Experimental Data File (*.mdata)']
+                     'Single Free/Fixed Comparison Data File (*.ccomp)',
+                     'Multiple Processed Experimental Data File (*.mdata)',
+                     'Multiple Free/Fixed Comparison Data File (*.mcomp)']
         self.expt_type = cf.create_combobox(self.group_expt, l_font, expt_text, dim=QRect(10, 200, 381, 21))
         self.expt_type.setEnabled(len(self.exp_name) == 0)
+        self.expt_type.setCurrentIndex(i_type)
 
         # sets the other button objects
         self.push_rmv.setEnabled(len(self.exp_files))
         self.push_add.setIconSize(QSize(31, 31))
         self.push_rmv.setIconSize(QSize(31, 31))
+
+        # if a multi-data file is already loaded, then disable the add button
+        if ('*.mdata' in expt_text[i_type]) or ('*.mcomp' in expt_text[i_type]):
+            self.push_add.setEnabled(False)
 
     def init_control_obj(self):
         '''
@@ -144,20 +163,31 @@ class LoadExpt(QDialog):
             def_dir = self.def_dir['inputDir']
 
         # sets the file type based on the user's choice
+        self.is_multi, self.multi_file = False, True
         if '*.cdata' in self.expt_type.currentText():
             # case is single experiments
-            self.is_multi = False
-            file_type = 'Single Experiment Files (*.cdata)'
+            file_type = 'Single Experiment Data File (*.cdata)'
+
+        # sets the file type based on the user's choice
+        elif '*.ccomp' in self.expt_type.currentText():
+            # case is single free/fixed comparison file
+            file_type = 'Single Free/Fixed Comparison File (*.ccomp)'
+
+        elif '*.mdata' in self.expt_type.currentText():
+            # case is multi-experiment data file
+            self.is_multi, self.multi_file = True, False
+            file_type = 'Multi-Experiment Data File (*.mdata)'
+
         else:
-            # case is multi-experiments
-            self.is_multi = True
-            file_type = 'Multi-Experiment Files (*.mdata)'
+            # case is multi free/fixed comparison file
+            self.is_multi, self.multi_file = True, True
+            file_type = 'Multi-Free/Fixed Comparison File (*.mcomp)'
 
         # opens the file dialog
         file_dlg = FileDialogModal(caption='Select Data File(s)',
                                    filter=file_type,
                                    directory=def_dir,
-                                   is_multi=True)
+                                   is_multi=self.multi_file)
 
         # loads the window and determines if the user accepts
         if (file_dlg.exec() == QDialog.Accepted):
@@ -177,10 +207,10 @@ class LoadExpt(QDialog):
             # re-enables the experiment type (if there are no experiments selected)
             if len(self.exp_name):
                 self.expt_type.setEnabled(False)
+                self.push_add.setEnabled(self.multi_file)
 
             # enables the remove/continue push-buttons
             self.push_continue.setEnabled(True)
-
 
     def remove_expts(self):
         '''
@@ -207,7 +237,9 @@ class LoadExpt(QDialog):
                 self.list_expt.takeItem(self.list_expt.row(item))
 
             # sets the button enabled properties
-            self.push_rmv.setEnabled(False)
+            self.push_add.setEnabled(self.is_multi or (len(self.exp_name) == 0))
+            self.push_rmv.setEnabled(len(self.exp_name))
+            self.expt_type.setEnabled(len(self.exp_name) == 0)
             self.push_continue.setEnabled(len(self.exp_name))
 
             # re-enables the experiment type (if there are no experiments selected)

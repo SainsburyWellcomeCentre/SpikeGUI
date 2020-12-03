@@ -2,6 +2,7 @@
 import copy
 import functools
 import numpy as np
+import pandas as pd
 
 # pyqt5 module import
 from PyQt5.QtCore import QRect, Qt
@@ -24,10 +25,10 @@ grp_font = cf.create_font_obj(size=10, is_bold=True, font_weight=75)
 
 # other function declarations
 dcopy = copy.deepcopy
-get_field = lambda wfm_para, f_key: np.unique(cf.flat_list([list(x[f_key]) for x in wfm_para]))
 
 ########################################################################################################################
 ########################################################################################################################
+
 
 class RotationFilter(QDialog):
     def __init__(self, main_obj, parent=None, init_data=None, other_var=None, is_exc=False, is_gen=False):
@@ -36,6 +37,7 @@ class RotationFilter(QDialog):
 
         # other initialisations
         self.grp_type = main_obj.get_plot_grp_fcn()
+        self.curr_fcn = main_obj.get_plot_fcn()
         self.can_close = False
         self.update_plot = False
         self.is_ok = True
@@ -52,12 +54,21 @@ class RotationFilter(QDialog):
             if self.is_gen:
                 self.rmv_fields = ['t_type', 'record_coord', 'sig_type', 'match_type']
                 self.is_ud = False
+
+                if init_data is not None:
+                    if 'free_ctype' not in init_data:
+                        init_data['free_ctype'] = []
             else:
                 self.rmv_fields = None
                 self.is_ud = init_data['is_ud'][0]
 
         else:
-            self.plot_all_expt = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt').checkState()
+            h_check = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt')
+            if h_check is None:
+                self.plot_all_expt = True
+            else:
+                self.plot_all_expt = main_obj.grp_para_plot.findChild(QCheckBox, 'plot_all_expt').checkState()
+
             if other_var is not None:
                 if 'use_ud' in other_var:
                     self.is_ud = main_obj.grp_para_plot.findChildren(QCheckBox, other_var['use_ud'])[0].checkState() > 0
@@ -68,10 +79,12 @@ class RotationFilter(QDialog):
                         self.rmv_fields = None
                 else:
                     self.rmv_fields = other_var['rmv_fields']
-                    self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                    # self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                    self.is_ud = self.grp_type in ['UniformDrift Analysis']
             else:
                 self.rmv_fields = None
-                self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                # self.is_ud = self.grp_type in ['UniformDrift Analysis', 'Combined Analysis']
+                self.is_ud = self.grp_type in ['UniformDrift Analysis']
 
             plot_scope = main_obj.get_plot_scope()
             if plot_scope is None:
@@ -85,6 +98,20 @@ class RotationFilter(QDialog):
             self.init_filter_data()
         else:
             self.f_data = init_data
+
+        # ensures any missing fields are added to the exclusion filter
+        f_fld = ['lesion', 'record_state']
+        for ff in f_fld:
+            if self.rmv_fields is None:
+                cont = True
+            else:
+                cont = ff not in self.rmv_fields
+
+            if (ff not in self.f_data) and cont:
+                if (not self.is_exc) and (not self.is_gen):
+                    self.f_data[ff] = ['All']
+                else:
+                    self.f_data[ff] = []
 
         # determines the feasible filter fields
         self.init_filter_fields()
@@ -120,16 +147,18 @@ class RotationFilter(QDialog):
             if self.is_gen:
                 title = "General Exclusion Filter"
             elif self.is_ud:
-                title = "Rotational Exclusion Filter"
-            else:
                 title = "UniformDrift Exclusion Filter"
+            else:
+                title = "Rotational Exclusion Filter"
         else:
-            if self.grp_type == 'Rotation Analysis':
-                title = "Rotational Analysis Plot Filter"
+            if self.grp_type == 'UniformDrift Analysis':
+                title = "UniformDrift Analysis Plot Filter"
             elif self.grp_type == 'ROC Analysis':
                 title = "ROC Analysis"
+            elif self.grp_type == 'Combined Analysis':
+                title = "Combined Analysis Plot Filter"
             else:
-                title = "UniformDrift Analysis Plot Filter"
+                title = "Rotational Analysis Plot Filter"
 
         self.setObjectName("RotationFilter")
         self.setWindowTitle(title)
@@ -153,9 +182,16 @@ class RotationFilter(QDialog):
         is_rot_expt = cf.det_valid_rotation_expt(self.data)
         d_clust = [x for x, y in zip(self.data._cluster, is_rot_expt) if y]
 
+        # determines the valid group/function types for displaying the trial type field
+        valid_grp = self.grp_type in ['Rotation Analysis', 'ROC Analysis', 'Combined Analysis',
+                                      'Miscellaneous Functions', 'Depth-Based Analysis',
+                                      'Angular Head Velocity Analysis']
+        valid_fcn = self.grp_type == 'Freely Moving Analysis' and \
+                    self.curr_fcn != 'Freely Moving Cell Type Statistics'
+
         # retrieves the trial-types from each experiment
-        if (self.grp_type in ['Rotation Analysis', 'ROC Analysis']) or (self.is_exc and (not self.is_ud)):
-            t_list0 = cf.flat_list([list(x['rotInfo']['trial_type']) for x in d_clust])
+        if (valid_grp or valid_fcn) or (self.is_exc and (not self.is_ud)):
+            t_list0 = cf.get_unique_group_types(d_clust, 't_type')
             if self.use_both:
                 trial_type = [x for x in np.unique(t_list0) if x != 'UniformDrifting']
             else:
@@ -164,11 +200,13 @@ class RotationFilter(QDialog):
             trial_type = ['']
 
         # sets the field combobox lists
-        sig_type = ['Narrow Spikes', 'Wide Spikes']
-        match_type = ['Matched Clusters', 'Unmatched Clusters']
-        region_type = np.unique(cf.flat_list([list(np.unique(x['chRegion'])) for x in d_clust]))
-        record_layer = np.unique(cf.flat_list([list(np.unique(x['chLayer'])) for x in d_clust]))
-        record_coord = list(np.unique([x['expInfo']['record_coord'] for x in d_clust]))
+        sig_type = cf.get_unique_group_types(d_clust, 'sig_type')
+        match_type = cf.get_unique_group_types(d_clust, 'match_type')
+        region_type = cf.get_unique_group_types(d_clust, 'region_type')
+        record_layer = cf.get_unique_group_types(d_clust, 'record_layer')
+        lesion_type = cf.get_unique_group_types(d_clust, 'lesion_type')
+        record_state = cf.get_unique_group_types(d_clust, 'record_state')
+        record_coord = cf.get_unique_group_types(d_clust, 'record_coord')
 
         # sets the filter field parameter information
         self.fields = [
@@ -177,19 +215,21 @@ class RotationFilter(QDialog):
             ['Cluster Match Type', 'CheckCombo', 'match_type', match_type, self.data.comp.is_set],
             ['Region Name', 'CheckCombo', 'region_name', list(region_type), self.is_multi_cell and self.plot_all_expt],
             ['Recording Layer', 'CheckCombo', 'record_layer', list(record_layer), self.is_multi_cell and self.plot_all_expt],
-            ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, True],
+            ['Lesion Type', 'CheckCombo', 'lesion', list(lesion_type), self.is_multi_cell and self.plot_all_expt],
+            ['Recording State', 'CheckCombo', 'record_state', list(record_state), self.is_multi_cell and self.plot_all_expt],
+            ['Recording Coordinate', 'CheckCombo', 'record_coord', record_coord, self.plot_all_expt],
         ]
 
-        # appends on additional query fields for if analysing uniform-drifting
+        # appends additional query fields if analysing uniform-drifting
         if self.is_ud:
             # combines the wave-form parameters over all experiments
             wfm_para = [x['rotInfo']['wfm_para']['UniformDrifting'] for x in
                                                     d_clust if 'UniformDrifting' in x['rotInfo']['wfm_para']]
 
             # retrieves the unique uniform-drifting stimuli parameters
-            temp_freq = [str(x) for x in get_field(wfm_para, 'tFreq')]
-            temp_freq_dir = [str(x) for x in get_field(wfm_para, 'yDir').astype(int)]
-            temp_cycle = [str(x) for x in get_field(wfm_para, 'tCycle').astype(int)]
+            temp_freq = cf.get_unique_group_types(d_clust, 'temp_freq', wfm_para=wfm_para)
+            temp_freq_dir = cf.get_unique_group_types(d_clust, 'temp_freq_dir', wfm_para=wfm_para)
+            temp_cycle = cf.get_unique_group_types(d_clust, 'temp_cycle', wfm_para=wfm_para)
 
             # adds the new data fields
             self.fields = self.fields[int(not self.use_both):] + [
@@ -197,6 +237,18 @@ class RotationFilter(QDialog):
                 ['Temporal Frequency Direction', 'CheckCombo', 't_freq_dir', temp_freq_dir, True],
                 ['Spatial Frequency', 'CheckCombo', 't_cycle', temp_cycle, True],
             ]
+
+        # appends addition query field if analysing freely moving cells
+        if cf.has_free_ctype(self.data):
+            if not self.is_exc or (self.is_exc and self.is_gen):
+                # determines the unique cell types from free cell data types
+                c_type = cf.get_unique_group_types(d_clust, 'c_type', c_type=self.data.externd.free_data.cell_type)
+
+                # if there are any significant cell types, then add them to the filter type
+                if len(c_type):
+                    self.fields += [
+                        ['Freely Moving Analysis', 'CheckCombo', 'free_ctype', c_type, True]
+                    ]
 
         # removes any other fields (if specified)
         if self.rmv_fields is not None:
@@ -216,20 +268,31 @@ class RotationFilter(QDialog):
             # sets the exclusion filter based on the analysis type
             if self.is_ud:
                 # case is uniformdrifting analysis
-                exc_filt = self.data.rotation.exc_ud_filt
+                exc_filt = self.data.exc_ud_filt
             else:
                 # case is rotation analysis
-                exc_filt = self.data.rotation.exc_rot_filt
+                exc_filt = self.data.exc_rot_filt
 
-            # loops through each of the filter keys removing any
+            # loops through each of the filter keys removing any matching exclusion fields
             for fk in exc_filt.keys():
                 if len(exc_filt[fk]) and (fk in f_str):
-                    # retrieves the field that the filter key corresponds to
-                    i_field = f_str.index(fk)
-
                     # removes the fields values that have been excluded
+                    i_field = f_str.index(fk)
                     for fv in exc_filt[fk]:
-                        self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
+                        # if the field value is in the list, then remove it
+                        if fv in self.fields[i_field][3]:
+                            self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
+
+            # if not running the general exclusion filter, then remove any fields included in the general filter
+            if not self.is_gen:
+                for fk in self.data.exc_gen_filt:
+                    if len(self.data.exc_gen_filt[fk]) and (fk in f_str):
+                        # removes the fields values that have been excluded
+                        i_field = f_str.index(fk)
+                        for fv in self.data.exc_gen_filt[fk]:
+                            # if the field value is in the list, then remove it
+                            if fv in self.fields[i_field][3]:
+                                self.fields[i_field][3].pop(self.fields[i_field][3].index(fv))
 
         # removes any groups that don't have more than one query value
         for i_row in reversed(range(len(self.fields))):
@@ -524,14 +587,20 @@ class RotationFilter(QDialog):
 ########################################################################################################################
 
 class RotationFilteredData(object):
-    def __init__(self, data, rot_filt, i_cluster, plot_exp_name, plot_all_expt, plot_scope, is_ud):
+    def __init__(self, data, rot_filt, cell_id, plot_exp_name, plot_all_expt, plot_scope, is_ud,
+                 t_ofs=None, t_phase=None, use_raw=False, rmv_empty=True):
 
         # initialisations
+        self.e_str = None
         self.is_ok = True
         self.is_ud = is_ud
+        self._t_ofs = t_ofs
+        self._t_phase = t_phase
         self.plot_exp_name = plot_exp_name
         self.plot_all_expt = plot_all_expt
         self.plot_scope = plot_scope
+        self.use_raw = use_raw
+        self.rmv_empty = rmv_empty
 
         # sets the phase labels based on the experiment stimuli type
         if self.is_ud:
@@ -548,14 +617,21 @@ class RotationFilteredData(object):
         # sets the other fields
         self.i_expt0 = None
         self.n_phase = len(self.phase_lbl)
-        self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
         self.is_single_cell = plot_scope == 'Individual Cell'
+
+        #
+        if cf.use_raw_clust(data) or self.use_raw:
+            self.n_expt = 1 + plot_all_expt * (len(data._cluster) - 1)
+        else:
+            self.n_expt = 1 + plot_all_expt * (len(data.cluster) - 1)
 
         # applies the filter and sets up the other plotting field values
         self.apply_rotation_filter(data)
-        self.set_spike_arrays(data, i_cluster)
-        self.set_legend_str()
-        self.set_final_data_arrays()
+        self.set_spike_arrays(data, cell_id)
+
+        if self.is_ok:
+            self.set_legend_str()
+            self.set_final_data_arrays()
 
     #####################################
     ####    MAIN FILTER FUNCTIONS    ####
@@ -582,85 +658,122 @@ class RotationFilteredData(object):
 
         # applies all unique filters to the loaded experiments
         self.t_spike0, self.wvm_para, self.trial_ind, self.clust_ind, self.i_expt0, self.f_perm, self.f_key, \
-                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name)
+                    self.rot_filt_tot = rot.apply_rot_filter(data, self.rot_filt, expt_filt_lvl, exp_name,
+                                                             self.use_raw, self.rmv_empty)
 
         # determines the number of plots to be displayed
         self.n_filt = len(self.rot_filt_tot)
 
-    def set_spike_arrays(self, data, i_cluster):
+    def set_spike_arrays(self, data, cell_id):
         '''
 
         :param data:
-        :param i_cluster:
+        :param cell_id:
         :return:
         '''
 
         # sets the experiment indices
-        clust_ind, trial_ind = self.clust_ind, self.trial_ind
-        if self.is_single_cell:
-            if i_cluster not in (clust_ind[0][0] + 1):
-                # if the cluster index is not valid, then output an error to screen
-                e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
-                        'different index or rotation analysis filter.'
-                cf.show_error(e_str, 'Infeasible Cluster Indices')
-                self.is_ok = False
-                return
+        is_rot = cf.det_valid_rotation_expt(data)
+        clust_ind, trial_ind, e_str = self.clust_ind, self.trial_ind, None
+
+        if len(clust_ind) == 0:
+            # if the cluster index is not valid, then output an error to screen
+            e_str = 'The input cluster index does not have a feasible match. Please try again with a ' \
+                    'different index or rotation analysis filter.'
+
+        elif self.is_single_cell:
+            #
+            if cell_id == 'No Valid Cells':
+                # if there are no valid cells, then output an error to screen
+                e_str = 'There are no valid cells for this experiment. Retry again with another experiment.'
             else:
-                # otherwise, set the cluster index value for the given experiment
-                clust_ind = [[np.array([i_cluster-1], dtype=int)] for _ in range(self.n_filt)]
-                i_expt0 = cf.get_expt_index(self.plot_exp_name, data.cluster, cf.det_valid_rotation_expt(data))
+                # otherwise, deteremine the index of the current experiment
+                i_expt0 = cf.get_expt_index(self.plot_exp_name, data._cluster, np.ones(len(data._cluster)))
                 self.i_expt0 = [np.array([i_expt0]) for _ in range(self.n_filt)]
 
+                # sets the index values for the given experiment
+                if self.use_raw:
+                    i_cluster = data._cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+                else:
+                    i_cluster = data.cluster[i_expt0]['clustID'].index(int(cell_id[cell_id.index('#') + 1:]))
+
+                clust_ind = [[np.array([i_cluster], dtype=int)] for _ in range(self.n_filt)]
+
+        # if there was an error then output a message to screen and exit the function
+        if e_str is not None:
+            cf.show_error(e_str, 'Infeasible Cluster Indices')
+            self.is_ok = False
+            return
+
+        if cf.use_raw_clust(data) or self.use_raw:
+            s_freq = [[data._cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
+        else:
+            s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
+
         # retrieves the sampling frequencies and trial/cell count
-        s_freq = [[data.cluster[i]['sFreq'] for i in x] for x in self.i_expt0]
         n_trial = [[len(x) if x is not None else 0 for x in ss] for ss in trial_ind]
         n_cell = [[len(x) if x is not None else 0 for x in ss] for ss in clust_ind]
 
         # sets the stimuli phase duration (depending on the trial type)
-        if 'tPeriod' in self.wvm_para[0][0].dtype.names:
-            # case is a sinusoidal pattern
-            self.t_phase = [
-                [np.floor(wv['tPeriod'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
-                                                    for wvp, sf in zip(self.wvm_para, s_freq)
-            ]
+        if len(s_freq[0]):
+            if 'tPeriod' in self.wvm_para[0][0].dtype.names:
+                # case is a sinusoidal pattern
+                self.t_phase = [
+                    [np.floor(wv['tPeriod'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
+                                                        for wvp, sf in zip(self.wvm_para, s_freq)
+                ]
+            else:
+                # case is a flat pattern
+                self.t_phase = [
+                    [np.floor(wv['nPts'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
+                                                        for wvp, sf in zip(self.wvm_para, s_freq)
+                ]
         else:
-            # case i a flat pattern
-            self.t_phase = [
-                [np.floor(wv['nPts'][0] / 2) / jj for wv, jj in zip(wvp, sf)]
-                                                    for wvp, sf in zip(self.wvm_para, s_freq)
-            ]
+            # otherwise, set an empty array
+            self.t_phase = [[]]
 
         # sets the cluster/channel ID flags
-        self.cl_id = [sum([list(np.array(data.cluster[x]['clustID'])[y])
-                        for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
-        self.ch_id = [sum([list(np.array(data.cluster[x]['chDepth'])[y])
-                        for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+        if cf.use_raw_clust(data) or self.use_raw:
+            self.cl_id = [sum([list(np.array(data._cluster[x]['clustID'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+            self.ch_id = [sum([list(np.array(data._cluster[x]['chDepth'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+        else:
+            self.cl_id = [sum([list(np.array(data.cluster[x]['clustID'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
+            self.ch_id = [sum([list(np.array(data.cluster[x]['chDepth'])[y])
+                            for x, y in zip(i_ex, cl_ind)], []) for i_ex, cl_ind in zip(self.i_expt0, clust_ind)]
 
         # memory allocation sets the other important values for each cell/experiment
-        A, dcopy = np.empty(self.n_filt, dtype=object), copy.deepcopy
+        A = np.empty(self.n_filt, dtype=object)
         self.n_trial, self.s_freq, self.t_spike, self.i_expt = dcopy(A), dcopy(A), dcopy(A), dcopy(A)
         for i_filt in range(self.n_filt):
-            for ii, j_expt in enumerate(self.i_expt0[i_filt]):
-                # sets the number of cells
-                nC = n_cell[i_filt][ii]
+            if len(self.i_expt0[i_filt]):
+                for ii, j_expt in enumerate(self.i_expt0[i_filt]):
+                    # sets the number of cells
+                    nC = n_cell[i_filt][ii]
 
-                # stores the spike times for the current filter/experiment
-                tSp = self.t_spike0[i_filt][ii] / s_freq[i_filt][ii]
-                if self.is_single_cell:
-                    tSp = tSp[clust_ind[i_filt][ii], :, :]
-                self.t_spike[i_filt] = cf.combine_nd_arrays(self.t_spike[i_filt], tSp)
+                    # stores the spike times for the current filter/experiment
+                    tSp = self.t_spike0[i_filt][ii] / s_freq[i_filt][ii]
+                    if self.is_single_cell:
+                        tSp = tSp[clust_ind[i_filt][ii], :, :]
+                    self.t_spike[i_filt] = cf.combine_nd_arrays(self.t_spike[i_filt], tSp)
 
-                # sets the values for the other field values
-                if ii == 0:
-                    # case is the storage array is empty, so assign the values
-                    self.n_trial[i_filt] = np.array([n_trial[i_filt][ii]] * nC)
-                    self.s_freq[i_filt] = np.array([s_freq[i_filt][ii]] * nC)
-                    self.i_expt[i_filt] = np.array([j_expt] * nC, dtype=int)
-                else:
-                    # otherwise, append the new values to the existing arrays
-                    self.n_trial[i_filt] = np.append(self.n_trial[i_filt], np.array([n_trial[i_filt][ii]] * nC))
-                    self.s_freq[i_filt] = np.append(self.s_freq[i_filt], np.array([s_freq[i_filt][ii]] * nC))
-                    self.i_expt[i_filt] = np.append(self.i_expt[i_filt] , np.array([j_expt] * nC, dtype=int))
+                    # sets the values for the other field values
+                    if ii == 0:
+                        # case is the storage array is empty, so assign the values
+                        self.n_trial[i_filt] = np.array([n_trial[i_filt][ii]] * nC)
+                        self.s_freq[i_filt] = np.array([s_freq[i_filt][ii]] * nC)
+                        self.i_expt[i_filt] = np.array([j_expt] * nC, dtype=int)
+                    else:
+                        # otherwise, append the new values to the existing arrays
+                        self.n_trial[i_filt] = np.append(self.n_trial[i_filt], np.array([n_trial[i_filt][ii]] * nC))
+                        self.s_freq[i_filt] = np.append(self.s_freq[i_filt], np.array([s_freq[i_filt][ii]] * nC))
+                        self.i_expt[i_filt] = np.append(self.i_expt[i_filt] , np.array([j_expt] * nC, dtype=int))
+            else:
+                # if there are no elements in the array
+                self.n_trial[i_filt], self.s_freq[i_filt] = [], []
+                self.t_spike[i_filt], self.i_expt[i_filt] = [], []
 
     def set_legend_str(self):
         '''
@@ -701,7 +814,7 @@ class RotationFilteredData(object):
 
         # determines if each filter has at least one cell
         is_ok = np.array([np.size(x, axis=0) for x in self.t_spike]) > 0
-        if any(np.logical_not(is_ok)):
+        if any(np.logical_not(is_ok)) and self.rmv_empty:
             # if there are any filters with no cells, then reduce the class arrays
             self.n_filt = sum(is_ok)
 
@@ -725,6 +838,40 @@ class RotationFilteredData(object):
             # other array reduction
             self.t_phase = [x for x, y in zip(self.t_phase, is_ok) if y]
             self.rot_filt_tot = [x for x, y in zip(self.rot_filt_tot, is_ok) if y]
+
+        #
+        if self._t_ofs is not None:
+            # determines if the phase duration is greater than
+            t_phase = self.t_phase[0][0]
+            if (self._t_ofs + self._t_phase) > t_phase:
+                self.is_ok = False
+                self.e_str = 'The entered analysis duration and offset is ' \
+                             'greater than the experimental phase duration:\n\n' \
+                             '  * Analysis Duration + Offset = {0}s.\n * Experiment Phase Duration = {1}s.\n\n' \
+                             'Enter a correct analysis duration/offset combination before re-running ' \
+                             'the function.'.format(self._t_ofs + self._t_phase, np.round(t_phase, 3))
+            else:
+                # reduces the time spike arrays to include only the valid offset/duration
+                for i_filt in range(self.n_filt):
+                    # array dimensioning
+                    t_phase0 = dcopy(self.t_phase[i_filt][0])
+                    n_cell, n_trial, n_phase = np.shape(self.t_spike[i_filt])
+                    self.t_phase[i_filt][0] = self._t_phase
+
+                    #
+                    for i_phase in range(n_phase):
+                        for i_trial in range(n_trial):
+                            for i_cell in range(n_cell):
+                                # reshapes the other time-spike arrays
+                                t_sp = self.t_spike[i_filt][i_cell, i_trial, i_phase]
+                                if t_sp is not None:
+                                    if i_phase == 0:
+                                        ii = t_sp >= (t_phase0 - self._t_phase)
+                                    else:
+                                        ii = np.logical_and(t_sp >= self._t_ofs, t_sp <= (self._t_ofs + self._t_phase))
+
+                                    self.t_spike[i_filt][i_cell, i_trial, i_phase] = \
+                                                            self.t_spike[i_filt][i_cell, i_trial, i_phase][ii]
 
     #######################################
     ####    MISCELLANEOUS FUNCTIONS    ####

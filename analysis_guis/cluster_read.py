@@ -1,10 +1,5 @@
-import os
 import numpy as np
-from probez.spike_handling import cluster_exceptions
-from probez.util import generic_functions
 from cached_property import cached_property
-
-import time
 
 class ClusterRead(object):
     def __init__(self, spike_io, cluster_id):

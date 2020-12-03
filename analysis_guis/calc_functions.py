@@ -1,24 +1,57 @@
 # module import
+import os
 import pywt
 import copy
 import random
 import peakutils
 import math as m
 import numpy as np
+import pickle as _p
+import pandas as pd
 from fastdtw import fastdtw
+import scikit_posthocs as sp
+from numpy.matlib import repmat
 import shapely.geometry as geom
 
 # scipy module imports
-from scipy import stats, signal
+from scipy import stats
 from scipy.stats import poisson as p
+from scipy.signal import medfilt
+from scipy.stats import pearsonr
 from scipy.spatial.distance import *
-from scipy.optimize import minimize
+from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
+from scipy.stats.distributions import t
 
-import matplotlib.pyplot as plt
+# rpy2 module imports
+import rpy2.robjects as robjects
+from rpy2.robjects.methods import RS4
+from rpy2.robjects import FloatVector
+from rpy2.robjects.packages import importr
+from rpy2.robjects import pandas2ri
+pandas2ri.activate()
+
+# r-library import
+r_stats = importr("stats")
+
+# sci-kit learn module import
+from sklearn.linear_model import LinearRegression
+
+# try:
+#     r_art = importr("ARTool")
+# except:
+#     pass
+
+# sklearn module imports
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+# PyQt5 module imports
+from PyQt5.QtCore import QRect
 
 # custom module imports
 import analysis_guis.common_func as cf
+import analysis_guis.rotational_analysis as rot
+from analysis_guis.dialogs.rotation_filter import RotationFilteredData
 
 try:
     import analysis_guis.test_plots as tp
@@ -26,8 +59,34 @@ except:
     pass
 
 # other function declarations
-dcopy = copy.deepcopy
+dcopy, scopy = copy.deepcopy, copy.copy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
+n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
+n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
+lda_trial_type = None
+
+# lambda functions
+rmv_nan_elements = lambda y: [[np.array(xx)[~np.isnan(xx)] for xx in yy] for yy in y]
+
+########################################################################################################################
+########################################################################################################################
+
+class EmptyAnalysisData(object):
+    def __init__(self):
+        # field initialisation
+        self._cluster = []
+        self.cluster = None
+        self.rotation = None
+
+        # exclusion filter fields
+        self.exc_gen_filt = None
+        self.exc_rot_filt = None
+        self.exc_ud_filt = None
+
+        # other flags
+        self.req_update = True
+        self.force_calc = True
+        self.files = None
 
 ########################################################################################################################
 ########################################################################################################################
@@ -84,7 +143,7 @@ def opt_time_to_y0(args, bounds):
 ###########################################
 
 
-def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5):
+def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5, return_freq=True):
     '''
 
     :param ts1:
@@ -155,7 +214,11 @@ def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5):
     t_ofs = cf.flat_list(t_ofs)
     xi_bin = np.arange(win_sz[0]+bin_size/2, win_sz[1] + bin_size/2, bin_size)
     hh = np.histogram(t_ofs, xi_bin)
-    return hh[0] * (1000.0 / (bin_size * len(ts1))), (hh[1][:-1] + hh[1][1:]) / 2
+
+    if return_freq:
+        return hh[0] * (1000.0 / (bin_size * len(ts1))), (hh[1][:-1] + hh[1][1:]) / 2
+    else:
+        return hh[0], (hh[1][:-1] + hh[1][1:]) / 2
 
 ####################################################
 ####    CLUSTER MATCHING METRIC CALCULATIONS    ####
@@ -426,6 +489,7 @@ def calc_dtw_indices(comp, data_fix, data_free, is_feas):
 ####    HISTOGRAM SIMILARITY METRICS    ####
 ############################################
 
+
 def calc_total_distance(y_fix, y_free, n_pts):
     '''
 
@@ -445,6 +509,7 @@ def calc_total_distance(y_fix, y_free, n_pts):
             d_tot[i, j] = pp_g.distance(lines[j])
 
     return d_tot
+
 
 def calc_kldiverge(hist_1, hist_2):
     '''
@@ -491,6 +556,18 @@ def calc_kw_stat(hist_1, hist_2):
     return ks_stat
 
 
+def calc_ks2_stat(hist_1, hist_2):
+    '''
+
+    :param hist_1:
+    :param hist_2:
+    :return:
+    '''
+
+    _, ks_stat = stats.ks_2samp(hist_1, hist_2)
+    return ks_stat
+
+
 def calc_wasserstein(hist_1, hist_2):
     '''
 
@@ -501,9 +578,157 @@ def calc_wasserstein(hist_1, hist_2):
 
     return stats.wasserstein_distance(hist_1, hist_2)
 
+###############################################
+####    ART STATS CALCULATION FUNCTIONS    ####
+###############################################
+
+def calc_art_stats(x1, x2, y, c_type='X1'):
+    '''
+
+    :param ttype:
+    :param x:
+    :param y:
+    :return:
+    '''
+
+    def get_art_test_values(s_data, c_type):
+        '''
+
+        :param s_data:
+        :return:
+        '''
+
+        def convert_anova_values(s_data0, d_type, cg):
+            '''
+
+            :param s_data:
+            :param d_type:
+            :param cg:
+            :return:
+            '''
+
+            # converts the data to an np-array
+            s_data = np.array(s_data0, dtype=d_type)
+
+            if cg in ['F value', 'Pr(>F)']:
+                for j in range(len(s_data)):
+                    s_data[j] = cf.set_pvalue_string(s_data[j])
+
+            # returns the array
+            return s_data
+
+        # parameters
+        p_tol = 0.05
+
+        # REMOVE ME LATER
+        p_str, c_grp = None, None
+
+        # runs the stats based on the type
+        if c_type == 'ANOVA':
+            # initialisations
+            c_grp = ['Df', 'Df.res', 'F value', 'Pr(>F)']
+            d_type = [int, int, object, object]
+
+            if isinstance(s_data, pd.core.frame.DataFrame):
+                # memory allocation
+                p_str = np.empty((s_data.shape[0], len(c_grp)), dtype=object)
+
+                # sets the summary values for all group types
+                for i, cg in enumerate(c_grp):
+                    p_str[:, i] = convert_anova_values(s_data[cg], d_type[i], cg)
+
+            else:
+                # initialisations
+                s_name = list(s_data.names)
+
+                # sets the summary values for all group types
+                for i, cg in enumerate(c_grp):
+                    # retrieves the new data field
+                    i_name = s_name.index(cg)
+                    s_data_nw = convert_anova_values(s_data[i_name], d_type[i], cg)
+
+                    # memory allocation (first value only)
+                    if i == 0:
+                        p_str = np.empty((len(s_data_nw), len(c_grp)), dtype=object)
+
+                    # sets the value
+                    p_str[:, i] = s_data_nw
+
+        else:
+            # retrieves the summary dataframe
+            summ_df = pandas2ri.ri2py(robjects.r['summary'](s_data))
+
+            # retrieves the category/p-values based on the test type
+            if 'x1_pairwise' in summ_df.columns:
+                # case is the interaction analysis
+                pass
+
+            else:
+                # retrieves the category/p-value values
+                c_str, p_value = summ_df['contrast'], summ_df['p.value']
+
+                # determines the unique category groupings
+                c_str_sp = np.vstack([x.split(' - ') for x in c_str])
+                c_str_uniq = list(np.unique(c_str_sp))
+
+                # retrieves the group indices and sorted category groups
+                i_grp, n_grp = [[c_str_uniq.index(y) for y in x] for x in c_str_sp], len(c_str_uniq)
+                c_grp = [c_str_sp[0, 0]] + list(c_str_sp[:(n_grp - 1), 1])
+
+                # sets the p-value strings for each groups
+                p_str, k = np.empty((n_grp, n_grp), dtype=object), 0
+                for i in range(n_grp):
+                    for j in range(i, n_grp):
+                        if i == j:
+                            # case is the symmetric case
+                            p_str[i, j] = 'N/A'
+                        else:
+                            # sets the final string and increments the counter
+                            p_str_nw = cf.set_pvalue_string(p_value.iloc[k])
+                            p_str[i_grp[k][0], i_grp[k][1]] = p_str[i_grp[k][1], i_grp[k][0]] = p_str_nw
+                            k += 1
+
+        # returns the comparison group/statistics string
+        return c_grp, p_str
+
+    # calculates the ART anova
+    calc_art_anova = robjects.r(
+        """
+            f <- function(x1f, x2f, y, s_type){
+                library("ARTool")
+                library(emmeans)
+                library(phia)
+
+                x1 <- factor(x1f)
+                x2 <- factor(x2f)
+                df <- data.frame(x1, x2, y)
+
+                m <- art(y ~ x1 + x2 + x1:x2, data = df)
+                m_anova <- anova(m)
+
+                if (s_type == 0) {
+                out <- pairs(emmeans(artlm(m, "x1"), ~ x1), adjust="tukey")                
+                } else if (s_type == 1) {
+                out <- pairs(emmeans(artlm(m, "x2"), ~ x2), adjust="tukey")               
+                } else if (s_type == 2) {
+                out <- contrast(emmeans(artlm(m, "x1:x2"), ~ x1:x2), method="pairwise", adjust="none")   
+                } else if (s_type == 3) {
+                out <- anova(m)
+                } else {
+                out <- m
+                }
+            }
+        """
+    )
+
+    # returns the stats category groupings/p-values (for the desired stats type)
+    ind = ['X1', 'X2', 'X1_X2', 'ANOVA'].index(c_type)
+    return get_art_test_values(calc_art_anova(x1, x2, y, ind), c_type)
+
 ###################################################
 ####    NORMALISATION CALCULATION FUNCTIONS    ####
 ###################################################
+
 
 def norm_signal(y_signal, y_max=None, y_min=None):
     '''
@@ -563,6 +788,7 @@ def norm_array_rows(metric, max_norm=True):
 ####    MISCELLANEOUS CALCULATION FUNCTIONS    ####
 ###################################################
 
+
 def cluster_distance(data_fix, data_free, n_shuffle=100, n_spikes=10, i_cluster=[1]):
     '''
 
@@ -574,17 +800,8 @@ def cluster_distance(data_fix, data_free, n_shuffle=100, n_spikes=10, i_cluster=
     rperm = np.random.permutation
     mu_dist = np.zeros((n_cluster, data_free['nC'] + 1, n_shuffle))
 
-    # #
-    # h = waitbar_dialog.Waitbar(n_bar=1, p_max=n_cluster+1)
-
     # calculates the distances between the free/fixed cluster shuffled means (over all clusters/shuffles)
     for i_fix in range(n_cluster):
-        # if h.is_cancel:
-        #     self.calc_ok = False
-        # else:
-        #     w_str = 'Calculating Distances for Fixed Cluster #{0}'.format(i_fix + 1)
-        #     h.update(0, i_fix+1, w_str)
-
         # REMOVE ME LATER for waitbar
         print('Calculating Distances for Fixed Cluster #{0}'.format(i_fix + 1))
 
@@ -619,6 +836,7 @@ def cluster_distance(data_fix, data_free, n_shuffle=100, n_spikes=10, i_cluster=
 
     # # closes the waitbar dialog
     # h.close()
+
 
 def calc_ccgram_types(ccG, ccG_xi, t_spike, c_id=None, calc_para=None, w_prog=None, expt_id=None):
     '''
@@ -962,7 +1180,7 @@ def calc_weighted_mean(metrics, W=None):
             metric_weighted_mean[i_row, :, i_met] = W[i_met] * metrics[i_row, :, i_met]
 
     # returns the weighted sum
-    return np.sum(metric_weighted_mean, axis=2)
+    return np.nansum(metric_weighted_mean, axis=2)
 
 
 def det_gmm_cluster_groups(grp_means):
@@ -993,19 +1211,6 @@ def det_gmm_cluster_groups(grp_means):
 
     # returns the index
     return i_grp, i_ind
-
-
-def calc_pointwise_diff(x1, x2):
-    '''
-
-    :param X1:
-    :param X2:
-    :return:
-    '''
-
-    #
-    X1, X2 = np.meshgrid(x1, x2)
-    return np.abs(X1 - X2)
 
 
 def arr_range(y, dim=None):
@@ -1047,7 +1252,7 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
     :return:
     '''
 
-    # applies the general exclusion filter (for the fields that have been set)
+    # applies the general exclusion filter (for the fields that are set)
     cl_inc = dcopy(c['expInfo']['clInclude'])
     for exc_gen in exc_gen_filt:
         ex_g = exc_gen_filt[exc_gen]
@@ -1056,6 +1261,14 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
                 cl_inc[c['chRegion'] == ex_gt] = False
             elif exc_gen == 'record_layer':
                 cl_inc[c['chLayer'] == ex_gt] = False
+            elif exc_gen == 'lesion':
+                cl_inc = np.logical_and(cl_inc, c['expInfo']['lesion'] != ex_gt)
+            elif exc_gen == 'record_state':
+                cl_inc = np.logical_and(cl_inc, c['expInfo']['record_state'] != ex_gt)
+
+            # if there are no valid cells, then exit the function
+            if not np.any(cl_inc):
+                return cl_inc
 
     # returns the cluster inclusion index array
     return cl_inc
@@ -1070,3 +1283,3156 @@ def calc_roc_curves_pool(p_data):
 
     x, y = p_data[0], p_data[1]
     return cf.calc_roc_curves(None, None, x_grp=x, y_grp=y)
+
+
+def get_rot_phase_offsets(calc_para, is_vis=False):
+    '''
+
+    :param calc_para:
+    :return:
+    '''
+
+    # retrieves the parameters based on the experiment type
+    if is_vis:
+        # case is the visual experiment analysis
+        t_ofs_str, t_phase_str, use_full_str = 't_ofs_vis', 't_phase_vis', 'use_full_vis'
+    else:
+        # case is the rotation experiment analysis
+        t_ofs_str, t_phase_str, use_full_str = 't_ofs_rot', 't_phase_rot', 'use_full_rot'
+
+    if t_ofs_str in calc_para:
+        # if the offset parameters are present, then determine if the offsets are to be used
+        if use_full_str in calc_para:
+            # if the entire phase parameter is present, then return the offset values based on this parameters value
+            if calc_para[use_full_str]:
+                # if using the entire phase, then return None values
+                return None, None
+            else:
+                # otherwise, use the partial phase parameters
+                return float(calc_para[t_ofs_str]), float(calc_para[t_phase_str])
+        else:
+            # otherwise, use the partial phase parameters
+            return float(calc_para[t_ofs_str]), float(calc_para[t_phase_str])
+    else:
+        # case is the parameters are not parameters
+        return None, None
+
+
+def calc_noise_correl(d_data, n_sp):
+    '''
+
+    :param d_data:
+    :return:
+    '''
+
+    def calc_pw_noise_correl(n_spt0, is_3d=False):
+        '''
+
+        :param n_spt:
+        :return:
+        '''
+
+        # array dimensioning and parameters
+        z_tol = 3.
+        n_t0, n_c = int(np.size(n_spt0, axis=0) / 2), np.size(n_spt0, axis=1)
+
+        # array dimensioning
+        if len(np.shape(n_spt0)) == 2:
+            # if a 2D array, then convert to a 3D array by including a redundant 3rd axis
+            n_spt = np.reshape(n_spt0[:n_t0, :] + n_spt0[n_t0:, :], (n_t0, n_c, 1))
+        else:
+            n_spt = n_spt0[:n_t0, :, :] + n_spt0[n_t0:, :, :]
+
+        # memory allocation
+        r_pair = np.nan * np.ones((n_c, n_c))
+        z_sp_pair = np.empty((n_c, n_c), dtype=object)
+
+        # calculates the pair-wise pearson correlations between each cell pair (over all trials)
+        for i_c0 in range(n_c):
+            for i_c1 in range(i_c0 + 1, n_c):
+                # sets up the pairwise array and from this calculates the mean/std dev
+                n_sp_pair = n_spt[:, np.array([i_c0, i_c1]), :]
+                x, y = n_sp_pair[:, 0, :].flatten(), n_sp_pair[:, 1, :].flatten()
+
+                # calculates the x/y z-scored values
+                x_z = (x - np.nanmean(x)) / np.nanstd(x) if np.any(x > 0) else x
+                y_z = (y - np.nanmean(y)) / np.nanstd(y) if np.any(y > 0) else y
+                is_acc = np.logical_and(np.abs(x_z) < z_tol, np.abs(y_z) < z_tol)
+
+                # calculates the pair-wise pearson correlations
+                r_pair[i_c0, i_c1] = r_pair[i_c1, i_c0] = pr(x_z[is_acc], y_z[is_acc])[0]
+                z_sp_pair[i_c0, i_c1] = np.vstack((x_z[is_acc], y_z[is_acc])).T
+
+        # returns the pairwise correlation array
+        if is_3d:
+            return r_pair
+        else:
+            return r_pair, z_sp_pair
+
+    # array dimensioning
+    n_cond = len(d_data.ttype)
+    n_ex, n_t, n_dim = len(n_sp), int(np.size(n_sp[0], axis=0) / (2 * n_cond)), len(np.shape(n_sp[0]))
+
+    # memory allocation
+    A = np.empty(n_ex, dtype=object)
+    d_data.pw_corr = dcopy(A)
+
+    for i_ex in range(n_ex):
+        if n_dim == 2:
+            # memory allocation (first iteration only)
+            if i_ex == 0:
+                d_data.z_corr = dcopy(A)
+
+            # case is analysing non-shuffled data
+            d_data.pw_corr[i_ex], d_data.z_corr[i_ex] = zip(*[
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :]) for i in range(n_cond)
+            ])
+        else:
+            # case is analysing shuffled data
+            d_data.pw_corr[i_ex] = [
+                calc_pw_noise_correl(n_sp[i_ex][np.arange(i * n_t, (i + 2) * n_t), :, :], True) for i in range(n_cond)
+            ]
+
+
+def set_def_para(para, p_str, def_val):
+    '''
+
+    :param rot_para:
+    :param p_str:
+    :param def_val:
+    :return:
+    '''
+
+    # returns the parameter value if present in the para dictionary, otherwise return the default value
+    return dcopy(para[p_str]) if p_str in para else dcopy(def_val)
+
+
+########################################################################################################################
+####                                           LDA CALCULATION FUNCTIONS                                            ####
+########################################################################################################################
+
+######################################
+####    ROTATION LDA FUNCTIONS    ####
+######################################
+
+
+def setup_lda_spike_counts(r_obj, i_cell, i_ex, n_t, return_all=True):
+    '''
+
+    :param r_obj:
+    :param i_cell:
+    :param i_ex:
+    :param n_t:
+    :return:
+    '''
+
+    # memory allocation
+    n_sp, t_sp, i_grp = [], [], []
+    ind_c = [np.where(i_expt == i_ex)[0][i_cell] for i_expt in r_obj.i_expt]
+    n_cell, ind_t = len(ind_c[0]), np.array(range(n_t))
+
+    # sets up the LDA data/group index arrays across each condition
+    for i_filt in range(r_obj.n_filt):
+        # retrieves the time spikes for the current filter/experiment, and then combines into a single
+        # concatenated array. calculates the final spike counts over each cell/trial and appends to the
+        # overall spike count array
+        A = dcopy(r_obj.t_spike[i_filt][ind_c[i_filt], :, :])[:, ind_t, :]
+        if r_obj.rot_filt['t_type'][i_filt] == 'MotorDrifting':
+            # case is motordrifting (swap phases)
+            t_sp_tmp = np.hstack((A[:, :, 2], A[:, :, 1]))
+        else:
+            # case is other experiment conditions
+            t_sp_tmp = np.hstack((A[:, :, 1], A[:, :, 2]))
+
+        # calculates the spike counts and appends them to the count array
+        n_sp.append(np.vstack([np.array([len(y) for y in x]) for x in t_sp_tmp]))
+        t_sp.append(t_sp_tmp)
+
+        # sets the grouping indices
+        ind_g = [2 * i_filt, 2 * i_filt + 1]
+        i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+    # combines the spike counts/group indices into the final combined arrays
+    n_sp, i_grp = np.hstack(n_sp).T, np.hstack(i_grp)
+
+    # returns the important arrays
+    if return_all:
+        return n_sp, t_sp, i_grp, n_cell
+    else:
+        return n_sp, i_grp
+
+
+def norm_spike_counts(n_sp, N, is_norm):
+    '''
+
+    :param n_sp:
+    :return:
+    '''
+
+    # makes a copy of the spike count array
+    n_sp_calc = dcopy(n_sp)
+
+    # normalises the spike counts (if required)
+    if is_norm:
+        n_sp_mn, n_sp_sd = np.mean(n_sp_calc, axis=0), np.std(n_sp_calc, axis=0)
+        n_sp_calc = np.divide(n_sp_calc - repmat(n_sp_mn, N, 1), repmat(n_sp_sd, N, 1))
+
+        # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+        n_sp_calc[:, n_sp_sd == 0] = 0
+
+    # returns the final values
+    return n_sp_calc
+
+
+def run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max, d_data=None, is_shuffle=False, w_prog=None,
+                pW0=0., pW=100., n_sp0=None):
+    '''
+
+    :param data:
+    :param calc_para:
+    :param r_filt:
+    :param i_expt:
+    :param i_cell:
+    :param n_trial_max:
+    :param d_data:
+    :param is_shuffle:
+    :return:
+    '''
+
+    def run_lda_predictions(w_prog, r_obj, lda_para, n_sp, i_cell, i_ex, is_shuffle, pW0, pW):
+        '''
+
+        :param r_obj:
+        :param cell_ok:
+        :param n_trial_max:
+        :param i_ex:
+        :return:
+        '''
+
+        def shuffle_trial_counts(n_sp, n_t):
+            '''
+
+            :param n_sp:
+            :param n_trial_max:
+            :return:
+            '''
+
+            # initialisation
+            n_cell = np.size(n_sp, axis=1)
+            n_cond = int(np.size(n_sp, axis=0) / (2 * n_t))
+
+            # shuffles the trials for each of the cells
+            for i_cell in range(n_cell):
+                # sets the permutation array ensures the following:
+                #  * CW/CCW trials are shuffled the same between conditions
+                #  * Trials are shuffled independently between conditions
+                ind_perm = [np.random.permutation(n_t) for _ in range(n_cond)]
+                ind_c = np.hstack([np.hstack((x + 2 * i * n_t, x + (2 * i + 1) * n_t)) for i, x in enumerate(ind_perm)])
+
+                # shuffles the trials for the current cell
+                n_sp[:, i_cell] = n_sp[ind_c, i_cell]
+
+            # returns the array
+            return n_sp
+
+        # memory allocation and initialisations
+        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+        n_t, n_grp, N = n_trial_max, 2 * r_obj.n_filt, 2 * r_obj.n_filt * n_trial_max
+        pWS = 1 / r_obj.n_expt
+
+        ####################################
+        ####    LDA DATA ARRAY SETUP    ####
+        ####################################
+
+        if n_sp is None:
+            # case is the spike counts haven't been provided
+            n_sp, t_sp, i_grp, n_cell = setup_lda_spike_counts(r_obj, i_cell, i_ex, n_trial_max)
+
+        else:
+            # case is the spike counts have been provided
+
+            # retrieves the cell count and group indices
+            n_cell = np.size(n_sp, axis=1)
+            i_grp = np.array(cf.flat_list([list(x * np.ones(n_trial_max, dtype=int)) for x in range(n_grp)]))
+
+        # shuffles the trials (if required)
+        if is_shuffle:
+            n_sp = shuffle_trial_counts(n_sp, n_trial_max)
+
+        # normalises the spike count array (if required)
+        n_sp_calc = norm_spike_counts(n_sp, N, lda_para['is_norm'])
+
+        ###########################################
+        ####    LDA PREDICTION CALCULATIONS    ####
+        ###########################################
+
+        # sets the LDA solver type
+        lda = setup_lda_solver(lda_para)
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat, is_keep = np.zeros((N, n_grp), dtype=float), np.ones(N, dtype=bool)
+
+        # sets the total number of iterations (based on trial setup type)
+        if is_OTO:
+            # case is "one-trial out" setup
+            NN, xi_rmv = n_trial_max, np.arange(0, N, n_trial_max)
+        else:
+            # case is "one-phase out" setup
+            NN = len(i_grp)
+
+        # fits the LDA model and calculates the prediction for each
+        for i_trial in range(NN):
+            # updates the progress bar
+            if w_prog is not None:
+                w_str = 'Running LDA Predictions (Expt {0} of {1})'.format(i_ex + 1, r_obj.n_expt)
+                w_prog.emit(w_str, pW0 + pW * pWS * (i_ex + i_trial / NN))
+
+            # fits the one-out-trial lda model
+            if is_OTO:
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                is_keep[i_trial] = False
+
+            # fits the one-out-trial lda model
+            try:
+                lda.fit(n_sp_calc[is_keep, :], i_grp[is_keep])
+            except:
+                if w_prog is not None:
+                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                            'Either choose a different solver or alter the solver parameters before retrying'
+                    w_prog.emit('LDA Analysis Error', 0.)
+                return None, None, False
+
+            # resets the acceptance array
+            if is_OTO:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                for i in (xi_rmv + i_trial):
+                    lda_pred[i] = lda.predict(n_sp_calc[i, :].reshape(1, -1))
+                    p_mat[i, :] = lda.predict_proba(n_sp_calc[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred[i]] += 1
+
+                    # re-adds the removed trial
+                    is_keep[i] = True
+
+            else:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                lda_pred[i_trial] = lda.predict(n_sp_calc[i_trial, :].reshape(1, -1))
+                p_mat[i_trial, :] = lda.predict_proba(n_sp_calc[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+                # re-adds the removed trial
+                is_keep[i_trial] = True
+
+            # # fits the one-out-trial shuffled lda model
+            # ind_chance = np.random.permutation(len(i_grp) - 1)
+            # lda.fit(n_sp_calc[ii, :], i_grp[ii][ind_chance])
+            #
+            # # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+            # lda_pred_chance[i_pred] = lda.predict(np.reshape(n_sp_calc[i_pred, :], (1, n_cell)))
+            # c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
+
+        # calculates the LDA transform values (uses svd solver to accomplish this)
+        if lda_para['solver_type'] != 'lsqr':
+            # memory allocation
+            lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(n_sp_calc, i_grp)
+
+            # calculates the variance explained
+            if len(lda_X0.explained_variance_ratio_) == 2:
+                lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
+            else:
+                lda_var_sum = lda_X0.explained_variance_ratio_.sum()
+                lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
+
+            # separates the transform values into the individual groups
+            lda_X0T = lda_X0.transform(n_sp_calc)
+            for ig in range(n_grp):
+                lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
+        else:
+            # transform values are not possible with this solver type
+            lda_X, lda_var_exp = None, None
+
+        # returns the final values in a dictionary object
+        return {
+            'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+            'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
+            'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
+        }, n_sp, True
+
+    # initialisations
+    lda_para = calc_para['lda_para']
+    t_ofs, t_phase = get_rot_phase_offsets(calc_para)
+
+    # creates a reduce data object and creates the rotation filter object
+    data_tmp = reduce_cluster_data(data, i_expt)
+    r_obj = RotationFilteredData(data_tmp, r_filt, None, None, True, 'Whole Experiment', False,
+                                 t_ofs=t_ofs, t_phase=t_phase)
+
+    # memory allocation and other initialisations
+    A = np.empty(r_obj.n_expt, dtype=object)
+    lda, exp_name, n_sp = dcopy(A), dcopy(A), dcopy(A)
+    n_ex = len(i_expt)
+
+    # memory allocation for accuracy binary mask calculations
+    n_c = len(r_filt['t_type'])
+    BG, BD = np.zeros((2 * n_c, 2 * n_c), dtype=bool), np.zeros((2, 2 * n_c), dtype=bool)
+    y_acc = np.zeros((n_ex, 1 + n_c), dtype=float)
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        BG[(2 * i_c):(2 * (i_c + 1)), (2 * i_c):(2 * (i_c + 1))] = True
+        BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
+
+    # sets the experiment file names
+    f_name0 = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data_tmp.cluster]
+
+    # loops through each of the experiments performing the lda calculations
+    for i_ex in range(n_ex):
+        exp_name[i_ex] = f_name0[i_ex]
+        lda[i_ex], n_sp[i_ex], ok = run_lda_predictions(w_prog, r_obj, lda_para, n_sp0, i_cell[i_ex],
+                                                        i_ex, is_shuffle, pW0, pW)
+        if not ok:
+            # if there was an error, then exit with a false flag
+            return False
+
+        # calculates the grouping accuracy values
+        c_mat = lda[i_ex]['c_mat'] / n_trial_max
+        y_acc[i_ex, 0] += np.sum(np.multiply(BG, c_mat)) / (2 * n_c)
+
+        # calculates the direction accuracy values (over each condition)
+        for i_c in range(n_c):
+            y_acc[i_ex, 1 + i_c] = np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+
+    if d_data is not None:
+        # sets the lda values
+        d_data.lda = lda
+        d_data.i_expt = i_expt
+        d_data.i_cell = i_cell
+        d_data.y_acc = y_acc
+        d_data.exp_name = exp_name
+        d_data.lda_trial_type = get_glob_para('lda_trial_type')
+
+        # sets the solver parameters
+        set_lda_para(d_data, lda_para, r_filt, n_trial_max)
+
+        # sets the phase duration/offset parameters
+        d_data.tofs = t_ofs
+        d_data.tphase = t_phase
+        d_data.usefull = calc_para['use_full_rot']
+
+        # updates the progress bar (if provided)
+        if w_prog is not None:
+            w_prog.emit('Calculating Pairwise Correlations...', pW0 + 0.99 * pW)
+
+        # calculates the noise correlation (if required)
+        calc_noise_correl(d_data, n_sp)
+
+        # returns a true value
+        return True
+
+    elif is_shuffle:
+        # otherwise, return the calculated values
+        return [lda, y_acc, exp_name, n_sp]
+
+    else:
+        # otherwise, return the calculated values
+        return [lda, y_acc, exp_name]
+
+
+def run_part_lda_pool(p_data):
+    '''
+
+    :param p_data:
+    :return:
+    '''
+
+    # retrieves the pool data
+    data, calc_para, r_filt = p_data[0], p_data[1], p_data[2]
+    i_expt, i_cell, n_trial_max, n_cell = p_data[3], dcopy(p_data[4]), p_data[5], p_data[6]
+
+    # sets the required number of cells for the LDA analysis
+    for i_ex in range(len(i_expt)):
+        # determines the original valid cells for the current experiment
+        ii = np.where(i_cell[i_ex])[0]
+
+        # from these cells, set n_cell cells as being valid (for analysis purposes)
+        i_cell[i_ex][:] = False
+        i_cell[i_ex][ii[np.random.permutation(len(ii))][:n_cell]] = True
+
+    # runs the LDA
+    results = run_rot_lda(data, calc_para, r_filt, i_expt, i_cell, n_trial_max)
+
+    # returns the cell count and LDA decoding accuracy values
+    return [n_cell, results[1]]
+
+
+def run_reducing_cell_lda(w_prog, lda, lda_para, n_sp, i_grp, p_w0, p_w, w_str, is_dec=False):
+    '''
+
+    :param w_prog:
+    :param lda:
+    :param calc_para:
+    :param n_sp:
+    :param j_grp:
+    :param n_t:
+    :param is_dec:
+    :return:
+    '''
+
+    def run_lda_predictions(lda, n_sp, i_grp):
+        '''
+
+        :param w_prog:
+        :param lda:
+        :param n_sp:
+        :param i_grp:
+        :return:
+        '''
+
+        # memory allocation
+        n_tt, n_cell = np.shape(n_sp)
+        c_mat, is_keep, n_grp = np.zeros((2, 2), dtype=int), np.ones(n_tt, dtype=bool), i_grp[-1] + 1
+        is_OTO, n_t = get_glob_para('lda_trial_type') == 'One-Trial Out', int(n_tt / n_grp)
+
+        # sets the total number of iterations (based on trial setup type)
+        if is_OTO:
+            # case is "one-trial out" setup
+            NN, xi_rmv = n_t, np.arange(0, n_tt, n_t)
+        else:
+            # case is "one-phase out" setup
+            NN = len(i_grp)
+
+        # fits the LDA model and calculates the prediction for each
+        for i_trial in range(NN):
+            # fits the one-out-trial lda model
+            if is_OTO:
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                is_keep[i_trial] = False
+
+            # fits the one-out-trial lda model
+            try:
+                lda.fit(n_sp[is_keep, :], i_grp[is_keep])
+            except:
+                if w_prog is not None:
+                    e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                            'Either choose a different solver or alter the solver parameters before retrying'
+                    w_prog.emit('LDA Analysis Error', 0.)
+
+            if is_OTO:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                for i in (xi_rmv + i_trial):
+                    lda_pred = lda.predict(n_sp[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred] += 1
+
+                    # re-adds the removed trial
+                    is_keep[i] = True
+            else:
+                # calculates the model prediction from the remaining trial and increments the confusion matrix
+                lda_pred = lda.predict(n_sp[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred] += 1
+
+                # re-adds the removed trial
+                is_keep[i_trial] = True
+
+        # returns the decoding accuracy
+        return (c_mat[0, 0] + c_mat[1, 1]) / n_tt
+
+    # array indexing and memory allocation
+    n_tf, n_cell = np.shape(n_sp)
+    use_cell, y_acc = np.ones(n_cell, dtype=bool), np.zeros(n_cell)
+
+    for i_cell in range(n_cell):
+        # updates the progressbar
+        w_str_nw = '{0}, Cell {1}/{2})'.format(w_str, i_cell + 1, n_cell)
+        w_prog.emit(w_str_nw, 100 * (p_w0  + p_w * (i_cell / n_cell)))
+
+        # normalises the spike counts (based on the remaining cells)
+        n_sp_norm = norm_spike_counts(n_sp[:, use_cell], n_tf, lda_para['is_norm'])
+
+        # runs the lda predictions for the current configuration
+        y_acc[i_cell] = run_lda_predictions(lda, n_sp_norm, i_grp)
+
+        # removes the next cell from the analysis
+        if is_dec:
+            # case is the top rated coefficients are being removed
+            use_cell[i_cell] = False
+        else:
+            # case is the lowest rated coefficients are being removed
+            use_cell[-(i_cell + 1)] = False
+
+    # returns the accuracy values
+    return y_acc
+
+#######################################
+####    KINEMATIC LDA FUNCTIONS    ####
+#######################################
+
+def calc_binned_kinemetic_spike_freq(data, plot_para, calc_para, w_prog, roc_calc=True, replace_ttype=True,
+                                     r_data=None, use_raw=False):
+    '''
+
+    :param calc_para:
+    :return:
+    '''
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
+    # parameters and initialisations
+    vel_bin = float(calc_para['vel_bin']) if ('vel_bin' in calc_para) else float(plot_para['vel_bin'])
+    equal_time = calc_para['equal_time']
+
+    # sets the condition types (ensures that the black phase is always included)
+    r_filt_base = cf.init_rotation_filter_data(False)
+    if plot_para['rot_filt'] is not None:
+        if replace_ttype:
+            r_filt_base['t_type'] = plot_para['rot_filt']['t_type']
+        else:
+            r_filt_base['t_type'] = list(np.unique(r_filt_base['t_type'] + plot_para['rot_filt']['t_type']))
+
+    # sets up the black phase data filter and returns the time spikes
+    r_data.r_obj_kine = RotationFilteredData(data, r_filt_base, 0, None, True, 'Whole Experiment', False, use_raw=use_raw)
+
+    # memory allocation
+    if equal_time:
+        if r_data.vel_sf_rs is None:
+            r_data.vel_sf_rs, r_data.spd_sf_rs = {}, {}
+    else:
+        if r_data.vel_sf is None:
+            r_data.vel_sf, r_data.spd_sf = {}, {}
+
+    # sets the speed/velocity time counts
+    if equal_time:
+        # case is using resampling from equal time bin sizes
+        n_rs = calc_para['n_sample']
+        vel_f, xi_bin, dt = rot.calc_resampled_vel_spike_freq(data, w_prog, r_data.r_obj_kine, [vel_bin], n_rs)
+    else:
+        # calculates the velocity kinematic frequencies
+        w_prog.emit('Calculating Fixed Spiking Frequencies', 50.)
+        vel_f, xi_bin, dt = rot.calc_kinemetic_spike_freq(data, r_data.r_obj_kine, [10, vel_bin], calc_type=1)
+
+    # resets the frequencies based on the types
+    for i_filt in range(len(vel_f)):
+        if len(np.shape(vel_f[i_filt])) == 4:
+            if calc_para['freq_type'] == 'All':
+                # case is considering mean frequency types (take mean of the decreasing/increasing velocity frequencies)
+                vel_f[i_filt] = np.nanmean(vel_f[i_filt], axis=3)
+            elif calc_para['freq_type'] == 'Decreasing':
+                # case is only considering decreasing velocity frequencies
+                vel_f[i_filt] = vel_f[i_filt][:, :, :, 0]
+            elif calc_para['freq_type'] == 'Increasing':
+                # case is only considering increasing velocity frequencies
+                vel_f[i_filt] = vel_f[i_filt][:, :, :, 1]
+            elif calc_para['freq_type'] == 'Both':
+                # case is only considering both velocity frequency types (stack both types on top of each other)
+                vel_f[i_filt] = np.vstack((vel_f[i_filt][:, :, :, 0], vel_f[i_filt][:, :, :, 1]))
+
+    # sets the comparison bin for the velocity/speed arrays
+    n_filt, i_bin0 = r_data.r_obj_kine.n_filt, np.where(xi_bin[:, 0] == 0)[0][0]
+    r_data.is_equal_time = equal_time
+    r_data.vel_xi, r_data.spd_xi = xi_bin, xi_bin[i_bin0:, :]
+
+    if 'spd_x_rng' in calc_para:
+        x_rng = calc_para['spd_x_rng'].split()
+        r_data.i_bin_spd = list(xi_bin[i_bin0:, 0]).index(int(x_rng[0]))
+        r_data.i_bin_vel = [list(xi_bin[:, 0]).index(-int(x_rng[2])), list(xi_bin[:, 0]).index(int(x_rng[0]))]
+
+    # calculates the velocity/speed binned spiking frequencies
+    for i_filt, rr in enumerate(r_data.r_obj_kine.rot_filt_tot):
+        # memory allocation
+        tt = rr['t_type'][0]
+
+        # sets the speed frequencies into a single array
+        spd_f = np.vstack((np.flip(vel_f[i_filt][:, :i_bin0, :], 1), vel_f[i_filt][:, i_bin0:, :]))
+
+        if equal_time:
+            # case is using equally spaced time bins
+            r_data.vel_sf_rs[tt] = dcopy(vel_f[i_filt])
+            r_data.spd_sf_rs[tt] = dcopy(spd_f)
+
+        else:
+            # case is using the normal time bins
+            r_data.vel_sf[tt], r_data.spd_sf[tt] = dcopy(vel_f[i_filt]), dcopy(spd_f)
+
+    # outputs a message to screen
+    w_prog.emit('Spiking Frequency Calculation Complete!', 100.)
+
+
+def calc_shuffled_kinematic_spike_freq(data, calc_para, w_prog):
+    '''
+
+    :param data:
+    :param plot_para:
+    :param calc_para:
+    :param w_prog:
+    :return:
+    '''
+
+    def shuffle_cond_spike_freq(r_data, calc_para, vel_sf, w_prog, pW, i_filt, tt):
+        '''
+
+        :param calc_para:
+        :param vel_sf:
+        :return:
+        '''
+
+        def shuffle_cell_spike_freq(calc_para, vel_sf_grp):
+            '''
+
+            :param calc_para:
+            :param n_sp_cell:
+            :return:
+            '''
+
+            # initialisations
+            n_shuffle, n_sm = calc_para['n_shuffle'], calc_para['n_smooth'] * calc_para['is_smooth']
+            n_trial, n_bin = np.shape(vel_sf_grp)
+
+            # memory allocation
+            v_sf_shuff = np.zeros((n_shuffle, n_bin, n_trial))
+
+            # sets up the shuffled spike counts over all trials/shuffles
+            for i_trial in range(n_trial):
+                for i_shuffle in range(n_shuffle):
+                    ind_shuffle = np.random.permutation(n_bin)
+                    v_sf_shuff[i_shuffle, :, i_trial] = vel_sf_grp[i_trial, ind_shuffle]
+
+            # returns the mean spiking frequencies over all trials
+            return smooth_signal(np.mean(v_sf_shuff, axis=2), n_sm)
+
+        def calc_spike_freq_corr(v_bin, v_sf, mlt):
+            '''
+
+            :param v_bin:
+            :param v_sf:
+            :param mlt:
+            :return:
+            '''
+
+            # memory allocation
+            n_sf = np.size(v_sf, axis=0)
+            v_corr = np.zeros(n_sf)
+
+            # calculate the correlation coefficients for each shuffled value
+            for i_sf in range(n_sf):
+                v_corr[i_sf] = mlt * np.corrcoef(v_sf[i_sf, :], v_bin)[0, 1]
+
+            # returns the correlation array
+            return v_corr
+
+        # parameters
+        p_value = 5           # SK-test SET THIS TO EITHER 2.5 or 5
+
+        # initialisations
+        pW0 = i_filt * pW
+        n_trial, n_bin, n_cell = np.shape(vel_sf)
+        n_sm = calc_para['n_smooth'] * calc_para['is_smooth']
+
+        # sets the indices of the groups (based on whether the velocity is being split)
+        if calc_para['split_vel']:
+            ind_grp = [np.arange(n_bin / 2).astype(int), np.arange(n_bin / 2, n_bin).astype(int)]
+        else:
+            ind_grp = [np.arange(n_bin).astype(int)]
+
+        # sets the negative/positive velocity indices
+        v_bin_grp = [np.mean(r_data.vel_xi[i_b, :], axis=1) for i_b in ind_grp]
+        mlt = [-1, 1] if len(ind_grp) == 2 else [1]
+
+        # memory allocation
+        n_grp, n_shuffle = len(ind_grp), calc_para['n_shuffle']
+        A = np.empty((n_cell, n_grp), dtype=object)
+        v_sf_sh, v_sf_mu, is_sig = dcopy(A), dcopy(A), np.zeros((n_cell, n_grp), dtype=bool)
+        v_corr, v_corr_sh = np.ones((n_cell, n_grp)), np.ones((n_shuffle, n_cell, n_grp))
+
+        # loops through each cell calculating the shuffled trials/correlations
+        for i_cell in range(n_cell):
+            # updates the progressbar
+            w_str = 'Shuffling Spike Frequecies ({0} - {1}/{2})'.format(tt, i_cell + 1, n_cell)
+            w_prog.emit(w_str, 100 * (pW0 + pW * i_cell / n_cell))
+
+            for i_grp in range(n_grp):
+                # sets up the binned spike counts for the current cell (NB - spike counts may not necessarily be integer
+                # because the velocity spiking averages are the average of both the increasing/decreasing velocities)
+                vel_sf_grp = vel_sf[:, :, i_cell][:, ind_grp[i_grp]]
+                vel_sf_grp = vel_sf_grp[np.logical_not(np.isnan(vel_sf_grp[:, 0])), :]
+
+                # calculates the mean
+                v_sf_mu[i_cell, i_grp] = smooth_signal(np.mean(vel_sf_grp, axis=0), n_sm)
+                v_corr[i_cell, i_grp] = mlt[i_grp] * np.corrcoef(v_sf_mu[i_cell, i_grp], v_bin_grp[i_grp])[0, 1]
+
+                # only perforrm the shuffle analysis if there is at least one shuffle selected
+                if calc_para['n_shuffle'] > 0:
+                    # calculates the shuffled spiking frequencies
+                    v_sf_sh[i_cell, i_grp] = shuffle_cell_spike_freq(calc_para, vel_sf_grp)
+                    v_corr_sh[:, i_cell, i_grp] = \
+                                calc_spike_freq_corr(v_bin_grp[i_grp], v_sf_sh[i_cell, i_grp], mlt[i_grp])
+
+                    # calculates the cell correlation significance
+                    p_tile = np.percentile(v_corr_sh[:, i_cell, i_grp], [p_value, (100 - p_value)])
+                    is_sig[i_cell, i_grp] = (v_corr[i_cell, i_grp] < p_tile[0]) or (v_corr[i_cell, i_grp] > p_tile[1])
+
+        # returns the shuffled spiking frequencies, correlation arrays
+        return v_sf_mu, v_sf_sh, v_corr_sh, v_corr, is_sig
+
+    # if the shuffled spiking frequencies have been calculated already, then exit the function
+    if data.rotation.vel_shuffle_calc:
+        return
+
+    # initialisations
+    r_data, equal_time = data.rotation, calc_para['equal_time']
+    r_obj_k, vel_sf = r_data.r_obj_kine, dcopy(r_data.vel_sf_rs) if equal_time else dcopy(r_data.vel_sf)
+    n_filt = len(r_obj_k.rot_filt_tot)
+    pW = 1 / n_filt
+
+    # initialises the correlation data fields
+    if r_data.vel_sf_corr is None:
+        r_data.vel_sf_mean, r_data.vel_sf_sig = {}, {}
+        r_data.vel_sf_corr_mn, r_data.vel_sf_corr, r_data.vel_sf_shuffle = {}, {}, {}
+
+    # sets the calculation parameters
+    r_data.vel_sf_nsm = calc_para['n_smooth'] * calc_para['is_smooth']
+    r_data.vel_bin_corr = float(calc_para['vel_bin'])
+    r_data.n_shuffle_corr = float(calc_para['n_shuffle'])
+    r_data.split_vel = calc_para['split_vel']
+    r_data.vel_sf_eqlt = equal_time
+
+    # calculates the velocity/speed binned spiking frequencies
+    for i_filt, rr in enumerate(r_obj_k.rot_filt_tot):
+        # retrieves
+        tt = rr['t_type'][0]
+        if tt in r_data.vel_sf_corr:
+            # if the values have already been calculated, then continue
+            continue
+
+        # calculates the shuffled spike frequencies
+        vel_sf_mean, vel_sf_shuffle, vel_sf_corr, vel_sf_corr_mn, vel_sf_sig = \
+                    shuffle_cond_spike_freq(r_data, calc_para, dcopy(vel_sf[tt]), w_prog, pW, i_filt, tt)
+
+        # sets the final arrays into the class object
+        r_data.vel_sf_mean[tt], r_data.vel_sf_shuffle[tt] = vel_sf_mean, vel_sf_shuffle
+        r_data.vel_sf_corr[tt], r_data.vel_sf_corr_mn[tt] = vel_sf_corr, vel_sf_corr_mn
+        r_data.vel_sf_sig[tt] = vel_sf_sig
+
+    # updates the shuffled spiking frequency calculation flag
+    r_data.vel_shuffle_calc = True
+
+
+def calc_shuffled_sf_corr(f_corr, i_file, calc_para, i_prog, w_prog):
+    '''
+
+    :param f_corr:
+    :param i_file:
+    :param calc_para:
+    :param i_prog:
+    :param w_prog:
+    :return:
+    '''
+
+    def calc_linregress_para(sf_fix, sf_free):
+        '''
+
+        :param sf_fix:
+        :param sf_free:
+        :return:
+        '''
+
+        sf_fix_fit, sf_free_fit = sf_fix.reshape(-1, 1), sf_free.reshape(-1, 1)
+        model = LinearRegression(fit_intercept=True).fit(sf_fix_fit, sf_free_fit)
+
+        return np.array([model.coef_[0][0],model.intercept_[0]])
+
+    def calc_cell_shuffled_corr(sf_fix, sf_free, n_sh):
+        '''
+
+        :param sf_fix:
+        :param sf_free:
+        :param n_shuff:
+        :return:
+        '''
+
+        # memory allocation
+        n_bin = len(sf_fix)
+        sf_corr = np.zeros(n_sh)
+
+        # calculate the correlation coefficients for each shuffled value
+        for i_sh in range(n_sh):
+            ind_sh = np.random.permutation(n_bin)
+            sf_corr[i_sh] = np.corrcoef(sf_fix, sf_free[ind_sh])[0, 1]
+
+        # returns the correlation array
+        return sf_corr
+
+    # parameters
+    p_value = 5       # SK-test sets this to either 2.5 or 5
+    p_value_rng = [p_value, (100 - p_value)]
+
+    # initialisations
+    n_shuff, n_cond = calc_para['n_shuffle'], np.size(f_corr.sf_fix, axis=1)
+    sf_fix, sf_free, sf_grad = f_corr.sf_fix[i_file, :], f_corr.sf_free[i_file, :], f_corr.sf_grad[i_file, :]
+    sf_corr, sf_corr_sh, is_sig = f_corr.sf_corr[i_file, :], f_corr.sf_corr_sh[i_file, :], f_corr.sf_corr_sig[i_file, :]
+
+    # memory allocation
+    n_cell, n_bin = np.shape(sf_fix[0])
+    if calc_para['split_vel']:
+        ind_grp = [np.arange(n_bin/2).astype(int), np.arange(n_bin/2, n_bin).astype(int)]
+    else:
+        ind_grp = [np.arange(n_bin).astype(int)]
+
+    n_grp = len(ind_grp)
+    for i_cond in range(n_cond):
+        sf_grad[i_cond] = np.zeros((n_cell, 2, n_grp))
+        sf_corr[i_cond] = np.zeros((n_cell, n_grp))
+        sf_corr_sh[i_cond] = np.zeros((n_cell, n_shuff, n_grp))
+        is_sig[i_cond] = np.zeros((n_cell, n_grp), dtype=int)
+
+    #
+    for i_cell in range(n_cell):
+        # updates the progressbar
+        i_cell_tot = (i_cell + 1) + i_prog[0]
+        w_str = 'Correlation Calculations (Cell #{0}/{1})'.format(i_cell_tot, i_prog[1])
+        w_prog.emit(w_str, 100. * (i_cell_tot / i_prog[1]))
+
+        # if there is no spiking frequency data then continue
+        if np.isnan(sf_free[0][i_cell, 0]):
+            continue
+
+        # calculates the correlation/shuffled correlations over all conditions/velocity polarities
+        for i_cond in range(n_cond):
+            # retrieves the free/fixed spiking frequencies for the velocity range
+            sf_fix_cond = sf_fix[i_cond][i_cell, :]
+            sf_free_cond = sf_free[i_cond][i_cell, :]
+
+            for i_grp in range(n_grp):
+                # sets the values for the current velocity bin grouping
+                sf_fix_nw, sf_free_nw = sf_fix_cond[ind_grp[i_grp]], sf_free_cond[ind_grp[i_grp]]
+
+                # sets the linear regression values
+                sf_grad[i_cond][i_cell, :, i_grp] = calc_linregress_para(sf_fix_nw, sf_free_nw)
+
+                # calculates the cell spiking frequency correlations
+                sf_corr[i_cond][i_cell, i_grp] = np.corrcoef(sf_fix_nw, sf_free_nw)[0, 1]
+                sf_corr_sh[i_cond][i_cell, :, i_grp] = calc_cell_shuffled_corr(sf_fix_nw, sf_free_nw, n_shuff)
+
+                # calculates the cell's shuffled spiking frequency correlations and statistical significance
+                p_tile = np.percentile(sf_corr_sh[i_cond][i_cell, :, i_grp], p_value_rng)
+                is_sig[i_cond][i_cell, i_grp] = int(sf_corr[i_cond][i_cell, i_grp] > p_tile[1]) - \
+                                                int(sf_corr[i_cond][i_cell, i_grp] < p_tile[0])
+
+
+def setup_kinematic_lda_sf(data, r_filt, calc_para, i_cell, n_trial_max, w_prog,
+                           is_pooled=False, use_spd=True, r_data=None):
+    '''
+
+    :param data:
+    :param r_filt:
+    :param calc_para:
+    :param i_cell:
+    :param n_trial_max:
+    :param w_prog:
+    :return:
+    '''
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
+    # initialisations
+    tt = r_filt['t_type']
+
+    # calculates the binned kinematic spike frequencies
+    _plot_para = {'rot_filt': {'t_type': calc_para['lda_para']['comp_cond']}}
+
+    # splits up the spiking frequencies into separate experiments (removing any non-valid cells)
+    ind = np.concatenate(([0], np.cumsum([len(x) for x in i_cell])))
+    ind_ex = [np.arange(ind[i], ind[i + 1]) for i in range(len(i_cell))]
+
+    # averages the spiking frequencies (between the positive/negative velocities) and sets the reqd max trials
+    if use_spd:
+        # calculates the binned spiking frequencies
+        calc_binned_kinemetic_spike_freq(data, _plot_para, calc_para, w_prog, roc_calc=False, replace_ttype=True)
+
+        # retrieves the spiking frequencies based on the calculation type
+        if calc_para['equal_time']:
+            # case is the equal timebin (resampled) spiking frequencies
+            spd_sf0 = dcopy(r_data.spd_sf_rs)
+        else:
+            # case is the non-equal timebin spiking frequencies
+            spd_sf0 = dcopy(r_data.spd_sf)
+
+        # reduces the arrays to only include the first n_trial_max trials (averages pos/neg phases)
+        sf = [0.5 * (spd_sf0[ttype][:n, :, :] + spd_sf0[ttype][n:, :, :])[:n_trial_max, :, :]
+                        for n, ttype in zip([int(np.size(spd_sf0[ttype], axis=0) / 2) for ttype in tt], tt)]
+    else:
+        # initialisations and memory allocation
+        sf, _calc_para = np.empty(2, dtype=object), dcopy(calc_para)
+
+        # calculates the binned spiking frequencies
+        for i_ft, ft in enumerate(['Decreasing', 'Increasing']):
+            # resets the velocity spiking freqencies
+            if calc_para['equal_time']:
+                r_data.vel_sf_rs = None
+            else:
+                r_data.vel_sf = None
+
+            # calculates the binned frequecies
+            _calc_para['freq_type'] = ft
+            calc_binned_kinemetic_spike_freq(data, _plot_para, _calc_para, w_prog, roc_calc=False, replace_ttype=True)
+
+            # retrieves the spiking frequencies based on the calculation type
+            if calc_para['equal_time']:
+                # case is the equal timebin (resampled) spiking frequencies
+                vel_sf0 = dcopy(r_data.vel_sf_rs)
+            else:
+                # case is the non-equal timebin spiking frequencies
+                vel_sf0 = dcopy(r_data.vel_sf)
+
+            # reduces the arrays to only include the first n_trial_max trials
+            sf[i_ft] = [vel_sf0[ttype][:n_trial_max, :, :] for ttype in tt]
+
+    # sets up the final speed spiking frequency based on the analysis type
+    if is_pooled:
+        # case is for the pooled analysis
+        sf_ex = [np.dstack([_sf[:, :, i_ex][:, :, i_c] for i_ex, i_c in zip(ind_ex, i_cell)]) for _sf in sf]
+    else:
+        # case is for the non-pooled analysis
+        if use_spd:
+            sf_ex = [[_sf[:, :, i_ex][:, :, i_c] for _sf in sf] for i_ex, i_c in zip(ind_ex, i_cell)]
+        else:
+            sf_ex = [[[_sf[:, :, i_ex][:, :, i_c] for _sf in sf[i]] for i in range(2)]
+                                                  for i_ex, i_c in zip(ind_ex, i_cell)]
+
+    # retrieves the rotation kinematic trial types (as they could be altered from the original list)
+    _r_filt = dcopy(r_filt)
+    _r_filt['t_type'] = r_data.r_obj_kine.rot_filt['t_type']
+
+    # returns the final array
+    return sf_ex, _r_filt
+
+
+def run_full_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial,
+                           w_prog=None, d_data=None, r_data=None):
+    '''
+
+    :param data:
+    :param spd_sf:
+    :param calc_para:
+    :param r_filt:
+    :param n_trial:
+    :param w_prog:
+    :param d_data:
+    :return:
+    '''
+
+    def run_lda_predictions(w_prog, w_str0, pw_0, n_ex, lda, spd_sf, i_grp):
+        '''
+
+        :param spd_sf:
+        :param lda:
+        :return:
+        '''
+
+        # array dimensioning
+        N, n_grp = np.size(spd_sf, axis=0), i_grp[-1] + 1
+        is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+        is_keep, n_t = np.ones(N, dtype=bool), int(N / n_grp)
+
+        # memory allocation
+        lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+        p_mat = np.zeros((N, n_grp), dtype=float)
+
+        ###########################################
+        ####    LDA PREDICTION CALCULATIONS    ####
+        ###########################################
+
+        if is_OTO:
+            # case is "one-trial out" setup
+            NN, xi_rmv = n_t, np.arange(0, N, n_t)
+        else:
+            # case is "one-phase out" setup
+            NN = len(i_grp)
+
+        # fits the LDA model and calculates the prediction for each
+        for i_trial in range(NN):
+            # updates the progressbar (if provided)
+            if w_prog is not None:
+                w_str = '{0}, Group {1}/{2})'.format(w_str0, i_grp[i_trial] + 1, n_grp)
+                w_prog.emit(w_str, 100. * (pw_0 + (i_trial / NN) / n_ex))
+
+            # removes the trial/phase from the training dataset
+            if is_OTO:
+                # case is "one-trial out" setup
+                is_keep[xi_rmv + i_trial] = False
+            else:
+                # case is "one-phase out" setup
+                is_keep[i_trial] = False
+
+            # fits the one-out-trial lda model
+            try:
+                lda.fit(spd_sf[is_keep, :], i_grp[is_keep])
+            except:
+                e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                        'Either choose a different solver or alter the solver parameters before retrying'
+                return None, False, e_str
+
+            # calculates the model prediction from the remaining trial and increments the confusion matrix
+            if is_OTO:
+                for i in xi_rmv + i_trial:
+                    lda_pred[i] = lda.predict(spd_sf[i, :].reshape(1, -1))
+                    p_mat[i, :] = lda.predict_proba(spd_sf[i, :].reshape(1, -1))
+                    c_mat[i_grp[i], lda_pred[i]] += 1
+
+                    # re-adds the removed trials
+                    is_keep[i] = True
+            else:
+                lda_pred[i_trial] = lda.predict(spd_sf[i_trial, :].reshape(1, -1))
+                p_mat[i_trial, :] = lda.predict_proba(spd_sf[i_trial, :].reshape(1, -1))
+                c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+                # re-adds the removed trial
+                is_keep[i_trial] = True
+
+        # returns the final values in a dictionary object
+        return {
+            'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+        }, True, None
+
+    def set_binary_mask(i_bin, n_c, n_bin):
+        '''
+
+        :param i_bin:
+        :param n_c:
+        :param n_bin:
+        :return:
+        '''
+
+        # memory allocation
+        B = np.zeros((1, n_c * n_bin), dtype=bool)
+
+        # sets the masks values
+        for i_c in range(n_c):
+            B[0, i_c * n_bin + i_bin] = True
+
+        # returns the array
+        return B
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
+    # initialisations
+    tt = r_filt['t_type']
+    lda_para, xi_bin = calc_para['lda_para'], r_data.spd_xi
+    n_c, n_ex, n_bin = len(tt), len(spd_sf), np.size(xi_bin, axis=0)
+
+    #########################
+    ####    LDA SETUP    ####
+    #########################
+
+    # memory allocation for accuracy binary mask calculations
+    BD = np.zeros((n_bin, n_bin * n_c), dtype=int)
+    y_acc = np.nan * np.ones((n_ex, n_bin, n_c), dtype=float)
+
+    # sets up the group indices
+    i_grp0 = np.array(cf.flat_list([list(x * np.ones(n_trial, dtype=int)) for x in range(n_bin)]))
+    i_grp = np.array(cf.flat_list([list(i_c * n_bin + i_grp0) for i_c in range(n_c)]))
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        for i_bin in range(n_bin):
+            BD[i_bin, (i_c * n_bin) + i_bin] = True
+
+    # sets the LDA solver type
+    lda_0 = setup_lda_solver(lda_para)
+
+    ################################
+    ####    LDA CALCULATIONS    ####
+    ################################
+
+    # memory allocation
+    c_mat = np.empty(n_ex, dtype=object)
+
+    # loops through each of the experiments performing the lda calculations
+    for i_ex in range(n_ex):
+        # sets the progress strings (if progress bar handle is provided)
+        if w_prog is not None:
+            w_str0, pw_0 = 'Kinematic LDA (Expt {0}/{1}'.format(i_ex + 1, n_ex), i_ex / n_ex
+
+        # combines the spiking frequencies into a single array (for the current experiment)
+        spd_sf_ex = np.hstack([np.hstack([sf[:, i_bin, :].T for i_bin in range(n_bin)]) for sf in spd_sf[i_ex]]).T
+
+        # normalises the spike count array (if required)
+        if lda_para['is_norm']:
+            N = np.size(spd_sf_ex, axis=1)
+            spd_sf_mn = repmat(np.mean(spd_sf_ex, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_sd = repmat(np.std(spd_sf_ex, axis=1).reshape(-1, 1), 1, N)
+            spd_sf_ex = np.divide(spd_sf_ex - spd_sf_mn, spd_sf_sd)
+
+            # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+            spd_sf_ex[spd_sf_sd == 0] = 0
+
+        # runs the LDA predictions on the current spiking frequency array
+        lda, ok, e_str = run_lda_predictions(w_prog, w_str0, pw_0, n_ex, lda_0, spd_sf_ex, i_grp)
+        if not ok:
+            # if there was an error, then exit with a false flag
+            if w_prog is not None:
+                w_prog.emit('LDA Analysis Error', 0.)
+            return False
+
+        # calculates the grouping accuracy values
+        c_mat[i_ex] = lda['c_mat'] / n_trial
+
+        # calculates the direction accuracy values (over each condition)
+        for i_c in range(n_c):
+            c_mat_sub = c_mat[i_ex][(i_c * n_bin):((i_c + 1) * n_bin), :]
+            for i_bin in range(n_bin):
+                BD_sub = set_binary_mask(i_bin, n_c, n_bin)
+                y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(c_mat_sub[i_bin, :], BD_sub))
+
+    #######################################
+    ####    HOUSE-KEEPING EXERCISES    ####
+    #######################################
+
+    # sets the lda values
+    d_data.lda = 1
+    d_data.y_acc = y_acc
+    d_data.c_mat = c_mat
+    d_data.lda_trial_type = get_glob_para('lda_trial_type')
+
+    # sets the rotation values
+    d_data.spd_xi = r_data.spd_xi
+
+    # sets a copy of the lda parameters and updates the comparison conditions
+    _lda_para = dcopy(lda_para)
+    _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
+
+    # sets the solver parameters
+    set_lda_para(d_data, _lda_para, r_filt, n_trial)
+
+    # sets the phase duration/offset parameters
+    d_data.vel_bin = calc_para['vel_bin']
+    d_data.n_sample = calc_para['n_sample']
+    d_data.equal_time = calc_para['equal_time']
+
+    # returns a true value indicating success
+    return True
+
+
+def run_kinematic_lda(data, spd_sf, calc_para, r_filt, n_trial, w_prog=None, w_str0=None,
+                                                                pw0=None, d_data=None, r_data=None):
+    '''
+
+    :param data:
+    :param spd_sf:
+    :param calc_para:
+    :param r_filt:
+    :param i_cell:
+    :param n_trial:
+    :param w_prog:
+    :param d_data:
+    :param i_shuff:
+    :return:
+    '''
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
+    # initialisations
+    tt = r_filt['t_type']
+    lda_para = calc_para['lda_para']
+    n_c, n_ex = len(tt), len(spd_sf)
+
+    ################################
+    ####    LDA CALCULATIONS    ####
+    ################################
+
+    # memory allocation and other initialisations
+    extern_wprog = w_str0 is not None
+    i_bin_spd = r_data.i_bin_spd
+    ind_t, xi_bin = np.array(range(n_trial)), r_data.spd_xi
+    n_bin = np.size(xi_bin, axis=0)
+
+    # memory allocation for accuracy binary mask calculations
+    BD = np.zeros((2, 2 * n_c), dtype=bool)
+    y_acc = np.nan * np.ones((n_ex, n_bin, n_c), dtype=float)
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
+
+    # loops through each of the experiments performing the lda calculations
+    c_mat = np.empty(n_ex, dtype=object)
+    for i_ex in range(n_ex):
+        # sets the progress strings (if progress bar handle is provided)
+        if w_prog is not None:
+            if extern_wprog:
+                if n_ex == 1:
+                    w_prog.emit('{0})'.format(w_str0), pw0)
+                else:
+                    w_prog.emit('{0}, Ex:{1}/{2})'.format(w_str0, i_ex + 1, n_ex), pw0)
+            else:
+                w_str0 = 'Kinematic LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+
+        # sets the experiment name and runs the LDA prediction calculations
+        c_mat[i_ex] = []
+        for i_bin in range(n_bin):
+            # updates the progressbar (if provided)
+            if w_prog is not None:
+                if not extern_wprog:
+                    w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin), 100. * (i_ex + (i_bin / n_bin)) / n_ex)
+
+            if i_bin != i_bin_spd:
+                # stacks the speed spiking frequency values into a single array
+                spd_sf_bin = np.hstack([np.hstack((sf[:, i_bin_spd, :].T, sf[:, i_bin, :].T)) for sf in spd_sf[i_ex]])
+
+                # runs the LDA predictions on the current spiking frequency array
+                lda, ok, e_str = run_kinematic_lda_predictions(spd_sf_bin, lda_para, n_c, n_trial)
+                if not ok:
+                    # if there was an error, then exit with a false flag
+                    if w_prog is not None:
+                        w_prog.emit('LDA Analysis Error', 0.)
+                    return False
+
+                # calculates the grouping accuracy values
+                c_mat_nw = lda['c_mat'] / n_trial
+                c_mat[i_ex].append(c_mat_nw)
+
+                # calculates the direction accuracy values (over each condition)
+                for i_c in range(n_c):
+                    y_acc[i_ex, i_bin, i_c] = np.sum(np.multiply(BD, c_mat_nw[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+
+    #######################################
+    ####    HOUSE-KEEPING EXERCISES    ####
+    #######################################
+
+    if d_data is not None:
+        # sets the lda values
+        d_data.lda = 1
+        d_data.y_acc = y_acc
+        d_data.exp_name = [os.path.splitext(os.path.basename(x['expFile']))[0] for x in data.cluster]
+        d_data.lda_trial_type = get_glob_para('lda_trial_type')
+
+        # calculates the average confusion matrices (averaged over all experiments)
+        d_data.c_mat = np.empty(n_bin - 1, dtype=object)
+        for i in range(n_bin - 1):
+            d_data.c_mat[i] = np.mean(np.dstack([c[i] for c in c_mat]), axis=2)
+
+        # sets the rotation values
+        d_data.spd_xi = r_data.spd_xi
+        d_data.i_bin_spd = r_data.i_bin_spd
+
+        # sets a copy of the lda parameters and updates the comparison conditions
+        _lda_para = dcopy(lda_para)
+        _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
+
+        # sets the solver parameters
+        set_lda_para(d_data, _lda_para, r_filt, n_trial)
+
+        # sets the phase duration/offset parameters
+        d_data.spd_xrng = calc_para['spd_x_rng']
+        d_data.vel_bin = calc_para['vel_bin']
+        d_data.n_sample = calc_para['n_sample']
+        d_data.equal_time = calc_para['equal_time']
+
+        # returns a true value indicating success
+        return True
+    else:
+        # otherwise, return the accuracy/pyschometric fit values
+        return [y_acc]
+
+
+def run_vel_dir_lda(data, vel_sf, calc_para, r_filt, n_trial, w_prog, d_data, r_data=None):
+    '''
+
+    :param data:
+    :param vel_sf:
+    :param calc_para:
+    :param _r_filt:
+    :param n_trial:
+    :param w_prog:
+    :param d_data:
+    :return:
+    '''
+
+    # initialises the RotationData class object (if not provided)
+    if r_data is None:
+        r_data = data.rotation
+
+    # initialisations
+    tt = r_filt['t_type']
+    lda_para, vel_xi = calc_para['lda_para'], r_data.vel_xi
+    n_c, n_ex, n_bin = len(tt), len(vel_sf), np.size(vel_xi, axis=0)
+    n_bin_h = int(n_bin / 2)
+
+    ################################
+    ####    LDA CALCULATIONS    ####
+    ################################
+
+    # memory allocation for accuracy binary mask calculations
+    BD = np.zeros((2, 2 * n_c), dtype=bool)
+    y_acc = np.nan * np.ones((n_ex, n_bin_h, n_c, 2), dtype=float)
+
+    # sets up the binary masks for the group/direction types
+    for i_c in range(n_c):
+        BD[0, 2 * i_c], BD[1, 2 * i_c + 1] = True, True
+
+    # loops through each of the experiments performing the lda calculations
+    for i_ex in range(n_ex):
+        # sets the progress strings (if progress bar handle is provided)
+        w_str0 = 'Discrimination LDA (Expt {0}/{1}, Bin'.format(i_ex + 1, n_ex)
+
+        # sets the experiment name and runs the LDA prediction calculations
+        for i_bin in range(n_bin_h):
+            # updates the progressbar (if provided)
+            if w_prog is not None:
+                w_prog.emit('{0} {1}/{2})'.format(w_str0, i_bin + 1, n_bin_h), 100. * (i_ex + (i_bin / n_bin_h)) / n_ex)
+
+            # sets the positive/negative velocity indices
+            i_neg, i_pos = i_bin, n_bin - (i_bin + 1)
+
+            for i_dir in range(2):
+                # stacks the speed spiking frequency values into a single array
+                j, k, vel_sf_bin0 = 1 - i_dir, i_dir, [[] for _ in range(n_c)]
+                for i_c in range(n_c):
+                    vel_sf_bin0[i_c] = np.hstack((vel_sf[i_ex][j][i_c][:, i_pos, :].T,
+                                                  vel_sf[i_ex][k][i_c][:, i_neg, :].T))
+
+                # runs the LDA predictions on the current spiking frequency array
+                vel_sf_bin = np.hstack(vel_sf_bin0)
+                lda, ok, e_str = run_kinematic_lda_predictions(vel_sf_bin, lda_para, n_c, n_trial)
+                if not ok:
+                    # if there was an error, then exit with a false flag
+                    if w_prog is not None:
+                        w_prog.emit('LDA Calculation Error', 0.)
+                    return False
+
+                # calculates the grouping accuracy values
+                c_mat = lda['c_mat'] / n_trial
+
+                # calculates the direction accuracy values (over each condition)
+                for i_c in range(n_c):
+                    y_acc[i_ex, i_pos - n_bin_h, i_c, i_dir] = \
+                                                np.sum(np.multiply(BD, c_mat[(2 * i_c):(2 * (i_c + 1)), :])) / 2
+
+    #######################################
+    ####    HOUSE-KEEPING EXERCISES    ####
+    #######################################
+
+    # sets the lda values
+    d_data.lda = 1
+    d_data.y_acc = np.mean(y_acc, axis=3)
+    d_data.lda_trial_type = get_glob_para('lda_trial_type')
+
+    # sets the rotation values
+    d_data.spd_xi = r_data.spd_xi
+
+    # sets a copy of the lda parameters and updates the comparison conditions
+    _lda_para = dcopy(lda_para)
+    _lda_para['comp_cond'] = r_data.r_obj_kine.rot_filt['t_type']
+
+    # sets the solver parameters
+    set_lda_para(d_data, _lda_para, r_filt, n_trial)
+
+    # sets the phase duration/offset parameters
+    d_data.vel_bin = calc_para['vel_bin']
+    d_data.n_sample = calc_para['n_sample']
+    d_data.equal_time = calc_para['equal_time']
+
+    # returns a true value indicating success
+    return True
+
+
+def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
+    '''
+
+    :param sf:
+    :param lda_para:
+    :param n_c:
+    :param n_t:
+    :return:
+    '''
+
+    # array dimensioning and memory allocation
+    i_grp, n_grp = [], 2 * n_c
+    N, n_cell = 2 * n_t * n_c, np.size(sf, axis=0)
+    is_OTO = get_glob_para('lda_trial_type') == 'One-Trial Out'
+    is_keep = np.ones(N, dtype=bool)
+
+    ####################################
+    ####    LDA DATA ARRAY SETUP    ####
+    ####################################
+
+    # sets up the LDA data/group index arrays across each condition
+    for i_filt in range(n_c):
+        # sets the grouping indices
+        ind_g = [2 * i_filt, 2 * i_filt + 1]
+        i_grp.append(np.hstack((ind_g[0] * np.ones(n_t), ind_g[1] * np.ones(n_t))).astype(int))
+
+    # combines the spike counts/group indices into the final combined arrays
+    i_grp = np.hstack(i_grp)
+
+    # normalises the spike count array (if required)
+    sf_calc = dcopy(sf)
+    if lda_para['is_norm']:
+        sf_mn = repmat(np.mean(sf_calc, axis=1).reshape(-1, 1), 1, N)
+        sf_sd = repmat(np.std(sf_calc, axis=1).reshape(-1, 1), 1, N)
+        sf_calc = np.divide(sf_calc - sf_mn, sf_sd)
+
+        # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+        sf_calc[np.isnan(sf_calc)] = 0
+
+    # transposes the array
+    sf_calc = sf_calc.T
+
+    ###########################################
+    ####    LDA PREDICTION CALCULATIONS    ####
+    ###########################################
+
+    # creates the lda solver object
+    lda = setup_lda_solver(lda_para)
+
+    # memory allocation
+    lda_pred, c_mat = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+    lda_pred_chance, c_mat_chance = np.zeros(N, dtype=int), np.zeros((n_grp, n_grp), dtype=int)
+    p_mat = np.zeros((N, n_grp), dtype=float)
+
+    if is_OTO:
+        # case is "one-trial out" setup
+        NN, xi_rmv = n_t, np.arange(0, N, n_t)
+    else:
+        # case is "one-phase out" setup
+        NN = len(i_grp)
+
+    # fits the LDA model and calculates the prediction for each
+    for i_trial in range(NN):
+        # fits the one-out-trial lda model
+        if is_OTO:
+            is_keep[xi_rmv + i_trial] = False
+        else:
+            is_keep[i_trial] = False
+
+        try:
+            lda.fit(sf_calc[is_keep, :], i_grp[is_keep])
+        except:
+            e_str = 'There was an error running the LDA analysis with the current solver parameters. ' \
+                    'Either choose a different solver or alter the solver parameters before retrying'
+            return None, False, e_str
+
+        # calculates the model prediction from the remaining trial and increments the confusion matrix
+        if is_OTO:
+            for i in xi_rmv + i_trial:
+                lda_pred[i] = lda.predict(sf_calc[i, :].reshape(1, -1))
+                p_mat[i, :] = lda.predict_proba(sf_calc[i, :].reshape(1, -1))
+                c_mat[i_grp[i], lda_pred[i]] += 1
+
+                # re-adds the removed trial
+                is_keep[i] = True
+
+        else:
+            lda_pred[i_trial] = lda.predict(sf_calc[i_trial, :].reshape(1, -1))
+            p_mat[i_trial, :] = lda.predict_proba(sf_calc[i_trial, :].reshape(1, -1))
+            c_mat[i_grp[i_trial], lda_pred[i_trial]] += 1
+
+            # re-adds the removed trial
+            is_keep[i_trial] = True
+
+        # # fits the one-out-trial shuffled lda model
+        # ind_chance = np.random.permutation(len(i_grp) - 1)
+        # lda.fit(sf_calc[ii, :], i_grp[ii][ind_chance])
+
+        # # calculates the chance model prediction from the remaining trial and increments the confusion matrix
+        # lda_pred_chance[i_pred] = lda.predict(sf_calc[i_pred, :].reshape(1, -1))
+        # c_mat_chance[i_grp[i_pred], lda_pred_chance[i_pred]] += 1
+
+    # calculates the LDA transform values (uses svd solver to accomplish this)
+    if lda_para['solver_type'] != 'lsqr':
+        # memory allocation
+        lda_X, lda_X0 = np.empty(n_grp, dtype=object), lda.fit(sf_calc, i_grp)
+
+        # calculates the variance explained
+        if len(lda_X0.explained_variance_ratio_) == 2:
+            lda_var_exp = np.round(100 * lda_X0.explained_variance_ratio_.sum(), 2)
+        else:
+            lda_var_sum = lda_X0.explained_variance_ratio_.sum()
+            lda_var_exp = np.round(100 * np.sum(lda_X0.explained_variance_ratio_[:2] / lda_var_sum), 2)
+
+        # separates the transform values into the individual groups
+        lda_X0T = lda_X0.transform(sf_calc)
+        for ig in range(n_grp):
+            lda_X[ig] = lda_X0T[(ig * n_t):((ig + 1) * n_t), :2]
+    else:
+        # transform values are not possible with this solver type
+        lda_X, lda_var_exp = None, None
+
+    # returns the final values in a dictionary object
+    return {
+        'c_mat': c_mat, 'p_mat': p_mat, 'lda_pred': lda_pred,
+        'c_mat_chance': c_mat_chance, 'lda_pred_chance': lda_pred_chance,
+        'lda_X': lda_X, 'lda_var_exp': lda_var_exp, 'n_cell': n_cell
+    }, True, None
+
+############################################
+####    PSYCHOMETRIC CURVE FUNCTIONS    ####
+############################################
+
+
+def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean'):
+    '''
+
+    :param d_data:
+    :param d_vel:
+    :return:
+    '''
+
+    # parameters and array indexing
+    vel_mx = 80.
+    nC, n_tt, n_xi = len(d_data.n_cell), len(d_data.ttype), len(d_data.spd_xi)
+    use_mean = fit_vals == 'Mean'
+
+    # memory allocation
+    y_acc_fit, A = np.zeros((n_xi, nC, n_tt)), np.empty(n_tt, dtype=object)
+    p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
+
+    # other initialisations
+    y_acc = dcopy(d_data.y_acc)
+    i_bin_spd = d_data.i_bin_spd
+    xi_fit = np.arange(d_vel, vel_mx + 0.01, d_vel)
+
+    if use_all:
+        i_fit = np.arange(n_xi).astype(int)
+    else:
+        i_fit = np.arange(d_data.i_bin_spd + 1, n_xi).astype(int)
+
+    # calculates the psychometric fits for each condition trial type
+    for i_tt in range(n_tt):
+        # sets the mean accuracy values (across all cell counts)
+        if use_mean:
+            # case is using the mean values
+            y_acc_mn_exp = np.nanmean(y_acc[i_tt], axis=3)
+            y_acc_mn = np.hstack((np.nanmean(100. * y_acc_mn_exp[:, :, :-1], axis=0),
+                                             100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
+        else:
+            # case is using the median values
+            y_acc_mn_exp = np.nanmedian(y_acc[i_tt], axis=3)
+            y_acc_mn = np.hstack((np.nanmedian(100. * y_acc_mn_exp[:, :, :-1], axis=0),
+                                               100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
+
+        # calculates/sets the psychometric fit values
+        y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
+                                        calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
+
+    # updates the class fields
+    d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi
+
+
+def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
+    '''
+
+    :param y_acc_mn:
+    :param d_vel:
+    :param n_cond:
+    :param i_bin_spd:
+    :return:
+    '''
+
+    from lmfit import Model
+
+    def fit_func(x, y0, yA, k, xH):
+        '''
+
+        :param x:
+        :param p0:
+        :param p1:
+        :param p2:
+        :param p3:
+        :return:
+        '''
+
+        # checks if the sum of the scale/steady state value is infeasible
+        if y0 + yA > 100:
+            # if infeasible, then return a high value
+            return 1e6 * np.ones(len(x))
+        else:
+            # calculates the function values for the current parameters
+            F = y0 + (yA / (1. + np.exp(-k * (x - xH))))
+            if F[0] < 0 or F[-1] > 100:
+                # if the function values are infeasible, then return a high value
+                return 1e6 * np.ones(len(x))
+            else:
+                # otherwise, return the function values
+                return F
+
+    def init_fit_para(x, y, n_para):
+        '''
+
+        :param y:
+        :return:
+        '''
+
+        # memory allocation
+        x0 = np.zeros(n_para)
+
+        # calculates the estimated initial/steady state values
+        y_min, y_max = np.min(y), np.max(y)
+        x0[0], x0[1] = y_min, y_max - y_min
+
+        # calculates the estimated half activation point
+        x0[3] = xi[np.argmin(np.abs(((y - y_min) / (y_max - y_min)) - 0.5))]
+
+        # calculates the inverse exponent values
+        z = np.divide(-np.log(np.divide(x0[1], y - x0[0]) - 1), x - x0[3])
+
+        # calculates the estimated exponential rate value
+        is_feas = np.logical_and(~np.isinf(z), z > 0)
+        if not np.any(is_feas):
+            # if there are no feasible values, then set a default value
+            x0[2] = 0.05
+        else:
+            # otherwise, calculate the mean of the feasible values
+            x0[2] = np.mean(z[is_feas])
+
+        # returns the initial parameter estimate
+        return x0
+
+    # student-t value for the dof and confidence level
+    n_para, alpha = 4, 0.05
+    tval = t.ppf(1. - alpha / 2., max(0, len(xi) - n_para))
+    bounds = ((0., 0., 0., 0.), (100., 100., 5.0, 200.))
+
+    # memory allocation
+    y_acc_fit, A = np.empty(n_cond, dtype=object), np.zeros((n_cond, n_para))
+    p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
+
+    # sets the indices of the values to be fit
+    ii = np.zeros(len(xi), dtype=bool)
+    ii[i_fit] = True
+    ii[i_bin_spd] = False
+
+    # loops through each of the conditions calculating the psychometric fits
+    for i_c in range(n_cond):
+        # initialisations
+        maxfev = 10000
+
+        # sets up the initial parameters
+        p0 = init_fit_para(xi[ii], y_acc_mn[ii, i_c], n_para)
+
+        # ensures the initial estimate is between the lower/upper bounds
+        iLB = p0 < bounds[0]; p0[iLB] = np.array(bounds[0])[iLB]
+        iUB = p0 > bounds[1]; p0[iUB] = np.array(bounds[1])[iUB]
+
+        # keep attempting to find the psychometric fit until a valid solution is found
+        while 1:
+            try:
+                # runs the fit function
+                p_acc[i_c, :], pcov = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], p0=p0, maxfev=maxfev,
+                                                bounds=bounds)
+                # result = gmodel.fit(y_acc_mn[ii, i_c], params, x=xi[ii])
+
+                # if successful, calculation the fit values and exits the inner loop
+                y_acc_fit[i_c] = fit_func(xi, *p_acc[i_c, :])
+                for i_p, pp, pc in zip(range(n_para), p_acc[i_c, :], np.diag(pcov)):
+                    sigma = pc ** 0.5
+                    if i_p in [0, 1]:
+                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), min(100., pp + sigma * tval)
+                    else:
+                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), pp + sigma * tval
+
+                break
+            except:
+                # if there was an error, then increment the max function evaluation parameter
+                maxfev *= 2
+
+    # returns the fit values
+    return np.vstack(y_acc_fit).T, p_acc, p_acc_lo, p_acc_hi
+
+####################################################
+####    LDA SOLVER PARAMETER/SETUP FUNCTIONS    ####
+####################################################
+
+
+def setup_lda_solver(lda_para):
+    '''
+
+    :param lda_para:
+    :return:
+    '''
+
+    # sets the LDA solver type
+    if lda_para['solver_type'] == 'svd':
+        # case the SVD solver
+        lda = LDA()
+    elif lda_para['solver_type'] == 'lsqr':
+        # case is the LSQR solver
+        if lda_para['use_shrinkage']:
+            lda = LDA(solver='lsqr', shrinkage='auto')
+        else:
+            lda = LDA(solver='lsqr')
+    else:
+        # case is the Eigen solver
+        if lda_para['use_shrinkage']:
+            lda = LDA(solver='eigen', shrinkage='auto')
+        else:
+            lda = LDA(solver='eigen')
+
+    # returns the lda solver object
+    return lda
+
+
+def init_lda_solver_para():
+    return {
+        'n_cell_min': 10,
+        'n_trial_min': 10,
+        'is_norm': True,
+        'use_shrinkage': True,
+        'solver_type': 'eigen',
+        'comp_cond': ['Black', 'Uniform'],
+        'cell_types': 'All Cells',
+        'free_ctype': 'All',
+        'y_acc_max': 100,
+        'y_acc_min': 0,
+        'y_auc_max': 100,
+        'y_auc_min': 50,
+    }
+
+
+def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
+    '''
+
+    :param d_data_0:
+    :param d_data_f:
+    :param d_data_def:
+    :return:
+    '''
+
+    def set_def_class_para(d_data, p_str):
+        '''
+
+        :param d_data:
+        :param p_str:
+        :return:
+        '''
+
+        # initialisations
+        def_para = {}
+
+        # retrieves the values from the data class
+        for ps in p_str:
+            if hasattr(d_data, ps):
+                p_val = d_data.__getattribute__(ps)
+                if p_val is None:
+                    continue
+                elif p_val != -1:
+                    def_para[ps] = p_val
+
+        # returns the lda default parameter dictionary
+        return def_para
+
+    if d_data_f is None:
+        # if the field name is not provided, set the default data class
+        d_data = d_data_0
+    elif hasattr(d_data_0, d_data_f):
+        # if the class does have the sub-field, then retrieves the sub-class
+        d_data = getattr(d_data_0, d_data_f)
+    else:
+        # otherwise, use the default sub-class and add it to the parent class
+        d_data = d_data_def
+        setattr(d_data_0, d_data_f, d_data_def)
+
+    # set the default parameter object (based on type)
+    if d_data_f == 'spikedf':
+        # case is the spiking frequency dataframe
+        def_para = set_def_class_para(d_data, ['rot_filt', 'bin_sz', 't_over'])
+
+    # returns the default parameter object
+    return def_para
+
+
+def init_corr_para(r_data):
+    '''
+
+    :param r_data:
+    :return:
+    '''
+
+    def set_corr_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr <= 0) else para_curr
+
+    # initialisations
+    dv_0 = 5
+    r_para = {}
+
+    # sets the parameter fields
+    para_flds = ['n_shuffle', 'vel_bin', 'n_smooth', 'is_smooth', 'n_sample', 'equal_time']
+
+    #
+    for pf in para_flds:
+        # sets the parameter type
+        p_type = 'Number'
+
+        # sets the default value and class field name
+        if pf == 'n_shuffle':
+            def_val, fld_name = 100, 'n_shuffle_corr'
+
+        elif pf == 'vel_bin':
+            def_val, fld_name, p_type = str(dv_0), 'vel_bin_corr', 'String'
+
+        elif pf == 'n_smooth':
+            def_val, fld_name = 5, 'vel_sf_nsm'
+
+        elif pf == 'is_smooth':
+            def_val, fld_name, p_type = False, 'vel_sf_nsm', 'Boolean'
+
+        elif pf == 'n_sample':
+            def_val, fld_name = 100, 'n_rs'
+
+        elif pf == 'equal_time':
+            def_val, fld_name = False, 'vel_sf_eqlt'
+
+        # sets the roc parameter values into the parameter dictionary
+        if hasattr(r_data, fld_name):
+            if p_type == 'Number':
+                r_para[pf] = int(set_corr_para(def_val, getattr(r_data, fld_name)))
+            elif p_type == 'String':
+                r_para[pf] = set_corr_para(def_val, str(int(getattr(r_data, fld_name))))
+            elif p_type == 'Boolean':
+                r_para[pf] = set_corr_para(def_val, getattr(r_data, fld_name)) > 0
+        else:
+            r_para[pf] = def_val
+
+    # returns the parameter dictionary
+    return r_para
+
+def init_clust_para(c_comp, free_exp):
+    '''
+
+    :param c_comp:
+    :param free_exp:
+    :return:
+    '''
+
+    def set_clust_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    # memory allocation and parameters
+    c_para = {}
+
+    # sets the parameter fields to be retrieved (based on type)
+    para_flds = ['d_max', 'r_max', 'sig_corr_min', 'isi_corr_min', 'sig_diff_max',
+                 'sig_feat_min', 'w_sig_feat', 'w_sig_comp', 'w_isi']
+
+    # sets the comparison data object belonging to the current experiment
+    if 'No Fixed/Free Data Loaded' in free_exp:
+        # case is there is no loaded freely moving data files
+        c_data = object
+    else:
+        # case is there are freely moving data files
+        i_expt = cf.det_likely_filename_match([x.free_name for x in c_comp.data], free_exp)
+        c_data = c_comp.data[i_expt]
+
+    #
+    for pf in para_flds:
+        # sets the new parameter field name (could be altered below...)
+        def_val = float(get_glob_para(pf))
+        if pf in ['d_max']:
+            def_val = int(def_val)
+
+        # sets the roc parameter values into the parameter dictionary
+        if hasattr(c_data, pf):
+            c_para[pf] = set_clust_para(def_val, getattr(c_data, pf))
+        else:
+            c_para[pf] = def_val
+
+    # returns the parameter dictionary
+    return c_para
+
+
+def init_roc_para(r_data_0, f_type, r_data_f=None, r_data_def=None):
+    '''
+
+    :param r_data_0:
+    :param r_data_f:
+    :param r_data_def:
+    :return:
+    '''
+
+    def set_roc_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    if r_data_f is None:
+        # case is there are no additional field information to be added
+        r_data = r_data_0
+    elif hasattr(r_data_0, r_data_f):
+        # case is there is an additional field to be added. if the field exists, then overwrite it
+        r_data = getattr(r_data_0, r_data_f)
+    else:
+        # otherwise, simply add the new field to the class
+        r_data = r_data_def
+        setattr(r_data_0, r_data_f, r_data_def)
+
+    # memory allocation and parameters
+    dv_0 = 5
+    r_para, para_flds = {}, []
+
+    # sets the parameter fields to be retrieved (based on type)
+    if f_type == 'vel_roc_sig':
+        para_flds = ['n_boot_kine_ci', 'kine_auc_stats_type', 'vel_bin', 'vel_x_rng', 'equal_time', 'n_sample']
+
+    #
+    for pf in para_flds:
+        # sets the new parameter field name (could be altered below...)
+        pf_nw = pf
+
+        #############################
+        ####    SPECIAL CASES    ####
+        #############################
+
+        if pf == 'vel_x_rng':
+            pf_nw = 'spd_x_rng'
+            if hasattr(r_data, 'i_bin_vel'):
+                if isinstance(r_data.i_bin_vel, list):
+                    vc_rng = get_kinematic_range_strings(float(r_para['vel_bin']), True)
+                    r_para[pf_nw] = vc_rng[r_data.i_bin_vel[1]]
+                else:
+                    r_para[pf_nw] = '0 to {0}'.format(r_para['vel_bin'])
+            else:
+                r_para[pf_nw] = '0 to {0}'.format(r_para['vel_bin'])
+
+        ############################
+        ####    NORMAL CASES    ####
+        ############################
+
+        else:
+            p_type = 'Number'
+
+            if pf == 'n_boot_kine_ci':
+                def_val, fld_name, pf_nw = 100, 'n_boot_kine_ci', 'n_boot'
+
+            elif pf == 'kine_auc_stats_type':
+                def_val, fld_name, pf_nw = 'Delong', 'kine_auc_stats_type', 'auc_stype'
+
+            elif pf == 'equal_time':
+                def_val, fld_name = False, 'is_equal_time'
+
+            elif pf == 'n_sample':
+                def_val, fld_name = 100, 'n_rs'
+
+            elif pf == 'vel_bin':
+                def_val, fld_name, p_type = str(dv_0), 'vel_bin', 'String'
+
+            # sets the roc parameter values into the parameter dictionary
+            if hasattr(r_data, fld_name):
+                if p_type == 'Number':
+                    r_para[pf_nw] = set_roc_para(def_val, getattr(r_data, fld_name))
+                elif p_type == 'String':
+                    r_para[pf_nw] = str(set_roc_para(int(def_val), int(getattr(r_data, fld_name))))
+            else:
+                r_para[pf_nw] = def_val
+
+    # returns the parameter dictionary
+    return r_para
+
+
+def init_lda_para(d_data_0, d_data_f=None, d_data_def=None):
+    '''
+
+    :param d_data_0:
+    :param d_data_f:
+    :param d_data_def:
+    :return:
+    '''
+
+    def set_lda_para(para_def, para_curr):
+        '''
+
+        :param para0:
+        :param paraC:
+        :return:
+        '''
+
+        if para_curr is None:
+            return para_def
+        elif isinstance(para_curr, str) or isinstance(para_curr, list):
+            return para_curr
+        else:
+            return para_def if (para_curr < 0) else para_curr
+
+    def set_def_lda_para(d_data, p_str):
+        '''
+
+        :param d_data:
+        :param p_str:
+        :return:
+        '''
+
+        # initialisations
+        def_para = {}
+
+        # retrieves the values from the data class
+        for ps in p_str:
+            if hasattr(d_data, ps):
+                p_val = d_data.__getattribute__(ps)
+                if p_val is None:
+                    continue
+                elif p_val != -1:
+                    def_para[ps] = p_val
+
+        # returns the lda default parameter dictionary
+        return def_para
+
+    if d_data_f is None:
+        # case is there are no additional field information to be added
+        d_data = dcopy(d_data_0)
+    elif hasattr(d_data_0, d_data_f):
+        # case is there is an additional field to be added. if the field exists, then overwrite it
+        d_data = dcopy(getattr(d_data_0, d_data_f))
+    else:
+        # otherwise, simply add the new field to the class
+        d_data = dcopy(d_data_def)
+        setattr(d_data_0, d_data_f, d_data_def)
+
+    # retrieves the default parameter values
+    lda_para = init_lda_solver_para()
+
+    # if the lda has been calculated, then use these values
+    if d_data.lda is not None:
+        # sets the LDA parameters
+        lda_para['n_cell_min'] = set_lda_para(lda_para['n_cell_min'], d_data.cellmin)
+        lda_para['n_trial_min'] = set_lda_para(lda_para['n_trial_min'], d_data.trialmin)
+        lda_para['is_norm'] = set_lda_para(lda_para['is_norm'], d_data.norm)
+        lda_para['use_shrinkage'] = set_lda_para(lda_para['use_shrinkage'], d_data.shrinkage)
+        lda_para['solver_type'] = set_lda_para(lda_para['solver_type'], d_data.solver)
+        lda_para['comp_cond'] = set_lda_para(lda_para['comp_cond'], d_data.ttype)
+        lda_para['cell_types'] = set_lda_para(lda_para['cell_types'], d_data.ctype)
+        lda_para['y_acc_max'] = set_lda_para(lda_para['y_acc_max'], d_data.yaccmx)
+
+        if hasattr(d_data, 'fctype'):
+            lda_para['free_ctype'] = set_lda_para(lda_para['free_ctype'], d_data.fctype)
+        else:
+            lda_para['free_ctype'] = 'All'
+
+        if hasattr(d_data, 'yaccmn'):
+            lda_para['y_acc_min'] = set_lda_para(lda_para['y_acc_min'], d_data.yaccmn)
+        else:
+            lda_para['y_acc_min'] = 0
+
+        if hasattr(d_data, 'yaucmx'):
+            lda_para['y_auc_max'] = set_lda_para(lda_para['y_auc_max'], d_data.yaucmx)
+        else:
+            lda_para['y_auc_max'] = 0
+
+        if hasattr(d_data, 'yaucmn'):
+            lda_para['y_auc_min'] = set_lda_para(lda_para['y_auc_min'], d_data.yaucmn)
+        else:
+            lda_para['y_auc_min'] = 0
+
+    # sets the default parameters based on the type
+    if d_data.type in ['Direction', 'Individual', 'LDAWeight']:
+        # case is the default rotational LDA
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull'])
+
+    elif d_data.type in ['Temporal']:
+        # case is the temporal LDA
+        def_para = set_def_lda_para(d_data, ['dt_phs', 'dt_ofs', 'phs_const'])
+
+    elif d_data.type in ['TrialShuffle']:
+        # case is the shuffled trial LDA
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle'])
+
+    elif d_data.type in ['Partial']:
+        # case is the partial LDA
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'nshuffle', 'poolexpt'])
+
+    # sets the default parameters based on the type
+    if d_data.type in ['IndivFilt']:
+        # case is the default rotational LDA
+        def_para = set_def_lda_para(d_data, ['tofs', 'tphase', 'usefull', 'yaccmn', 'yaccmx'])
+
+    elif d_data.type in ['SpdAcc', 'SpdCompDir']:
+        # case is the velocity comparison LDA
+        def_para = set_def_lda_para(d_data, ['vel_bin', 'n_sample', 'equal_time'])
+
+    elif d_data.type in ['SpdComp']:
+        # case is the velocity comparison LDA
+        def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time'])
+
+    elif d_data.type in ['SpdCompPool']:
+        # case is the velocity comparison LDA
+        def_para = set_def_lda_para(d_data, ['spd_xrng', 'vel_bin', 'n_sample', 'equal_time', 'nshuffle', 'poolexpt'])
+
+    # returns the lda solver/default parameter dictionaries
+    return lda_para, def_para
+
+
+def get_eyetrack_para(et_data):
+    '''
+
+    :param et_data:
+    :return:
+    '''
+
+    # memory allocation and parameters
+    c_para = {}
+
+    # sets the parameter fields to be retrieved (based on type)
+    para_flds = ['use_med_filt', 'rmv_baseline', 'dp_max', 'n_sd', 'n_pre', 'n_post']
+
+    # retrieves the parameter values
+    for pf in para_flds:
+        c_para[pf] = getattr(et_data, pf)
+
+    # returns the parameter dictionary
+    return c_para
+
+def set_lda_para(d_data, lda_para, r_filt, n_trial_max, ignore_list=None):
+    '''
+
+    :param d_data:
+    :param lda_para:
+    :param r_filt:
+    :param n_trial_max:
+    :return:
+    '''
+
+    #
+    if ignore_list is None:
+        ignore_list = []
+
+    # sets the parameter to class conversion strings
+    conv_str = {
+        'n_cell_min': 'cellmin',
+        'n_trial_min': 'trialmin',
+        'solver_type': 'solver',
+        'use_shrinkage': 'shrinkage',
+        'is_norm': 'norm',
+        'cell_types': 'ctype',
+        'y_acc_max': 'yaccmx',
+        'y_acc_min': 'yaccmn',
+        'y_auc_max': 'yaucmx',
+        'y_auc_min': 'yaucmn',
+        'comp_cond': 'ttype',
+        'free_ctype': 'fctype',
+    }
+
+    # sets the trial count and trial types
+    _lda_para = dcopy(lda_para)
+    d_data.ntrial = n_trial_max
+
+    # sets the LDA solver parameters
+    for ldp in lda_para:
+        if ldp not in ignore_list:
+            setattr(d_data, conv_str[ldp], dcopy(_lda_para[ldp]))
+
+#####################################
+####    GENERAL LDA FUNCTIONS    ####
+#####################################
+
+def reduce_cluster_data(data, i_expt, clear_sf_data=False):
+    '''
+
+    :param data:
+    :param i_expt:
+    :param cell_ok:
+    :return:
+    '''
+
+    # creates a copy of the data and removes any
+    data_tmp = EmptyAnalysisData()
+
+    # copies the sub-fields
+    data_tmp.rotation = scopy(data.rotation)
+    data_tmp.classify = scopy(data.classify)
+    data_tmp.comp = scopy(data.comp)
+
+    # reduces down the number of
+    if data.cluster is not None:
+        data_tmp.cluster = [scopy(data.cluster[i_ex]) for i_ex in i_expt]
+
+    if data._cluster is not None:
+        data_tmp._cluster = [scopy(data._cluster[i_ex]) for i_ex in i_expt]
+
+    # initialises the RotationData class object (if not provided)
+    if clear_sf_data:
+        data_tmp.rotation.vel_sf = None
+        data_tmp.rotation.vel_sf_rs = None
+
+    # returns the reduced data class object
+    return data_tmp
+
+
+def setup_lda(data, calc_para, d_data=None, w_prog=None, return_reqd_arr=False, r_data=None, w_err=None):
+    '''
+
+    :param data:
+    :param calc_para:
+    :return:
+    '''
+
+    def det_valid_cells(data, ind, lda_para, r_data=None):
+        '''
+
+        :param cluster:
+        :param lda_para:
+        :return:
+        '''
+
+        # sets the exclusion field name to cluster field key
+        f_key = {
+            'region_name': 'chRegion',
+            'record_layer': 'chLayer',
+        }
+
+        # initialises the RotationData class object (if not provided)
+        if r_data is None:
+            r_data = data.rotation
+
+        # determines the cells that are in the valid regions (RSPg and RSPd)
+        exc_filt = data.exc_rot_filt
+        if cf.use_raw_clust(data):
+            # case is the raw data is being used for
+            cluster = data._cluster[ind]
+            is_valid = get_inclusion_filt_indices(cluster, data.exc_gen_filt)
+            ind_m = np.where(is_valid)[0]
+        else:
+            cluster = data.cluster[ind]
+            if len(cluster['clustID']):
+                ind_m = np.array([data._cluster[ind]['clustID'].index(x) for x in cluster['clustID']])
+                is_valid = np.ones(len(ind_m), dtype=bool)
+            else:
+                return np.zeros(1, dtype=bool)
+
+        # sets the boolean flags for the valid cells
+        # is_valid = np.logical_or(cluster['chRegion'] == 'RSPg', cluster['chRegion'] == 'RSPd') #### COMMENT ME OUT FOR RETROSPLANIAL ONLY CELLS
+        if len(is_valid) == 0:
+            return np.zeros(1, dtype=bool)
+
+        # removes any values that correspond to the fields in the exclusion filter
+        for ex_key in ['region_name', 'record_layer']:
+            if len(exc_filt[ex_key]):
+                for f_exc in exc_filt[ex_key]:
+                    is_valid[cluster[f_key[ex_key]] == f_exc] = False
+
+        # if the cell types have been set, then remove the cells that are not the selected type
+        if lda_para['cell_types'] == 'Narrow Spike Cells':
+            # case is narrow spikes have been selected
+            is_valid[np.logical_not(data.classify.grp_str[ind][ind_m] == 'Nar')] = False
+        elif lda_para['cell_types'] == 'Wide Spike Cells':
+            # case is wide spikes have been selected
+            is_valid[np.logical_not(data.classify.grp_str[ind][ind_m] == 'Wid')] = False
+
+        # applies the freely moving cell types (if not set to "All")
+        if lda_para['free_ctype'] != 'All':
+            # retrieves the free moving cell types for the current experiment
+            f_data = data.externd.free_data
+            free_exp = cf.det_closest_file_match(f_data.exp_name, cf.extract_file_name(cluster['expFile']))[0]
+
+            # retrieves the fixed/free cell maps
+            ind_cl = get_inclusion_filt_indices(data._cluster[ind], data.exc_gen_filt)
+            _, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=[free_exp])
+
+            # removes the cells based on cell type
+            c_type = f_data.cell_type[f_data.exp_name.index(free_exp)][0]
+            if lda_para['free_ctype'] == 'No Type':
+                # case are cells with no cell types
+                is_ok = np.any(np.array(c_type), axis=1)
+            else:
+                # case is a specific freely moving cell type
+                is_ok = np.array(c_type[lda_para['free_ctype']])
+
+            # removes the cells that fixed cells that don't match the free cell type
+            fc_match, has_match = np.zeros(np.shape(f2f_map[0])[0], dtype=bool), f2f_map[0][:, 0] >= 0
+            fc_match[has_match] = is_ok[f2f_map[0][has_match, 1]]
+            is_valid[~fc_match[ind_cl]] = False
+
+        # determines if the individual LDA has been calculated
+        d_data_i = data.discrim.indiv
+        if d_data_i.lda is not None:
+            # if so, determines the trial type corresponding to the black direction decoding type
+            if ind in d_data_i.i_expt:
+                # if the black decoding type is present, remove the cells which have a decoding accuracy above max
+                ind_g = np.where(d_data_i.i_expt == ind)[0][0]
+                ii = np.where(d_data_i.i_cell[ind_g])[0]
+                is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] > lda_para['y_acc_max'],axis=1)]] = False
+                is_valid[ii[np.any(100. * d_data_i.y_acc[ind_g][:, 1:] < lda_para['y_acc_min'],axis=1)]] = False
+
+        # #
+        # if hasattr(r_data, 'phase_roc_auc'):
+        #     if (r_data.phase_roc_auc is not None):
+        #         if len(r_data.phase_roc_auc):
+        #             # sets the indices
+        #             ind_0 = np.cumsum([0] + [x['nC'] for x in data._cluster])
+        #             ind_ex = [np.arange(ind_0[i], ind_0[i + 1]) for i in range(len(ind_0) - 1)]
+        #
+        #             # retrieves the black phase roc auc values (ensures the compliment is calculated)
+        #             auc_ex = r_data.phase_roc_auc[ind_ex[ind], :]
+        #             ii = auc_ex < 0.5
+        #             auc_ex[ii] = 1 - auc_ex[ii]
+        #
+        #             # determines which values meet the criteria
+        #             is_valid[np.any(100. * auc_ex > lda_para['y_auc_max'], axis=1)] = False
+        #             is_valid[np.any(100. * auc_ex < lda_para['y_auc_min'], axis=1)] = False
+
+        # if the number of valid cells is less than the reqd count, then set all cells to being invalid
+        if np.sum(is_valid) < lda_para['n_cell_min']:
+            is_valid[:] = False
+
+        # returns the valid index array
+        return is_valid
+
+    # initialisations
+    lda_para, s_flag = calc_para['lda_para'], 2
+    if len(lda_para['comp_cond']) < 1:
+        # if no trial conditions are selected then output an error to screen
+        if w_err is not None:
+            e_str = 'At least 1 trial condition must be selected before running this function.'
+            w_err.emit(e_str, 'Invalid LDA Analysis Parameters')
+
+        # returns a false flag
+        return None, None, None, None, 0
+    else:
+        # if there are no valid rotation experiments, then exit with false flag values
+        is_rot = cf.det_valid_rotation_expt(data, False)
+        if ~np.any(is_rot):
+            # returns a false flag
+            return None, None, None, None, 0
+
+    # sets up the black phase data filter and returns the time spikes
+    r_filt = cf.init_rotation_filter_data(False)
+    r_filt['t_type'] = lda_para['comp_cond']
+    r_obj0 = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False)
+
+    # retrieves the trial counts from each of the filter types/experiments
+    n_trial = np.zeros((r_obj0.n_filt, r_obj0.n_expt), dtype=int)
+    for i_filt in range(r_obj0.n_filt):
+        # sets the trial counts for each experiment for the current filter option
+        i_expt_uniq, ind = np.unique(r_obj0.i_expt[i_filt], return_index=True)
+        n_trial[i_filt, i_expt_uniq] = r_obj0.n_trial[i_filt][ind]
+
+    # removes any trials less than the minimum and from this determines the overall minimum trial count
+    n_trial[n_trial < lda_para['n_trial_min']] = -1
+    if np.all(n_trial < 0):
+        # if there are no valid experiments, then output an error message to screen
+        if w_prog is not None:
+            e_str = 'There are no experiments which meet the LDA solver parameters/criteria.' \
+                    'Either load more experiments or alter the solver/calculation parameters.'
+            w_err.emit(e_str, 'No Valid Experiments Found')
+
+        # returns a false flag
+        return None, None, None, None, 0
+    else:
+        # otherwise, reduce down the experiments to those which are feasible
+        n_trial_max = np.min(n_trial[n_trial > 0])
+
+    # determines if the number of trials has changed (and if the lda calculation values have been set)
+    if d_data is not None:
+        if (n_trial_max == d_data.ntrial) and (d_data.lda is not None):
+            # if there is no change and the values are set, then exit with a true flag
+            s_flag = 1
+            if not return_reqd_arr:
+                return None, None, None, None, s_flag
+
+    # determines the valid cells from each of the loaded experiments
+    i_cell = np.array([det_valid_cells(data, ic, lda_para) if is_r else
+                               np.array([False]) for ic, is_r in enumerate(cf.det_valid_rotation_expt(data))])
+
+    # determines if there are any valid loaded experiments
+    i_expt = np.where([(np.any(x) and np.min(n_trial[:, i_ex]) >= lda_para['n_trial_min'])
+                        for i_ex, x in enumerate(i_cell)])[0]
+    if len(i_expt) == 0:
+        # if there are no valid experiments, then output an error message to screen
+        if w_prog is not None:
+            e_str = 'There are no experiments which meet the LDA solver parameters/criteria.' \
+                    'Either load more experiments or alter the solver/calculation parameters.'
+            w_err.emit(e_str, 'No Valid Experiments Found')
+
+        # returns a false flag
+        return None, None, None, None, 0
+
+    # returns the import values for the LDA calculations
+    return r_filt, i_expt, i_cell[i_expt], n_trial_max, s_flag
+
+
+def get_pool_cell_counts(data, lda_para, type=0):
+    '''
+
+    :param data:
+    :param lda_para:
+    :return:
+    '''
+
+    if type == 0:
+        n_cell = n_cell_pool0
+    else:
+        n_cell = n_cell_pool1
+
+    # determine the valid cell counts for each experiment
+    _, _, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para}, None)
+
+    # returns the final cell count
+    if i_cell is None:
+        return []
+    else:
+        n_cell_tot = np.sum([sum(x) for x in i_cell])
+        return [x for x in n_cell if x <= n_cell_tot] + ([n_cell_tot] if n_cell_tot not in n_cell else [])
+
+
+def det_uniq_channel_layers(data, lda_para):
+    '''
+
+    :param data:
+    :param wght_lda_para:
+    :return:
+    '''
+
+    # retrieves the valid experiment/cell and reduces down the cluster data array
+    _, i_expt, i_cell, _, _ = setup_lda(data, {'lda_para': lda_para})
+
+    # returns the unique layer types
+    if i_expt is None:
+        return None
+    else:
+        return list(np.unique(cf.flat_list([data._cluster[i_ex]['chLayer'] for i_ex in i_expt])))
+
+
+def get_glob_para(gp_type):
+    '''
+
+    :param trial_type:
+    :return:
+    '''
+
+    # loads the default file
+    with open(cf.default_dir_file, 'rb') as fp:
+        def_data = _p.load(fp)
+
+    # sets the trial type value
+    return def_data['g_para'][gp_type]
+
+
+def get_dir_para(dir_type):
+    '''
+
+    :param trial_type:
+    :return:
+    '''
+
+    # loads the default file
+    with open(cf.default_dir_file, 'rb') as fp:
+        def_data = _p.load(fp)
+
+    # sets the trial type value
+    return def_data['dir'][dir_type]
+
+########################################################################################################################
+####                                      MISCELLANEOUS CALCULATION FUNCTIONS                                       ####
+########################################################################################################################
+
+def smooth_signal(y_sig, n_sm):
+    '''
+
+    :param y_sig:
+    :param n_sm:
+    :return:
+    '''
+
+    if n_sm > 0:
+        # smooths the signal (if required)
+        if np.ndim(y_sig) == 1:
+            # case is there is only one signal
+            return medfilt(y_sig, n_sm)
+        else:
+            # case is multiple signals
+            y_sig_sm = np.zeros(np.shape(y_sig))
+
+            # calculates the median filter for each signal
+            for i_sig in range(np.size(y_sig, axis=0)):
+                y_sig_sm[i_sig, :] = medfilt(y_sig[i_sig, :], n_sm)
+
+            # returns the final array
+            return y_sig_sm
+    else:
+        return y_sig
+
+
+def get_rsp_reduced_clusters(data):
+    '''
+
+    :param data:
+    :return:
+    '''
+
+    # memory allocation
+    _data = EmptyAnalysisData()
+
+    # reduces the data for each cluster
+    _data._cluster = [[None] for _ in range(len(data._cluster))]
+    for i_cc, cc in enumerate(data._cluster):
+        # determines the cells that are in the valid regions (RSPg and RSPd)
+        c = scopy(cc)
+        i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
+
+        # removes the non-valid cells from the depth, region and layer arrays
+        c['clustID'] = list(np.array(c['clustID'])[i_cell])
+        c['chDepth'] = c['chDepth'][i_cell]
+        c['chRegion'] = c['chRegion'][i_cell]
+        c['chLayer'] = c['chLayer'][i_cell]
+
+        # removes the non-valid cell from the time spikes
+        for tt in c['rotInfo']['trial_type']:
+            c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
+
+        # reduces the data for each cluster
+        if _data.cluster is not None:
+            for c in _data.cluster:
+                # determines the cells that are in the valid regions (RSPg and RSPd)
+                i_cell = np.logical_or(c['chRegion'] == 'RSPg', c['chRegion'] == 'RSPd')
+
+                # removes the non-valid cells from the depth, region and layer arrays
+                c['clustID'] = list(np.array(c['clustID'])[i_cell])
+                c['chDepth'] = c['chDepth'][i_cell]
+                c['chRegion'] = c['chRegion'][i_cell]
+                c['chLayer'] = c['chLayer'][i_cell]
+
+                # removes the non-valid cell from the time spikes
+                for tt in c['rotInfo']['trial_type']:
+                    c['rotInfo']['t_spike'][tt] = c['rotInfo']['t_spike'][tt][i_cell, :, :]
+
+        # sets the cluster values
+        _data._cluster[i_cc] = c
+
+    # returns the valid cells array
+    return _data
+
+
+def get_channel_depths_tt(cluster, tt_type):
+    '''
+
+    :param cluster:
+    :param comp_cond:
+    :return:
+    '''
+
+    # memory allocation
+    ch_depth, ch_region, ch_layer = {}, {}, {}
+
+    #
+    for tt in tt_type:
+        # memory allocation
+        depth_nw, region_nw, layer_nw = [], [], []
+
+        for c in cluster:
+            if tt in c['rotInfo']['trial_type']:
+                # calculates the depth of the cell in the current experiment
+                chMap, depth_max = c['expInfo']['channel_map'], c['expInfo']['probe_depth']
+                depth_nw.append(depth_max - chMap[c['chDepth'].astype(int), 3])
+                region_nw.append(list(c['chRegion']))
+                layer_nw.append(list(c['chLayer']))
+
+        #
+        ch_depth[tt] = np.array(cf.flat_list(depth_nw))
+        ch_region[tt] = np.array(cf.flat_list(region_nw))
+        ch_layer[tt] = np.array(cf.flat_list(layer_nw))
+
+    # returns the final array
+    return ch_depth, ch_region, ch_layer
+
+def get_plot_canvas_pos(plot_left, dY, fig_hght):
+    '''
+
+    :param fig_hght:
+    :param plot_left:
+    :param dY:
+    :return:
+    '''
+
+    # calculates the figure width
+    fig_wid = int(fig_hght * float(get_glob_para('w_ratio')))
+
+    # returns the figure canvas position
+    return QRect(plot_left, dY, fig_wid, fig_hght)
+
+
+def det_missing_data_fields(fld_vals, f_name, chk_flds):
+    '''
+
+    :param fld_vals:
+    :param is_missing:
+    :return:
+    '''
+
+    for i_cf, cfld in enumerate(chk_flds):
+        if cfld == 'probe_depth':
+            # retrieves all the configuration file names
+            f_cfg, cfg_dir = [], get_dir_para('configDir')
+            for f in os.listdir(cfg_dir):
+                if f.endswith('.cfig'):
+                    f_cfg.append(f.replace('.cfig', ''))
+
+            for i_c in np.where(fld_vals[:, i_cf] == None)[0]:
+                f_match, f_score = cf.det_closest_file_match(f_cfg, f_name[i_c])
+                if f_score > 95:
+                    # retrieves the depth marker values from the config file (if the match is good enough)
+                    cfig_new = os.path.join(cfg_dir, '{0}.cfig'.format(f_match))
+                    f_str = cf.get_cfig_line(cfig_new, 'depthHi')
+
+                    f_val = eval(f_str[1:-1])
+                    if isinstance(f_val, tuple):
+                        fld_vals[i_c, i_cf] = int(f_val[0])
+                    elif isinstance(f_val, str):
+                        fld_vals[i_c, i_cf] = int(f_val)
+
+    # returns the final values array
+    return fld_vals
+
+
+def det_matching_ttype_expt(r_obj, cluster):
+    '''
+
+    :param r_obj:
+    :param cluster:
+    :return:
+    '''
+
+    # returns the unique trial types from the rotation object
+    t_type = set(np.unique(cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])))
+
+    # returns the indices of the experiments which don't have the correct trial type counts
+    return np.where([len(t_type.intersection(set(c['rotInfo']['trial_type']))) != len(t_type) for c in cluster])[0]
+
+# def normalise_spike_freq(spd_sf_calc, N, i_ax=1):
+#     '''
+#
+#     :param spd_sf_calc:
+#     :param N:
+#     :return:
+#     '''
+#
+#     # normalises the spiking frequencies
+#     if i_ax == 0:
+#         spd_sf_mn = repmat(np.mean(spd_sf_calc, axis=0).reshape(-1, 1), N, 1)
+#         spd_sf_sd = repmat(np.std(spd_sf_calc, axis=0).reshape(-1, 1), N, 1)
+#     else:
+#         spd_sf_mn = repmat(np.mean(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+#         spd_sf_sd = repmat(np.std(spd_sf_calc, axis=1).reshape(-1, 1), 1, N)
+#
+#     # any cells where the std. deviation is zero are set to zero (to remove any NaNs)
+#     spd_sf_calc = np.divide(spd_sf_calc - spd_sf_mn, spd_sf_sd)
+#     spd_sf_calc[spd_sf_sd == 0] = 0
+#
+#     # returns the normalised array
+#     return spd_sf_calc
+
+def calc_expt_roc_sig(r_obj, roc_sig, c_ofs, i_filt, calc_mean=False, i_expt=None):
+    '''
+
+    :param roc_sig:
+    :param i_expt_robj:
+    :param i_expt:
+    :return:
+    '''
+
+    # sets the
+    if i_expt is None:
+        i_expt = np.arange(len(c_ofs))
+
+    # memory allocation
+    n_expt, cl_ind = len(i_expt), r_obj.clust_ind[i_filt]
+    roc_sig_expt = np.empty(n_expt, dtype=object)
+
+    # retrieves the roc significance values for each of the rotation filter types
+    for i_ex in range(n_expt):
+        # retrieves the roc significance values belonging to the current experiment
+        i_cl = cl_ind[i_expt[i_ex]] + c_ofs[i_expt[i_ex]]
+        roc_sig_expt[i_ex] = roc_sig[i_cl, :]
+
+        # calculates the mean (if required)
+        if calc_mean:
+            roc_sig_expt[i_ex] = 100. * np.mean(roc_sig_expt[i_ex], axis=0)
+
+    # returns the final array
+    return roc_sig_expt
+
+
+def get_all_match_cond_cells(data, t_type):
+    '''
+
+    :param data:
+    :param t_type:
+    :return:
+    '''
+
+    def det_cell_index_interset(ind, tt, i_cell_nw):
+        '''
+
+        :param ind:
+        :param i_cell_nw:
+        :return:
+        '''
+
+        if tt in ind:
+            # if the field does exist, then determine the intersection of current/new index arrays
+            return list(set(ind[tt]).intersection(i_cell_nw))
+        else:
+            # if the field doesn't exist, then use the whole index array
+            return i_cell_nw
+
+    # initalises the filter data
+    rot_filt = cf.init_rotation_filter_data(False)
+    rot_filt['t_type'] = t_type
+
+    # retrieves the rotation filter object
+    r_obj = RotationFilteredData(data, rot_filt, None, None, True, 'Whole Experiment', False)
+
+    #
+    if len(t_type) == 1:
+        # if only only trial condition, then use all indices
+        i_cell_i, _ = cf.det_cell_match_indices(r_obj, [0, 0])
+        ind_all = {t_type[0]: i_cell_i}
+
+    else:
+        # initialisations
+        n_filt, ind_all = r_obj.n_filt, {}
+
+        # determines the matching cell indices between all trial conditions
+        for i in range(n_filt - 1):
+            for j in range(i + 1, n_filt):
+                # determines the matching indices between the 2 conditions
+                i_cell_i, i_cell_j = cf.det_cell_match_indices(r_obj, [i, j])
+                tt_i, tt_j = r_obj.rot_filt_tot[i]['t_type'][0], r_obj.rot_filt_tot[j]['t_type'][0]
+
+                # updates the intersection of the current indices with the new ones
+                ind_all[tt_i] = det_cell_index_interset(ind_all, tt_i, i_cell_i)
+                ind_all[tt_j] = det_cell_index_interset(ind_all, tt_j, i_cell_j)
+
+    #
+    return ind_all
+
+
+def get_kinematic_range_strings(dv, is_vel, v_rng=80):
+    '''
+
+    :param dv:
+    :param is_vel:
+    :param v_rng:
+    :return:
+    '''
+
+    # returns the range strings based on the kinematic type
+    if is_vel:
+        # case is velocity
+        return ['{0} to {1}'.format(int(i * dv - v_rng), int((i + 1) * dv - v_rng)) for i in range(int(2 * v_rng / dv))]
+    else:
+        # case is speed
+        return ['{0} to {1}'.format(int(i * dv), int((i + 1) * dv)) for i in range(int(v_rng / dv))]
+
+
+def get_cond_filt_data(data, r_obj, reuse_filt=False):
+    '''
+
+    :param r_obj:
+    :param plot_exp_name:
+    :return:
+    '''
+
+    # memory allocation
+    A = np.empty(r_obj.n_filt, dtype=object)
+    i_cell_b, r_obj_tt = dcopy(A), dcopy(A)
+
+    # determine the matching cell indices between the current and black filter
+    for i_filt in range(r_obj.n_filt):
+        # sets up a base filter with each of the filter types
+        if reuse_filt:
+            r_filt_base = dcopy(r_obj.rot_filt)
+        else:
+            r_filt_base = cf.init_rotation_filter_data(False)
+
+        r_filt_base['t_type'] = r_obj.rot_filt_tot[i_filt]['t_type']
+        r_obj_tt[i_filt] = RotationFilteredData(data, r_filt_base, None, None, True, 'Whole Experiment', False)
+
+        # finds the corresponding cell types between the overall and user-specified filters
+        i_cell_b[i_filt], _ = cf.det_cell_match_indices(r_obj_tt[i_filt], [0, i_filt], r_obj)
+
+    # returns the array
+    return i_cell_b, r_obj_tt
+
+
+def get_common_filtered_cell_indices(data, r_obj, tt_filt, det_intersect, ind_cond=None, reuse_filt=False):
+    '''
+
+    :param data:
+    :param r_obj:
+    :param t_type:
+    :param i_cell_b:
+    :return:
+    '''
+
+    # retrieves the condition filtered rotation data
+    i_cell_b, r_obj_indiv = get_cond_filt_data(data, r_obj, reuse_filt)
+
+    # only return the matching indices/filters that intersect with the trial type filter array
+    i_match = np.array([i for i, x in enumerate(r_obj_indiv) if x.rot_filt_tot[0]['t_type'][0] in tt_filt])
+    i_cell_b, r_obj_indiv = i_cell_b[i_match], r_obj_indiv[i_match]
+
+    if det_intersect:
+        # if the common cell index array is not provided, then initialise it here
+        if ind_cond is None:
+            ind_cond = get_all_match_cond_cells(data, r_obj.rot_filt['t_type'])
+
+        # collapses the cell index arrays to only those that are present for all selected trial conditions
+        i_cell_b = [np.intersect1d(ind_cond[tt], i_c) for tt, i_c in zip(tt_filt, i_cell_b)]
+
+    # returns the cell indices and the individually filtered objects
+    return i_cell_b, r_obj_indiv
+
+
+def get_within_filter_cell_matches(r_obj):
+    '''
+
+    :param r_obj:
+    :return:
+    '''
+
+    # initialisations
+    n_filt, n_tt = r_obj.n_filt, len(r_obj.rot_filt['t_type'])
+    comb_id = [10000 * np.array(i_ex) + np.array(cl_id) for i_ex, cl_id in zip(r_obj.i_expt, r_obj.cl_id)]
+
+    # determines the filter groupings for the current filter options
+    n_grp = int(np.round(n_filt / n_tt))
+    i_grp = [np.arange(n_tt) + (i_grp * n_filt) for i_grp in range(n_grp)]
+
+    # determines the intersecting indices within each filter grouping
+    i_cell_w = np.empty(n_filt, dtype=object)
+    for i in range(len(i_grp)):
+        # sets the initial indices for the current filter grouping
+        intersect_id = comb_id[i_grp[i][0]]
+        for j in i_grp[i][1:]:
+            # returns the indices of the matching cells
+            intersect_id = np.sort(list(set(comb_id[j]).intersection(intersect_id)))
+
+        # sets the intersection indices wrt the
+        for ii, j in enumerate(i_grp[i]):
+            i_cell_w[ii] = np.searchsorted(comb_id[j], intersect_id)
+
+    # returns the within filter index array
+    return i_cell_w, i_grp
+
+
+def check_existing_compare(comp_data, fix_name, free_name):
+    '''
+
+    :param comp_data:
+    :param fix_name:
+    :param free_name:
+    :return:
+    '''
+
+    for i_comp in range(len(comp_data)):
+        # determines if there is a match for either the fixed/free files
+        file_match = (comp_data[i_comp].fix_name == fix_name) + 2 * (comp_data[i_comp].free_name == free_name)
+        if file_match > 0:
+            # if there is, then return their aggregate score
+            return file_match, i_comp
+
+    # if no match, then return a zero value
+    return 0, 0
+
+
+def get_matching_fix_free_strings(data, exp_name):
+    '''
+
+    :param data:
+    :param exp_name:
+    :param i_sel:
+    :return:
+    '''
+
+    # retrieves the experiment index and mapping values
+    i_expt, f2f_map = cf.det_matching_fix_free_cells(data, exp_name=exp_name, apply_filter=True)
+    is_ok = f2f_map[0][:, 1] >= 0
+
+    # if there are no valid cells then return an error list
+    if not np.any(is_ok):
+        return ['No Valid Cells']
+
+    # retrieves the cluster indices
+    i_ex = cf.get_global_expt_index(data, data.comp.data[i_expt[0]])
+    clust_id = np.array(data._cluster[i_ex]['clustID'])
+
+    # retrieves the fixed cluster ID#'s
+    r_filt = cf.init_rotation_filter_data(False)
+    r_filt['t_type'] += ['Uniform']
+    r_obj = RotationFilteredData(data, r_filt, None, None, True, 'Whole Experiment', False, use_raw=True)
+    clust_id_fix = clust_id[r_obj.clust_ind[0][i_expt[0]][is_ok]]
+
+    if isinstance(exp_name, list):
+        i_free = data.externd.free_data.exp_name.index(exp_name[0])
+    else:
+        i_free = data.externd.free_data.exp_name.index(exp_name)
+
+    # retrieves the free cluster ID#'s
+    clust_id_free = np.array(data.externd.free_data.cell_id[i_free])[f2f_map[0][is_ok, 1]]
+
+    # returns the combined fixed/free cluster ID strings
+    return ['Fixed #{0}/Free #{1}'.format(id_fix, id_free) for id_fix, id_free in zip(clust_id_fix, clust_id_free)]
+
+
+def calc_posthoc_stats(y_orig, p_value=0.05, c_ofs=0):
+    '''
+
+    :param y:
+    :param p_value:
+    :return:
+    '''
+
+    def calc_kw_stats(y):
+        '''
+
+        :param y:
+        :return:
+        '''
+
+        # sets the indices for the elements within each grouping
+        i_grp = cf.flat_list([[i] * len(x) for i, x in enumerate(y)])
+
+        # calculates and returns the kruskal wallis test p-value
+        kw_stats = r_stats.kruskal_test(FloatVector(cf.flat_list(y)), FloatVector(i_grp))
+        return cf.get_r_stats_values(kw_stats, 'p.value')
+
+
+    def calc_dunn_stats(y, p_kw_stats, p_value):
+        '''
+
+        :param y:
+        :param is_sig:
+        :return:
+        '''
+
+        # memory allocation
+        n_grp = len(y)
+        d_stats = np.empty((n_grp, n_grp), dtype=object)
+        d_stats[:] = 'N/A'
+
+        # calculates the dunn posthoc test values
+        p_dunn = sp.posthoc_dunn(y, p_adjust='bonferroni')
+
+        # sets the statistics strings for each grouping
+        for i_grp in range(n_grp):
+            for j_grp in range(i_grp + 1, n_grp):
+                p_val = p_dunn[i_grp + 1][j_grp + 1]
+                d_stats[i_grp, j_grp] = d_stats[j_grp, i_grp] = cf.set_pvalue_string(p_val, p_value)
+
+        # returns the stats array
+        return d_stats
+
+    # initialisations and memory allocation
+    p_within, p_btwn = None, None
+    n_grp, n_filt = len(y_orig) - c_ofs, np.shape(y_orig[0])[1]
+
+    # determines if the between filter type statistics need to be calculated (n_filt > 1)
+    if n_grp > 1:
+        # memory allocation
+        p_within = np.empty((n_filt, 2), dtype=object)
+        y_within = rmv_nan_elements([[list(x[:, i_f]) for x in y_orig[c_ofs:]] for i_f in range(n_filt)])
+
+        # calculates the within filter type statistics for each group type
+        for i_filt in range(n_filt):
+            p_within[i_filt, 0] = calc_kw_stats(y_within[i_filt])
+            p_within[i_filt, 1] = calc_dunn_stats(y_within[i_filt], p_within[i_filt, 0], p_value)
+
+    # determines if the between filter type statistics need to be calculated (n_filt > 1)
+    if n_filt > 1:
+        # memory allocation
+        p_btwn = np.empty((n_grp, 2), dtype=object)
+        y_btwn = rmv_nan_elements([[list(y_orig[i + c_ofs][:, j]) for j in range(n_filt)] for i in range(n_grp)])
+
+        # calculates the between filter type statistics for each group type
+        for i_grp in range(n_grp):
+            p_btwn[i_grp, 0] = calc_kw_stats(y_btwn[i_grp])
+            p_btwn[i_grp, 1] = calc_dunn_stats(y_btwn[i_grp], p_btwn[i_grp, 0], p_value)
+
+    # returns the
+    return [p_within, p_btwn]
+
+
+def calc_event_correlation(y_evnt, sp_evnt, indiv_cell=True):
+    '''
+
+    :param t_sp_h:
+    :param t_evnt:
+    :param dt_et:
+    :return:
+    '''
+
+    # initialisations and memory allocation
+    n_cell = np.shape(sp_evnt[1])[2] if indiv_cell else 1
+    A = np.ones((n_cell, len(y_evnt)))
+    y_corr, p_corr = dcopy(A), dcopy(A)
+
+    # calculates the correlations between the eye-movement event and spike-time signals (for each cell)
+    for i_type in range(len(y_evnt)):
+        # calculates the mean eye-position sub-signal
+        y_evnt_mn = np.mean(y_evnt[i_type], axis=0)
+
+        # calculates the correlation/significance over each cell
+        for i_cell in range(n_cell):
+            # retrieves the mean spiking rate (depending on the calculation type)
+            if indiv_cell:
+                # case is for a single cell
+                sp_evnt_mn = np.mean(sp_evnt[i_type][:, :, i_cell], axis=0)
+            else:
+                # case is for all cells over an experiment/all experiments
+                sp_evnt_mn = np.mean(sp_evnt[i_type], axis=0)
+
+            # calculates the correlation between the mean spiking rate and mean eye-movement event position
+            if np.all(sp_evnt_mn == 0):
+                # if the mean spiking rate is all zeros, then set the correlation to zero
+                y_corr[i_cell, i_type] = 0
+            else:
+                # otherwise, calculate the correlation/significance
+                y_corr[i_cell, i_type], p_corr[i_cell, i_type] = pr(y_evnt_mn, sp_evnt_mn)
+
+    # returns the final array
+    if indiv_cell:
+        return y_corr, p_corr
+    else:
+        return y_corr[0], p_corr[0]

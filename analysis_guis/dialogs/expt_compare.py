@@ -16,6 +16,7 @@ button_font = cf.create_font_obj(size=10, is_bold=True, font_weight=75)
 ########################################################################################################################
 ########################################################################################################################
 
+
 class ExptCompare(QDialog):
     def __init__(self, parent=None, exp_type=None, exp_name=None, comp_data=None):
         # creates the object
@@ -25,21 +26,25 @@ class ExptCompare(QDialog):
         self.can_close = False
         self.is_ok = True
         self.exp_name = np.array(exp_name)
-
-        # sets the comparison indices
-        if comp_data.is_set:
-            self.comp_ind = comp_data.ind
-        else:
-            self.comp_ind = None
+        self.is_set = comp_data.is_set
 
         # sets the indices of the fixed/free experiments
         is_fixed = [x == 'Fixed' for x in exp_type]
         self.ind_fix, self.ind_free = np.where(is_fixed)[0], np.where(np.logical_not(is_fixed))[0]
 
+        #
+        if len(comp_data.data):
+            if comp_data.last_comp < 0:
+                c_data = comp_data.data[comp_data.last_comp]
+            else:
+                c_data = comp_data.data[0]
+        else:
+            c_data = None
+
         # initialises the gui objects
         self.init_main_window()
         self.init_control_buttons()
-        self.init_expt_sel()
+        self.init_expt_sel(c_data)
 
         # ensures the gui has a fixed size
         cf.set_obj_fixed_size(self, self.width(), self.height())
@@ -64,7 +69,7 @@ class ExptCompare(QDialog):
         self.setWindowTitle("Experiment Comparison Setup")
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
-    def init_expt_sel(self):
+    def init_expt_sel(self, c_data):
         '''
 
         :return:
@@ -77,15 +82,16 @@ class ExptCompare(QDialog):
                                             "Free Preparation Experiments", "grp_free")
 
         # creates the listbox objects
+        exp_fix, exp_free = self.exp_name[self.ind_fix], self.exp_name[self.ind_free]
         self.list_fixed = cf.create_listbox(self.grp_fixed, QRect(10, 20, 221, 171), txt_font,
-                                            self.exp_name[self.ind_fix], "list_fixed", self.list_select)
+                                            exp_fix, "list_fixed", self.list_select)
         self.list_free = cf.create_listbox(self.grp_free, QRect(10, 20, 221, 171), txt_font,
-                                           self.exp_name[self.ind_free], "list_free", self.list_select)
+                                           exp_free, "list_free", self.list_select)
 
         # if the previous indices have already been selected, then update them
-        if self.comp_ind is not None:
-            self.list_fixed.setCurrentRow(np.where(self.ind_fix == self.comp_ind[0])[0][0])
-            self.list_free.setCurrentRow(np.where(self.ind_free == self.comp_ind[1])[0][0])
+        if self.is_set:
+            self.list_fixed.setCurrentRow(np.where(c_data.fix_name == exp_fix)[0][0])
+            self.list_free.setCurrentRow(np.where(c_data.free_name == exp_free)[0][0])
 
     def init_control_buttons(self):
         '''
