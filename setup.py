@@ -55,9 +55,9 @@ setup(
         # ''               # rotation_analysis
         # ''               # vest_phys
     ],
-    url="https://github.com/adamltyson/opendirection",
-    author="Adam Tyson",
-    author_email="adam.tyson@ucl.ac.uk",
+    url="https://github.com/RichardFav/AnalysisGUI",
+    author="Richard Faville",
+    author_email="richard.faville@gmail.com",
 )
 
 
