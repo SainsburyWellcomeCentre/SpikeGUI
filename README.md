@@ -1,2 +1,2 @@
-# AnalysisGUI
-Electrophysiology Analysis GUI Repository
+# SpikeGUI
+
