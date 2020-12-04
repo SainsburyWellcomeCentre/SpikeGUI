@@ -1,5 +1,5 @@
 # spikeGUI 
-#### For any questions, contact Richard Faville (richard.faville@gmail.com)
+#### For any question, contact Richard Faville (richard.faville@gmail.com)
 **This is a work in progress**
 
 ## About
