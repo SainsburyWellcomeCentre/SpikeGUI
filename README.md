@@ -1,6 +1,6 @@
 # spikeGUI 
 #### For any question, contact Richard Faville (richard.faville@gmail.com)
-**!!NOTE: This is a work in progress**
+**! NOTE: This is a work in progress**
 
 ## About
 SpikeGUI is an extracellular spike analysis software with graphical user interface. The main aim of this software is to correlate spike times with various semsory stimuli and behavioural variables, including vestibular and visual stimulation and eye movements. Spike times are generated using [KiloSort](https://github.com/cortex-lab/KiloSort) and [KiloSort2](https://github.com/MouseLand/Kilosort), The pupil, ear, and body positions using [DeepLabCut](https://github.com/AlexEMG/DeepLabCut), and open-field analysis of spatial behaviour using [opendirection](https://github.com/adamltyson/opendirection). 
