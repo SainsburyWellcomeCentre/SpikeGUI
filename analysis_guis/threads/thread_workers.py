@@ -2,6 +2,8 @@
 import gc
 import os
 import copy
+import random
+import platform
 import numpy as np
 import pickle as p
 import pandas as pd
@@ -15,9 +17,11 @@ from scipy.interpolate import PchipInterpolator as pchip
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
+from scipy.signal import periodogram, hamming, boxcar, find_peaks
 
 # sklearn module imports
 from sklearn.linear_model import LinearRegression
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
 # statsmodels module imports
 from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -41,6 +45,7 @@ cell_perm_ind = lambda n_cell_tot, n_cell: np.sort(np.random.permutation(n_cell_
 set_sf_cell_perm = lambda spd_sf, n_pool, n_cell: [x[:, :, cell_perm_ind(n_pool, n_cell)] for x in spd_sf]
 grp_expt_indices = lambda i_expt0: [np.where(i_expt0 == i)[0] for i in np.unique(i_expt0)]
 
+# lambda function declarations
 lin_func = lambda x, a: a * x
 
 ########################################################################################################################
@@ -330,7 +335,7 @@ class WorkerThread(QThread):
                 self.calc_phase_roc_curves(data, calc_para, 66.)
                 self.calc_phase_roc_significance(calc_para, g_para, data, pool, 100.)
 
-            elif self.thread_job_secondary == 'Motion/Direction Selectivity Cell Grouping Scatterplot':
+            elif self.thread_job_secondary == 'Direction ROC Significance':
                 # checks to see if any parameters have been altered
                 self.check_altered_para(data, calc_para, plot_para, g_para, ['condition', 'phase'])
 
@@ -893,6 +898,14 @@ class WorkerThread(QThread):
                 if not data.spikedf.is_set:
                     self.setup_spiking_freq_dataframe(data, calc_para)
 
+            elif self.thread_job_secondary == 'Autocorrelogram Theta Index Calculations':
+                # case to see if any parameters have changed
+                self.check_altered_para(data, calc_para, plot_para, g_para, ['theta'], other_para=data.theta_index)
+
+                # only continue if the theta index dataframe has not been setup
+                if not data.theta_index.is_set:
+                    self.calc_auto_ccgram_fft(data, calc_para)
+
     ###############################
     ####    OTHER FUNCTIONS    ####
     ###############################
@@ -967,7 +980,7 @@ class WorkerThread(QThread):
                             ####    POST-STIMULI SPIKE HALF-WIDTH TIME    ####
                             ##################################################
 
-                            # determines the point/voltage of the maximum proceding the minimum
+                            # determines the point/voltage of the pmaximum proceding the minimum
                             bnd_1 = [(data_nw['sigFeat'][i, 0], data_nw['sigFeat'][i, 1])]
                             bnd_2 = [(data_nw['sigFeat'][i, 1], data_nw['sigFeat'][i, 2])]
                             bnd_3 = [(data_nw['sigFeat'][i, 2], t_min)]
@@ -1163,6 +1176,7 @@ class WorkerThread(QThread):
             indD = np.array([next((i for i in range(len(depthHi)) if x <= depthHi[i]), len(depthHi)-1) for x in y_coords])
             chRegion = np.array(exp_info['regionName'])[indD][depth.astype(int)]
             chLayer = np.array(exp_info['recordLayer'])[indD][depth.astype(int)]
+
         else:
             # otherwise, return N/A for the region/recording layers
             chRegion, chLayer = ['N/A'] * len(clusters), ['N/A'] * len(clusters)
@@ -1529,6 +1543,7 @@ class WorkerThread(QThread):
                     #   * the ISI correlation coefficient must be > isi_corr_min
                     #   * the signal correlation coefficient must be > sig_corr_min
                     #   * the inter-signal euclidean distance must be < sig_diff_max
+                    #   * all signal feature metric similarity scores must be > sig_feat_min
                     c_data.is_accept[i] = (c_data.isi_corr[i] > c_data.isi_corr_min) and \
                                           (c_data.sig_corr[i] > c_data.sig_corr_min) and \
                                           (c_data.sig_diff[i] > (1 - c_data.sig_diff_max)) and \
@@ -1553,7 +1568,7 @@ class WorkerThread(QThread):
         n_spike_fix = [len(x) / data_fix['tExp'] for x in data_fix['tSpike']]
         n_spike_free = [len(x) / data_free['tExp'] for x in data_free['tSpike']]
 
-        # calculates the relative spiking rates (note - ratios are converted so that they are all > 1)
+        # calculates the relative spiking rates (note - ratios are coverted so that they are all > 1)
         r_spike = np.divide(repmat(n_spike_fix, data_free['nC'], 1).T,
                             repmat(n_spike_free, data_fix['nC'], 1))
         r_spike[r_spike < 1] = 1 / r_spike[r_spike < 1]
@@ -1609,7 +1624,7 @@ class WorkerThread(QThread):
 
             # runs the cc-gram type calculation function
             c_type0, t_dur[i_ex], t_event[i_ex], ci_hi0, ci_lo0, ccG_T0 = cfcn.calc_ccgram_types(
-                            ccG, ccG_xi, t_spike, calc_para=calc_para, expt_id=expt_id, w_prog=self.work_progress, c_id=c_id)
+                       ccG, ccG_xi, t_spike, calc_para=calc_para, expt_id=expt_id, w_prog=self.work_progress, c_id=c_id)
 
             # sets the final values into their respective groupings
             for i in range(5):
@@ -2229,6 +2244,7 @@ class WorkerThread(QThread):
         r_data.sf_fix_slope = sf_slope
         r_data.sf_fix_int = sf_int
         r_data.sf_fix_err = sf_err
+        r_data.r_obj_sf = r_obj
         r_data.peak_hz_fix = peak_hz
 
     #######################################
@@ -2742,6 +2758,10 @@ class WorkerThread(QThread):
             # combines the spike counts/group indices into the final combined arrays
             n_sp, n_expt, i_expt_lda = np.hstack(n_sp).T, 1, np.array([i_expt[0]])
             xi = cfcn.get_pool_cell_counts(data, calc_para['lda_para'], 1)
+
+            # reduces the cells to the selected cell type
+            _, _, i_cell0, _, _ = cfcn.setup_lda(data, {'lda_para': calc_para['lda_para']}, None)
+            n_sp = n_sp[:, np.hstack(i_cell0)]
             i_cell = np.array([np.ones(np.size(n_sp, axis=1), dtype=bool)])
 
         else:
@@ -3740,7 +3760,7 @@ class WorkerThread(QThread):
 
         # initialisations and memory allocation
         p_scope, n_grp, r_data, grp_stype = 'Whole Experiment', 4, r_data, calc_para['grp_stype']
-        r_filt_rot, r_filt_vis = dcopy(rot_filt), dcopy(rot_filt)
+        # r_filt_rot, r_filt_vis = dcopy(rot_filt), dcopy(rot_filt)
         plot_exp_name, plot_all_expt = plot_para['plot_exp_name'], plot_para['plot_all_expt']
         r_data.ds_p_value = dcopy(p_val)
 
@@ -3761,11 +3781,12 @@ class WorkerThread(QThread):
                                            t_ofs=t_ofs_rot, t_phase=t_phase_rot)
 
         # retrieves the rotational filtered data (black conditions only)
-        r_filt_rot['t_type'], r_filt_rot['is_ud'] = ['Black'], [False]
+        r_filt_rot = cf.init_rotation_filter_data(False)
         r_data.r_obj_rot_ds = RotationFilteredData(data, r_filt_rot, None, plot_exp_name, plot_all_expt,
                                                    p_scope, False)
 
         # retrieves the visual filtered data
+        r_filt_vis = cf.init_rotation_filter_data(True)
         if ud_rot_expt:
             # sets the visual phase/offset
             if t_phase_vis is None:
@@ -3808,6 +3829,7 @@ class WorkerThread(QThread):
         # calculate the visual/rotation stats scores
         sf_score_rot, i_grp_rot, r_CCW_CW_rot = calc_combined_spiking_stats(r_data, r_data.r_obj_rot_ds, pool,
                                                                             calc_para, g_para, p_val)
+
         sf_score_vis, i_grp_vis, r_CCW_CW_vis = calc_combined_spiking_stats(r_data, r_data.r_obj_vis, pool,
                                                                             calc_para, g_para, p_val, ind_type,
                                                                             r_filt_vis['t_type'][0])
@@ -4240,33 +4262,35 @@ class WorkerThread(QThread):
             :return:
             '''
 
-
-            # lambda function declarations
+            # dictionaries and lambda function declarations
+            d_str = {-1: 'CW', 1: 'CCW'}
             stack_arr = lambda y_arr, n_trial: np.hstack([yy * np.ones(n_trial) for yy in y_arr]).reshape(-1, 1)
             ind_fcn = lambda i_dir, cond: (1 - i_dir) if cond == 'MotorDrifting' else i_dir
 
             # DETERMINE VALID CELLS HERE!
-            w, c = np.pi / t_phase, data._cluster[i_expt_rot[i_ex]]
+            j_ex = i_expt_rot[i_ex]
+            w, c = np.pi / t_phase, data._cluster[j_ex]
             is_ok = is_valid_cell_type(c['chRegion'])
 
             # other initialisations
             mlt = [-1, 1]
-            cond_key = {'Black': 'Vestibular', 'Uniform': 'Visual + Vestibular', 'MotorDrifting': 'Visual'}
+            cond_key = {'Black': 'Vestibular', 'Uniform': 'Visual + Vestibular', 'MotorDrifting': 'Visual',
+                        'Mismatch1': 'Mismatch Opposite', 'Mismatch2': 'Mismatch Same'}
             r_filt, exp_name = calc_para['rot_filt'], cf.extract_file_name(c['expFile'])
             t_ofs0, n_cond, n_cell = 0., len(r_filt['t_type']), c['nC']
             t_phs, dt_ofs = calc_para['bin_sz'] / 1000., (calc_para['bin_sz'] - calc_para['t_over']) / 1000.
 
             # memory allocation
-            n_bin_tot = int(np.floor(t_phase / dt_ofs))
+            n_bin_tot = int(np.floor((t_phase - dt_ofs) / dt_ofs)) + 1
             A = np.zeros((n_bin_tot, 1))
             p_bin, v_bin = dcopy(A), dcopy(A)
 
             # calculates the spiking frequencies for all cells over the duration configuration
             for i_bin_tot in range(n_bin_tot):
-                # check to see if the current time offset will allow for a feasible number of future time bins (i.e.,
-                # the current time bin + the future time bins must fit into the phase duration). if not then exit loop
-                if (t_ofs0 + t_phs) > t_phase:
-                    break
+                # # check to see if the current time offset will allow for a feasible number of future time bins (i.e.,
+                # # the current time bin + the future time bins must fit into the phase duration). if not then exit loop
+                # if (t_ofs0 + t_phs) > t_phase:
+                #     break
 
                 # retrieves the filtered time spiking data for the current phase/duration configuration
                 r_obj = RotationFilteredData(data, r_filt, None, exp_name, False, 'Whole Experiment', False,
@@ -4277,8 +4301,14 @@ class WorkerThread(QThread):
 
                 # memory allocation (first iteration only)
                 if i_bin_tot == 0:
-                    n_trial = [np.size(x, axis=1) for x in sp_f0]
-                    sf = [np.empty(nt * n_bin_tot, dtype=object) for nt in n_trial]
+                    n_cell = np.shape(sp_f0[0])[0]
+                    wvm_para = r_obj.wvm_para
+
+                    y_dir = [x[0]['yDir'] for x in wvm_para]
+                    n_trial = [sum(~np.isnan(y)) for y in y_dir]
+
+                    B = [np.empty(nt * n_bin_tot, dtype=object) for nt in n_trial]
+                    sf, s_dir0 = dcopy(B), dcopy(B)
 
                 # retrieves the CW/CCW phases (removes BL)
                 sp_f_tmp = [sp_f[:, :, 1:] for sp_f in dcopy(sp_f0)]
@@ -4291,22 +4321,35 @@ class WorkerThread(QThread):
 
                 # splits/stores the spiking frequency by the condition
                 for i_cond in range(n_cond):
-                    for i_trial in range(n_trial[i_cond]):
-                        ind_tot = i_bin_tot * n_trial[i_cond] + i_trial
-                        sf[i_cond][ind_tot] = sp_f_tmp[i_cond][:, i_trial, :]
+                    i_trial = 0
+                    for i in range(len(y_dir[i_cond])):
+                        # if there was an error with the trial, then continue
+                        if np.isnan(y_dir[i_cond][i]):
+                            continue
+
+                        # sets the spiking frequency values
+                        ind_sf = i_bin_tot * n_trial[i_cond] + i_trial
+                        sf[i_cond][ind_sf] = sp_f_tmp[i_cond][:, i, :]
+
+                        # sets the direction string
+                        i_dir0 = y_dir[i_cond][i]
+                        s_dir0[i_cond][ind_sf] = d_str[i_dir0]
+
+                        # increments the trial counter
+                        i_trial += 1
 
                 # increments the time offset by the time-overlap
                 t_ofs0 += dt_ofs
 
             # initialisations
             df_tot, tt = [], r_filt['t_type']
-            g_str = {'Nar': 'Narrow', 'Wid': 'Wide'}
+            g_str = {'Nar': 'Narrow', 'Wid': 'Wide', 'N/A': 'N/A'}
 
             # sets the trial condition type column
             tt_col = np.hstack([cf.flat_list([[cond_key[_tt]] * (2 * _nt * n_bin_tot)])
-                                                    for _tt, _nt in zip(tt, n_trial)]).reshape(-1, 1)
+                                for _tt, _nt in zip(tt, n_trial)]).reshape(-1, 1)
             bin_col = np.vstack([repmat(np.vstack([(i + 1) * np.ones((_nt, 1), dtype=int)
-                                                    for i in range(n_bin_tot)]), 2, 1) for _nt in n_trial])
+                                                   for i in range(n_bin_tot)]), 2, 1) for _nt in n_trial])
             trial_col = np.vstack([repmat(np.arange(_nt).reshape(-1, 1) + 1, 2 * n_bin_tot, 1) for _nt in n_trial])
 
             for i_cell in range(n_cell):
@@ -4314,10 +4357,11 @@ class WorkerThread(QThread):
                 sf_cell = np.vstack(
                     [np.vstack(
                         [np.hstack((stack_arr(p_bin, nt) if (mlt[i_dir] > 0) else (180 - stack_arr(p_bin, nt)),
-                                    mlt[i_dir] * stack_arr(v_bin, nt),
-                                    np.array([_sf[i_cell, ind_fcn(i_dir, tt[i_cond])] for _sf in sf[i_cond]]).reshape(-1, 1)))
-                                    for i_dir in range(2)])
-                    for i_cond, nt in enumerate(n_trial)]
+                                    mlt[i_dir] * stack_arr(v_bin, nt), s_dir0[i_cond].reshape(-1, 1),
+                                    np.array([_sf[i_cell, ind_fcn(i_dir, tt[i_cond])] for _sf in sf[i_cond]]).reshape(
+                                        -1, 1)))
+                         for i_dir in range(2)])
+                        for i_cond, nt in enumerate(n_trial)]
                 )
 
                 # # combines the information for the current cell
@@ -4345,7 +4389,9 @@ class WorkerThread(QThread):
 
                     # adds in the cell group type (if calculated)
                     grp_col = np.array([g_str_nw] * n_row).reshape(-1, 1)
-                    df_tot.append(np.hstack((ind_col, bin_col, trial_col, sf_cell, tt_col, reg_col, layer_col, grp_col)))
+                    df_tot.append(
+                        np.hstack((ind_col, bin_col, trial_col, sf_cell, tt_col, reg_col, layer_col, grp_col)))
+
                 else:
                     # otherwise, use the existing information only
                     df_tot.append(np.hstack((ind_col, bin_col, trial_col, sf_cell, tt_col, reg_col, layer_col)))
@@ -4379,7 +4425,7 @@ class WorkerThread(QThread):
             w_prog.emit(w_str, 100. * (i_ex / n_ex))
 
             # determines if all trial types exist within the current experiment
-            tt_expt = list(data._cluster[i_ex]['rotInfo']['trial_type'])
+            tt_expt = list(data._cluster[i_expt_rot[i_ex]]['rotInfo']['trial_type'])
             if np.all([tt in tt_expt for tt in t_type]):
                 # if so, then set the data for the current experiment
                 sf_data[i_ex] = setup_expt_dataframe(data, calc_para, i_expt_rot, i_ex, i_ex_c, t_phase)
@@ -4399,11 +4445,156 @@ class WorkerThread(QThread):
         d_data.t_over = calc_para['t_over']
 
         # creates the final dataframe
-        c_str = ['Expt #', 'Cell #', 'Bin #', 'Trial #', 'Position (deg)', 'Speed (deg/s)'] + \
+        c_str = ['Expt #', 'Cell #', 'Bin #', 'Trial #', 'Position (deg)', 'Speed (deg/s)', 'Initial Dir'] + \
                 ['Firing Rate', 'Trial Condition', 'Region', 'Layer'] + \
                 (['Cell Type'] if data.classify.class_set else [])
         sf_data_valid = np.vstack([x for x in sf_data if x is not None])
         d_data.sf_df = pd.DataFrame(sf_data_valid, columns=c_str)
+
+    def calc_auto_ccgram_fft(self, data, calc_para):
+        '''
+
+        :param data:
+        :param calc_para:
+        :return:
+        '''
+
+        # parameters
+        n_count = 0
+        t_bin = calc_para['t_bin']
+        n_bin = int(t_bin / calc_para['bin_sz'])    # the number of time bins
+        f_theta = [5, 11]                           # theta frequency range (from Yartsev 2011)
+        freq_rng = [0, 50]                          # theta index comparison frequency range (from Yartsev 2011)
+        ratio_tol = 5                               # threshold ratio (from Yartsev 2011)
+        n_pad = 2 ** 16
+
+        # sets up the psd frequency
+        df = (2 * t_bin) / n_pad
+        f = np.arange(0, 2 * t_bin, df) / calc_para['bin_sz']
+        i_theta_f0 = np.logical_and(f >= f_theta[0], f <= f_theta[1])
+        i_theta_nf, i_theta_f = np.where(np.logical_and(~i_theta_f0, f <= freq_rng[1]))[0], np.where(i_theta_f0)[0]
+
+        # calculates the number of bins for 1Hz within the freq. range
+        dn = int(np.floor(1 / df))
+
+        # # sets the array index ranges
+        # i_theta = np.arange(f_theta[0], f_theta[1] + 1)
+        # i_freq_rng = np.arange(freq_rng[0], freq_rng[1] + 1)
+
+        # sets up the boolean array for the non-zero lag bins (used to set the zero-lag bin value below)
+        is_ok = np.ones(2 * n_bin - 1, dtype=bool)
+        is_ok[n_bin - 1] = False
+
+        # memory allocation and other initialisations
+        is_free = np.logical_not(cf.det_valid_rotation_expt(data))
+        a = np.empty(np.sum(is_free), dtype=object)
+        cc_gram, p_fft, th_index = dcopy(a), dcopy(a), dcopy(a)
+        w_prog, th_data = self.work_progress, data.theta_index
+        exp_name = [cf.extract_file_name(c['expFile']) for c in np.array(data._cluster)[is_free]]
+
+        # retrieves the time spike arrays
+        t_spike = [c['tSpike'] for c, i in zip(data._cluster, is_free) if i]
+        n_cell_tot = np.sum([len(x) for x in t_spike])
+
+        # for each free experiment, calculate the theta index for each cell
+        n_expt = len(t_spike)
+        for i_expt in range(n_expt):
+            # memory allocation for the current expt
+            n_cell = len(t_spike[i_expt])
+            cc_gram[i_expt] = np.zeros((n_cell, 2 * n_bin - 1))
+            p_fft[i_expt] = np.zeros((n_cell, int(n_pad / 2)))
+            th_index[i_expt] = np.zeros((n_cell, 2))
+
+            # calculates the theta index for each cell in the experiment
+            for i_cell in range(n_cell):
+                # updates the progress bar
+                n_count += 1
+                w_str = 'Theta Index (Expt={0}/{1}, Cell={2}/{3})'.format(i_expt + 1, n_expt, i_cell + 1, n_cell)
+                w_prog.emit(w_str, 100. * (n_count / (n_cell_tot + 1)))
+
+                # calculates the new autocorrelogram for the current cell
+                t_sp = t_spike[i_expt][i_cell]
+                cc_gram[i_expt][i_cell, :], _ = cfcn.calc_ccgram(t_sp, t_sp, t_bin, bin_size=calc_para['bin_sz'])
+
+                # sets the zero-lag bin value to be the max non zero-lag cc-gram bin value
+                cc_gram[i_expt][i_cell, n_bin - 1] = np.max(cc_gram[i_expt][i_cell, is_ok])
+
+                # calculates the PSD estimate of the cc-gram
+                cc_gram_calc = cc_gram[i_expt][i_cell, :]
+                if calc_para['remove_bl']:
+                    cc_gram_calc -= np.mean(cc_gram[i_expt][i_cell, :])
+
+                if calc_para['pow_type'] == 'FFT-Squared':
+                    # calculates using the square of the FFT
+                    if calc_para['win_type'] == 'none':
+                        # if no signal windowing, then scale the signal by its length
+                        y_sig = cc_gram_calc / len(cc_gram_calc)
+                    else:
+                        # otherwise, set the windowing function based on the specified type
+                        if calc_para['win_type'] == 'boxcar':
+                            y_win = boxcar(len(cc_gram_calc))
+                        else:
+                            y_win = hamming(len(cc_gram_calc))
+
+                        # applies the windowing function
+                        y_sig = np.multiply(cc_gram_calc / len(cc_gram_calc), y_win)
+
+                    # pads zero to the end of the function (increases resolution for the PSD)
+                    y_sig_pad = np.pad(y_sig, (0, n_pad - (2 * n_bin - 1)), 'constant')
+
+                    # calculates the fft of the signal and calculates the power spectrum
+                    y_fft = np.fft.fft(y_sig_pad)
+                    p_fft0 = np.abs(y_fft)
+
+                    # rectangular smoothing of the PSD (2Hz in length)
+                    p_fft_mn0 = pd.DataFrame(p_fft0).rolling(2 * dn, min_periods=1, center=True).mean()
+                    p_fft_mn = np.array(p_fft_mn0.ix[:, 0])
+
+                    # taking positive frequency range of PSD for visualisation
+                    p_fft[i_expt][i_cell, :] = p_fft_mn[:int(n_pad / 2)]
+
+                else:
+                    # calculates using the periodgram method
+                    _, p_fft[i_expt][i_cell, :] = periodogram(cc_gram_calc, window=calc_para['win_type'])
+
+                # calculates the location of the max peak within the theta range
+                i_fft_mx = find_peaks(p_fft0[i_theta_f])[0]
+                if len(i_fft_mx):
+                    i_mx = np.argmax(p_fft0[i_theta_f][i_fft_mx])
+                    if_mx = i_theta_f[i_fft_mx[i_mx]]
+
+                    # calculates the theta index numerator/denominator
+                    th_index_num = np.mean(p_fft0[(if_mx-dn):(if_mx+dn)])       # mean power for +/- 1Hz surrounding peak within theta range
+                    th_index_den = np.mean(p_fft0[i_theta_nf])                  # mean power spectrum outside of theta range
+
+                else:
+                    # if there are no peaks, then ensure the theta index value is zero
+                    th_index_num, th_index_den = 0, 1
+
+                # calculates the theta index of the signal
+                #  this is calculate as the ratio of the mean of the points surrounding the max power spectrum value
+                #  between the 5-11Hz freq range divided by the mean power spectrum values btwn the 1-125Hz freq range
+                th_index[i_expt][i_cell, 0] = th_index_num / th_index_den
+                th_index[i_expt][i_cell, 1] = th_index[i_expt][i_cell, 0] > ratio_tol
+
+        #######################################
+        ####    HOUSE-KEEPING EXERCISES    ####
+        #######################################
+
+        # sets the final values into the class object
+        th_data.cc_gram = cc_gram
+        th_data.p_fft = p_fft
+        th_data.th_index = th_index
+        th_data.f = f
+
+        # sets the other fields
+        th_data.is_set = True
+        th_data.exp_name = exp_name
+        th_data.t_bin = calc_para['t_bin']
+        th_data.bin_sz = calc_para['bin_sz']
+        th_data.vel_bin = calc_para['vel_bin']
+        th_data.win_type = calc_para['win_type']
+        th_data.remove_bl = calc_para['remove_bl']
 
     ###########################################
     ####    OTHER CALCULATION FUNCTIONS    ####
@@ -4694,10 +4885,16 @@ class WorkerThread(QThread):
                                 check_class_para_equal(d_data, 'usefull', calc_para['use_full_rot']),
                             ]
                         else:
-                            is_equal += [
-                                check_class_para_equal(d_data, 'tofs', calc_para['t_ofs']),
-                                check_class_para_equal(d_data, 'tphase', calc_para['t_phase']),
-                            ]
+                            if 't_ofs_rot' in calc_para:
+                                is_equal += [
+                                    check_class_para_equal(d_data, 'tofs', calc_para['t_ofs_rot']),
+                                    check_class_para_equal(d_data, 'tphase', calc_para['t_phase_rot']),
+                                ]
+                            else:
+                                is_equal += [
+                                    check_class_para_equal(d_data, 'tofs', calc_para['t_ofs']),
+                                    check_class_para_equal(d_data, 'tphase', calc_para['t_phase']),
+                                ]
 
                     if d_data.type in ['Direction']:
                         is_equal += [
@@ -4747,7 +4944,7 @@ class WorkerThread(QThread):
                             check_class_para_equal(d_data, 'poolexpt', calc_para['pool_expt']),
                         ]
 
-                # if there was a change in any of the parameters, then reset the LDA data field
+                        # if there was a change in any of the parameters, then flag recalculation is needed
                 if not np.all(is_equal) or data.force_calc:
                     d_data.lda = None
 
@@ -4766,6 +4963,26 @@ class WorkerThread(QThread):
                     check_class_para_equal(d_data, 't_over', calc_para['t_over']),
                 ]
 
-                # if there was a change in any of the parameters, then reset the LDA data field
+                # if there was a change in any of the parameters, then flag recalculation is needed
                 if not np.all(is_equal) or data.force_calc:
                     d_data.is_set = False
+
+            elif ct == 'theta':
+                # initialisations
+                th_data = other_para
+
+                # if the data is not calculated, then exit the function
+                if not th_data.is_set:
+                    return
+
+                # determines the calculation parameter that have been altered
+                is_equal = [
+                    check_class_para_equal(th_data, 'vel_bin', calc_para['vel_bin']),
+                    check_class_para_equal(th_data, 'bin_sz', calc_para['bin_sz']),
+                    check_class_para_equal(th_data, 'win_type', calc_para['win_type']),
+                    check_class_para_equal(th_data, 'remove_bl', calc_para['remove_bl']),
+                ]
+
+                # if there was a change in any of the parameters, then flag recalculation is needed
+                if not np.all(is_equal) or data.force_calc:
+                    th_data.is_set = False

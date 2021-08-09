@@ -2,7 +2,6 @@
 import copy
 import functools
 import numpy as np
-import pandas as pd
 
 # pyqt5 module import
 from PyQt5.QtCore import QRect, Qt

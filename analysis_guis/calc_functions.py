@@ -17,7 +17,7 @@ import shapely.geometry as geom
 from scipy import stats
 from scipy.stats import poisson as p
 from scipy.signal import medfilt
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr as pr
 from scipy.spatial.distance import *
 from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
@@ -42,7 +42,8 @@ from sklearn.linear_model import LinearRegression
 # except:
 #     pass
 
-# sklearn module imports
+# scipy/sklearn module imports
+from scipy.optimize import least_squares
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
 # PyQt5 module imports
@@ -53,6 +54,7 @@ import analysis_guis.common_func as cf
 import analysis_guis.rotational_analysis as rot
 from analysis_guis.dialogs.rotation_filter import RotationFilteredData
 
+
 try:
     import analysis_guis.test_plots as tp
 except:
@@ -61,8 +63,9 @@ except:
 # other function declarations
 dcopy, scopy = copy.deepcopy, copy.copy
 diff_dist = lambda x, y: np.sum(np.sum((x - y) ** 2, axis=0)) ** 0.5
-n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
-n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]
+# n_cell_pool0 = [1, 2, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500]
+n_cell_pool0 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]        # SPEED LDA CELL COUNTS
+n_cell_pool1 = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 400, 500]        # DIRECTION LDA CELL COUNTS
 lda_trial_type = None
 
 # lambda functions
@@ -153,7 +156,7 @@ def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5, return_freq=True):
     '''
 
     # initialisations and memory allocation
-    i_start, i_spike, win_sz = 0, 1, [-win_sz0, win_sz0]
+    i_start, i_spike, win_sz = 0, 0, [-win_sz0, win_sz0]
     ccInfo = np.nan * np.zeros((len(ts1), 3), dtype=float)
 
     # keep looping until all spikes have been searched
@@ -161,6 +164,7 @@ def calc_ccgram(ts1, ts2, win_sz0=50, bin_size=0.5, return_freq=True):
         # Seek to the beginning of the current spike's window
         i = i_start
         while ((i + 1) < len(ts2)) and (ts2[i] <= (ts1[i_spike] + win_sz[0])):
+            # finds all the preceding spikes in the 2nd time spike array that are within win_sz of the current spike
             i += 1
 
         # sets the start of the window (for later)
@@ -1127,7 +1131,7 @@ def calc_ccgram_prob(ccG, freq, p_lim, ind=None):
 
     #
     n_win, n_bin = 50, len(ccG)
-    ccG_hi, ii = ccG - ccG_lo, np.array(list(range(n_win)) + list(range(n_bin-n_win,n_bin)))
+    ccG_hi, ii = ccG - ccG_lo, np.array(list(range(n_win)) + list(range(n_bin-n_win, n_bin)))
     ccG_mn, ccG_sd = np.mean(ccG_hi[ii]), np.std(ccG_hi[ii])
 
     # returns the lower/upper confidence levels
@@ -1252,8 +1256,10 @@ def get_inclusion_filt_indices(c, exc_gen_filt):
     :return:
     '''
 
-    # applies the general exclusion filter (for the fields that are set)
+    # sets the inclusion index array
     cl_inc = dcopy(c['expInfo']['clInclude'])
+
+    # applies the general exclusion filter (for the fields that are set)
     for exc_gen in exc_gen_filt:
         ex_g = exc_gen_filt[exc_gen]
         for ex_gt in ex_g:
@@ -2881,7 +2887,7 @@ def run_kinematic_lda_predictions(sf, lda_para, n_c, n_t):
 ############################################
 
 
-def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean'):
+def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean', f_scale=1.0):
     '''
 
     :param d_data:
@@ -2923,14 +2929,16 @@ def calc_all_psychometric_curves(d_data, d_vel, use_all=True, fit_vals='Mean'):
                                                100. * y_acc_mn_exp[0, :, -1].reshape(-1, 1)))
 
         # calculates/sets the psychometric fit values
-        y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
-                                        calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
+        y_acc_fit[:, :, i_tt] = calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd, f_scale)
+        # y_acc_fit[:, :, i_tt], p_acc[i_tt], p_acc_lo[i_tt], p_acc_hi[i_tt] = \
+        #                                 calc_psychometric_curves(y_acc_mn, xi_fit, nC, i_fit, i_bin_spd)
 
     # updates the class fields
-    d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi
+    # d_data.y_acc_fit, d_data.p_acc, d_data.p_acc_lo, d_data.p_acc_hi = y_acc_fit, p_acc, p_acc_lo, p_acc_hi
+    d_data.y_acc_fit = y_acc_fit
 
 
-def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
+def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd, f_scale=1.0):
     '''
 
     :param y_acc_mn:
@@ -2942,7 +2950,7 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
 
     from lmfit import Model
 
-    def fit_func(x, y0, yA, k, xH):
+    def fit_func(p, x, y=0):
         '''
 
         :param x:
@@ -2953,19 +2961,27 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
         :return:
         '''
 
-        # checks if the sum of the scale/steady state value is infeasible
-        if y0 + yA > 100:
-            # if infeasible, then return a high value
+        # sets the input parameters
+        y0, yA, k, xH = p[0], p[1], p[2], p[3]
+
+        # # checks if the sum of the scale/steady state value is infeasible
+        # if y0 + yA > 100:
+        #     # if infeasible, then return a high value
+        #     return 1e6 * np.ones(len(x))
+        # else:
+
+        # calculates the function values for the current parameters
+        if xH < x[0] or xH > x[-1]:
+            # if the function values are infeasible, then return a high value
             return 1e6 * np.ones(len(x))
         else:
-            # calculates the function values for the current parameters
             F = y0 + (yA / (1. + np.exp(-k * (x - xH))))
             if F[0] < 0 or F[-1] > 100:
                 # if the function values are infeasible, then return a high value
                 return 1e6 * np.ones(len(x))
             else:
                 # otherwise, return the function values
-                return F
+                return F - y
 
     def init_fit_para(x, y, n_para):
         '''
@@ -2982,7 +2998,20 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
         x0[0], x0[1] = y_min, y_max - y_min
 
         # calculates the estimated half activation point
-        x0[3] = xi[np.argmin(np.abs(((y - y_min) / (y_max - y_min)) - 0.5))]
+        sdy = np.sign(((y - y_min) / (y_max - y_min)) - 0.5)
+        i_grp_p = cf.get_index_groups(sdy > 0)
+        i_grp_n = cf.get_index_groups(sdy < 0)
+
+        #
+        p_grp = i_grp_p[np.argmax([len(x) for x in i_grp_p])]
+        n_grp = i_grp_n[np.argmax([len(x) for x in i_grp_n])]
+        ii = np.arange(n_grp[-1], p_grp[0] + 1)
+
+        # calculates the estimated half activation point
+        if len(ii):
+            x0[3] = xi[ii[0] + np.argmin(np.abs(((y[ii] - y_min) / (y_max - y_min)) - 0.5))]
+        else:
+            x0[3] = np.mean(xi)
 
         # calculates the inverse exponent values
         z = np.divide(-np.log(np.divide(x0[1], y - x0[0]) - 1), x - x0[3])
@@ -3001,12 +3030,11 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
 
     # student-t value for the dof and confidence level
     n_para, alpha = 4, 0.05
-    tval = t.ppf(1. - alpha / 2., max(0, len(xi) - n_para))
-    bounds = ((0., 0., 0., 0.), (100., 100., 5.0, 200.))
+    # tval = t.ppf(1. - alpha / 2., max(0, len(xi) - n_para))
 
     # memory allocation
     y_acc_fit, A = np.empty(n_cond, dtype=object), np.zeros((n_cond, n_para))
-    p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
+    # p_acc, p_acc_lo, p_acc_hi = dcopy(A), dcopy(A), dcopy(A)
 
     # sets the indices of the values to be fit
     ii = np.zeros(len(xi), dtype=bool)
@@ -3015,40 +3043,46 @@ def calc_psychometric_curves(y_acc_mn, xi, n_cond, i_fit, i_bin_spd):
 
     # loops through each of the conditions calculating the psychometric fits
     for i_c in range(n_cond):
-        # initialisations
-        maxfev = 10000
+        # # initialisations
+        # maxfev = 10000
 
         # sets up the initial parameters
         p0 = init_fit_para(xi[ii], y_acc_mn[ii, i_c], n_para)
+        bounds = ((0., 0., 0., xi[0]), (100., 100., 100.0, xi[-1]))
 
-        # ensures the initial estimate is between the lower/upper bounds
-        iLB = p0 < bounds[0]; p0[iLB] = np.array(bounds[0])[iLB]
-        iUB = p0 > bounds[1]; p0[iUB] = np.array(bounds[1])[iUB]
+        #
+        r_fit = least_squares(fit_func, p0, loss='soft_l1', f_scale=f_scale,
+                                            args=(xi[ii], y_acc_mn[ii, i_c]), bounds=bounds)
+        y_acc_fit[i_c] = fit_func(r_fit.x, xi)
 
-        # keep attempting to find the psychometric fit until a valid solution is found
-        while 1:
-            try:
-                # runs the fit function
-                p_acc[i_c, :], pcov = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], p0=p0, maxfev=maxfev,
-                                                bounds=bounds)
-                # result = gmodel.fit(y_acc_mn[ii, i_c], params, x=xi[ii])
+        # # ensures the initial estimate is between the lower/upper bounds
+        # iLB = p0 < bounds[0]; p0[iLB] = np.array(bounds[0])[iLB]
+        # iUB = p0 > bounds[1]; p0[iUB] = np.array(bounds[1])[iUB]
 
-                # if successful, calculation the fit values and exits the inner loop
-                y_acc_fit[i_c] = fit_func(xi, *p_acc[i_c, :])
-                for i_p, pp, pc in zip(range(n_para), p_acc[i_c, :], np.diag(pcov)):
-                    sigma = pc ** 0.5
-                    if i_p in [0, 1]:
-                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), min(100., pp + sigma * tval)
-                    else:
-                        p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), pp + sigma * tval
-
-                break
-            except:
-                # if there was an error, then increment the max function evaluation parameter
-                maxfev *= 2
+        # # keep attempting to find the psychometric fit until a valid solution is found
+        # while 1:
+        #     try:
+        #         # # runs the fit function
+        #         # p_acc[i_c, :], pcov = curve_fit(fit_func, xi[ii], y_acc_mn[ii, i_c], p0=p0, maxfev=maxfev,
+        #         #                                 bounds=bounds)
+        #         # result = gmodel.fit(y_acc_mn[ii, i_c], params, x=xi[ii])
+        #         #
+        #         # # if successful, calculation the fit values and exits the inner loop
+        #         # y_acc_fit[i_c] = fit_func(xi, *p_acc[i_c, :])
+        #         # for i_p, pp, pc in zip(range(n_para), p_acc[i_c, :], np.diag(pcov)):
+        #         #     sigma = pc ** 0.5
+        #         #     if i_p in [0, 1]:
+        #         #         p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), min(100., pp + sigma * tval)
+        #         #     else:
+        #         #         p_acc_lo[i_c, i_p], p_acc_hi[i_c, i_p] = max(0, pp - sigma * tval), pp + sigma * tval
+        #         #
+        #         # break
+        #     except:
+        #         # if there was an error, then increment the max function evaluation parameter
+        #         maxfev *= 2
 
     # returns the fit values
-    return np.vstack(y_acc_fit).T, p_acc, p_acc_lo, p_acc_hi
+    return np.vstack(y_acc_fit).T
 
 ####################################################
 ####    LDA SOLVER PARAMETER/SETUP FUNCTIONS    ####
@@ -3147,6 +3181,10 @@ def init_def_class_para(d_data_0, d_data_f=None, d_data_def=None):
     if d_data_f == 'spikedf':
         # case is the spiking frequency dataframe
         def_para = set_def_class_para(d_data, ['rot_filt', 'bin_sz', 't_over'])
+
+    elif d_data_f == 'theta_index':
+        # case is the theta index calculations
+        def_para = set_def_class_para(d_data, ['vel_bin', 't_bin', 'bin_sz', 'win_type', 'remove_bl'])
 
     # returns the default parameter object
     return def_para

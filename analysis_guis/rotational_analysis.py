@@ -15,6 +15,11 @@ from pyphys.pyphys.pyphys import PxpParser
 from analysis_guis.dialogs import config_dialog
 from rotation_analysis.analysis.probe.probe_io.probe_io import TriggerTraceIo, BonsaiIo, IgorIo
 
+
+#
+# import analysis_guis.testing.diagnostic_plots as diag_plot
+import _pickle as cp
+
 # pyqt5 module import
 from PyQt5.QtWidgets import (QMessageBox)
 
@@ -994,7 +999,6 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                                 c_full = [data._cluster[x] for x in np.where(cf.det_valid_rotation_expt(data))[0]]
                                 cl_ind_0 = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_full]
 
-
                             # determines the free experiments matching the cluster experiment names
                             fix_name_comp, ex_data = [x.fix_name for x in data.comp.data], data.externd
                             free_name = [data.comp.data[fix_name_comp.index(x)].free_name for x in
@@ -1013,9 +1017,13 @@ def apply_single_rot_filter(data, d_clust, rot_filt, expt_filter_lvl, i_expt_mat
                             # if not, then set all cluster flags to false
                             ind_cl[:] = False
                         else:
+                            #
+                            a = cf.det_closest_file_match(data.externd.free_data.exp_name, fix_name_nw)
+                            ind_ff = data.externd.free_data.exp_name.index(a[0])
+
                             # otherwise, retrieve the matching mapping index array values
                             ind_m = fix_name_f2f.index(fix_name_nw)
-                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_m][0]
+                            i_f2f, cell_type = f2f_map[ind_m][:, 1], data.externd.free_data.cell_type[ind_ff][0]
                             is_match = i_f2f >= 0
 
                             # sets the indices of the cells that match the filter value
