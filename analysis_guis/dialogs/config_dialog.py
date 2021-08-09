@@ -1,7 +1,6 @@
 # module import
 import os
 import re
-import sys
 import copy
 import functools
 import numpy as np

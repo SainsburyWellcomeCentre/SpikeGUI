@@ -2647,6 +2647,7 @@ def cond_abb(tt):
         'black45': 'B45',
         'mismatch1': 'MM1',
         'mismatch2': 'MM2',
+        'mismatchvert': 'MMV',
         'black_discard': 'BD',
     }
 
@@ -2665,9 +2666,10 @@ def convert_trial_type(tt_str):
     tt_key = {
         'Black40': ['Black_40', 'Black40deg'],
         'Black45': ['Black_45', 'Black45deg'],
-        'Mismatch1': ['mismatch1'],
+        'Mismatch1': ['mismatch1', 'Mismatch-o'],
         'Mismatch2': ['mismatch2'],
-        'Black_Discard': ['Black_discard', 'Black1_Discard']
+        'MismatchVert': ['mismatch-vert', 'mismatch-up', 'Mismatch-vert'],
+        'Black_Discard': ['Black_discard', 'Black-discard', 'Black1_Discard']
     }
 
     # determines if the trial type string is in any of the conversion dictionary fields
@@ -2844,7 +2846,7 @@ def set_sns_colour_palette(type='Default'):
     sns.set_palette(colors)
 
 
-def det_closest_file_match(f_grp, f_new):
+def det_closest_file_match(f_grp, f_new, use_ratio=False):
     '''
 
     :param f_grp:
@@ -2857,7 +2859,10 @@ def det_closest_file_match(f_grp, f_new):
 
     if ind_m is None:
         # determines the best match and returns the matching file name/score
-        f_score = np.array([fuzz.partial_ratio(x.lower(), f_new.lower()) for x in f_grp])
+        if use_ratio:
+            f_score = np.array([fuzz.ratio(x.lower(), f_new.lower()) for x in f_grp])
+        else:
+            f_score = np.array([fuzz.partial_ratio(x.lower(), f_new.lower()) for x in f_grp])
 
         # sorts the scores/file names by descending score
         i_sort = np.argsort(-f_score)
@@ -3024,7 +3029,10 @@ def get_comp_datasets(data, c_data=None, ind=None, is_full=False):
     '''
 
     # sets the cluster type
-    c = data._cluster if (use_raw_clust(data) or is_full) else data.cluster
+    if use_raw_clust(data):
+        c = data._cluster
+    else:
+        c = data._cluster if is_full else data.cluster
 
     # retrieves the fixed/free datasets based on type
     if ind is None:
@@ -3565,7 +3573,7 @@ def get_all_fix_free_indices(data, c_data, data_fix, data_free, match_reqd=False
 
     # retrieves the inclusion filter indices and the fix/free cell ID#'s
     cl_ind = get_inclusion_filt_indices(data_fix, data.exc_gen_filt)
-    cl_fix, cl_free = np.array(data_fix['clustID'])[cl_ind], np.array(data_free['clustID'])
+    cl_fix, cl_free = np.array(data_fix['clustID']), np.array(data_free['clustID'])
 
     # sets the match indices (depending on the calculation method)
     i_match = c_data.i_match_old if is_old else c_data.i_match
@@ -3580,22 +3588,25 @@ def get_all_fix_free_indices(data, c_data, data_fix, data_free, match_reqd=False
 
     if np.any(ii):
         # determines the number of cells that are to be analysed
-        n_cell = np.sum(ii)
-        if n_cell > n_plot_max:
+        if np.sum(ii) > n_plot_max:
             # if the number of cell is greater than max, then set the error string
             e_str = 'The number of subplots ({0}) is greater than the maximum ({1}).\nRemove the "Plot All Clusters" ' \
-                    'checkbox option before re-running this function.'.format(n_cell, n_plot_max)
+                    'checkbox option before re-running this function.'.format(np.sum(ii), n_plot_max)
         else:
             # memory allocation
+            n_cell = len(ii)
             c_id, i_cell = -np.ones((n_cell, 2), dtype=int), -np.ones((n_cell, 2), dtype=int)
 
             # sets the cell ID#'s and indices
-            for i, i_m in enumerate(np.where(ii)[0]):
+            for i_m in np.where(ii)[0]:
                 # sets the fixed cell ID#/index
-                c_id[i, 0], i_cell[i, 0] = cl_fix[i_m], i_m
+                c_id[i_m, 0], i_cell[i_m, 0] = cl_fix[i_m], i_m
                 if i_match[i_m] >= 0:
                     # if there is a match, then set the free cell ID#/index
-                    c_id[i, 1], i_cell[i, 1] = cl_free[i_match[i_m]], i_match[i_m]
+                    c_id[i_m, 1], i_cell[i_m, 1] = cl_free[i_match[i_m]], i_match[i_m]
+
+            # removes the
+            c_id, i_cell = c_id[ii, :], i_cell[ii, :]
 
     else:
         # if there are no

@@ -52,7 +52,7 @@ dcopy = copy.deepcopy
 
 
 class InfoDialog(QDialog):
-    def __init__(self, main_obj, parent=None, width=1750, height=600, rot_filt=None):
+    def __init__(self, main_obj, parent=None, width=1500, height=600, rot_filt=None):
         # creates the gui object
         super(InfoDialog, self).__init__(parent)
 
@@ -267,7 +267,7 @@ class InfoDialog(QDialog):
         '''
 
         # retrieves the cluster data
-        ff_dict = {}
+        ff_dict, st_info = {}, {}
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
         has_free_data = hasattr(self.data.externd, 'free_data')
@@ -291,14 +291,30 @@ class InfoDialog(QDialog):
             ['Matching\nCluster', 'special'],
             ['Spike\nClassification', 'special'],
             ['Action\nType', 'special'],
-            ['Free Cell\nType (5deg/s)', 'special'],
-            ['Free Cell\nType (10deg/s)', 'special'],
+            ['Cell Type\n(5deg/s)', 'special'],
             ['AHV Pearson\n(Pos)', 'special'],
             ['AHV Pearson\n(Neg)', 'special'],
             ['AHV %Tile\n(Pos)', 'special'],
             ['AHV %Tile\n(Neg)', 'special'],
             ['Velocity\nPearson', 'special'],
             ['Mean Vec.\nLength', 'special'],
+            ['AHV Pearson\n(-ve 1st Half)', 'special'],
+            ['AHV Pearson\n(+ve 1st Half)', 'special'],
+            ['AHV Pearson\n(-ve 2nd Half)', 'special'],
+            ['AHV Pearson\n(+ve 2nd Half)', 'special'],
+            ['AHV Null\nCorr %', 'special'],
+            ['AHV Stability\nIndex', 'special'],
+            ['Vel Pearson\n(1st Half)', 'special'],
+            ['Vel Pearson\n(2nd Half)', 'special'],
+            ['Vel Null\nCorr %', 'special'],
+            ['Vel Stability\nIndex', 'special'],
+            ['Theta\nIndex', 'special'],
+            ['AHV Intercept\n(-ve)', 'special'],
+            ['AHV Intercept\n(+ve)', 'special'],
+            ['AHV Slope\n(-ve)', 'special'],
+            ['AHV Slope\n(+ve)', 'special'],
+            ['Velocity\nIntercept', 'special'],
+            ['Velocity\nSlope', 'special'],
         ]
 
         # removes all parameters from the layout
@@ -340,6 +356,26 @@ class InfoDialog(QDialog):
                 'AHV %Tile\n(Neg)': 'pearson_neg_percentile',
                 'Velocity\nPearson': 'velocity_pearson_r',
                 'Mean Vec.\nLength': 'mean_vec_length',
+            }
+
+            #
+            st_dict = {
+                'AHV Pearson\n(-ve 1st Half)': 'ahv_pearson_r_first_half_neg',
+                'AHV Pearson\n(+ve 1st Half)': 'ahv_pearson_r_first_half_pos',
+                'AHV Pearson\n(-ve 2nd Half)': 'ahv_pearson_r_second_half_neg',
+                'AHV Pearson\n(+ve 2nd Half)': 'ahv_pearson_r_second_half_pos',
+                'AHV Null\nCorr %': 'ahv_null_correlation_percentile',
+                'AHV Stability\nIndex': 'ahv_stability_index',
+                'Vel Pearson\n(1st Half)': 'velocity_pearson_r_first_half',
+                'Vel Pearson\n(2nd Half)': 'velocity_pearson_r_second_half',
+                'Vel Null\nCorr %': 'velocity_null_correlation_percentile',
+                'Vel Stability\nIndex': 'velocity_stability_index',
+                'AHV Intercept\n(-ve)': 'ahv_fit_intercept_neg',
+                'AHV Intercept\n(+ve)': 'ahv_fit_intercept_pos',
+                'AHV Slope\n(-ve)': 'ahv_fit_slope_neg',
+                'AHV Slope\n(+ve)': 'ahv_fit_slope_pos',
+                'Velocity\nIntercept': 'velocity_fit_intercept',
+                'Velocity\nSlope': 'velocity_fit_slope',
             }
 
         # retrieves the channel map/depth values
@@ -401,20 +437,37 @@ class InfoDialog(QDialog):
 
                 elif tt[0] == 'Action\nType':
                     if self.data.classify.action_set:
-                        nw_data, act_str = np.array(['N/A'] * nC, dtype='U10'), np.array(['---', 'Inhibitory', 'Excitatory'])
+                        # memory allocation
+                        nw_data = np.array(['N/A'] * nC, dtype='U10')
+                        act_str = np.array(['---', 'Inhibitory', 'Excitatory'])
+
                         if self.data.classify.act_type[i_expt] is not None:
                             nw_data[cl_inc] = act_str[self.data.classify.act_type[i_expt][cl_inc]]
                             nw_data[np.logical_not(cl_inc)] = '---'
                     else:
                         nw_data = np.array(['---'] * nC)
 
-                elif 'Free Cell\nType' in tt[0]:
+                elif tt[0] == 'Theta\nIndex':
+                    # memory allocation
+                    nw_data = np.array(['---'] * nC)
+                    if has_free_data:
+                        if hasattr(self.data, 'theta_index'):
+                            if self.data.theta_index.th_index is not None:
+                                # retrieves the theta index information
+                                i_expt_st = self.get_free_expt_index(f_data, c_data)
+                                th_index = self.data.theta_index.th_index[i_expt_st][:, 0]
+
+                                # sets the data values for the current column
+                                for i_row, i_row_ff in zip(i0_ff, i_free_ff):
+                                    nw_data[i_row] = '{:.4f}'.format(th_index[i_row_ff])
+
+                elif 'Cell Type\n' in tt[0]:
                     if has_free_data:
                         # memory allocation
                         nw_data = np.array(['---'] * nC, dtype='U15')
 
                         # initialisations and memory allocation
-                        c_name = np.array(['HD', 'HDM', 'AHV', 'Spd'])
+                        c_name = np.array(['HD', 'HDMod', 'AHV', 'Spd'])
                         c_type = np.array(f_data.cell_type[i_expt_ff][int('10' in tt[0])])
 
                         # sets the column data
@@ -425,15 +478,28 @@ class InfoDialog(QDialog):
                             else:
                                 nw_data[i_row] = '/'.join(c_name[c_type[i_row_ff, :]])
 
-                elif tt[0] in ff_dict:
-                    if has_free_data:
-                        # memory allocation
-                        nw_data = np.array(['---'] * nC, dtype='U15')
-                        fr_data = c_info[ff_dict[tt[0]]]
+                elif (tt[0] in ff_dict) and has_free_data:
+                    # memory allocation
+                    nw_data = np.array(['---'] * nC, dtype='U15')
+                    fr_data = c_info[ff_dict[tt[0]]]
 
-                        # sets the column data
-                        for i_row, i_row_ff in zip(i0_ff, i_free_ff):
-                            nw_data[i_row] = '{:.4f}'.format(fr_data[i_row_ff])
+                    # sets the column data
+                    for i_row, i_row_ff in zip(i0_ff, i_free_ff):
+                        nw_data[i_row] = '{:.4f}'.format(fr_data[i_row_ff])
+
+                elif (tt[0] in st_dict) and has_free_data:
+                    # memory allocation
+                    nw_data = np.array(['---'] * nC, dtype='U15')
+                    if hasattr(f_data, 'stability_info'):
+                        # retrieves the stability information
+                        i_expt_st = self.get_free_expt_index(f_data, c_data)
+                        st_info = f_data.stability_info[i_expt_st]
+
+                        if len(st_info):
+                            # if there is data for the experiment, then add it to the table
+                            st_data = st_info[st_dict[tt[0]]]
+                            for i_row, i_row_ff in zip(i0_ff, i_free_ff):
+                                nw_data[i_row] = '{:.4f}'.format(st_data[i_row_ff])
 
                 else:
                     nw_data = np.array(['---'] * nC)
@@ -449,17 +515,37 @@ class InfoDialog(QDialog):
         h_table = cf.create_table(None, txt_font, data=t_data, col_hdr=col_hdr, n_row=nC, max_disprows=20,
                                   check_col=[0], check_fcn=self.includeCheck, exc_rows=cl_exc)
         h_table.verticalHeader().setVisible(False)
+        # h_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        h_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         # sets the table dimensions
+        c_wid = 100
         nrow_table = min(20, nC)
-        h0 = (41 - int(platform.system() == 'Windows')) - nrow_table
+        h0 = (57 - int(platform.system() == 'Windows')) - nrow_table
         row_hght = 22 if platform.system() == 'Windows' else 23
 
         # resets the table dimensions
         cf.set_obj_fixed_size(h_table, height=h0 + nrow_table * row_hght, width=self.grp_wid_info - 2*dX)
 
+        # resets the column headers
+        h_table.horizontalHeader().setSectionResizeMode(2)
+        for i in range(h_table.columnCount()):
+            h_table.setColumnWidth(i, c_wid)
+
         # adds the widgets to the layout
         h_layout.addRow(h_table)
+
+    def get_free_expt_index(self, f_data, c_data):
+
+        # retrieves the experiment file name
+        exp_file = cf.extract_file_name(c_data['expFile'])
+        if c_data['rotInfo'] is not None:
+            # if a fixed experiment, then retrieve the corresponding free data file
+            comp_data = self.data.comp.data
+            exp_file = comp_data[[x.fix_name for x in comp_data].index(exp_file)].free_name
+
+        # determines the index of the free experiment matching the free cluster file name
+        return f_data.exp_name.index(cf.det_closest_file_match(f_data.exp_name, exp_file)[0])
 
     def includeCheck(self, i_row, i_col, state):
         '''
@@ -512,7 +598,11 @@ class InfoDialog(QDialog):
         for i_expt in range(self.n_expt):
             # retrieves the current table data
             t_data_nw = self.get_table_data(i_expt)
-            t_data_nw[2, 0] = exp_name[i_expt]
+            if np.shape(t_data_nw)[0] <= 2:
+                # if no data, then exit
+                continue
+            else:
+                t_data_nw[2, 0] = exp_name[i_expt]
 
             # appends the data to the storage lists
             i = int(is_rot[i_expt])

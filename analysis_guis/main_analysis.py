@@ -55,7 +55,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from scipy.interpolate import PchipInterpolator as pchip
 from scipy.spatial import ConvexHull as CHull
-from scipy.stats import linregress, bartlett, ks_2samp, kruskal, wilcoxon, ranksums
+from scipy.stats import linregress, bartlett, ks_2samp, kruskal, wilcoxon, kstest, ranksums
 from scipy.signal import find_peaks
 
 # sklearn module imports
@@ -760,6 +760,10 @@ class AnalysisGUI(QMainWindow):
                 if not hasattr(self.data, 'externd'):
                     setattr(self.data, 'externd', ExternalData())
 
+                # initialises the theta index data object (if it has not been set)
+                if not hasattr(self.data, 'theta_index'):
+                    setattr(self.data, 'theta_index', ThetaIndexData())
+
                 # sets up the analysis functions and resets the trial type strings
                 self.reset_trial_type_strings()
                 self.fcn_data.init_all_func()
@@ -947,20 +951,27 @@ class AnalysisGUI(QMainWindow):
                 elif self.worker[iw].thread_job_secondary == 'Fixed/Free Cluster Matching':
                     # case is calculating the cluster matches
 
+                    # updates the current parameter class objects
+                    curr_para = dcopy(self.fcn_data.para[self.get_plot_func()])
+                    plot_para0 = dcopy(self.fcn_data.prev_plot_para)
+                    calc_para0 = dcopy(self.fcn_data.prev_calc_para)
+
                     # updates the comparison data struct
-                    # self.fcn_data.update_comp_expts()
                     self.data.comp.is_set = np.any([x.is_set for x in self.data.comp.data])
 
                     # resets fixed/free cell ID#s
                     self.fcn_data.init_all_func()
 
                     # updates the parameter/function values and re-runs function parameter object creation
-                    self.fcn_data.curr_para = self.fcn_data.para[self.get_plot_func()]
-                    self.fcn_data.prev_calc_para = self.fcn_data.curr_para
+                    self.fcn_data.para[self.get_plot_func()] = curr_para
                     self.fcn_data.prev_fcn = self.get_plot_func()
+                    self.fcn_data.curr_para = curr_para
+                    self.fcn_data.prev_calc_para = calc_para0
+                    self.fcn_data.prev_plot_para = plot_para0
                     self.func_select()
 
                 # re-runs the plotting function
+                self.fcn_data.force_update = True
                 self.update_click()
 
     def error_thread_job(self, e_str, title):
@@ -1611,6 +1622,7 @@ class AnalysisGUI(QMainWindow):
 
                 # updates the plot axes to the original
                 self.fcn_data.curr_para = curr_para0
+                self.fcn_data.force_update = True
                 self.update_click()
 
     def save_data(self):
@@ -2051,23 +2063,24 @@ class AnalysisGUI(QMainWindow):
         # determines the calculation parameters
         if len(calc_para):
             # if there are any calculation parameters, then determine if any of them have changed (or have been set)
-            if self.det_calc_para_change(calc_para, plot_para, current_fcn, plot_scope):
-                # if so, then run the calculation thread
-                self.fcn_data.prev_fcn = dcopy(current_fcn)
-                self.fcn_data.prev_calc_para = dcopy(calc_para)
-                self.fcn_data.prev_plot_para = dcopy(plot_para)
-                self.set_group_enabled_props(self.grp_prog, True)
+            if not self.fcn_data.force_update:
+                if self.det_calc_para_change(calc_para, plot_para, current_fcn, plot_scope):
+                    # if so, then run the calculation thread
+                    self.fcn_data.prev_fcn = dcopy(current_fcn)
+                    self.fcn_data.prev_calc_para = dcopy(calc_para)
+                    self.fcn_data.prev_plot_para = dcopy(plot_para)
+                    self.set_group_enabled_props(self.grp_prog, True)
 
-                # runs the worker thread
-                fcn_para = [calc_para, plot_para, self.data, self.fcn_data.pool, self.def_data['g_para']]
-                self.text_prog.setText('Initialising Function...')
-                self.pbar_prog.setValue(0)
+                    # runs the worker thread
+                    fcn_para = [calc_para, plot_para, self.data, self.fcn_data.pool, self.def_data['g_para']]
+                    self.text_prog.setText('Initialising Function...')
+                    self.pbar_prog.setValue(0)
 
-                # runs the calculation on the next available thread
-                iw = self.det_avail_thread_worker()
-                self.worker[iw].set_worker_func_type('run_calc_func', current_fcn, fcn_para)
-                self.worker[iw].start()
-                return
+                    # runs the calculation on the next available thread
+                    iw = self.det_avail_thread_worker()
+                    self.worker[iw].set_worker_func_type('run_calc_func', current_fcn, fcn_para)
+                    self.worker[iw].start()
+                    return
         else:
             # if there aren't any calculation parameters, then reset the previous calculation parameter object
             self.fcn_data.prev_calc_para = None
@@ -2101,6 +2114,7 @@ class AnalysisGUI(QMainWindow):
 
         # updates te progress bar to indicate the plot has finished being created
         time.sleep(0.1)
+        self.fcn_data.force_update = False
         self.finished_thread_job(None, is_plot=True)
 
     ###################################################
@@ -2142,8 +2156,8 @@ class AnalysisGUI(QMainWindow):
         c_data = dcopy(self.data.comp.data[i_comp])
 
         # retrieves the fixed/free datasets
-        data_fix, _ = cf.get_comp_datasets(self.data, c_data=c_data)
-        _data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
+        data_fix0, data_free0 = cf.get_comp_datasets(self.data, c_data=c_data)
+        data_fix, data_free = cf.get_comp_datasets(self.data, c_data=c_data, is_full=True)
 
         # determines the fixed/free cluster ID/cell index values
         if plot_all:
@@ -2157,7 +2171,7 @@ class AnalysisGUI(QMainWindow):
             return
 
         # retrieves the fixed/free cluster inclusion indices
-        cl_inc_fix = cfcn.get_inclusion_filt_indices(_data_fix, self.data.exc_gen_filt)
+        cl_inc_fix = cfcn.get_inclusion_filt_indices(data_fix, self.data.exc_gen_filt)
         cl_inc_free = cfcn.get_inclusion_filt_indices(data_free, self.data.exc_gen_filt)
 
         # removes any excluded cells from the free dataset
@@ -3960,6 +3974,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_fig.fig.suptitle(t_str, fontsize=16, fontweight='bold')
         self.plot_fig.fig.tight_layout(rect=[0, 0.01, 1, 0.935])
 
+
     def plot_cell_fit_residual(self, cell_id, free_exp_name, plot_all_expt, plot_scope, cell_type, use_all_cells,
                                plot_grid):
         '''
@@ -4075,6 +4090,241 @@ class AnalysisGUI(QMainWindow):
         ax.set_ylabel('Spiking Frequency Gain (Hz)')
         ax.set_xlabel('Normalised Residuals')
         ax.grid(plot_grid)
+
+    def plot_cell_stability(self, b_sz, m_size, plot_abs, plot_type, cell_type, plot_grid):
+        '''
+
+        :param scatter_type:
+        :param plot_type:
+        :param cell_type:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        and_fcn = np.logical_and
+        is_ahv = cell_type == 'AHV'
+        f_data = self.data.externd.free_data
+
+        # determines which experiments has data
+        if not hasattr(f_data, 'null_corr'):
+            # if the null correlation data is not loaded then output an error to screen and exit the function
+            m_str = 'The null correlation data has not been loaded from the external files.'
+            cf.show_error(m_str, 'Correlation Data Not Loaded')
+
+            # return flag indicating plot type is not feasible
+            self.calc_ok = False
+            return False
+        else:
+            # otherwise, determine which files have the null correlation data
+            has_data = np.array([len(x) > 0 for x in f_data.null_corr])
+
+        ################################
+        ####    SUBPLOT CREATION    ####
+        ################################
+
+        # sets up the plot axis
+        self.plot_fig.setup_plot_axis()
+        ax = self.plot_fig.ax[0]
+
+        # retrieves the inclusion indices (based on the cell type - either Speed or AHV)
+        cl_inc0 = cf.get_free_inclusion_indices(self.data, 0)
+        cl_inc_cell = [np.array(and_fcn(np.any(ct[0][[cell_type]], axis=1), ic))
+                                                        for ic, ct in zip(cl_inc0, f_data.cell_type)]
+        cl_inc_null, cl_inc_cell = np.array(cl_inc0)[has_data], np.array(cl_inc_cell)[has_data]
+
+        # sets the stability information fields (reduced down for the selected cell type)
+        # s_info0 = np.array([x for x in f_data.stability_info])[has_data]
+        s_info0 = [x for x, i in zip(f_data.stability_info, has_data) if i]
+        c_hdr = s_info0[0].columns
+        s_info = [pd.DataFrame(np.array(s_f)[i_cl, :], columns=c_hdr) for s_f, i_cl in zip(s_info0, cl_inc_cell)]
+
+        # creates the plot based on the selected type
+        if plot_type == 'Correlation Histogram':
+            #####################################
+            ####    CORRELATION HISTOGRAM    ####
+            #####################################
+
+            # initialisations
+            n_corr0 = np.array(f_data.null_corr)[has_data]
+            xi = np.linspace(-1, 1, np.floor(2 / b_sz) + 1)
+
+            # # sets the stability index values (dependent on whether viewing AHV or speed cells)
+            # s_type = 'ahv_null_correlation_percentile' if is_ahv else 'velocity_null_correlation_percentile'
+            # n_corr_f = np.array(cf.flat_list([list(x[s_type]) for x in s_info])) / 100.
+
+            # sets the stability index values (dependent on whether viewing AHV or speed cells)
+            s_type = 'ahv_stability_index' if is_ahv else 'velocity_stability_index'
+            n_corr_f = np.array(cf.flat_list([list(x[s_type]) for x in s_info]))
+
+            # sets the shuffled correlation values
+            n_corr = [n_c[int(is_ahv)][i_cl, :] for n_c, i_cl in zip(n_corr0, cl_inc_null)]
+            n_corr_full = np.vstack(n_corr)
+
+            # calculates the proportional bin values
+            n_corr_N, _ = np.histogram(n_corr_full, bins=xi)
+            n_corr_f_N, _ = np.histogram(n_corr_f, bins=xi)
+            n_corr_pr, n_corr_f_pr = n_corr_N / np.sum(n_corr_N), n_corr_f_N / np.sum(n_corr_f_N)
+
+            # calculates the ks-test p-value
+            p_value = kstest(n_corr_full.flatten(), n_corr_f)[1]
+
+            ############################
+            ####    SUBPLOT SETUP   ####
+            ############################
+
+            # sub-plot parmaeters
+            h_plt = []
+            m_type_str = 'Stability Index'
+            xi_h = 0.5 * (xi[1:] + xi[:-1])
+
+            # creates the combined histogram/plot graph
+            # h_plt.append(ax.bar(xi_h, 100.* n_corr_pr, color='k', edgecolor='k', width=b_sz, linewidth=2, alpha=0.5))
+            # h_plt.append(ax.bar(xi_h, 100.* n_corr_f_pr, color='r', edgecolor='r', width=b_sz, linewidth=2, alpha=0.5))
+            h_plt.append(ax.step(xi_h, 100.* n_corr_pr, color='k', linewidth=2, where='pre'))
+            h_plt.append(ax.step(xi_h, 100.* n_corr_f_pr, color='r', linewidth=2, where='pre'))
+
+            # sets the plot legend
+            ax.legend([x[0] for x in h_plt], ['Shuffled', 'Final'])
+
+            # sets the other axis properties
+            ax.grid(plot_grid)
+            ax.set_xlim([-1, 1])
+            ax.set_ylim([0, ax.get_ylim()[1]])
+            ax.set_title('{} Histogram ({} Cells)\n(P-Value = {:.2E}, Cell Count = {})'.format(
+                                    m_type_str, cell_type, p_value, len(n_corr_f)))
+            ax.set_ylabel('Percentage')
+            ax.set_xlabel(m_type_str)
+
+        else:
+            #######################################
+            ####    CORRELATION SCATTERPLOT    ####
+            #######################################
+
+            # initialisations
+            p_tile_tol = 95
+            c_type = 'LIGHT1'
+            c_hdr = ['pearson_neg_percentile', 'pearson_pos_percentile'] if is_ahv else ['pearson_percentile']
+
+            # retrieves the percentile values
+            p_tile = [np.array(x[0][c_type][c_hdr])[i, :] for i, x in zip(cl_inc_cell, np.array(f_data.c_info)[has_data])]
+            p_tile_tot = np.vstack(p_tile)
+            is_sig = p_tile_tot > p_tile_tol
+
+            # sets the x/y column headers
+            if is_ahv:
+                # case is the ahv cells
+                c_hdr_x = ['ahv_pearson_r_first_half_neg', 'ahv_pearson_r_first_half_pos']
+                c_hdr_y = ['ahv_pearson_r_second_half_neg', 'ahv_pearson_r_second_half_pos']
+
+            else:
+                # case is the speed cells
+                c_hdr_x = ['velocity_pearson_r_first_half']
+                c_hdr_y = ['velocity_pearson_r_second_half']
+
+            # sets the x/y plot values
+            x_plt = np.vstack([np.array(x[c_hdr_x]) for x in s_info])
+            y_plt = np.vstack([np.array(x[c_hdr_y]) for x in s_info])
+
+            if is_ahv:
+                # calculates the significance scores
+                s_score = is_sig[:, 0] + 2 * is_sig[:, 1]
+
+            else:
+                # case is speed cells
+                s_score = is_sig.astype(int)
+
+            ############################
+            ####    SUBPLOT SETUP   ####
+            ############################
+
+            # plot parameters
+            h_plt = []
+            col = ['r', 'g', 'b']
+
+            # creates the scatter plot for each significance type
+            for i in range(1 + 2 * int(is_ahv)):
+                # sets the plot values based on cell type/directionality
+                if is_ahv:
+                    # case is the AHV cells
+
+                    # determines which cells are significant
+                    #  =1 - negative velocity significant cells
+                    #  =2 - positive velocity significant cells
+                    #  =3 - bi-directional cell (significant in both directions)
+                    is_plt = s_score == (i + 1)
+                    if i == 2:
+                        # case is bi-directional cell (plot both negative/positive directions)
+                        x_plt_nw, y_plt_nw = x_plt[is_plt, :].flatten(), y_plt[is_plt, :].flatten()
+
+                    else:
+                        # case is uni-directional cell (plot significant direction only)
+                        x_plt_nw, y_plt_nw = x_plt[is_plt, i], y_plt[is_plt, i]
+
+                else:
+                    # case is analysing speed cells
+                    x_plt_nw, y_plt_nw = x_plt, y_plt
+
+                # takes the absolute values of the correlation values (if required)
+                if plot_abs:
+                    x_plt_nw, y_plt_nw = np.abs(x_plt_nw), np.abs(y_plt_nw)
+
+                # creates the scatter plot
+                h_plt.append(ax.scatter(x_plt_nw, y_plt_nw, marker='o', s=m_size, facecolor=col[i]))
+
+            # sets the plot legend (AHV cells only)
+            if is_ahv:
+                ax.legend(h_plt, ['Negative', 'Positive', 'Both'])
+
+            # plots the unity correlation line
+            if plot_abs:
+                # case is plotting absolute values
+                ax.plot([0, 1], [0, 1], 'r--', linewidth=2)
+                ax.set_xlim([0, 1])
+                ax.set_ylim([0, 1])
+
+            else:
+                # case is plotting normal values
+                ax.plot([-1, 1], [-1, 1], 'r--', linewidth=2)
+                ax.plot([0, 0], [-1, 1], 'k--', linewidth=2)
+                ax.plot([-1, 1], [0, 0], 'k--', linewidth=2)
+                ax.set_xlim([-1, 1])
+                ax.set_ylim([-1, 1])
+
+            # sets the other axis properties
+            ax.grid(plot_grid)
+            ax.set_title('Pearson R Comparison ({0} Cells)'.format(cell_type))
+            ax.set_ylabel('Pearson R-Values (2nd Half)')
+            ax.set_xlabel('Pearson R-Values (1st Half)')
+
+
+            # FOR DATA OUTPUT
+            #  - Include in Expt Info GUI
+            #  - Also add in Theta Index values (if calculated)
+            #  - Output all values for data frame
+
+            # New function - called "Stability" (Freely Moving Functions)
+            #  - null_corr array - 1st element is speed, 2nd element is AHV
+
+            # Plot Figures
+            #  1) Histogram of Shuffled vs Null Correlation Percentage values
+            #    - This will be split between AHV classified cells (vs ahv_null_correlation_percentile) or
+            #      speed cells (vs velocity_null_correlation_percentile)
+            #  2) XY plot of pearson r-values (1st vs 2nd Half)
+            #    - Two types of plot
+            #      1) Velocity
+            #          * definition of significant if pearson_percentile is >95%
+            #            USE THE VALUES ALREADY STORED FOR 5deg/s and LIGHT1 condition for this
+            #      2) Combined Positive and Negative significant
+            #        - only plot data point if it is significant
+            #          * definition of significant if pearson_neg_percentile or pearson_pos_percentile is >95%
+            #            USE THE VALUES ALREADY STORED FOR 5deg/s and LIGHT1 condition for this
+
+            # REMOVE ME
+            a = 1
+
+        # FINISH ME!
+        a = 1
 
     ######################################
     ####    EYE TRACKING FUNCTIONS    ####
@@ -6060,8 +6310,8 @@ class AnalysisGUI(QMainWindow):
 
             # calculates the CW/CCW Motion Selectivity
             plt_data = np.empty(3, dtype=object)
-            plt_data[0] = [np.divide(x[:, 1] - x[:, 0], x[:, 0]) if (x is not None) else None for x in sp_mn]      # CW Motion Selectivity
-            plt_data[1] = [np.divide(x[:, 2] - x[:, 0], x[:, 0]) if (x is not None) else None for x in sp_mn]      # CCW Motion Selectivity
+            plt_data[0] = [np.abs(np.divide(x[:, 1] - x[:, 0], x[:, 0])) if (x is not None) else None for x in sp_mn]      # CW Motion Selectivity
+            plt_data[1] = [np.abs(np.divide(x[:, 2] - x[:, 0], x[:, 0])) if (x is not None) else None for x in sp_mn]      # CCW Motion Selectivity
 
             # calculates the Direction Selectivity
             dCW = [(x[:, 1] - x[:, 0]) if (x is not None) else None for x in sp_mn]
@@ -6177,6 +6427,57 @@ class AnalysisGUI(QMainWindow):
                     self.plot_fig.ax[i_cond].set_ylabel(plt_type[i_cond].replace('CCW ', '').replace('CW ', ''))
                     self.plot_fig.ax[i_cond].set_xticklabels(r_obj.lg_str)
                     self.plot_fig.ax[i_cond].grid(plot_grid)
+
+            ###########################
+            ####    DATA OUTPUT    ####
+            ###########################
+
+            # only output the values for the black/motordrifting experiments
+            cond_str = ['Black', 'MotorDrifting']
+            i_tt = np.array([t_type_exp.index(x) if x in t_type_exp else -1 for x in cond_str])
+            if np.any(i_tt < 0):
+                return
+
+            # initialisations and memory allocation
+            n_col, n_filt = 6, len(cond_str)
+            i_expt_match = np.unique(r_obj.i_expt[i_tt[0]])
+            i_expt_ind = [np.where(r_obj.i_expt[i_tt[0]] == i)[0] for i in i_expt_match]
+            c_hdr = ['Expt Name', 'Clust ID', 'CW MS (Black)', 'CCW MS (Black)', 'CW MS (MD)', 'CCW MS (MD)']
+
+            # memory allocation
+            n_ex = len(i_expt_match)
+            data_all = np.empty(n_ex + 1, dtype=object)
+
+            # sets title row
+            data_all[0] = np.empty((2, n_col), dtype=object)
+            data_all[0][0, :] = ''
+            data_all[0][1, :] = np.array(c_hdr, dtype=object)
+
+            # retrieves the cluster IDs
+            clustID = [np.array(r_obj.cl_id)[0][r_obj.i_expt[0] == i_ex] for i_ex in i_expt_match]
+            exp_name = [cf.extract_file_name(self.data.cluster[i]['expFile']) for i in i_expt_match]
+
+            # stacks the motion-selectivity values into a single array
+            ms_exp = np.vstack(
+                [plt_data[0][i_tt[0]], plt_data[1][i_tt[0]], plt_data[0][i_tt[1]], plt_data[1][i_tt[1]]]).T
+
+            #
+            for i_ex in range(n_ex):
+                # memory allocation
+                data_all[i_ex + 1] = np.zeros((len(clustID[i_ex]) + 1, n_col), dtype=object)
+
+                # sets the data values into the array
+                data_all[i_ex + 1][:, 0] = ''
+                data_all[i_ex + 1][0, :] = ''
+                data_all[i_ex + 1][1, 0] = exp_name[i_ex]
+                data_all[i_ex + 1][1:, 1] = np.array(clustID[i_ex])
+
+                # sets the motion selectivity values
+                data_all[i_ex + 1][1:, 2:] = ms_exp[i_expt_ind[i_ex], :]
+
+            # combines everything into a single array and outputs to file
+            data_out = np.vstack(data_all).astype(str)
+            self.output_data_file("Motion Selectivity Ratios (Black & MD).csv", data_out)
 
         ################################################################################################################
         ################################################################################################################
@@ -7448,7 +7749,7 @@ class AnalysisGUI(QMainWindow):
         self.plot_kine_whole_roc(r_obj, freq_lim, exc_type, use_comp, plot_err, plot_grid)
 
     def plot_velocity_significance(self, rot_filt, plot_err, plot_exp_name, plot_all_expt, pool_expt, plot_cond, i_bin,
-                                   use_vel, plot_type, plot_grid, plot_scope):
+                                   use_vel, plot_type, m_size, plot_grid, plot_scope):
         '''
 
         :param rot_filt:
@@ -7674,7 +7975,6 @@ class AnalysisGUI(QMainWindow):
                 ind_match = [[t_type.index('Black'), t_type.index(plot_cond)]]
 
             # parameters
-            m_size = 50
             use_all_bin = i_bin == 'All Bins'
             m = ['o', 's', 'D', 'H', 'x', '^', '*']
             h_plt, lg_str = [], ['Not Sig.', 'Black Sig,', '{0} Sig.'.format(plot_cond), 'Both Sig.']
@@ -7942,7 +8242,7 @@ class AnalysisGUI(QMainWindow):
                             if plot_trend:
                                 auc_trend, _ = curve_fit(cf.lin_func, x_auc[ii] - 0.5, y_auc[ii] - 0.5)
                                 ax[0].plot(x_trend + 0.5, auc_trend * x_trend + 0.5, '-{0}'.format(m[i]),
-                                                          color=c[igt], markersize=8, linewidth=2, linestyle='dashed')
+                                           color=f_col[igt], markersize=8, linewidth=2, linestyle='dashed')
 
             # resets the figure size
             self.plot_fig.fig.set_tight_layout(False)
@@ -8369,24 +8669,24 @@ class AnalysisGUI(QMainWindow):
         else:
             p_wid = 1.15 - 0.10 * r_data.pn_comp
 
+        # sets up the n-value table
+        if use_vel:
+            xi_rng = dcopy(r_data.vel_xi)
+        else:
+            xi_rng = dcopy(r_data.spd_xi)
+
+        if r_data.pn_comp:
+            col_hdr = ['{0}/-{0}'.format(int(x)) for x in xi_rng[int(len(xi_rng) / 2):, 1]]
+        else:
+            col_hdr = ['{0}/{1}'.format(int(xx[0]), int(xx[1])) for xx in xi_rng]
+
         # displays the pairwise comparison stats (if more than one filter)
         if n_filt > 1:
             # calculates the stats
             p_stats = calc_auc_kwstats(roc_auc)
-
-            # sets up the n-value table
-            if use_vel:
-                xi_rng = dcopy(r_data.vel_xi)
-            else:
-                xi_rng = dcopy(r_data.spd_xi)
+            row_hdr = ['#{0} vs #1'.format(x + 2) for x in range(np.size(p_stats, axis=0))]
 
             ax = self.plot_fig.ax[0]
-            row_hdr = ['#{0} vs #1'.format(x + 2) for x in range(np.size(p_stats, axis=0))]
-            if r_data.pn_comp:
-                col_hdr = ['{0}/-{0}'.format(int(x)) for x in xi_rng[int(len(xi_rng) / 2):, 1]]
-            else:
-                col_hdr = ['{0}/{1}'.format(int(xx[0]), int(xx[1])) for xx in xi_rng]
-
             if use_vel and (not r_data.pn_comp):
                 n_mid = int(len(xi_rng) / 2)
                 col_hdr_1, p_stats_1 = col_hdr[:n_mid], p_stats[:, :n_mid]
@@ -8414,6 +8714,50 @@ class AnalysisGUI(QMainWindow):
                 c_col = [np.array(_light_gray) / 255] * len(col_hdr)
                 cf.add_plot_table(self.plot_fig, ax, table_font_small, p_stats, row_hdr, col_hdr, c[1:],
                                   c_col, 'bottom', n_row=1, n_col=1, p_wid=p_wid)
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # memory allocation and other initialisations
+        cl_ind = r_obj.clust_ind[0]
+        data_arr = np.empty(n_filt, dtype=object)
+        i_expt = np.where(cf.det_valid_rotation_expt(self.data))[0]
+
+        # sets the header array
+        hdr_arr = [['', '', ''], ['Expt Name', 'Cell ID#', '']]
+
+        # retrieves the experiment names
+        n_expt = len(cl_ind)
+        exp_info = np.empty(n_expt, dtype=object)
+        for i_ex in range(n_expt):
+            # memory allocation
+            n_cell = len(cl_ind[i_ex])
+            c = self.data.cluster[i_expt[i_ex]]
+
+            # sets the experiment name/cell ID#'s
+            exp_info[i_ex] = np.empty((n_cell, 3), dtype=object)
+            exp_info[i_ex][:] = ''
+            exp_info[i_ex][0, 0] = cf.extract_file_name(c['expFile'])
+            exp_info[i_ex][:, 1] = np.array(c['clustID'])[cl_ind[i_ex]]
+
+
+        # sets up the data for each of the
+        for i_filt in range(n_filt):
+            # memory allocation
+            A = np.vstack(roc_auc[i_filt])
+            data_arr[i_filt] = np.empty((np.shape(A)[0] + 2, np.shape(A)[1] + 1), dtype=object)
+
+            # sets the data array titles/values
+            data_arr[i_filt][:] = ''
+            data_arr[i_filt][0, 0] = r_obj.lg_str[i_filt].replace('\n', '/')
+            data_arr[i_filt][1, :-1] = col_hdr
+            data_arr[i_filt][2:, :][:, :-1] = A.astype(str)
+
+        # outputs the final array to fiie
+        f_name = '{0} auROC Values.csv'.format('Velocity' if use_vel else "Speed")
+        total_arr = np.hstack((np.vstack((hdr_arr, np.vstack(exp_info))), np.hstack(data_arr)))
+        self.output_data_file(f_name, total_arr)
 
     def create_auc_stats_figure(self, r_obj, rot_filt, plot_cond, plot_grid, is_cong=False,
                                 i_bin=None, plot_cond_base='Black', use_vel=False):
@@ -8462,8 +8806,10 @@ class AnalysisGUI(QMainWindow):
 
         # initialisations
         e_str, r_data = None, self.data.rotation
+        is_rot_expt = cf.det_valid_rotation_expt(self.data)
         is_dir, st_type_name = i_bin is None, ['Wilcoxon Paired Test', 'Delong', 'Bootstrapping']
         tt_auc, tt_filt = rot_filt['t_type'], cf.flat_list([x['t_type'] for x in r_obj.rot_filt_tot])
+        exp_name = [cf.extract_file_name(x['expFile']) for x, i in zip(self.data.cluster, is_rot_expt) if i]
 
         # retrieves the black/matching filter index values
         if plot_cond_base not in tt_filt:
@@ -8551,7 +8897,7 @@ class AnalysisGUI(QMainWindow):
         B = np.empty(len(ind_match), dtype=object)
         is_sig, auc = dcopy(B), dcopy(B)
 
-        #
+        # creates the rotation filter object (force setting the trial types)
         r_filt_auc = cf.init_rotation_filter_data(False)
         r_filt_auc['t_type'] = tt_auc
         r_obj_auc_full = RotationFilteredData(self.data, r_filt_auc, None, None, True, 'Whole Experiment', False)
@@ -8583,16 +8929,23 @@ class AnalysisGUI(QMainWindow):
 
         # proportion of condition auROC values that are significant
         if is_dir:
-            i_expt = [[r_data.cond_i_expt[c] == x for x in np.unique(r_data.cond_i_expt[c])] for c in tt_filt]
-            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][j_ex, st_type] == 0) for j_ex in i_ex]
-                         for i_ex, c in zip(i_expt, tt_filt)]
-            n_expt = [len(x) for x in i_expt]
+            # retrieves the significance values for the cells that correspond to each experiment (for each filter type)
+            i_expt = [[r_data.cond_i_expt[c][i_c] == x for x in np.unique(r_data.cond_i_expt[c])]
+                         for c, i_c in zip(tt_filt, i_cell_b)]
+            p_auc_sig = [[100. * np.mean(r_data.cond_gtype[c][i_c, :][j_ex, st_type] == 0) for j_ex in i_ex]
+                         for i_ex, c, i_c in zip(i_expt, tt_filt, i_cell_b)]
+
+            # calculates the cell/experiment counts
+            n_cell = np.vstack([[sum(y) for y in x] for x in i_expt])
+            n_expt, n_cell_out = [len(x) for x in i_expt], n_cell[0]
 
         else:
             # determines the indices of the cells that correspond to each experiment (for each filter type)
             i_expt = [[rr.i_expt[0][i_c] == x for x in range(r_obj.n_expt)] for rr, i_c in zip(r_obj_tt, i_cell_b)]
+
+            # calculates the cell/experiment counts
             n_cell = np.vstack([[sum(y) for y in x] for x in i_expt])
-            n_expt = [sum(x > 0) for x in n_cell]
+            n_expt, n_cell_out = [sum(x > 0) for x in n_cell], list(np.array(n_cell[0])[is_rot_expt])
 
             # determines the indices of the trial conditions with respect to the stored data
             i_tt = [tt_auc.index(x) for x in tt_filt]
@@ -8662,6 +9015,42 @@ class AnalysisGUI(QMainWindow):
 
         # sets the overall title
         self.plot_fig.fig.suptitle('Significant Cells by Trial Type', fontsize=14, fontweight='bold')
+
+        #################################
+        ####    DATA FRAME OUTPUT    ####
+        #################################
+
+        # sets the table data
+        c_hdr = ['Expt Name', 'Cell Count'] + [x.replace('\n', '/') for x in r_obj.lg_str]
+        data_out = np.vstack((c_hdr, np.vstack([exp_name, n_cell_out, p_auc_sig]).T))
+
+        # sets the data output file name
+        if is_dir:
+            # case is the direction ROC analysis
+            suf_str = 'Direction'
+        else:
+            # case is the velocity ROC analysis
+            t_str = 'Velocity' if use_vel else 'Speed'
+            s_hdr = np.empty(np.shape(data_out)[1], dtype=object)
+            s_hdr[:] = ''
+
+            # sets bin strings
+            if i_bin == 'All Bins':
+                bin_str = 'All Bins'
+            elif use_vel:
+                bin_str = '{0} to {1}'.format(int(r_data.vel_xi[i_bin, 0]), int(r_data.vel_xi[i_bin, 1]))
+            else:
+                bin_str = '{0} to {1}'.format(int(r_data.spd_xi[i_bin, 0]), int(r_data.spd_xi[i_bin, 1]))
+
+
+            # sets the suffix string and adds the title to the data array
+            s_hdr[0], s_hdr[1] = '{0} Bin'.format(t_str), bin_str
+            data_out = np.vstack((s_hdr, data_out))
+            suf_str = '{0} ~ {1}'.format(t_str, bin_str)
+
+        # outputs the final file
+        file_name = 'AUC Significance Proportion ({0}).csv'.format(suf_str)
+        self.output_data_file(file_name, data_out)
 
         ############################################
         ####    AUC SIGNIFICANCE STATS TABLE    ####
@@ -11377,7 +11766,7 @@ class AnalysisGUI(QMainWindow):
         self.output_data_file('Speed LDA (Individual Expt).csv', data_out)
 
     def plot_pooled_speed_comp_lda(self, m_size, plot_markers, plot_cond, plot_cell, sig_type, err_type,
-                                   fit_vals, use_all, plot_grid):
+                                   fit_vals, f_scale, use_all, plot_grid):
         '''
 
         :param show_fit:
@@ -11407,7 +11796,8 @@ class AnalysisGUI(QMainWindow):
         n_cond, ttype = sum(is_plot), np.array(d_data.ttype)[is_plot]
 
         # calculates the psychometric curves
-        cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin), use_all=use_all, fit_vals=fit_vals)
+        cfcn.calc_all_psychometric_curves(d_data, float(d_data.vel_bin),
+                                          use_all=use_all, fit_vals=fit_vals, f_scale=f_scale)
 
         #######################################
         ####    SUBPLOT INITIALISATIONS    ####
@@ -11893,6 +12283,434 @@ class AnalysisGUI(QMainWindow):
             # if there was an error, then output an error to screen
             e_str = 'Error while outputting data files. Either the files are already open or the filename is invalid.'
             cf.show_error(e_str, 'File Output Error')
+
+    def output_sf_slope_data_frame(self,  rot_filt, out_name, lcond_type, plot_all_expt, plot_scope):
+
+        def get_ctype_str(f_str, ct):
+            '''
+
+            :param f_str:
+            :param ct:
+            :return:
+            '''
+
+            if ~np.any(ct):
+                return '----'
+            else:
+                return '/'.join(f_str[ct])
+
+        # initialisations
+        g_filt = self.data.exc_gen_filt
+        r_data = self.data.rotation
+        f_data = self.data.externd.free_data
+        has_data, ok_nfilt, ok_tt = False, False, False
+        e_str0 = '"Correlation Fit Parameters (Fixed)" setting the trial conditions for both Black and Uniform only.' \
+                 '\n NOTE - No other rotation filter parameters should be set.'
+
+        # determines if the slope values have been calculated for the Black/Uniform trial conditions
+        if hasattr(r_data, 'sf_fix_slope'):
+            # retrieves the trial types used in the calculations
+            t_type_sf = r_data.r_obj_sf.rot_filt['t_type']
+
+            # determines if the correct filters have been applied
+            has_data = True
+            ok_nfilt = r_data.r_obj_sf.n_filt == 2
+            ok_tt = [x in t_type_sf for x in ['Black', 'Uniform']]
+
+
+        # if the user needs to run the calculation function then output an error message to screen and exit
+        if not (has_data and ok_nfilt and ok_tt):
+            if not has_data:
+                e_str = 'Insufficient data to run this function. Ensure that you have run ' \
+                        'the function {0}'.format(e_str0)
+
+            elif not ok_tt:
+                e_str = 'You have run the correct function, but the trial conditions should be Black and ' \
+                        'Uniform only. Re-run the function {0}'.format(e_str0)
+
+            else:
+                e_str = 'You have run the correct function, but with the incorrect filter parameters. Re-run ' \
+                        'the function {0}'.format(e_str0)
+
+            cf.show_error(e_str, 'Missing/Incorrect Data!')
+            return
+
+        # sets the base output file name
+        out_file = '{0}.csv'.format(os.path.join(self.def_data['dir']['dataDir'], out_name))
+        if os.path.exists(out_file):
+            # it the file already exists, then prompt the user if they want to overwrite (if not then exit)
+            u_choice = QMessageBox.question(self, 'Overwrite File?',
+                                            "File already exists. Do you wish to overwrite?",
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if u_choice == QMessageBox.No:
+                return
+
+        # initialisations
+        t_type_free, t_type_fix = ['DARK', lcond_type], ['Black', 'Uniform']
+        i_bin, lg_str = int(r_data.vel_bin_corr/5) - 1, dcopy(t_type_free)
+
+        # sets the final filter parameter object
+        rot_filt_final = dcopy(rot_filt)
+        if 'All' in rot_filt['free_ctype']:
+            # reset the trial types
+            rot_filt_final['free_ctype'] = ['HD', 'AHV', 'Speed', 'No Type']
+
+        # creates the rotational filter object
+        free_ctype = rot_filt_final['free_ctype']
+        r_obj = RotationFilteredData(self.data, rot_filt_final, None, None, True, 'Whole Experiment', False)
+        cl_id = dcopy(r_obj.clust_ind)
+
+        # determines the common cell indices for each filter types
+        t_type_full = np.array([x['t_type'][0] for x in r_obj.rot_filt_tot])
+        free_ctype_full = np.array([x['free_ctype'][0] for x in r_obj.rot_filt_tot])
+        i_cell_b, _ = cfcn.get_common_filtered_cell_indices(self.data, r_obj, t_type_full, True)
+
+
+        # if there is more than one free cell type, then reduce these filtered indices into a single array
+        if len(free_ctype_full) > 1:
+            # determines the new size
+            nNw = int(len(i_cell_b) / len(free_ctype))
+
+            # combines the indices for the differing free cell types
+            isB = t_type_full == 'Black'
+            iM = np.array([np.where(np.logical_and(free_ctype_full == ct, isB))[0][0] for ct in free_ctype])
+            i_cell_b0 = np.unique(cf.flat_list(np.array(i_cell_b)[iM]))
+            i_cell_b = [dcopy(i_cell_b0) for _ in range(nNw)]
+
+            # reduces down the cluster index array
+            cl_id0 = [np.unique(cf.flat_list([x[i] for x in cl_id[iM]])) for i in range(len(cl_id[0]))]
+            cl_id = np.array([dcopy(cl_id0) for _ in range(nNw)])
+
+            # resets the trial type strings
+            t_type_full = np.array(cf.flat_list(['Black', 'Uniform'] * int(nNw / 2)))
+
+        # retrieves the fixed/free slope values
+        f_slope_fix, r_pear_fix = r_data.sf_fix_slope, [r_data.vel_sf_corr_mn[tt] for tt in t_type_full]
+        f_slope_free, r_pear_free, ind_cl_free = self.get_free_fit_para(free_ctype, t_type_free, i_bin, is_flat=False)
+
+        # retrieves the indices of the inclusion cells
+        c_fix = [c for c, i in zip(self.data._cluster, cf.det_valid_rotation_expt(self.data)) if i]
+        ind_cl_fix = [np.where(cfcn.get_inclusion_filt_indices(c, g_filt))[0] for c in c_fix]
+
+        # sets up the fixed/free experiment mapping arrays
+        _, f2f_map = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name)
+        f2f_map = [x[y, :][z, :] if (len(y)*len(z) > 0) else [] for x, y, z in zip(f2f_map, ind_cl_fix, cl_id[0])]
+        # f2f_map = [x[x[:, 0] >= 0, :] for x in f2f_map]
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # memory allocation
+        n_cond, n_grp = len(t_type_free), 2
+        sf_slope = np.empty(2, dtype=object)
+        met_type = ['Fix Slope', 'Free Slope', 'Fixed Correlation', 'Free Pearson-R']
+        c_hdr = cf.flat_list(['{0} ({1})'.format(x, y) for y in met_type for x in ['Neg', 'Pos']])
+
+        # index array setup
+        i_free = [np.where(x)[0] for x in ind_cl_free]
+        ii = [np.array([np.where(z == y)[0] for z in x[:, 1]]) if len(x) else [] for x, y in zip(f2f_map, i_free)]
+        i_tt = [np.where(t_type_full == x)[0][0] for x in ['Black', 'Uniform']]
+        has_cells = np.array([len(x) > 0 for x in ii])
+
+        # stores the values for each
+        for i_cond in range(n_cond):
+            # memory allocation
+            sf_slope[i_cond] = np.ones((len(i_cell_b[i_cond]), len(met_type) * n_grp))
+
+            # sets the fixed/free slope fits for the negative/positive velocity ranges
+            for i_grp in range(n_grp):
+                # sets the fixed slope values
+                j_cond = i_tt[i_cond]
+                sf_slope[i_cond][:, i_grp] = f_slope_fix[i_grp, j_cond][i_cell_b[j_cond]]
+
+                # sets the freely moving slope values
+                sf_slope[i_cond][:, n_grp + i_grp] = np.array( \
+                            cf.flat_list([sf[x] for sf, x in zip(f_slope_free[i_grp, i_cond], ii) if len(x)]))[:, 0]
+
+                # sets the fixed pearson r-values
+                sf_slope[i_cond][:, 2 * n_grp + i_grp] = r_pear_fix[j_cond][i_cell_b[j_cond], i_grp]
+
+                # sets the freely moving pearson r-values
+                sf_slope[i_cond][:, 3 * n_grp + i_grp] = np.array( \
+                            cf.flat_list([sf[x] for sf, x in zip(r_pear_free[i_grp, i_cond], ii) if len(x)]))[:, 0]
+
+        # retrieves the fixed cell ID#'s
+        c_fix = [c for c, i in zip(self.data.cluster, cf.det_valid_rotation_expt(self.data)) if i]
+        cid_fix0 = cf.flat_list([np.array(cf['clustID'])[i] for cf, i in zip(c_fix, cl_id[0])])
+
+        # sets the spreadsheet column headers
+        cid_free0 = [np.array(x)[y] for x, y in zip(f_data.cell_id, ind_cl_free)]
+        ind_ex = np.array(np.cumsum([0] + [len(x) for x in ii if len(x)]))[:-1]
+
+        # retrieves the cell type flags
+        tt_str = ['{0}/{1}'.format(x, y) for x, y in zip(['Black', 'Uniform'], t_type_free)]
+        c_type0 = np.array(f_data.cell_type[0][i_bin].columns)
+        c_type = np.vstack([np.array(
+                    ct[i_bin])[i, :][x[:, 0], :] for ct, i, x in zip(f_data.cell_type, ind_cl_free, ii) if len(x)])
+
+        # sets up the table information array
+        t_info = np.empty(1 + n_cond, dtype=object)
+        for i in range(n_cond + 1):
+            # allocates memory for the current group
+            n_col = 4 if i == 0 else 2 * len(met_type)
+            t_info[i] = np.empty((len(i_cell_b[0]) + 2, 1 + n_col), dtype=object)
+            t_info[i][:] = ''
+
+            #
+            if i == 0:
+                # case is the cell information array
+                t_info[i][ind_ex + 2, 0] = np.array(f_data.exp_name)[has_cells]
+                t_info[i][1, :-1] = ['Expt Name', 'Fix ID#', 'Free ID#', 'Cell Type']
+                t_info[i][2:, 1] = cid_fix0
+                t_info[i][2:, 2] = cf.flat_list([x[i[:, 0]] for x, i in zip(cid_free0, ii) if len(i)])
+                t_info[i][2:, 3] = [get_ctype_str(c_type0, x) for x in c_type]
+
+            else:
+                # case is the spiking frequency slope values
+                t_info[i][0, 0] = tt_str[i - 1]
+                t_info[i][1, :-1] = c_hdr
+                t_info[i][:, :-1][2:, :] = sf_slope[i - 1]
+
+        # saves the data to file
+        self.output_data_file(out_file, np.hstack(t_info))
+
+    def plot_auto_ccgram_fft_analysis(self, cell_id, free_exp_name, plot_scope, cell_type,
+                                      use_all_cells, win_sz, f_max, plot_grid):
+        '''
+
+        :param cell_id:
+        :param free_exp_name:
+        :param plot_all_expt:
+        :param plot_scope:
+        :param cell_type:
+        :param use_all_cells:
+        :param plot_grid:
+        :return:
+        '''
+
+        # initialisations
+        g_filt = self.data.exc_gen_filt
+        f_data = self.data.externd.free_data
+        th_data = self.data.theta_index
+
+        # initialises the plot axis
+        self.init_plot_axes(n_row=2, n_col=1)
+        ax = self.plot_fig.ax
+
+        # retrieves the indices of the free experiments that match the external data files
+        c_free = [c for c in self.data._cluster if c['rotInfo'] is None]
+        exp_free = [cf.extract_file_name(x['expFile']) for x in c_free]
+        i_expt_free = [exp_free.index(cf.det_closest_file_match(exp_free, f_name)[0]) for f_name in f_data.exp_name]
+
+        # retrieves the inclusion cell boolean flags (matched with the external data files)
+        cl_inc_free = [cfcn.get_inclusion_filt_indices(c_free[i_ex], g_filt) for i_ex in i_expt_free]
+
+        # # retrieves the inclusion indices (based on the cell type - either Speed or AHV)
+        # cl_inc0 = cf.get_free_inclusion_indices(self.data, 0)
+        # cl_inc_cell = [np.array(and_fcn(np.any(ct[0][[cell_type]], axis=1), ic))
+        #                                                 for ic, ct in zip(cl_inc0, f_data.cell_type)]
+        # cl_inc_null, cl_inc_cell = np.array(cl_inc0)[has_data], np.array(cl_inc_cell)[has_data]
+
+        #################################
+        ####    SUB-PLOT CREATION    ####
+        #################################
+
+        #
+        if plot_scope == 'Auto-CCGram & Power Spectrum':
+
+            # retrieves the experiment index
+            is_free = np.logical_not(cf.det_valid_rotation_expt(self.data))
+            free_exp = [cf.extract_file_name(x['expFile']) for x in np.array(self.data.cluster)[is_free]]
+            i_expt = free_exp.index(cf.det_closest_file_match(free_exp, free_exp_name)[0])
+
+            # determines the cell index
+            c = np.array(self.data.cluster)[is_free][i_expt]
+            i_cell0 = c['clustID'].index(int(cell_id[6:]))
+            i_cell = np.where(cl_inc_free[i_expt])[0][i_cell0]
+
+            #######################################
+            ####    AUTOCORRELOGRAM SUBPLOT    ####
+            #######################################
+
+            # creates the auto-correlogram subplot
+            cc_gram = th_data.cc_gram[i_expt][i_cell, :]
+            win_sz_full = int((len(cc_gram) - 1) / 2)
+            xi = np.arange(-win_sz_full, win_sz_full + 1) * th_data.bin_sz
+            i_cc = np.logical_and(xi >= 0, xi <= win_sz)
+
+            # creates the barplot
+            ax[0].plot(xi[i_cc], cc_gram[i_cc])
+
+            # updates the axis limits and plots the central line
+            yL = ax[0].get_ylim()
+            ax[0].set_ylim(yL)
+            ax[0].set_xlim([0, win_sz])
+            ax[0].plot(np.zeros(2), yL, 'r--')
+
+            # sets the axis properties
+            ax[0].set_title('Auto-Correlogram (Cluster #{0})'.format(cell_id))
+
+            # sets the x/y-axis label
+            ax[0].set_ylabel('Frequency (Hz)')
+            ax[0].set_xlabel('Time Lag (ms)')
+
+            ######################################
+            ####    POWER SPECTRUM SUBPLOT    ####
+            ######################################
+
+            #
+            n_pad = 2 ** 16
+            f_theta = [5, np.min([11, f_max])]
+            freq_rng = [0, np.min([50, f_max])]
+
+            # sets up the psd frequency
+            df = (2 * th_data.t_bin) / n_pad
+            f = np.arange(0, th_data.t_bin, df) / th_data.bin_sz
+
+            # creates the power spectrum subplot
+            i_plt = f <= f_max
+            xi_p = f[i_plt]
+            p_fft = th_data.p_fft[i_expt][i_cell, i_plt]
+            th_index = th_data.th_index[i_expt][i_cell, :]
+
+            # creates the bar-plot
+            ax[1].plot(xi_p, p_fft, color='b')
+            # ax[1].bar(xi_p[ind_f], height=p_fft[ind_f], width=1, color='r')
+
+            # updates the axis limits and plots the central line
+            yL = ax[1].get_ylim()
+            ax[1].set_ylim(yL)
+            ax[1].plot(f_theta[0] * np.ones(2), yL, 'r--')
+            ax[1].plot(f_theta[1] * np.ones(2), yL, 'r--')
+
+            # sets the axis properties
+            ax[1].set_xlim([0, f_max])
+
+            # sets the title and axis labels
+            sig_str = '*' if th_index[1] else ''
+            ax[1].set_title('Power Spectrum (Theta Index = {:4.2f}{})'.format(th_index[0], sig_str))
+            ax[1].set_ylabel('Power')
+            ax[1].set_xlabel('Frequency (Hz)')
+
+        else:
+            # initialisations
+            and_fcn = np.logical_and
+            use_no_cells = len(cell_type) == 0
+            i_bin = ['5', '10'].index(th_data.vel_bin)
+
+            # retrieves the freely moving cell inclusion indices
+            if not use_all_cells:
+                # retrieves the free expt/external data file mapping indices
+                col_hdr = list(f_data.cell_type[0][i_bin].columns)
+                i_map = [np.intersect1d(id, c['clustID'], return_indices=True)[1:]
+                         for id, c in zip(f_data.cell_id, np.array(c_free)[i_expt_free])]
+
+                # sets the external data file cell types
+                c_type_ext = [x[i_bin] for x in f_data.cell_type]
+
+                # maps the cell types (from the external data files) to that from the freely moving expts
+                nC = [c['nC'] for c in np.array(c_free)[i_expt_free]]
+                c_type = np.empty(len(i_expt_free), dtype=object)
+                for i_ex in range(len(c_type)):
+                    # maps the cell type values from external data to the freely moving expt
+                    c_type0 = np.zeros((nC[i_ex], 4), dtype=bool)
+                    c_type0[i_map[i_ex][1], :] = np.array(c_type_ext[i_ex])[i_map[i_ex][0], :]
+                    c_type[i_ex] = pd.DataFrame(data=c_type0, columns=col_hdr)
+
+                if use_no_cells:
+                    # case is cells with no classification
+                    cl_inc_free = [np.array(and_fcn(~np.any(ct, axis=1), ic)) for
+                                            ic, ct in zip(cl_inc_free, c_type)]
+                else:
+                    # case is cells with at least one cell classification type
+                    cl_inc_free = [np.array(and_fcn(np.any(ct[cell_type], axis=1), ic)) for
+                                            ic, ct in zip(cl_inc_free, c_type)]
+
+            # combines the theta index values across each experiment into a single array
+            th_index_ex = [th[ind] for th, ind in zip(th_data.th_index, cl_inc_free)]
+
+            #############################################
+            ####    THETA INDEX HISTOGRAM SUBPLOT    ####
+            #############################################
+
+            # parameters
+            th_index_tol = 5
+
+            # calculates the histogram
+            th_index = np.vstack(th_index_ex)
+            th_max = np.ceil(np.max(th_index[:, 0])) + 1
+            n_hist, xi_lim = np.histogram(th_index[:, 0], int(2 * th_max), (0, th_max))
+
+            # creates the bar graphs
+            xi = 0.5 * (xi_lim[1:] + xi_lim[:-1])
+            ii = xi > th_index_tol
+            ax[0].bar(xi[~ii], n_hist[~ii], color= 'w', edgecolor='k', width=0.5)
+            ax[0].bar(xi[ii], n_hist[ii], color = 'b', edgecolor='k', width=0.5)
+
+            # updates the axis limits and plots the threshold line
+            yL = ax[0].get_ylim()
+            ax[0].set_ylim(yL)
+            ax[0].set_xlim([0, th_max])
+            ax[0].plot(th_index_tol * np.ones(2), yL, 'r--')
+
+            # sets the axis label and titles
+            ax[0].set_title('Theta Index Histogram (nCell = {0})'.format(np.shape(th_index)[0]))
+            ax[0].set_ylabel('Cell Count')
+
+            #######################################
+            ####    THETA INDEX CDF SUBPLOT    ####
+            #######################################
+
+            # creates the
+            p_cdf = 100 * np.hstack(([0], np.cumsum(n_hist / np.sum(n_hist))))
+            ax[1].plot(xi_lim, p_cdf, 'b')
+
+            # updates the axis limits and plots the threshold line
+            yL = [0, 100]
+            ax[1].set_ylim(yL)
+            ax[1].set_xlim([0, th_max])
+            ax[1].plot(th_index_tol * np.ones(2), yL, 'r--')
+
+            # sets the axis label and titles
+            ax[1].set_title('Theta Index CDF (%age Significant = {:.2f}%)'.format(100 * np.mean(th_index[:, 1])))
+            ax[1].set_xlabel('Theta Index')
+            ax[1].set_ylabel('% of Population')
+
+        # sets the general axis properties
+        for _ax in ax:
+            _ax.grid(plot_grid)
+
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # sets the header array
+        hdr_arr = ['Expt Name', 'Cell ID#', 'Theta Index']
+
+        # retrieves the experiment names
+        n_expt = len(c_free)
+        is_ok = np.ones(n_expt, dtype=bool)
+        exp_info = np.empty(n_expt, dtype=object)
+        for i_ex in range(n_expt):
+            if ~np.any(cl_inc_free[i_ex]):
+                is_ok[i_ex] = False
+                continue
+
+            # memory allocation
+            th_index = th_data.th_index[i_ex][cl_inc_free[i_ex], 0]
+            n_cell = len(th_index)
+
+            # sets the experiment name/cell ID#'s
+            exp_info[i_ex] = np.empty((n_cell, 3), dtype=object)
+            exp_info[i_ex][:] = ''
+            exp_info[i_ex][0, 0] = cf.extract_file_name(c_free[i_ex]['expFile'])
+            exp_info[i_ex][:, 1] = np.array(c_free[i_ex]['clustID'])[cl_inc_free[i_ex]]
+            exp_info[i_ex][:, 2] = th_index
+
+        # outputs the final array to fiie
+        total_arr = np.vstack((hdr_arr, np.vstack(exp_info[is_ok])))
+        self.output_data_file('Theta Index Values.csv', total_arr)
 
     #########################################
     ####    COMMON ANALYSIS FUNCTIONS    ####
@@ -13483,6 +14301,39 @@ class AnalysisGUI(QMainWindow):
         cf.add_plot_table(self.plot_fig, 1, table_font, n_sig_grp, row_hdr,
                           col_hdr, row_cols, [cc[0]] * len(col_hdr), t_loc='bottom')
 
+        ###########################
+        ####    DATA OUTPUT    ####
+        ###########################
+
+        # memory allocation and other initialisations
+        cl_ind = r_obj.clust_ind[0]
+        data_arr = np.empty(n_filt, dtype=object)
+        i_expt = np.where(cf.det_valid_rotation_expt(self.data))[0]
+
+        # sets the header array
+        hdr_arr = ['Expt Name', 'Cell ID#', '']
+
+        # retrieves the experiment names
+        n_expt = len(cl_ind)
+        exp_info = np.empty(n_expt, dtype=object)
+        for i_ex in range(n_expt):
+            # memory allocation
+            n_cell = len(cl_ind[i_ex])
+            c = self.data.cluster[i_expt[i_ex]]
+
+            # sets the experiment name/cell ID#'s
+            exp_info[i_ex] = np.empty((n_cell, 3), dtype=object)
+            exp_info[i_ex][:] = ''
+            exp_info[i_ex][0, 0] = cf.extract_file_name(c['expFile'])
+            exp_info[i_ex][:, 1] = np.array(c['clustID'])[cl_ind[i_ex]]
+
+        # sets the data array
+        data_arr = np.vstack(([x.replace('\n', '') for x in r_obj.lg_str], np.vstack(roc_auc).T))
+
+        # outputs the final array to fiie
+        total_arr = np.hstack((np.vstack((hdr_arr, np.vstack(exp_info))), data_arr))
+        self.output_data_file('Direction auROC Values.csv', total_arr)
+
     def create_kinematic_lda_plots(self, d_data, s_factor, marker_type, plot_cond, plot_grid, use_stagger=False,
                                    show_stats=False, plot_chance=False, plot_type='Line Plot'):
         '''
@@ -13692,21 +14543,7 @@ class AnalysisGUI(QMainWindow):
         ####    INITIALISATIONS & DATA SETUP    ####
         ############################################
 
-        def get_free_cell_info(c_info, cl_inc, i_bin, cond_type, col_type, mlt=1):
-            '''
-
-            :param c_info:
-            :param cl_inc:
-            :param i_bin:
-            :param cond_type:
-            :param col_type:
-            :return:
-            '''
-
-            return np.array(
-                cf.flat_list([mlt * np.array(ci[i_bin][cond_type][col_type])[ic] for ci, ic in zip(c_info, cl_inc)]))
-
-        def create_fit_plot(ax, f_slope, peak_hz, is_pos, plot_indiv):
+        def create_fit_plot(ax, f_slope, is_pos, plot_indiv):
             '''
 
             :param ax:
@@ -13721,7 +14558,7 @@ class AnalysisGUI(QMainWindow):
 
             # parameters
             h_plt = []
-            n_cond, n_grp = len(f_slope), 2
+            n_cond, n_grp = np.shape(f_slope)[1], 2
             v_max, dv, f_alpha = 80, 2.5, 0.05
             col = cf.get_plot_col(n_cond)
 
@@ -13771,55 +14608,19 @@ class AnalysisGUI(QMainWindow):
             r_obj = RotationFilteredData(self.data, rot_filt, None, None, True, 'Whole Experiment', False)
             lg_str = [lg_fcn(x.split('\n')) for x in r_obj.lg_str]
 
+            # retrieves the slope/peak firing rate arrays
+            f_slope = r_data.sf_fix_slope
+
         else:
             # case is the freely moving experimental conditions
 
             # initialisations
-            and_fcn = np.logical_and
             t_type = ['DARK', lcond_type]
             i_bin, lg_str = ['5', '10'].index(vel_bin), dcopy(t_type)
             no_cells = len(cell_type) == 0
-            n_cond = len(t_type)
-
-            # cell information retrieval
-            f_data = self.data.externd.free_data
-            c_info = dcopy(f_data.c_info)
-
-            # retrieves the freely moving cell inclusion indices
-            cl_inc0 = cf.get_free_inclusion_indices(self.data, i_bin)
-            if no_cells:
-                # case is cells with no classification
-                cl_inc = [and_fcn(~np.any(ct[i_bin], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
-
-            else:
-                # case is cells with at least one cell classification type
-                cl_inc = [and_fcn(np.any(ct[i_bin][cell_type], axis=1), ic) for ic, ct in zip(cl_inc0, f_data.cell_type)]
-
-        #############################
-        ####    DATA GROUPING    ####
-        #############################
-
-        if is_fixed:
-            # case is the freely moving experiments
 
             # retrieves the slope/peak firing rate arrays
-            f_slope, peak_hz = r_data.sf_fix_slope, r_data.peak_hz_fix
-
-        else:
-            # case is the freely moving experiments
-
-            # memory allocation
-            n_grp = 2
-            f_slope = np.empty((n_grp, n_cond), dtype=object)
-            peak_hz = np.empty(n_cond, dtype=object)
-
-            for i_c, c_t in enumerate(t_type):
-                # retrieves the negative/positive slope values for the current condition type
-                f_slope[0, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_neg', mlt=-1)
-                f_slope[1, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_pos')
-
-                # retrieves the peak firing rate for the current condition type
-                peak_hz[i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_peak_hz')
+            f_slope, _, _ = self.get_free_fit_para(cell_type, t_type, i_bin, norm_slope=True)
 
         ############################
         ####    FIGURE SETUP    ####
@@ -13836,7 +14637,7 @@ class AnalysisGUI(QMainWindow):
             is_pos = ((i_plot == 0) and (n_plot == 2)) or (fit_ptype == 'Positive Slopes Only')
 
             # creates the fit plot
-            h_plt = create_fit_plot(ax[i_plot], f_slope, peak_hz, is_pos, plot_indiv)
+            h_plt = create_fit_plot(ax[i_plot], f_slope, is_pos, plot_indiv)
 
             # resets the plot axis limits
             if is_pos:
@@ -14320,7 +15121,7 @@ class AnalysisGUI(QMainWindow):
         while 1:
             try:
                 # attemps to output the data to file. if successful, then exit the loop
-                np.savetxt(out_name, data_out, delimiter=",", fmt='%s')
+                np.savetxt(out_name, data_out, delimiter=',', fmt='%s')
                 break
             except PermissionError:
                 # if the file is still open, then output an error message to screen
@@ -14534,16 +15335,18 @@ class AnalysisGUI(QMainWindow):
         i_expt_fix = np.array([exp_fix.index(cf.det_closest_file_match(exp_fix, x)[0]) for x in f_data.exp_name])
 
         # determines the matching cells against the freely moving experiment file
-        ind_cl_fix = [np.where(ind_func(self.data._cluster[i_fix0[i]], g_filt))[0] for i in i_expt_fix]
+        ind_cl_fix = [np.where(ind_func(self.data._cluster[i], g_filt))[0] for i in i_fix0]
         i_expt_f2f, f2f_map0 = cf.det_matching_fix_free_cells(self.data, exp_name=f_data.exp_name, cl_ind=ind_cl_fix)
 
         # determines cells that match between the fixed/external free experiment data files (for each filter type)
-        f2f_map = [[ff[i_cl, :] for ff, i_cl in zip(f2f_map0, cl_ind)] for cl_ind in r_obj_wc.clust_ind]
+        r_ind_cl = [list(np.array(x)[i_expt_fix]) for x in r_obj_wc.clust_ind]
+        f2f_map = [[ff[i_cl, :] for ff, i_cl in zip(f2f_map0, cl_ind)] for cl_ind in r_ind_cl]
         is_match = [[_ff[:, 0] >= 0 for _ff in ff] for ff in f2f_map]
 
         # determines the intersection of the rotation filter indices and that from exclusion filter (over all filters)
-        ind_cl_match = [[cl_fx[cl_id][_is_m] for _is_m, cl_fx, cl_id in zip(is_m, ind_cl_fix, cl_ind)]
-                                      for is_m, cl_ind in zip(is_match, r_obj_wc.clust_ind)]
+        ind_cl_fix_ordered = [ind_cl_fix[i] for i in i_expt_fix]
+        ind_cl_match = [[cl_fx[cl_id][_is_m] for _is_m, cl_fx, cl_id in zip(is_m, ind_cl_fix_ordered, cl_ind)]
+                                      for is_m, cl_ind in zip(is_match, r_ind_cl)]
 
         # retrieves the indices of the trial type conditions (for retrieving the correlation/significance values)
         t_type_full = [x['t_type'][0] for x in r_obj_wc.rot_filt_tot]
@@ -14596,6 +15399,89 @@ class AnalysisGUI(QMainWindow):
         # calculates the mean spiking frequency over all cells
         n_cell = np.size(k_sf_raw, axis=0)
         return k_sf_raw, np.mean(k_sf_raw, axis=0), np.std(k_sf_raw, axis=0) / (n_cell ** 0.5)
+
+    def get_free_fit_para(self, cell_type, t_type, i_bin, is_flat=True, norm_slope=False):
+
+        def get_free_cell_info(c_info, cl_inc, i_bin, cond_type, col_type, is_flat, mlt=1):
+            '''
+
+            :param c_info:
+            :param cl_inc:
+            :param i_bin:
+            :param cond_type:
+            :param col_type:
+            :return:
+            '''
+
+            # retrieves the information from each experiment
+            c_arr = [mlt * np.array(ci[i_bin][cond_type][col_type])[ic] for ci, ic in zip(c_info, cl_inc)]
+
+            if is_flat:
+                return np.array(cf.flat_list(c_arr))
+            else:
+                return c_arr
+
+        # initialisations
+        or_fcn = np.logical_or
+        and_fcn = np.logical_and
+        n_grp, n_cond = 2, len(t_type)
+
+        # cell information retrieval
+        f_data = self.data.externd.free_data
+        c_info = dcopy(f_data.c_info)
+
+        # retrieves the freely moving cell inclusion indices
+        ctype = f_data.cell_type
+        cl_inc0 = cf.get_free_inclusion_indices(self.data, i_bin)
+        if len(cell_type) == 0:
+            # case is cells with no classification
+            cl_inc = [and_fcn(~np.any(ct[i_bin], axis=1), ic) for ic, ct in zip(cl_inc0, ctype)]
+
+        elif 'All' in cell_type:
+            # case is all cells are to be used
+            cl_inc = cl_inc0
+
+        else:
+            # case is specific cell types are to be used
+            cl_inc = np.array([np.zeros(len(x), dtype=bool) for x in cl_inc0])
+
+            # determines the cell flags for each cell type
+            for ct0 in cell_type:
+                if ct0 == 'No Type':
+                    # case is no cell type
+                    inc_nw = [~np.any(ct[i_bin], axis=1) for ct in ctype]
+                else:
+                    # case is the other cell type
+                    inc_nw = [np.any(ct[i_bin][[ct0]], axis=1) for ct in ctype]
+
+                # appends the new cell type flags to the overall array
+                cl_inc = [or_fcn(x, y) for x, y in zip(cl_inc, inc_nw)]
+
+            # combines the cell flags against the original inclusion flags
+            cl_inc = [and_fcn(x, y) for x, y in zip(cl_inc, cl_inc0)]
+
+        # memory allocation
+        f_slope = np.empty((n_grp, n_cond), dtype=object)
+        r_pearson = np.empty((n_grp, n_cond), dtype=object)
+        #peak_hz = np.empty(n_cond, dtype=object)
+
+        for i_c, c_t in enumerate(t_type):
+            # retrieves the negative/positive slope values for the current condition type
+            f_slope[0, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_neg', is_flat, mlt=-1)
+            f_slope[1, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_fit_slope_pos', is_flat)
+
+            # normalises the slope values by the peak frequency (if required)
+            if norm_slope:
+                peak_hz = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_peak_hz', is_flat)
+                f_slope[0, i_c] = np.divide(f_slope[0, i_c], peak_hz)
+                f_slope[1, i_c] = np.divide(f_slope[1, i_c], peak_hz)
+
+            # retrieves the negative/positive slope values for the current condition type
+            r_pearson[0, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_pearson_r_neg', is_flat)
+            r_pearson[1, i_c] = get_free_cell_info(c_info, cl_inc, i_bin, c_t, 'ahv_pearson_r_pos', is_flat)
+
+        # returns the arrays
+        return f_slope, r_pearson, [np.array(x) for x in cl_inc]
 
     ############################################
     ####    POSTHOC STATISTICS FUNCTIONS    ####
@@ -14874,11 +15760,14 @@ class AnalysisGUI(QMainWindow):
                          'Correlation Fit Parameters (Fixed)',
                          'Correlation Comparison (Fixed)']
 
+        # mandatory function recalculation (regardless of parameters)
+        func_mand_calc = ['Fixed/Free Cluster Matching']
+
         if (self.thread_calc_error) or (self.fcn_data.prev_fcn is None) or (self.calc_cancel) or (self.data.force_calc):
             # if there was an error or initialising, then return a true flag
             return True
 
-        elif self.fcn_data.prev_fcn != current_fcn:
+        elif (self.fcn_data.prev_fcn != current_fcn) or (current_fcn in func_mand_calc):
             # if the function has changed, then return a true value
             return True
 
@@ -15388,6 +16277,7 @@ class AnalysisGUI(QMainWindow):
 
             # updates the plot axes
             self.fcn_data.curr_para[var_name] = i_plot
+            self.fcn_data.force_update = True
             self.update_click()
             time.sleep(0.1)
 
@@ -15649,6 +16539,7 @@ class AnalysisGUI(QMainWindow):
             c['clustID'], c['chDepth'] = list(np.array(c['clustID'])[cl_inc]), c['chDepth'][cl_inc]
             c['chRegion'], c['chLayer'] = c['chRegion'][cl_inc], c['chLayer'][cl_inc]
             c['isiHist'], c['ptsHist'], c['nC'] = c['isiHist'][cl_inc], c['ptsHist'][cl_inc], np.sum(cl_inc)
+            # c['expInfo']['clInclude'] = cl_inc[cl_inc]
 
             # reduces down the rotational analysis information (if present in current data file)
             if c['rotInfo'] is not None:
@@ -15771,7 +16662,9 @@ class AnalysisFunctions(object):
         self.get_plot_grp_fcn = main_obj.get_plot_group
         self.get_plot_fcn = main_obj.get_plot_func
         self.update_plot = main_obj.update_click
+
         self.is_multi = False
+        self.force_update = False
         self.type = None
         self.details = {}
         self.exp_name = None
@@ -15888,19 +16781,19 @@ class AnalysisFunctions(object):
                 'min_val': 0.01, 'max_val': 1e4
             },
             'sig_corr_min': {
-                'gtype': 'C', 'text': 'Signal Correlation Minimum', 'def_val': def_clust_para['sig_corr_min'],
+                'gtype': 'C', 'text': 'Spike Waveform Correlation Min', 'def_val': def_clust_para['sig_corr_min'],
                 'min_val': 0.0, 'max_val': 1.0
             },
             'isi_corr_min': {
-                'gtype': 'C', 'text': 'ISI Correlation Minimum', 'def_val': def_clust_para['isi_corr_min'],
+                'gtype': 'C', 'text': 'ISI Hist Correlation Min', 'def_val': def_clust_para['isi_corr_min'],
                 'min_val': 0.0, 'max_val': 1.0
             },
             'sig_diff_max': {
-                'gtype': 'C', 'text': 'Maximum Proportional Signal Diff', 'def_val': def_clust_para['sig_diff_max'],
+                'gtype': 'C', 'text': 'Spike Waveform Max Diff', 'def_val': def_clust_para['sig_diff_max'],
                 'min_val': 0.0, 'max_val': 1.0
             },
             'sig_feat_min': {
-                'gtype': 'C', 'text': 'Signal Feature Difference Minimum', 'def_val': def_clust_para['sig_feat_min'],
+                'gtype': 'C', 'text': 'Local Spike Feature Diff Min', 'def_val': def_clust_para['sig_feat_min'],
                 'min_val': 0.0, 'max_val': 1.0
             },
             'w_sig_feat': {
@@ -16127,6 +17020,11 @@ class AnalysisFunctions(object):
 
         # only initialise these functions if there is free data
         if has_free_data:
+            # parameter lists
+            cell_type_f = ['Speed', 'AHV']
+            plot_type_f = ['Correlation Histogram', 'Correlation Scatterplot']
+            scatter_type = ['AHV', 'Velocity']
+
             # ====> Freely Moving Cell Type Statistics
             para = {
                 # plotting parameters
@@ -16332,6 +17230,24 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Analysis',
                           name='Freely Moving Cell Fit Residual',
                           func='plot_cell_fit_residual',
+                          para=para)
+
+            # ====> Freely Moving Cell Stability
+            para = {
+                # plotting parameters
+                'b_sz': {'text': 'Bin Size', 'def_val': 0.05, 'min_val': 0.01, 'max_val': 0.25},
+                'm_size': {'text': 'Marker Size', 'def_val': 60},
+                'plot_abs': {'type': 'B', 'text': 'Plot Absolute Correlation Values', 'def_val': True},
+                'plot_type': {
+                    'type': 'L', 'text': 'Plot Type', 'list': plot_type_f, 'def_val': plot_type_f[0],
+                    'link_para': [['b_sz', plot_type_f[1]], ['m_size', plot_type_f[0]], ['plot_abs', plot_type_f[0]]]
+                },
+                'cell_type': {'type': 'L', 'text': 'Cell Type', 'list': cell_type_f, 'def_val': cell_type_f[1]},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+            }
+            self.add_func(type='Freely Moving Analysis',
+                          name='Stability Analysis',
+                          func='plot_cell_stability',
                           para=para)
 
         ######################################
@@ -17159,9 +18075,10 @@ class AnalysisFunctions(object):
         # parameters
         t_phase, t_ofs = 1.0, 0.2
         pos_bin = [str(x) for x in [3, 4, 5, 6, 10, 15, 20, 30, 45, 60]]
+        mds_list = ['Uniform', 'LandmarkLeft', 'LandmarkRight', 'MotorDrifting']
 
         # type lists
-        p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, ['Uniform', 'LandmarkLeft', 'LandmarkRight']))))
+        p_cond = list(np.unique(cf.flat_list(cf.det_reqd_cond_types(data, mds_list))))
         spread_type = ['Individual Trial Traces', 'SEM Error Patches']
         comp_type_phs = ['CW vs BL', 'CCW vs BL']
         sort_type = ['Probe Depth', 'Direction Selectivity Index']
@@ -17731,7 +18648,7 @@ class AnalysisFunctions(object):
         vis_type_0 = vis_type[0] if len(vis_type) else 'N/A'
         cell_desc_type = ['Motion/Direction Selectivity', 'Rotation/Visual DS', 'Congruency']
         vel_sig_type = ['auROC Significance', 'auROC CDF/Statistics', 'auROC Scatterplot']
-        ms_scat_type = ['auROC Scatterplot', 'auROC Significance/Histogram']
+        ms_scat_type = ['auROC CDF/Statistics', 'auROC Scatterplot']
         sort_type_auc = ['AUC ROC (CW vs BL)', 'AUC ROC (CCW vs BL)', 'AUC ROC (CCW vs CW)']
 
         # velocity/speed ranges
@@ -17745,9 +18662,9 @@ class AnalysisFunctions(object):
 
         #
         rot_filt_vel_roc = cf.init_rotation_filter_data(False)
-        if data.rotation.vel_roc_auc is not None:
-            rot_filt_vel_roc['t_type'] = list(data.rotation.vel_roc_auc.keys())
-
+        if hasattr(data.rotation,'vel_roc_auc'):
+            if data.rotation.vel_roc_auc is not None:
+                rot_filt_vel_roc['t_type'] = list(data.rotation.vel_roc_auc.keys())
 
         #
         vel_roc_para = cfcn.init_roc_para(data.rotation, 'vel_roc_sig')
@@ -18045,7 +18962,7 @@ class AnalysisFunctions(object):
             'rot_filt': {
                 'type': 'Sp', 'text': 'Filter Parameters', 'para_gui': RotationFilter, 'def_val': None
             },
-            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp, 'list': fix_exp0},
+            'plot_exp_name': {'type': 'L', 'text': 'Experiment', 'def_val': fix_exp0, 'list': fix_exp},
             'plot_all_expt': {
                 'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'link_para': ['plot_exp_name', True]
             },
@@ -18188,6 +19105,7 @@ class AnalysisFunctions(object):
                               ['plot_err', vel_sig_type[1:]], ['plot_exp_name', vel_sig_type[1:]],
                               ['plot_all_expt', vel_sig_type[1:]], ['pool_expt', vel_sig_type[1:]]]
             },
+            'm_size': {'text': 'Scatterplot Marker Size', 'def_val': 50},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
             # invisible plotting parameters
@@ -18243,7 +19161,7 @@ class AnalysisFunctions(object):
                       func='plot_roc_cond_comparison',
                       para=para)
 
-        # ====> Motion/Direction Selectivity Cell Grouping Scatterplot
+        # ====> Direction ROC Significance
         para = {
             # calculation parameters
             'n_boot': {'gtype': 'C', 'text': 'Number bootstrapping shuffles', 'def_val': n_boot_def, 'min_val': 100},
@@ -18310,8 +19228,8 @@ class AnalysisFunctions(object):
             },
             'plot_type': {
                 'type': 'L', 'text': 'Analysis Plot Type', 'list': ms_scat_type, 'def_val': ms_scat_type[0],
-                'link_para': [['mark_type', ms_scat_type[1]], ['show_grp_markers', ms_scat_type[1]],
-                              ['plot_trend', ms_scat_type[1]]]
+                'link_para': [['mark_type', ms_scat_type[0]], ['show_grp_markers', ms_scat_type[0]],
+                              ['plot_trend', ms_scat_type[0]]]
             },
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
 
@@ -18322,7 +19240,7 @@ class AnalysisFunctions(object):
             },
         }
         self.add_func(type='ROC Analysis',
-                      name='Motion/Direction Selectivity Cell Grouping Scatterplot',
+                      name='Direction ROC Significance',
                       func='plot_cond_grouping_scatter',
                       para=para)
 
@@ -19150,11 +20068,12 @@ class AnalysisFunctions(object):
             'fit_vals': {
                 'type': 'L', 'text': 'Psychometric Curve Fit Values', 'list': fit_vals, 'def_val': fit_vals[0]
             },
+            'f_scale': {'text': 'Outlier Scale Factor', 'def_val': 1.0, 'min_val': 0.0},
             'use_all': {'type': 'B', 'text': 'Fit Curves Using All Points', 'def_val': True},
             'sig_type': {
                 'type': 'L', 'text': 'Plotting Type', 'list': lda_ptype, 'def_val': lda_ptype[0],
                 'link_para': [['err_type', [lda_ptype[0], lda_ptype[-1]]], ['fit_vals', lda_ptype[1:]],
-                              ['use_all', lda_ptype[1:]], ['plot_cell', lda_ptype[3]],
+                              ['f_scale', lda_ptype[1:]], ['use_all', lda_ptype[1:]], ['plot_cell', lda_ptype[3]],
                               ['m_size', lda_ptype[3]], ['plot_markers', lda_ptype[3]]]
             },
             'plot_cond': {
@@ -19324,6 +20243,103 @@ class AnalysisFunctions(object):
                       name='Velocity Multilinear Regression Dataframe Output',
                       func='output_spiking_freq_dataframe',
                       para=para)
+
+
+        if has_free_data:
+            # parameter lists
+            scope_fft = ['Auto-CCGram & Power Spectrum', 'Theta Index Distributions']
+            pow_type = ['FFT-Squared', 'Periodogram']
+            win_type = ['none', 'hamming', 'boxcar']
+
+            # sets the default class parameters
+            th_def_para = init_def_class_para(data, 'theta_index', ThetaIndexData())
+
+            # ====> Velocity Multilinear Regression Dataframe Output
+            para = {
+                # plotting parameters
+                'rot_filt': {
+                    'type': 'Sp', 'text': 'Filter Parameters', 'def_val': dcopy(rot_filt_free),
+                    'para_gui_var': {'rmv_fields': ['t_type', 'match_type', 'region_name', 'record_layer']},
+                    'para_gui': RotationFilter
+                },
+                'out_name': {
+                    'type': 'T', 'text': 'Output File Name',
+                    'def_val': cfcn.set_def_para(sf_def_para, 'out_name', 'SF_Slope_Dataframe')
+                },
+                'lcond_type': {
+                    'type': 'L', 'text': 'Light Condition Type', 'list': lcond_type, 'def_val': lcond_type[0]
+                },
+
+                # invisible parameters
+                'plot_all_expt': {'type': 'B', 'text': 'Analyse All Experiments', 'def_val': True, 'is_visible': False},
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[1],
+                    'is_visible': False
+                },
+
+            }
+            self.add_func(type='Miscellaneous Functions',
+                          name='Spiking Frequency Slope Dataframe Output',
+                          func='output_sf_slope_data_frame',
+                          para=para)
+
+            # ====> Autocorrelogram Theta Index Calculations
+            para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+                },
+                'pow_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'PSD Calculation Type', 'list': pow_type,
+                    'def_val': cfcn.set_def_para(th_def_para, 'pow_type', pow_type[0])
+                },
+                't_bin': {
+                    'gtype': 'C', 'text': 'Time Bin Size (ms)', 'def_val': 500, 'is_visible': False,
+                },
+                'win_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'PSD Windowing Type', 'list': win_type,
+                    'def_val': cfcn.set_def_para(th_def_para, 'win_type', 'none')
+                },
+                'bin_sz': {
+                    'gtype': 'C', 'text': 'Autocorrelogram Bin Size (ms)', 'is_int': True,
+                    'def_val': cfcn.set_def_para(th_def_para, 'bin_sz', 1)
+                },
+                'remove_bl': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Remove Auto-CC Baseline',
+                    'def_val': cfcn.set_def_para(th_def_para, 'remove_bl', True)
+                },
+
+
+                # plotting parameters
+                'cell_id': {
+                    'type': 'L', 'text': 'Free Cell ID#', 'list': free_cid, 'def_val': free_cid[0]
+                },
+                'free_exp_name': {
+                    'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
+                    'para_reset': [['cell_id', self.reset_free_cid]]
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_fft, 'def_val': scope_fft[0],
+                    'link_para': [['cell_id', 'Whole Experiment'], ['free_exp_name', 'Whole Experiment']]
+                },
+                'cell_type': {
+                    'type': 'CL', 'text': 'Cell Types', 'list': fcell_type[1:-1],
+                    'other_para': '--- Select Cell Types ---', 'para_reset': [['cell_id', self.reset_free_cid]],
+                    'def_val': np.ones(len(fcell_type) - 2, dtype=bool)
+                },
+                'use_all_cells': {
+                    'type': 'B', 'text': 'Analyse All Cells', 'def_val': True, 'link_para': ['cell_type', True],
+                    'para_reset': [['cell_id', self.reset_free_cid]]
+                },
+                'win_sz': {'text': 'CC-Gram Window Size (ms)', 'def_val': 499, 'max_val': 499},
+                'f_max': {'text': 'Plot Freq. Limit (Hz)', 'def_val': 50, 'max_val': 125},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            }
+            self.add_func(type='Miscellaneous Functions',
+                          name='Autocorrelogram Theta Index Calculations',
+                          func='plot_auto_ccgram_fft_analysis',
+                          para=para)
 
         self.init_para_dict()
 
@@ -19938,6 +20954,7 @@ class AnalysisFunctions(object):
                 self.run_reset_func(para_reset, exp_info)
 
         if h_sp.update_plot:
+            self.force_update = True
             self.update_plot()
 
     def update_num_para(self, h_num, p_name, is_int, min_val, is_list):
@@ -21894,6 +22911,7 @@ class AnalysisData(object):
         self.multi = MultiFileData()
         self.spikedf = SpikingFreqData()
         self.externd = ExternalData()
+        self.theta_index = ThetaIndexData()
 
         # exclusion filter fields
         self.exc_gen_filt = None
@@ -22350,6 +23368,7 @@ class RotationData(object):
         self.sf_fix_int = None
         self.sf_fix_err = None
         self.peak_hz_fix = None
+        self.r_obj_sf = None
 
         # sets the depth class specific fields
         if self.type == 'depth':
@@ -22513,6 +23532,22 @@ class SpikingFreqData(object):
         self.out_name = 'Spike_Freq_Dataframe'
         self.rot_filt = cf.init_rotation_filter_data(False)
 
+
+class ThetaIndexData(object):
+    def __init__(self):
+        # initialises the class fields
+        self.is_set = False
+        self.vel_bin = -1
+        self.t_bin = -1
+        self.bin_sz = -1
+        self.win_type = 'boxcar'
+        self.remove_bl = True
+
+        # sets the final values into the class object
+        self.cc_gram = None
+        self.p_fft = None
+        self.th_index = None
+
 ########################################################################################################################
 ########################################################################################################################
 
@@ -22561,6 +23596,7 @@ class FreelyMovingData(object):
 
             self.append_data(data, f_data)
 
+
     def append_set_data(self, data, f_data):
         '''
 
@@ -22597,10 +23633,10 @@ class FreelyMovingData(object):
 
         # parameters
         v_min_hd = 0.19                  # min vec for head direction cells
-        v_min_hd_mod_lo = 0.99           # min vec for head modulated direction cells (lower limit)
-        v_min_hd_mod_hi = 1          # min vec for head modulated direction cells (upper limit)
+        v_min_hd_mod_lo = 0.12          # min vec for head modulated direction cells (lower limit)
+        v_min_hd_mod_hi = 0.19          # min vec for head modulated direction cells (upper limit)
         p_rayleight_hd = 0.01           # rayleigh t-test p-value for head direction cells
-        p_rayleight_hd_mod = 0.00000001       # rayleigh t-test p-value for head direction modulated cells
+        p_rayleight_hd_mod = 0       # rayleigh t-test p-value for head direction modulated cells
         # p_tile_hd = 97.0                # min mean vec percentile for head direction cells
         # p_tile_hd_mod = 97.0            # min mean vec percentile for head direction modulated cells
         p_tile_ahv = 95.0               # min mean vec percentile for angular head velocity cells
@@ -22631,17 +23667,63 @@ class FreelyMovingData(object):
             # flag that
             return True
 
+        # for all cells in all the experiments needs to be combined (1 expt, 16 cells, 1000 shuffles)
+        #  - filter by AHV/Speed (this should be determined from the original data files)
+        #    * determine what cells are Speed/AHV and create histogram of these values
+
         if f_data['experiment_name'] in self.exp_name:
             # if the file already exists in the data, then pop the values from the list
             i_expt_ex = self.exp_name.index(f_data['experiment_name'])
-            self.exp_name.pop(i_expt_ex)
-            self.cell_id.pop(i_expt_ex)
-            self.s_freq.pop(i_expt_ex)
-            self.c_info.pop(i_expt_ex)
-            self.p_sig_neg.pop(i_expt_ex)
-            self.p_sig_pos.pop(i_expt_ex)
-            self.cell_type.pop(i_expt_ex)
-            self.ahv_score.pop(i_expt_ex)
+
+            # determines if the file has the null correlations field (stability file type)
+            has_null_corr = 'null_correlations' in f_data
+            if has_null_corr:
+                # SPECIAL NOTE:
+                #  - only load the new data file type AFTER the original data files have been read (for this expt)
+                #  - for the null correlation data we are only using the 5deg/s velocity bins
+                #  - we are also using the first condition field only (it is assumed that these will be "ALL" values)
+                null_corr_nw = [np.vstack(x[0]) for x in f_data['null_correlations'][0]]
+
+                # if the null correlations field is not set, then initialise the field
+                if not hasattr(self, 'null_corr'):
+                    self.null_corr = [[] for _ in range(self.n_file)]
+
+                # if the null correlations field is not set, then initialise the field
+                if not hasattr(self, 'stability_info'):
+                    self.stability_info = [[] for _ in range(self.n_file)]
+
+                # only store the data for the cells which were identified in the original data file (i.e., no cells
+                # that were in the original data file will be added here)
+                cell_id_curr = self.cell_id[i_expt_ex]
+                cell_id_nw = [int(x[5:]) for x in f_data['cell_data'][0]['ALL']['cell_list_order']]
+                has_match = np.array([x in cell_id_curr for x in cell_id_nw])
+
+                # retrieves the cell information (5deg/s only from the ALL condition)
+                cell_info = f_data['cell_data'][0]['ALL']['cell_information']
+                c_hdr = ['ahv_pearson_r_first_half_neg', 'ahv_pearson_r_first_half_pos',
+                         'ahv_pearson_r_second_half_neg', 'ahv_pearson_r_second_half_pos',
+                         'ahv_null_correlation_percentile', 'ahv_stability_index',
+                         'velocity_pearson_r_first_half', 'velocity_pearson_r_second_half',
+                         'velocity_null_correlation_percentile', 'velocity_stability_index',
+                         'ahv_fit_intercept_neg', 'ahv_fit_intercept_pos',
+                         'ahv_fit_slope_neg', 'ahv_fit_slope_pos',
+                         'velocity_fit_intercept', 'velocity_fit_slope']
+
+                # resets the correlation data and exits the function
+                self.null_corr[i_expt_ex] = [x[has_match, :] for x in null_corr_nw]
+                self.stability_info[i_expt_ex] = pd.DataFrame(np.array(cell_info[c_hdr])[has_match, :], columns=c_hdr)
+
+                return
+
+            else:
+                self.exp_name.pop(i_expt_ex)
+                self.cell_id.pop(i_expt_ex)
+                self.s_freq.pop(i_expt_ex)
+                self.c_info.pop(i_expt_ex)
+                self.p_sig_neg.pop(i_expt_ex)
+                self.p_sig_pos.pop(i_expt_ex)
+                self.cell_type.pop(i_expt_ex)
+                self.ahv_score.pop(i_expt_ex)
 
             # decrements the file count
             self.n_file -= 1
@@ -22679,7 +23761,7 @@ class FreelyMovingData(object):
 
         # AHV and Speed significant condition type
         #ahv_spd_sig_type = [dark_type]                   # sets values in list to what you want AHV cells to be defined by
-        ahv_spd_sig_type = ['LIGHT1', dark_type]      # another example of how to use the list
+        ahv_spd_sig_type = ['LIGHT1']      # another example of how to use the list
 
         # retrieves the necessary information from trial condition/velocity bin size
         for i_bin, v_bin in enumerate(self.v_bin):
@@ -22807,8 +23889,6 @@ class FreelyMovingData(object):
             ahv_score[i_bin] = np.array(ahv_sig_neg).astype(int) + 2 * np.array(ahv_sig_pos).astype(int)
             ahv_sig = ahv_score[i_bin] > 0
 
-
-
             # # place cell significance (UNCOMMENT IF USING PLACE CELLS)
             # pl_sig = np.logical_and(c_info[i_bin]['LIGHT1']['peak_percentile'] > p_tile_place,
             #                         c_info[i_bin]['LIGHT2']['peak_percentile'] > p_tile_place)
@@ -22860,6 +23940,8 @@ class EyeTrackingData(object):
         self.sp_evnt = []
         self.y_corr = []
         self.p_corr = []
+        self.null_corr = []
+        self.stability_info = []
 
         # creates the objects for each experiment
         self.append_data(data, f_file)
