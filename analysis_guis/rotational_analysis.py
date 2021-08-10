@@ -11,7 +11,7 @@ from collections import OrderedDict
 
 # custom module import
 import analysis_guis.common_func as cf
-from pyphys.pyphys.pyphys import PxpParser
+from pyphys.pyphys import PxpParser
 from analysis_guis.dialogs import config_dialog
 from rotation_analysis.analysis.probe.probe_io.probe_io import TriggerTraceIo, BonsaiIo, IgorIo
 

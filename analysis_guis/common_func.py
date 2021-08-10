@@ -977,7 +977,7 @@ def create_menuitem(parent, text, name=None, cb_fcn=None, s_cut=None):
     if s_cut is not None:
         h_menuitem.setShortcut(s_cut)
 
-    # returns the menu item object
+    # returns the menu item
     return h_menuitem
 
 
