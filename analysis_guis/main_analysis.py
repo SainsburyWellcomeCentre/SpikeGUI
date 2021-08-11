@@ -508,7 +508,19 @@ class AnalysisGUI(QMainWindow):
                   'sig_corr_min': '0.95', 'sig_diff_max': '0.30', 'isi_corr_min': '0.65', 'sig_feat_min': '0.50',
                   'w_sig_feat': '0.25', 'w_sig_comp': '1.00', 'w_isi': '0.25', 'roc_clvl': '0.99',
                   'lda_trial_type': 'One-Trial Out', 'w_ratio': 1.4}
-        def_dir = {'configDir': data_dir, 'inputDir': data_dir, 'dataDir': data_dir, 'figDir': data_dir}
+        def_dir = {'configDir': os.path.join(data_dir,'1 - Config Files'),
+                   'inputDir': os.path.join(data_dir,'2 - Input Data'),
+                   'dataDir': os.path.join(data_dir,'3 - Analysis Data'),
+                   'figDir': os.path.join(data_dir,'4 - Analysis Figures')}
+
+        # ensures the main default directory exists
+        if not os.path.exists(data_dir):
+            os.mkdir(data_dir)
+
+        # if the default directories do not exist, then create them
+        for dd in def_dir:
+            if not os.path.exists(def_dir[dd]):
+                os.mkdir(def_dir[dd])
 
         # sets the final default data dictionary
         def_data = {'dir': def_dir, 'g_para': g_para}
@@ -16995,7 +17007,7 @@ class AnalysisFunctions(object):
             'f_cutoff': {'gtype': 'C', 'text': 'Frequency Cutoff (kHz)', 'def_val': 5, 'min_val': 1},
             'p_lim': {'gtype': 'C', 'text': 'Confidence Interval (%)', 'def_val': 99.9999,
                       'min_val': 90, 'max_val': 100.0 - 1e-6},
-            'n_min_lo': {'gtype': 'C', 'text': 'Lower Contifguous Points', 'def_val': 3,
+            'n_min_lo': {'gtype': 'C', 'text': 'Lower Contiguous Points', 'def_val': 3,
                          'min_val': 1, 'max_val': 4},
             'n_min_hi': {'gtype': 'C', 'text': 'Upper Contiguous Points', 'def_val': 2,
                          'min_val': 1, 'max_val': 4},
@@ -17024,6 +17036,14 @@ class AnalysisFunctions(object):
             cell_type_f = ['Speed', 'AHV']
             plot_type_f = ['Correlation Histogram', 'Correlation Scatterplot']
             scatter_type = ['AHV', 'Velocity']
+
+            # parameter lists
+            scope_fft = ['Auto-CCGram & Power Spectrum', 'Theta Index Distributions']
+            pow_type = ['FFT-Squared', 'Periodogram']
+            win_type = ['none', 'hamming', 'boxcar']
+
+            # sets the default class parameters
+            th_def_para = init_def_class_para(data, 'theta_index', ThetaIndexData())
 
             # ====> Freely Moving Cell Type Statistics
             para = {
@@ -17248,6 +17268,63 @@ class AnalysisFunctions(object):
             self.add_func(type='Freely Moving Analysis',
                           name='Stability Analysis',
                           func='plot_cell_stability',
+                          para=para)
+
+            # ====> Autocorrelogram Theta Index Calculations
+            para = {
+                # calculation parameters
+                'vel_bin': {
+                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
+                },
+                'pow_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'PSD Calculation Type', 'list': pow_type,
+                    'def_val': cfcn.set_def_para(th_def_para, 'pow_type', pow_type[0])
+                },
+                't_bin': {
+                    'gtype': 'C', 'text': 'Time Bin Size (ms)', 'def_val': 500, 'is_visible': False,
+                },
+                'win_type': {
+                    'gtype': 'C', 'type': 'L', 'text': 'PSD Windowing Type', 'list': win_type,
+                    'def_val': cfcn.set_def_para(th_def_para, 'win_type', 'none')
+                },
+                'bin_sz': {
+                    'gtype': 'C', 'text': 'Autocorrelogram Bin Size (ms)', 'is_int': True,
+                    'def_val': cfcn.set_def_para(th_def_para, 'bin_sz', 1)
+                },
+                'remove_bl': {
+                    'gtype': 'C', 'type': 'B', 'text': 'Remove Auto-CC Baseline',
+                    'def_val': cfcn.set_def_para(th_def_para, 'remove_bl', True)
+                },
+
+                # plotting parameters
+                'cell_id': {
+                    'type': 'L', 'text': 'Free Cell ID#', 'list': free_cid, 'def_val': free_cid[0]
+                },
+                'free_exp_name': {
+                    'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
+                    'para_reset': [['cell_id', self.reset_free_cid]]
+                },
+                'plot_scope': {
+                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_fft, 'def_val': scope_fft[0],
+                    'link_para': [['cell_id', 'Whole Experiment'], ['free_exp_name', 'Whole Experiment']]
+                },
+                'cell_type': {
+                    'type': 'CL', 'text': 'Cell Types', 'list': fcell_type[1:-1],
+                    'other_para': '--- Select Cell Types ---', 'para_reset': [['cell_id', self.reset_free_cid]],
+                    'def_val': np.ones(len(fcell_type) - 2, dtype=bool)
+                },
+                'use_all_cells': {
+                    'type': 'B', 'text': 'Analyse All Cells', 'def_val': True, 'link_para': ['cell_type', True],
+                    'para_reset': [['cell_id', self.reset_free_cid]]
+                },
+                'win_sz': {'text': 'CC-Gram Window Size (ms)', 'def_val': 499, 'max_val': 499},
+                'f_max': {'text': 'Plot Freq. Limit (Hz)', 'def_val': 50, 'max_val': 125},
+                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
+
+            }
+            self.add_func(type='Miscellaneous Functions',
+                          name='Autocorrelogram Theta Index Calculations',
+                          func='plot_auto_ccgram_fft_analysis',
                           para=para)
 
         ######################################
@@ -17583,7 +17660,7 @@ class AnalysisFunctions(object):
                 'def_val': dcopy(rot_filt0)
             },
             'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[0]},
-            'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[1]},
+            'y_plot': {'type': 'L', 'text': 'Y-Axis Trial Type', 'list': rt_corr, 'def_val': rt_corr[1]},
             'comb_all': {
                 'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
             },
@@ -17906,7 +17983,7 @@ class AnalysisFunctions(object):
                     'def_val': np.ones(len(tt_free), dtype=bool),
                 },
                 'x_plot': {'type': 'L', 'text': 'X-Axis Trial Type', 'list': tt_free, 'def_val': tt_free[0]},
-                'y_plot': {'type': 'L', 'text': 'y-Axis Trial Type', 'list': tt_free, 'def_val': tt_free[1]},
+                'y_plot': {'type': 'L', 'text': 'Y-Axis Trial Type', 'list': tt_free, 'def_val': tt_free[1]},
                 'comb_all': {
                     'type': 'B', 'text': 'Combine Filters Into Single Figure', 'def_val': False, 'is_enabled': False
                 },
@@ -18114,7 +18191,7 @@ class AnalysisFunctions(object):
                 'type': 'L', 'text': 'Analysis Scope', 'list': scope_txt, 'def_val': scope_txt[0],
                 'link_para': [['cell_id', 'Whole Experiment'], ['plot_all_expt', 'Individual Cell']]
             },
-            'show_pref_dir': {'type': 'B', 'text': 'Sbow Preferred Direction', 'def_val': True},
+            'show_pref_dir': {'type': 'B', 'text': 'Show Preferred Direction', 'def_val': True},
             'n_bin': {'text': 'Histogram Bin Count', 'def_val': 20, 'min_val': 10},
             'show_err': {'type': 'B', 'text': 'Show SEM Error', 'def_val': True},
             'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
@@ -20246,14 +20323,6 @@ class AnalysisFunctions(object):
 
 
         if has_free_data:
-            # parameter lists
-            scope_fft = ['Auto-CCGram & Power Spectrum', 'Theta Index Distributions']
-            pow_type = ['FFT-Squared', 'Periodogram']
-            win_type = ['none', 'hamming', 'boxcar']
-
-            # sets the default class parameters
-            th_def_para = init_def_class_para(data, 'theta_index', ThetaIndexData())
-
             # ====> Velocity Multilinear Regression Dataframe Output
             para = {
                 # plotting parameters
@@ -20281,64 +20350,6 @@ class AnalysisFunctions(object):
             self.add_func(type='Miscellaneous Functions',
                           name='Spiking Frequency Slope Dataframe Output',
                           func='output_sf_slope_data_frame',
-                          para=para)
-
-            # ====> Autocorrelogram Theta Index Calculations
-            para = {
-                # calculation parameters
-                'vel_bin': {
-                    'gtype': 'C', 'type': 'L', 'text': 'Velocity Bin Size (deg/s)', 'list': ['5', '10'], 'def_val': '5'
-                },
-                'pow_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'PSD Calculation Type', 'list': pow_type,
-                    'def_val': cfcn.set_def_para(th_def_para, 'pow_type', pow_type[0])
-                },
-                't_bin': {
-                    'gtype': 'C', 'text': 'Time Bin Size (ms)', 'def_val': 500, 'is_visible': False,
-                },
-                'win_type': {
-                    'gtype': 'C', 'type': 'L', 'text': 'PSD Windowing Type', 'list': win_type,
-                    'def_val': cfcn.set_def_para(th_def_para, 'win_type', 'none')
-                },
-                'bin_sz': {
-                    'gtype': 'C', 'text': 'Autocorrelogram Bin Size (ms)', 'is_int': True,
-                    'def_val': cfcn.set_def_para(th_def_para, 'bin_sz', 1)
-                },
-                'remove_bl': {
-                    'gtype': 'C', 'type': 'B', 'text': 'Remove Auto-CC Baseline',
-                    'def_val': cfcn.set_def_para(th_def_para, 'remove_bl', True)
-                },
-
-
-                # plotting parameters
-                'cell_id': {
-                    'type': 'L', 'text': 'Free Cell ID#', 'list': free_cid, 'def_val': free_cid[0]
-                },
-                'free_exp_name': {
-                    'type': 'L', 'text': 'Free Experiment', 'def_val': free_exp[0], 'list': free_exp,
-                    'para_reset': [['cell_id', self.reset_free_cid]]
-                },
-                'plot_scope': {
-                    'type': 'L', 'text': 'Analysis Scope', 'list': scope_fft, 'def_val': scope_fft[0],
-                    'link_para': [['cell_id', 'Whole Experiment'], ['free_exp_name', 'Whole Experiment']]
-                },
-                'cell_type': {
-                    'type': 'CL', 'text': 'Cell Types', 'list': fcell_type[1:-1],
-                    'other_para': '--- Select Cell Types ---', 'para_reset': [['cell_id', self.reset_free_cid]],
-                    'def_val': np.ones(len(fcell_type) - 2, dtype=bool)
-                },
-                'use_all_cells': {
-                    'type': 'B', 'text': 'Analyse All Cells', 'def_val': True, 'link_para': ['cell_type', True],
-                    'para_reset': [['cell_id', self.reset_free_cid]]
-                },
-                'win_sz': {'text': 'CC-Gram Window Size (ms)', 'def_val': 499, 'max_val': 499},
-                'f_max': {'text': 'Plot Freq. Limit (Hz)', 'def_val': 50, 'max_val': 125},
-                'plot_grid': {'type': 'B', 'text': 'Show Axes Grid', 'def_val': False},
-
-            }
-            self.add_func(type='Miscellaneous Functions',
-                          name='Autocorrelogram Theta Index Calculations',
-                          func='plot_auto_ccgram_fft_analysis',
                           para=para)
 
         self.init_para_dict()
