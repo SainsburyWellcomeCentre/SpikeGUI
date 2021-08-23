@@ -62,7 +62,7 @@ class InfoDialog(QDialog):
         self.rot_filt = rot_filt
         self.can_close = False
 
-        #
+        # intialises the dialog winow
         self.init_gui_objects(width, height)
         self.init_all_expt_groups()
         self.create_control_buttons()
@@ -267,7 +267,7 @@ class InfoDialog(QDialog):
         '''
 
         # retrieves the cluster data
-        ff_dict, st_info = {}, {}
+        ff_dict, st_info, st_dict = {}, {}, {}
         c_data = self.data._cluster[i_expt]
         nC, is_fixed = c_data['nC'], c_data['expInfo']['cond'] == 'Fixed'
         has_free_data = hasattr(self.data.externd, 'free_data')
